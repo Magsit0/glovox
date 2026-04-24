@@ -1,0 +1,127 @@
+"use client";
+
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
+import { useDashboardData } from "@/components/unabase/hooks/useDashboardData";
+import type { BusinessRow, ExpenseRow } from "@/lib/unabase/types";
+
+interface DataContextValue {
+  businessRows: BusinessRow[];
+  expenseRows: ExpenseRow[];
+  loading: boolean;
+  error: string | null;
+}
+
+interface FiltersContextValue {
+  filteredRows: BusinessRow[];
+  setFilteredRows: (rows: BusinessRow[]) => void;
+  filteredExpenseRows: ExpenseRow[];
+}
+
+type ExpenseViewMode = "total" | "percapita";
+
+interface ExpenseUIContextValue {
+  expenseViewMode: ExpenseViewMode;
+  setExpenseViewMode: (mode: ExpenseViewMode) => void;
+  selectedExpenseCategory: string | null;
+  setSelectedExpenseCategory: (cat: string | null) => void;
+}
+
+interface DateFilterContextValue {
+  dateStart: string;
+  dateEnd: string;
+  setDateStart: (v: string) => void;
+  setDateEnd: (v: string) => void;
+}
+
+const DataContext = createContext<DataContextValue | null>(null);
+const FiltersContext = createContext<FiltersContextValue | null>(null);
+const ExpenseUIContext = createContext<ExpenseUIContextValue | null>(null);
+const DateFilterContext = createContext<DateFilterContextValue | null>(null);
+
+export function DashboardProvider({ children }: { children: ReactNode }) {
+  const { businessRows, expenseRows, loading, error } = useDashboardData();
+
+  const [userFilteredRows, setUserFilteredRows] = useState<BusinessRow[] | null>(null);
+  const [expenseViewMode, setExpenseViewMode] = useState<ExpenseViewMode>("total");
+  const [selectedExpenseCategory, setSelectedExpenseCategory] = useState<string | null>(null);
+  const [dateStart, setDateStart] = useState("");
+  const [dateEnd, setDateEnd] = useState("");
+
+  const filteredRows = userFilteredRows ?? businessRows;
+  const setFilteredRows = useCallback((rows: BusinessRow[]) => {
+    setUserFilteredRows(rows);
+  }, []);
+
+  const filteredExpenseRows = useMemo(() => {
+    if (!expenseRows.length || !filteredRows.length) return [];
+    const keys = new Set(filteredRows.map((r) => r.key));
+    return expenseRows.filter((r) => keys.has(r.key));
+  }, [filteredRows, expenseRows]);
+
+  const resolvedExpenseCategory = useMemo(() => {
+    if (!selectedExpenseCategory) return null;
+    const exists = filteredExpenseRows.some(
+      (r) => r.categoriaGasto === selectedExpenseCategory,
+    );
+    return exists ? selectedExpenseCategory : null;
+  }, [filteredExpenseRows, selectedExpenseCategory]);
+
+  const dataValue = useMemo(
+    () => ({ businessRows, expenseRows, loading, error }),
+    [businessRows, expenseRows, loading, error],
+  );
+
+  const filtersValue = useMemo(
+    () => ({ filteredRows, setFilteredRows, filteredExpenseRows }),
+    [filteredRows, filteredExpenseRows, setFilteredRows],
+  );
+
+  const expenseUIValue = useMemo(
+    () => ({
+      expenseViewMode,
+      setExpenseViewMode,
+      selectedExpenseCategory: resolvedExpenseCategory,
+      setSelectedExpenseCategory,
+    }),
+    [expenseViewMode, resolvedExpenseCategory],
+  );
+
+  const dateFilterValue = useMemo(
+    () => ({ dateStart, dateEnd, setDateStart, setDateEnd }),
+    [dateStart, dateEnd],
+  );
+
+  return (
+    <DataContext.Provider value={dataValue}>
+      <FiltersContext.Provider value={filtersValue}>
+        <ExpenseUIContext.Provider value={expenseUIValue}>
+          <DateFilterContext.Provider value={dateFilterValue}>
+            {children}
+          </DateFilterContext.Provider>
+        </ExpenseUIContext.Provider>
+      </FiltersContext.Provider>
+    </DataContext.Provider>
+  );
+}
+
+function useCtx<T>(Ctx: React.Context<T | null>, name: string): T {
+  const v = useContext(Ctx);
+  if (!v) throw new Error(`${name} debe usarse dentro de DashboardProvider`);
+  return v;
+}
+
+export const useDataset = () => useCtx(DataContext, "useDataset");
+export const useFilters = () => useCtx(FiltersContext, "useFilters");
+export const useExpenseUI = () => useCtx(ExpenseUIContext, "useExpenseUI");
+export const useDateFilter = () => useCtx(DateFilterContext, "useDateFilter");
+
+export function useDashboard() {
+  return { ...useDataset(), ...useFilters(), ...useExpenseUI(), ...useDateFilter() };
+}
