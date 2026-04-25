@@ -1,20 +1,8 @@
 import { signIn } from "@/lib/auth";
-import { AuthError } from "next-auth";
-import { redirect } from "next/navigation";
 
-async function login(formData: FormData) {
+async function loginWithGoogle() {
   "use server";
-  try {
-    await signIn("credentials", {
-      password: formData.get("password"),
-      redirectTo: "/",
-    });
-  } catch (error) {
-    if (error instanceof AuthError) {
-      redirect("/login?error=1");
-    }
-    throw error;
-  }
+  await signIn("google", { redirectTo: "/" });
 }
 
 export default async function LoginPage({
@@ -31,36 +19,43 @@ export default async function LoginPage({
           <h1 className="text-xl font-semibold text-zinc-900 dark:text-zinc-50">
             Glovox Data
           </h1>
-          <p className="text-sm text-zinc-500">Enter the site password to continue.</p>
+          <p className="text-sm text-zinc-500">
+            Inicia sesión con tu cuenta de Google para continuar.
+          </p>
         </div>
-        <form action={login} className="space-y-4">
-          <div className="space-y-1.5">
-            <label
-              htmlFor="password"
-              className="block text-sm font-medium text-zinc-700 dark:text-zinc-300"
-            >
-              Password
-            </label>
-            <input
-              id="password"
-              name="password"
-              type="password"
-              required
-              autoFocus
-              className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm text-zinc-900 placeholder-zinc-400 focus:border-zinc-500 focus:outline-none focus:ring-2 focus:ring-zinc-500/20 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-50 dark:placeholder-zinc-500"
-              placeholder="••••••••"
-            />
-          </div>
-          {error && (
-            <p className="text-sm text-red-600 dark:text-red-400" role="alert">Incorrect password. Try again.</p>
-          )}
+
+        <form action={loginWithGoogle}>
           <button
             type="submit"
-            className="w-full cursor-pointer rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 dark:bg-zinc-50 dark:text-zinc-900 dark:hover:bg-zinc-200"
+            className="w-full flex items-center justify-center gap-3 rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700 cursor-pointer"
           >
-            Sign in
+            <svg width="18" height="18" viewBox="0 0 18 18" aria-hidden="true">
+              <path
+                fill="#4285F4"
+                d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"
+              />
+              <path
+                fill="#34A853"
+                d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z"
+              />
+              <path
+                fill="#EA4335"
+                d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.166 6.656 3.58 9 3.58z"
+              />
+            </svg>
+            Continuar con Google
           </button>
         </form>
+
+        {error === "AccessDenied" && (
+          <p className="text-sm text-red-600 dark:text-red-400 text-center" role="alert">
+            Tu cuenta no tiene acceso. Contacta al administrador.
+          </p>
+        )}
       </div>
     </div>
   );
