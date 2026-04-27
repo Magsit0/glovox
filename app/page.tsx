@@ -1,7 +1,6 @@
-import { Users, Database, Megaphone, HeartHandshake, Ticket, Gift } from "lucide-react";
 import { auth } from "@/lib/auth";
 import type { Dashboard } from "@/lib/access";
-import { HomeGrid, HomeHeader, type HomeSection } from "@/app/_components/home-grid";
+import { HomeGrid, HomeHeader, type HomeSection, type IconKey } from "@/app/_components/home-grid";
 import { UserBar } from "@/app/_components/user-bar";
 
 const sections: (HomeSection & { dashboard: Dashboard })[] = [
@@ -10,7 +9,7 @@ const sections: (HomeSection & { dashboard: Dashboard })[] = [
     title: "CLUB GLOVOX",
     description: "Community sales, seller analytics, event performance, and earnings dashboards.",
     href: "/club",
-    icon: Users,
+    icon: "users" as IconKey,
     accent: "bg-[#0000FF]",
     accentText: "text-white",
   },
@@ -19,7 +18,7 @@ const sections: (HomeSection & { dashboard: Dashboard })[] = [
     title: "MARKETING",
     description: "Weekly marketing meeting dashboard — paid media, sales origin, club referrals, and campaign performance.",
     href: "/marketing/weekly",
-    icon: Megaphone,
+    icon: "megaphone" as IconKey,
     accent: "bg-[#FFFF00]",
     accentText: "text-black",
   },
@@ -28,7 +27,7 @@ const sections: (HomeSection & { dashboard: Dashboard })[] = [
     title: "UNABASE",
     description: "Monthly closing reports and financial summaries.",
     href: "/unabase/cierre-mensual",
-    icon: Database,
+    icon: "database" as IconKey,
     accent: "bg-[#FF0000]",
     accentText: "text-white",
   },
@@ -37,7 +36,7 @@ const sections: (HomeSection & { dashboard: Dashboard })[] = [
     title: "DONATIONS",
     description: "Mercado Pago donation income — cortesías and Yoga totals.",
     href: "/donations",
-    icon: HeartHandshake,
+    icon: "heart" as IconKey,
     accent: "bg-black",
     accentText: "text-[#FFFF00]",
   },
@@ -46,7 +45,7 @@ const sections: (HomeSection & { dashboard: Dashboard })[] = [
     title: "ONEPAGER",
     description: "Tickets and FF&BB sales overview.",
     href: "/onepager",
-    icon: Ticket,
+    icon: "ticket" as IconKey,
     accent: "bg-[#FF0000]",
     accentText: "text-[#FFFF00]",
   },
@@ -55,7 +54,7 @@ const sections: (HomeSection & { dashboard: Dashboard })[] = [
     title: "FREE'S",
     description: "Free entries given out.",
     href: "/frees",
-    icon: Gift,
+    icon: "gift" as IconKey,
     accent: "bg-[#00FF00]",
     accentText: "text-black",
   },
