@@ -1,81 +1,73 @@
 import { auth } from "@/lib/auth";
-import type { Dashboard } from "@/lib/access";
-import { HomeGrid, HomeHeader, type HomeSection, type IconKey } from "@/app/_components/home-grid";
+import { canAccessPath } from "@/lib/permissions";
+import HomeDashboards from "@/components/HomeDashboards";
 import { UserBar } from "@/app/_components/user-bar";
 
-const sections: (HomeSection & { dashboard: Dashboard })[] = [
+const ALL_SECTIONS = [
   {
-    dashboard: "club",
     title: "CLUB GLOVOX",
-    description: "Community sales, seller analytics, event performance, and earnings dashboards.",
+    description:
+      "Community sales, seller analytics, event performance, and earnings dashboards.",
     href: "/club",
-    icon: "users" as IconKey,
-    accent: "bg-[#0000FF]",
+    accentClass: "bg-[#0000FF]",
     accentText: "text-white",
+    icon: "users",
   },
   {
-    dashboard: "marketing",
     title: "MARKETING",
-    description: "Weekly marketing meeting dashboard — paid media, sales origin, club referrals, and campaign performance.",
+    description:
+      "Weekly marketing meeting dashboard — paid media, sales origin, club referrals, and campaign performance.",
     href: "/marketing/weekly",
-    icon: "megaphone" as IconKey,
-    accent: "bg-[#FFFF00]",
+    accentClass: "bg-[#FFFF00]",
     accentText: "text-black",
+    icon: "megaphone",
   },
   {
-    dashboard: "unabase",
     title: "UNABASE",
     description: "Monthly closing reports and financial summaries.",
     href: "/unabase/cierre-mensual",
-    icon: "database" as IconKey,
-    accent: "bg-[#FF0000]",
+    accentClass: "bg-[#FF0000]",
     accentText: "text-white",
+    icon: "database",
   },
   {
-    dashboard: "donations",
     title: "DONATIONS",
     description: "Mercado Pago donation income — cortesías and Yoga totals.",
     href: "/donations",
-    icon: "heart" as IconKey,
-    accent: "bg-black",
+    accentClass: "bg-black",
     accentText: "text-[#FFFF00]",
+    icon: "heart",
   },
   {
-    dashboard: "onepager",
     title: "ONEPAGER",
     description: "Tickets and FF&BB sales overview.",
     href: "/onepager",
-    icon: "ticket" as IconKey,
-    accent: "bg-[#FF0000]",
+    accentClass: "bg-[#FF0000]",
     accentText: "text-[#FFFF00]",
+    icon: "ticket",
   },
   {
-    dashboard: "frees",
     title: "FREE'S",
     description: "Free entries given out.",
     href: "/frees",
-    icon: "gift" as IconKey,
-    accent: "bg-[#00FF00]",
+    accentClass: "bg-[#00FF00]",
     accentText: "text-black",
+    icon: "gift",
   },
 ];
 
 export default async function HomePage() {
   const session = await auth();
-  const allowed = new Set(session?.user?.dashboards ?? []);
-  const visible = sections.filter((s) => allowed.has(s.dashboard));
+  const permissions = session?.user?.permissions ?? [];
+
+  const visibleSections = ALL_SECTIONS.filter((s) =>
+    canAccessPath(permissions, s.href),
+  );
 
   return (
-    <main className="relative flex min-h-screen flex-col items-center justify-center bg-white px-6 py-16">
+    <div className="relative">
       <UserBar email={session?.user?.email} />
-      <HomeHeader />
-      {visible.length > 0 ? (
-        <HomeGrid sections={visible} />
-      ) : (
-        <p className="mt-16 font-mono-data text-xs uppercase tracking-widest text-black">
-          No tienes dashboards asignados. Contacta al administrador.
-        </p>
-      )}
-    </main>
+      <HomeDashboards sections={visibleSections} />
+    </div>
   );
 }

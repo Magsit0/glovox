@@ -1,6 +1,12 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
-import { dashboardsForEmail, type Dashboard } from "@/lib/access";
+import { getUserPermissions, type DashboardPermissions } from "@/lib/permissions";
+
+const allowedDomain = process.env.ALLOWED_DOMAIN ?? "";
+const allowedEmails = (process.env.ALLOWED_EMAILS ?? "")
+  .split(",")
+  .map((e) => e.trim())
+  .filter(Boolean);
 
 declare module "next-auth" {
   interface Session {
@@ -8,7 +14,7 @@ declare module "next-auth" {
       name?: string | null;
       email?: string | null;
       image?: string | null;
-      dashboards: Dashboard[];
+      permissions: DashboardPermissions;
     };
   }
 }
@@ -20,15 +26,32 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   callbacks: {
     signIn({ user }) {
-      return dashboardsForEmail(user.email).length > 0;
+      const email = user.email ?? "";
+      const domainOk = allowedDomain && email.endsWith(`@${allowedDomain}`);
+      const emailOk = allowedEmails.includes(email);
+      return domainOk || emailOk;
     },
+
+    /**
+     * The jwt callback runs on every request (including in middleware).
+     * JWT extends Record<string, unknown> so we can store any field directly.
+     * We compute permissions from token.email so they are always fresh.
+     */
     jwt({ token }) {
-      (token as { dashboards?: Dashboard[] }).dashboards = dashboardsForEmail(token.email);
+      const email = (token.email as string | undefined) ?? "";
+      if (email) {
+        token.permissions = getUserPermissions(email);
+      }
       return token;
     },
+
+    /**
+     * The session callback runs when auth() is called from Server Components.
+     * We read permissions from the token (already computed in jwt callback).
+     */
     session({ session, token }) {
-      session.user.dashboards =
-        (token as { dashboards?: Dashboard[] }).dashboards ?? [];
+      session.user.permissions =
+        (token.permissions as DashboardPermissions | undefined) ?? [];
       return session;
     },
   },
