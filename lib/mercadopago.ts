@@ -7,6 +7,7 @@ export type MpMonthlyRow = {
 };
 
 export type MpPayment = {
+  id: number;
   date_approved: string | null;
   date_created: string;
   transaction_amount: number;

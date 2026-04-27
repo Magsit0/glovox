@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { getDonationTotals, type DonationBucket } from "@/lib/queries/donations";
+import { getDonationTotals, getJardinBoskoProject, type DonationBucket } from "@/lib/queries/donations";
+import DonationProjectCard from "@/components/DonationProjectCard";
 
 export const metadata: Metadata = {
   title: "Donations",
@@ -81,6 +82,35 @@ function LoadingGrid() {
   );
 }
 
+function LoadingProject() {
+  return (
+    <div className="mt-12 h-96 bg-white border border-[#E5E5E5] rounded-lg">
+      <div className="p-6 space-y-4">
+        <div className="h-6 w-40 bg-[#F0F0F0] rounded-lg" />
+        <div className="h-4 w-64 bg-[#F0F0F0] rounded-lg" />
+        <div className="grid grid-cols-3 gap-4 mt-4">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-20 bg-[#F0F0F0] rounded-lg" />
+          ))}
+        </div>
+        <div className="h-2 w-full bg-[#F0F0F0] rounded-full mt-4" />
+      </div>
+    </div>
+  );
+}
+
+async function BoskoSection() {
+  const project = await getJardinBoskoProject();
+  return (
+    <section className="mt-12">
+      <h2 className="font-display font-bold text-xl text-[#333333] mb-6 border-b border-[#E5E5E5] pb-4">
+        Proyectos
+      </h2>
+      <DonationProjectCard project={project} />
+    </section>
+  );
+}
+
 export default function DonationsPage() {
   return (
     <main id="main-content" className="min-h-screen bg-white p-6">
@@ -104,6 +134,10 @@ export default function DonationsPage() {
 
       <Suspense fallback={<LoadingGrid />}>
         <DonationsSection />
+      </Suspense>
+
+      <Suspense fallback={<LoadingProject />}>
+        <BoskoSection />
       </Suspense>
     </main>
   );
