@@ -1,11 +1,17 @@
 import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
+import { dashboardsForEmail, type Dashboard } from "@/lib/access";
 
-const allowedDomain = process.env.ALLOWED_DOMAIN ?? "";
-const allowedEmails = (process.env.ALLOWED_EMAILS ?? "")
-  .split(",")
-  .map((e) => e.trim())
-  .filter(Boolean);
+declare module "next-auth" {
+  interface Session {
+    user: {
+      name?: string | null;
+      email?: string | null;
+      image?: string | null;
+      dashboards: Dashboard[];
+    };
+  }
+}
 
 export const { handlers, signIn, signOut, auth } = NextAuth({
   providers: [Google],
@@ -14,10 +20,16 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
   },
   callbacks: {
     signIn({ user }) {
-      const email = user.email ?? "";
-      const domainOk = allowedDomain && email.endsWith(`@${allowedDomain}`);
-      const emailOk = allowedEmails.includes(email);
-      return domainOk || emailOk;
+      return dashboardsForEmail(user.email).length > 0;
+    },
+    jwt({ token }) {
+      (token as { dashboards?: Dashboard[] }).dashboards = dashboardsForEmail(token.email);
+      return token;
+    },
+    session({ session, token }) {
+      session.user.dashboards =
+        (token as { dashboards?: Dashboard[] }).dashboards ?? [];
+      return session;
     },
   },
 });
