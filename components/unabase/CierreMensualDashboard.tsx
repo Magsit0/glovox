@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { motion } from "motion/react";
 import { DashboardProvider, useDashboard, useDateFilter } from "@/components/unabase/context/DashboardContext";
 import FilterBar from "@/components/unabase/filters/FilterBar";
@@ -107,10 +107,15 @@ function DashboardBody() {
           <div className="flex flex-col gap-2">
             <Link
               href="/"
-              className="inline-flex w-fit items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-white px-2.5 py-1 font-sans text-xs font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA]"
+              aria-label="Volver al menú principal"
+              className="inline-flex w-fit items-center justify-center rounded-full border border-[#E5E5E5] bg-white p-1.5 transition-colors hover:bg-[#FAFAFA]"
             >
-              <ArrowLeft size={12} />
-              Menú
+              <Image
+                src="/glovox_logo_gvx_black.svg"
+                alt="Glovox"
+                width={18}
+                height={18}
+              />
             </Link>
             <p className="font-sans text-xs text-[#666666]">Unabase</p>
             <h1 className="font-display text-3xl font-extrabold leading-tight tracking-tight text-[#333333]">

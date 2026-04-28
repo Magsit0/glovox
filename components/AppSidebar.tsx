@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -9,11 +10,20 @@ import {
   ChevronLeft,
   ChevronRight,
   LogOut,
-  Home,
+  type LucideIcon,
 } from "lucide-react";
 
-const navItems = [
-  { href: "/", label: "Menú principal", icon: Home },
+const GLOVOX_LOGO = "/glovox_logo_gvx_black.svg";
+
+type NavItem = {
+  href: string;
+  label: string;
+  icon?: LucideIcon;
+  logo?: string;
+};
+
+const navItems: NavItem[] = [
+  { href: "/", label: "Menú principal", logo: GLOVOX_LOGO },
   { href: "/club", label: "Overview", icon: LayoutDashboard },
   { href: "/club/events", label: "Venta/Evento Comunidad", icon: CalendarDays },
   { href: "/club/earnings", label: "Venta/Mes Tech", icon: DollarSign },
@@ -54,7 +64,7 @@ export default function AppSidebar({
 
       {/* Nav */}
       <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2" aria-label="Main navigation">
-        {navItems.map(({ href, label, icon: Icon }) => {
+        {navItems.map(({ href, label, icon: Icon, logo }) => {
           const isActive = pathname === href;
           return (
             <Link
@@ -70,7 +80,18 @@ export default function AppSidebar({
                   : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
               }`}
             >
-              <Icon size={18} className="shrink-0" aria-hidden="true" />
+              {logo ? (
+                <Image
+                  src={logo}
+                  alt=""
+                  width={18}
+                  height={18}
+                  className="shrink-0 invert"
+                  aria-hidden="true"
+                />
+              ) : Icon ? (
+                <Icon size={18} className="shrink-0" aria-hidden="true" />
+              ) : null}
               {!collapsed && <span className="truncate">{label}</span>}
             </Link>
           );

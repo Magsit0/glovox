@@ -1,24 +1,52 @@
-import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import type { Metadata } from "next";
+import { Suspense } from "react";
+import { getFreesDashboardData } from "@/lib/queries/frees";
+import { FreesDashboard } from "@/components/frees/FreesDashboard";
+
+export const metadata: Metadata = {
+  title: "Free's · Glovox",
+};
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+async function FreesContent() {
+  const data = await getFreesDashboardData();
+  return <FreesDashboard data={data} />;
+}
+
+function FreesSkeleton() {
+  return (
+    <div className="mx-auto flex max-w-[1600px] flex-col gap-8 px-4 py-10 sm:px-8">
+      <div className="flex flex-col gap-3">
+        <div className="h-5 w-24 animate-pulse rounded-full bg-[#F0F0F0]" />
+        <div className="h-9 w-40 animate-pulse rounded-lg bg-[#F0F0F0]" />
+        <div className="h-4 w-96 animate-pulse rounded-lg bg-[#F0F0F0]" />
+      </div>
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-32 animate-pulse rounded-lg border border-[#E5E5E5] bg-white"
+          />
+        ))}
+      </div>
+      <div className="h-10 w-full animate-pulse rounded-lg bg-[#F0F0F0]" />
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+        <div className="h-96 animate-pulse rounded-lg border border-[#E5E5E5] bg-white lg:col-span-8" />
+        <div className="h-96 animate-pulse rounded-lg border border-[#E5E5E5] bg-white lg:col-span-4" />
+        <div className="h-80 animate-pulse rounded-lg border border-[#E5E5E5] bg-white lg:col-span-12" />
+      </div>
+    </div>
+  );
+}
 
 export default function FreesPage() {
   return (
-    <main className="relative flex min-h-screen flex-col items-center justify-center bg-white px-6">
-      <Link
-        href="/"
-        className="absolute left-6 top-6 inline-flex items-center gap-2 border-4 border-black bg-white px-3 py-1.5 font-mono-data text-xs font-bold uppercase text-black shadow-[4px_4px_0px_#000] transition-colors hover:bg-[#00FF00]"
-      >
-        <ArrowLeft size={14} strokeWidth={3} />
-        Menú
-      </Link>
-      <div className="border-4 border-black bg-[#00FF00] px-12 py-10 shadow-[8px_8px_0px_#000000] text-center">
-        <p className="font-display text-7xl font-black uppercase leading-none tracking-tight text-black">
-          EN PROCESO
-        </p>
-        <p className="mt-4 font-mono-data text-xs uppercase tracking-widest text-black/60">
-          Free&apos;s Dashboard — Próximamente
-        </p>
-      </div>
+    <main id="main-content" className="min-h-screen bg-[#FAFAFA]">
+      <Suspense fallback={<FreesSkeleton />}>
+        <FreesContent />
+      </Suspense>
     </main>
   );
 }

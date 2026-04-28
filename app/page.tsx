@@ -7,7 +7,7 @@ const ALL_SECTIONS = [
   {
     title: "CLUB GLOVOX",
     description:
-      "Community sales, seller analytics, event performance, and earnings dashboards.",
+      "Ventas de la comunidad, análisis de vendedores, rendimiento de eventos y paneles de ganancias.",
     href: "/club",
     accentClass: "bg-[#0000FF]",
     accentText: "text-white",
@@ -16,7 +16,7 @@ const ALL_SECTIONS = [
   {
     title: "MARKETING",
     description:
-      "Weekly marketing meeting dashboard — paid media, sales origin, club referrals, and campaign performance.",
+      "Resumen semanal de marketing: paid media, origen de ventas, referidos del club y rendimiento de campañas.",
     href: "/marketing/weekly",
     accentClass: "bg-[#FFFF00]",
     accentText: "text-black",
@@ -24,15 +24,15 @@ const ALL_SECTIONS = [
   },
   {
     title: "UNABASE",
-    description: "Monthly closing reports and financial summaries.",
+    description: "Cierres mensuales por negocio y área de negocios",
     href: "/unabase/cierre-mensual",
     accentClass: "bg-[#FF0000]",
     accentText: "text-white",
     icon: "database",
   },
   {
-    title: "DONATIONS",
-    description: "Mercado Pago donation income — cortesías and Yoga totals.",
+    title: "DONACIONES",
+    description: "Resumen de donaciones de Mercado Pago, cortesías y Yoga.",
     href: "/donations",
     accentClass: "bg-black",
     accentText: "text-[#FFFF00]",
@@ -40,15 +40,15 @@ const ALL_SECTIONS = [
   },
   {
     title: "ONEPAGER",
-    description: "Tickets and FF&BB sales overview.",
+    description: "Resumen de ventas de tickets y AA&BB.",
     href: "/onepager",
     accentClass: "bg-[#FF0000]",
     accentText: "text-[#FFFF00]",
     icon: "ticket",
   },
   {
-    title: "FREE'S",
-    description: "Free entries given out.",
+    title: "CORTESIAS",
+    description: "Resumen de cortesías entregadas.",
     href: "/frees",
     accentClass: "bg-[#00FF00]",
     accentText: "text-black",

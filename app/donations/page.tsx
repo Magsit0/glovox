@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import { getDonationTotals, getJardinBoskoProject, type DonationBucket } from "@/lib/queries/donations";
 import DonationProjectCard from "@/components/DonationProjectCard";
 
@@ -118,10 +118,16 @@ export default function DonationsPage() {
         <div>
           <Link
             href="/"
-            className="mb-3 inline-flex items-center gap-2 border-2 border-black bg-white px-3 py-1 font-mono-data text-xs font-bold uppercase text-black transition-colors hover:bg-[#FFFF00]"
+            aria-label="Volver al menú principal"
+            className="mb-3 inline-flex items-center justify-center border-2 border-black bg-white p-1.5 transition-colors hover:bg-[#FFFF00]"
           >
-            <ArrowLeft size={14} strokeWidth={3} />
-            Back
+            <Image
+              src="/glovox_logo_gvx_black.svg"
+              alt="Glovox"
+              width={20}
+              height={20}
+              priority
+            />
           </Link>
           <h1 className="font-display text-6xl font-black uppercase leading-none tracking-tight text-black sm:text-7xl">
             Donations

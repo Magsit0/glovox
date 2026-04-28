@@ -1,6 +1,6 @@
 import { Suspense } from "react";
+import Image from "next/image";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
 import {
   getOnepagerKpis,
   getOnepagerByIngreso,
@@ -68,10 +68,16 @@ export default async function OnepagerPage({
       <div className="p-6 space-y-6">
         <Link
           href="/"
-          className="inline-flex items-center gap-2 border-4 border-black bg-white px-3 py-1.5 font-mono-data text-xs font-bold uppercase text-black shadow-[4px_4px_0px_#000] transition-colors hover:bg-[#FFFF00]"
+          aria-label="Volver al menú principal"
+          className="inline-flex items-center justify-center border-4 border-black bg-white p-1.5 shadow-[4px_4px_0px_#000] transition-colors hover:bg-[#FFFF00]"
         >
-          <ArrowLeft size={14} strokeWidth={3} />
-          Menú
+          <Image
+            src="/glovox_logo_gvx_black.svg"
+            alt="Glovox"
+            width={24}
+            height={24}
+            priority
+          />
         </Link>
         <Suspense
           fallback={
