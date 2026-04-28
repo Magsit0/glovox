@@ -9,6 +9,7 @@ import {
   HeartHandshake,
   Ticket,
   Gift,
+  Globe,
   Lock,
   AlertCircle,
   X,
@@ -23,6 +24,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   heart: HeartHandshake,
   ticket: Ticket,
   gift: Gift,
+  globe: Globe,
 };
 
 interface Section {

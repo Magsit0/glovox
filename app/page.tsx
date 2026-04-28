@@ -54,6 +54,15 @@ const ALL_SECTIONS = [
     accentText: "text-black",
     icon: "gift",
   },
+  {
+    title: "DASHBOARD PERU",
+    description:
+      "Ventas, cortesías y revenue de eventos en Perú operados vía TeleTicket. Métricas por evento, medio de pago y horario de compra.",
+    href: "/peru",
+    accentClass: "bg-[#D91023]",
+    accentText: "text-white",
+    icon: "globe",
+  },
 ];
 
 export default async function HomePage() {
