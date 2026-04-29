@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Users,
@@ -97,11 +98,28 @@ export default function HomeDashboards({ sections }: HomeDashboardsProps) {
         )}
       </AnimatePresence>
 
+      {/* Logo */}
+      <motion.div
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4 }}
+        className="mb-6"
+      >
+        <Image
+          src="/glovox_logo_gvx_black.svg"
+          alt="Glovox"
+          width={200}
+          height={72}
+          priority
+          className="h-16 w-auto sm:h-20"
+        />
+      </motion.div>
+
       {/* Header */}
       <motion.h1
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
+        transition={{ duration: 0.4, delay: 0.1 }}
         className="font-display text-7xl font-black uppercase leading-none tracking-tight text-black sm:text-8xl md:text-9xl"
       >
         DATA GLOVOX
