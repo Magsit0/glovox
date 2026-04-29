@@ -23,6 +23,29 @@ const TICKET_TYPE_FILTER = `
   AND EsDevuelto IS FALSE
 `;
 
+// ---------- Data scope (ticketera filter) ----------
+//
+// `scope` comes from the user's permissions (see lib/permissions.ts).
+// When scope.ticketera is set, queries are restricted to those values via a
+// BigQuery named parameter — never via SQL interpolation.
+
+export type Scope = { ticketera?: string[] };
+
+function ticketeraFilter(
+  scope: Scope | undefined,
+  prefix = "",
+): { sql: string; params: Record<string, unknown> } {
+  if (!scope?.ticketera?.length) return { sql: "", params: {} };
+  return {
+    sql: ` AND ${prefix}Ticketera IN UNNEST(@ticketeraScope)`,
+    params: { ticketeraScope: scope.ticketera },
+  };
+}
+
+function hasScope(scope: Scope | undefined): boolean {
+  return !!scope?.ticketera?.length;
+}
+
 function n(v: unknown): number {
   if (v == null) return 0;
   if (typeof v === "object" && "value" in (v as object))
@@ -62,6 +85,13 @@ export type EventKpiRow = {
 
 export type CumulativeSalesRow = {
   date: string;
+  dailyTickets: number;
+  cumulativeTickets: number;
+};
+
+export type CumulativeSalesRelativeRow = {
+  eventoId: string;
+  daysToEvent: number;
   dailyTickets: number;
   cumulativeTickets: number;
 };
@@ -140,8 +170,11 @@ export type TicketDateRange = {
 
 // ---------- Queries ----------
 
-export async function getEventList(): Promise<EventOption[]> {
-  const rows = await query<Record<string, unknown>>(`
+export async function getEventList(scope?: Scope): Promise<EventOption[]> {
+  const t = ticketeraFilter(scope, "t.");
+  const joinType = hasScope(scope) ? "INNER" : "LEFT";
+  const rows = await query<Record<string, unknown>>(
+    `
     SELECT
       c.EventoID       AS evento_id,
       ANY_VALUE(c.NombreGlovox)   AS nombre,
@@ -149,11 +182,13 @@ export async function getEventList(): Promise<EventOption[]> {
       FORMAT_TIMESTAMP('%Y-%m-%d', MAX(t.FechaEvento)) AS fecha_evento,
       COUNT(*)         AS ticket_count
     FROM ${CATEGORY} c
-    LEFT JOIN ${TICKETS} t ON c.EventoID = t.EventoID
+    ${joinType} JOIN ${TICKETS} t ON c.EventoID = t.EventoID${t.sql}
     WHERE c.isCanceled IS NOT TRUE
     GROUP BY c.EventoID
     ORDER BY fecha_evento DESC
-  `);
+  `,
+    t.params,
+  );
   return rows.map((r) => ({
     eventoId: s(r.evento_id),
     nombre: s(r.nombre),
@@ -163,8 +198,11 @@ export async function getEventList(): Promise<EventOption[]> {
   }));
 }
 
-export async function getUpcomingEvents(): Promise<EventOption[]> {
-  const rows = await query<Record<string, unknown>>(`
+export async function getUpcomingEvents(scope?: Scope): Promise<EventOption[]> {
+  const t = ticketeraFilter(scope, "t.");
+  const joinType = hasScope(scope) ? "INNER" : "LEFT";
+  const rows = await query<Record<string, unknown>>(
+    `
     SELECT
       c.EventoID                                          AS evento_id,
       ANY_VALUE(c.NombreGlovox)                           AS nombre,
@@ -172,13 +210,15 @@ export async function getUpcomingEvents(): Promise<EventOption[]> {
       FORMAT_TIMESTAMP('%Y-%m-%d', MAX(t.FechaEvento))   AS fecha_evento,
       COUNT(*)                                            AS ticket_count
     FROM ${CATEGORY} c
-    LEFT JOIN ${TICKETS} t ON c.EventoID = t.EventoID
+    ${joinType} JOIN ${TICKETS} t ON c.EventoID = t.EventoID${t.sql}
     WHERE c.isCanceled IS NOT TRUE
     GROUP BY c.EventoID
     HAVING fecha_evento >= FORMAT_DATE('%Y-%m-%d', CURRENT_DATE())
     ORDER BY fecha_evento ASC
     LIMIT 5
-  `);
+  `,
+    t.params,
+  );
   return rows.map((r) => ({
     eventoId: s(r.evento_id),
     nombre: s(r.nombre),
@@ -188,7 +228,11 @@ export async function getUpcomingEvents(): Promise<EventOption[]> {
   }));
 }
 
-export async function getTicketDateRange(eventoId: string): Promise<TicketDateRange> {
+export async function getTicketDateRange(
+  eventoId: string,
+  scope?: Scope,
+): Promise<TicketDateRange> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -196,9 +240,9 @@ export async function getTicketDateRange(eventoId: string): Promise<TicketDateRa
       FORMAT_DATE('%Y-%m-%d', CASE WHEN MAX(FechaEvento) >= CURRENT_TIMESTAMP() THEN CURRENT_DATE() ELSE MAX(DATE(${FECHA_ORDEN_ADJ})) END) AS end_date
     FROM ${TICKETS}
     WHERE EventoID = @eventoId
-      AND ${TICKET_TYPE_FILTER}
+      AND ${TICKET_TYPE_FILTER}${t.sql}
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   const r = rows[0] ?? {};
   return {
@@ -207,7 +251,11 @@ export async function getTicketDateRange(eventoId: string): Promise<TicketDateRa
   };
 }
 
-export async function getEventKpis(eventoId: string): Promise<EventKpiRow> {
+export async function getEventKpis(
+  eventoId: string,
+  scope?: Scope,
+): Promise<EventKpiRow> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_stats AS (
@@ -218,7 +266,7 @@ export async function getEventKpis(eventoId: string): Promise<EventKpiRow> {
         MAX(FechaEvento) AS fecha_evento
       FROM ${TICKETS}
       WHERE EventoID = @eventoId
-        AND ${TICKET_TYPE_FILTER}
+        AND ${TICKET_TYPE_FILTER}${t.sql}
     ),
     ad_stats AS (
       SELECT
@@ -246,7 +294,7 @@ export async function getEventKpis(eventoId: string): Promise<EventKpiRow> {
     CROSS JOIN ad_stats a
     CROSS JOIN event_meta em
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   const r = rows[0] ?? {};
   return {
@@ -264,8 +312,10 @@ export async function getEventKpis(eventoId: string): Promise<EventKpiRow> {
 }
 
 export async function getCumulativeSales(
-  eventoId: string
+  eventoId: string,
+  scope?: Scope,
 ): Promise<CumulativeSalesRow[]> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH daily AS (
@@ -274,7 +324,7 @@ export async function getCumulativeSales(
         COUNT(*) AS daily_tickets
       FROM ${TICKETS}
       WHERE EventoID = @eventoId
-        AND ${TICKET_TYPE_FILTER}
+        AND ${TICKET_TYPE_FILTER}${t.sql}
       GROUP BY date
     )
     SELECT
@@ -284,7 +334,7 @@ export async function getCumulativeSales(
     FROM daily
     ORDER BY date
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   return rows.map((r) => ({
     date: s(r.date),
@@ -293,9 +343,65 @@ export async function getCumulativeSales(
   }));
 }
 
+/**
+ * Multi-event cumulative sales aligned by `days_to_event` so the same chart
+ * can compare a main event against others of the same category.
+ *
+ * Returns one row per (event, daysToEvent). Positive daysToEvent = days
+ * before the event; 0 = event day; negative = days after the event.
+ */
+export async function getCumulativeSalesRelative(
+  eventoIds: string[],
+  scope?: Scope,
+): Promise<CumulativeSalesRelativeRow[]> {
+  if (eventoIds.length === 0) return [];
+  const t = ticketeraFilter(scope);
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH event_dates AS (
+      SELECT EventoID, MAX(FechaEvento) AS fecha_evento
+      FROM ${TICKETS}
+      WHERE EventoID IN UNNEST(@eventoIds)
+        AND ${TICKET_TYPE_FILTER}${t.sql}
+      GROUP BY EventoID
+    ),
+    daily AS (
+      SELECT
+        t.EventoID                                                        AS evento_id,
+        DATE_DIFF(DATE(e.fecha_evento), DATE(CASE WHEN t.EventoID = 'GLO198' AND t.TipoTicket = 'GENERAL DGTL' THEN TIMESTAMP('2026-03-18') ELSE t.FechaOrden END), DAY) AS days_to_event,
+        COUNT(*)                                                           AS daily_tickets
+      FROM ${TICKETS} t
+      JOIN event_dates e ON e.EventoID = t.EventoID
+      WHERE t.EventoID IN UNNEST(@eventoIds)
+        AND ${TICKET_TYPE_FILTER}${t.sql}
+      GROUP BY evento_id, days_to_event
+    )
+    SELECT
+      evento_id,
+      days_to_event,
+      daily_tickets,
+      SUM(daily_tickets) OVER (
+        PARTITION BY evento_id
+        ORDER BY days_to_event DESC
+      ) AS cumulative_tickets
+    FROM daily
+    ORDER BY evento_id, days_to_event DESC
+    `,
+    { eventoIds, ...t.params },
+  );
+  return rows.map((r) => ({
+    eventoId: s(r.evento_id),
+    daysToEvent: n(r.days_to_event),
+    dailyTickets: n(r.daily_tickets),
+    cumulativeTickets: n(r.cumulative_tickets),
+  }));
+}
+
 export async function getPaidMediaSummary(
-  eventoId: string
+  eventoId: string,
+  scope?: Scope,
 ): Promise<PaidMediaSummaryRow> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ad_stats AS (
@@ -315,7 +421,7 @@ export async function getPaidMediaSummary(
       FROM ${TICKETS}
       WHERE EventoID = @eventoId
         AND Referido LIKE 'PM_%'
-        AND ${TICKET_TYPE_FILTER}
+        AND ${TICKET_TYPE_FILTER}${t.sql}
     )
     SELECT
       COALESCE(a.total_spend, 0) AS total_spend,
@@ -328,7 +434,7 @@ export async function getPaidMediaSummary(
     CROSS JOIN event_meta em
     CROSS JOIN pt_purchases pt
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   const r = rows[0] ?? {};
   return {
@@ -342,8 +448,10 @@ export async function getPaidMediaSummary(
 }
 
 export async function getSalesOrigin(
-  eventoId: string
+  eventoId: string,
+  scope?: Scope,
 ): Promise<SalesOriginRow[]> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -352,11 +460,11 @@ export async function getSalesOrigin(
       SUM(PrecioFinal) AS revenue
     FROM ${TICKETS}
     WHERE EventoID = @eventoId
-      AND ${TICKET_TYPE_FILTER}
+      AND ${TICKET_TYPE_FILTER}${t.sql}
     GROUP BY origin
     ORDER BY tickets DESC
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   return rows.map((r) => ({
     origin: s(r.origin),
@@ -366,8 +474,10 @@ export async function getSalesOrigin(
 }
 
 export async function getFollowersEvolution(
-  eventoId: string
+  eventoId: string,
+  scope?: Scope,
 ): Promise<FollowerRow[]> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_period AS (
@@ -376,7 +486,7 @@ export async function getFollowersEvolution(
         CASE WHEN MAX(FechaEvento) >= CURRENT_TIMESTAMP() THEN CURRENT_DATE() ELSE MAX(DATE(${FECHA_ORDEN_ADJ})) END AS end_date
       FROM ${TICKETS}
       WHERE EventoID = @eventoId
-        AND ${TICKET_TYPE_FILTER}
+        AND ${TICKET_TYPE_FILTER}${t.sql}
     ),
     event_ig AS (
       SELECT CuentaIG
@@ -394,7 +504,7 @@ export async function getFollowersEvolution(
       AND DATE(f.date) BETWEEN p.start_date AND p.end_date
     ORDER BY date
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   return rows.map((r) => ({
     date: s(r.date),
@@ -404,8 +514,10 @@ export async function getFollowersEvolution(
 }
 
 export async function getFollowersDelta(
-  eventoId: string
+  eventoId: string,
+  scope?: Scope,
 ): Promise<number> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_period AS (
@@ -414,7 +526,7 @@ export async function getFollowersDelta(
         CASE WHEN MAX(FechaEvento) >= CURRENT_TIMESTAMP() THEN CURRENT_DATE() ELSE MAX(DATE(${FECHA_ORDEN_ADJ})) END AS end_date
       FROM ${TICKETS}
       WHERE EventoID = @eventoId
-        AND ${TICKET_TYPE_FILTER}
+        AND ${TICKET_TYPE_FILTER}${t.sql}
     ),
     event_ig AS (
       SELECT CuentaIG
@@ -429,14 +541,16 @@ export async function getFollowersDelta(
     WHERE f.blog_id = e.CuentaIG
       AND DATE(f.date) BETWEEN p.start_date AND p.end_date
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   return n(rows[0]?.total_delta);
 }
 
 export async function getClubSales(
-  eventoId: string
+  eventoId: string,
+  scope?: Scope,
 ): Promise<ClubSalesRow[]> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH daily AS (
@@ -447,7 +561,7 @@ export async function getClubSales(
       FROM ${TICKETS}
       WHERE EventoID = @eventoId
         AND Referido LIKE 'FF%'
-        AND EsDevuelto IS FALSE
+        AND EsDevuelto IS FALSE${t.sql}
       GROUP BY date
     )
     SELECT
@@ -458,7 +572,7 @@ export async function getClubSales(
     FROM daily
     ORDER BY date
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   return rows.map((r) => ({
     date: s(r.date),
@@ -469,8 +583,10 @@ export async function getClubSales(
 }
 
 export async function getClubMembersEvolution(
-  eventoId: string
+  eventoId: string,
+  scope?: Scope,
 ): Promise<ClubMembersRow[]> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_period AS (
@@ -479,7 +595,7 @@ export async function getClubMembersEvolution(
         CASE WHEN MAX(FechaEvento) >= CURRENT_TIMESTAMP() THEN CURRENT_DATE() ELSE MAX(DATE(${FECHA_ORDEN_ADJ})) END AS end_date
       FROM ${TICKETS}
       WHERE EventoID = @eventoId
-        AND ${TICKET_TYPE_FILTER}
+        AND ${TICKET_TYPE_FILTER}${t.sql}
     ),
     daily AS (
       SELECT
@@ -497,7 +613,7 @@ export async function getClubMembersEvolution(
     FROM daily
     ORDER BY date
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   return rows.map((r) => ({
     date: s(r.date),
@@ -507,8 +623,10 @@ export async function getClubMembersEvolution(
 }
 
 export async function getSalesByCategory(
-  eventoId: string
+  eventoId: string,
+  scope?: Scope,
 ): Promise<CategorySalesRow[]> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -518,11 +636,11 @@ export async function getSalesByCategory(
       SUM(PrecioFinal) AS revenue
     FROM ${TICKETS}
     WHERE EventoID = @eventoId
-      AND ${TICKET_TYPE_FILTER}
+      AND ${TICKET_TYPE_FILTER}${t.sql}
     GROUP BY date, category
     ORDER BY date, category
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   return rows.map((r) => ({
     date: s(r.date),
@@ -533,8 +651,11 @@ export async function getSalesByCategory(
 }
 
 export async function getFunnelData(
-  eventoId: string
+  eventoId: string,
+  landingPages?: string[]
 ): Promise<FunnelRow[]> {
+  const list = landingPages ?? [];
+  const hasFilter = list.length > 0;
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -544,10 +665,15 @@ export async function getFunnelData(
     FROM ${FUNNEL} f
     JOIN ${CATEGORY} c ON f.property_id = CAST(c.property_ga4 AS STRING)
     WHERE c.EventoID = @eventoId
+      AND (@hasFilter = FALSE OR f.landing_page IN UNNEST(@landingPages))
     GROUP BY step, step_order
     ORDER BY step_order
     `,
-    { eventoId }
+    {
+      eventoId,
+      hasFilter,
+      landingPages: hasFilter ? list : [""],
+    }
   );
   return rows.map((r) => ({
     step: s(r.step),
@@ -556,9 +682,28 @@ export async function getFunnelData(
   }));
 }
 
-export async function getCampaignBreakdown(
+export async function getFunnelLandingPages(
   eventoId: string
+): Promise<string[]> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    SELECT DISTINCT f.landing_page AS landing_page
+    FROM ${FUNNEL} f
+    JOIN ${CATEGORY} c ON f.property_id = CAST(c.property_ga4 AS STRING)
+    WHERE c.EventoID = @eventoId
+      AND f.landing_page IS NOT NULL
+    ORDER BY landing_page
+    `,
+    { eventoId }
+  );
+  return rows.map((r) => s(r.landing_page)).filter((v) => v.length > 0);
+}
+
+export async function getCampaignBreakdown(
+  eventoId: string,
+  scope?: Scope,
 ): Promise<CampaignRow[]> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_period AS (
@@ -567,7 +712,7 @@ export async function getCampaignBreakdown(
         CASE WHEN MAX(FechaEvento) >= CURRENT_TIMESTAMP() THEN CURRENT_DATE() ELSE MAX(DATE(${FECHA_ORDEN_ADJ})) END AS end_date
       FROM ${TICKETS}
       WHERE EventoID = @eventoId
-        AND ${TICKET_TYPE_FILTER}
+        AND ${TICKET_TYPE_FILTER}${t.sql}
     )
     SELECT
       FORMAT_TIMESTAMP('%Y-%m-%d', a.Fecha) AS date,
@@ -582,7 +727,7 @@ export async function getCampaignBreakdown(
     GROUP BY date, campaign, platform
     ORDER BY date, campaign
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   return rows.map((r) => ({
     date: s(r.date),
@@ -594,8 +739,10 @@ export async function getCampaignBreakdown(
 }
 
 export async function getUtmTraffic(
-  eventoId: string
+  eventoId: string,
+  scope?: Scope,
 ): Promise<UtmTrafficRow[]> {
+  const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_period AS (
@@ -604,7 +751,7 @@ export async function getUtmTraffic(
         CASE WHEN MAX(FechaEvento) >= CURRENT_TIMESTAMP() THEN CURRENT_DATE() ELSE MAX(DATE(${FECHA_ORDEN_ADJ})) END AS end_date
       FROM ${TICKETS}
       WHERE EventoID = @eventoId
-        AND ${TICKET_TYPE_FILTER}
+        AND ${TICKET_TYPE_FILTER}${t.sql}
     )
     SELECT
       COALESCE(u.medium, '(none)') AS medium,
@@ -624,7 +771,7 @@ export async function getUtmTraffic(
     GROUP BY medium, source, content, term
     ORDER BY sessions DESC
     `,
-    { eventoId }
+    { eventoId, ...t.params }
   );
   return rows.map((r) => ({
     medium: s(r.medium),

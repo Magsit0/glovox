@@ -1,16 +1,42 @@
 /**
  * Dashboard permission system.
  *
- * Config lives in DASHBOARD_PERMISSIONS env var as JSON:
- *   { "user@glovox.cl": "all" | ["/route", ...] }
+ * Config lives in DASHBOARD_PERMISSIONS env var as JSON.
+ * Three accepted shapes per email:
+ *
+ *   "user@glovox.cl": "all"
+ *   "user@glovox.cl": ["/route", ...]
+ *   "user@glovox.cl": {
+ *     "dashboards": ["/marketing/weekly"],
+ *     "dataScopes": {
+ *       "/marketing/weekly": { "ticketera": ["TeleTicket"] }
+ *     }
+ *   }
  *
  * Rules:
- *  - "all"    → unrestricted access to every dashboard
- *  - string[] → only those path prefixes are allowed
+ *  - "all"               → unrestricted access to every dashboard
+ *  - string[]            → only those path prefixes are allowed
+ *  - ScopedPermissions   → same routing rules under .dashboards, plus
+ *                           per-prefix data filters under .dataScopes
  *  - Email not in config → no access (returns empty array)
  */
 
-export type DashboardPermissions = "all" | string[];
+export type DataScope = {
+  ticketera?: string[];
+};
+
+export type DashboardScopes = Record<string, DataScope>;
+
+export type ScopedPermissions = {
+  dashboards: "all" | string[];
+  dataScopes?: DashboardScopes;
+};
+
+export type DashboardPermissions = "all" | string[] | ScopedPermissions;
+
+function isScoped(p: DashboardPermissions): p is ScopedPermissions {
+  return typeof p === "object" && !Array.isArray(p) && p !== null;
+}
 
 function getParsedPermissions(): Record<string, DashboardPermissions> {
   const raw = process.env.DASHBOARD_PERMISSIONS ?? "{}";
@@ -33,7 +59,6 @@ export function getUserPermissions(email: string): DashboardPermissions {
   if (email in config) {
     return config[email];
   }
-  // Not listed → no access
   return [];
 }
 
@@ -46,6 +71,27 @@ export function canAccessPath(
   pathname: string,
 ): boolean {
   if (permissions === "all") return true;
+  if (isScoped(permissions)) {
+    return canAccessPath(permissions.dashboards, pathname);
+  }
   if (permissions.length === 0) return false;
   return permissions.some((prefix) => pathname.startsWith(prefix));
+}
+
+/**
+ * Returns the data scope that applies to a pathname, or null if no scope
+ * restriction applies (i.e. "all", legacy string[], or no matching dataScopes
+ * entry). Callers should treat null as "no data filter".
+ */
+export function getDashboardScope(
+  permissions: DashboardPermissions,
+  pathname: string,
+): DataScope | null {
+  if (!isScoped(permissions)) return null;
+  const scopes = permissions.dataScopes;
+  if (!scopes) return null;
+  for (const [prefix, scope] of Object.entries(scopes)) {
+    if (pathname.startsWith(prefix)) return scope;
+  }
+  return null;
 }

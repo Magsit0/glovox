@@ -1,25 +1,32 @@
 import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { auth } from "@/lib/auth";
+import { getDashboardScope } from "@/lib/permissions";
 import {
   getEventList,
   getUpcomingEvents,
   getEventKpis,
-  getCumulativeSales,
+  getCumulativeSalesRelative,
   getPaidMediaSummary,
   getSalesOrigin,
   getFollowersDelta,
   getFunnelData,
+  getFunnelLandingPages,
   getCampaignBreakdown,
   getUtmTraffic,
+  type EventOption,
+  type Scope,
 } from "@/lib/queries/marketing";
 import EventSelector from "@/components/marketing/EventSelector";
+import CompareEventSelector from "@/components/marketing/CompareEventSelector";
 import BrutalKpiCard from "@/components/marketing/BrutalKpiCard";
 import BrutalChartPanel from "@/components/marketing/BrutalChartPanel";
 import BrutalHighlightPanel from "@/components/marketing/BrutalHighlightPanel";
-import CumulativeSalesChart from "@/components/marketing/charts/CumulativeSalesChart";
+import CumulativeSalesComparisonChart from "@/components/marketing/charts/CumulativeSalesComparisonChart";
 import SalesOriginTable from "@/components/marketing/charts/SalesOriginTable";
 import FunnelChart from "@/components/marketing/charts/FunnelChart";
+import FunnelLandingPageFilter from "@/components/marketing/FunnelLandingPageFilter";
 import CampaignBreakdownChart from "@/components/marketing/charts/CampaignBreakdownChart";
 import UtmTrafficTable from "@/components/marketing/charts/UtmTrafficTable";
 
@@ -37,12 +44,22 @@ function Skeleton() {
 export default async function MarketingWeeklyPage({
   searchParams,
 }: {
-  searchParams: Promise<{ event?: string }>;
+  searchParams: Promise<{
+    event?: string;
+    landingPage?: string | string[];
+    compare?: string | string[];
+  }>;
 }) {
   const params = await searchParams;
+  const session = await auth();
+  const scope =
+    getDashboardScope(
+      session?.user?.permissions ?? [],
+      "/marketing/weekly",
+    ) ?? undefined;
   const [events, upcomingEvents] = await Promise.all([
-    getEventList(),
-    getUpcomingEvents(),
+    getEventList(scope),
+    getUpcomingEvents(scope),
   ]);
 
   if (events.length === 0) {
@@ -53,7 +70,38 @@ export default async function MarketingWeeklyPage({
     );
   }
 
-  const selectedId = params.event ?? "GLO198";
+  // GLO198 is the default for the unrestricted dashboard. For scoped users
+  // (e.g. only TeleTicket), GLO198 may not be in their event list — fall
+  // back to the first event they actually have access to.
+  const hasGlo198 = events.some((e) => e.eventoId === "GLO198");
+  const defaultId = hasGlo198 ? "GLO198" : events[0].eventoId;
+  const selectedId = params.event ?? defaultId;
+  const selectedLandingPages = Array.isArray(params.landingPage)
+    ? params.landingPage
+    : params.landingPage
+      ? [params.landingPage]
+      : [];
+
+  // Comparators: same category as the main event, excluding it. Filtering
+  // against the already-scoped `events` list enforces both the user's data
+  // scope and the same-category constraint server-side.
+  const mainEvent = events.find((e) => e.eventoId === selectedId);
+  const comparableEvents: EventOption[] = mainEvent
+    ? events.filter(
+        (e) =>
+          e.eventoId !== selectedId &&
+          e.categoriaEvento === mainEvent.categoriaEvento,
+      )
+    : [];
+  const rawCompare = Array.isArray(params.compare)
+    ? params.compare
+    : params.compare
+      ? [params.compare]
+      : [];
+  const comparableIds = new Set(comparableEvents.map((e) => e.eventoId));
+  const compareIds = Array.from(new Set(rawCompare)).filter((id) =>
+    comparableIds.has(id),
+  );
 
   return (
     <div className="bg-white text-black min-h-full">
@@ -80,37 +128,46 @@ export default async function MarketingWeeklyPage({
 
         {/* KPI Strip */}
         <Suspense fallback={<div className="grid grid-cols-4 gap-4"><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>}>
-          <KpiStrip eventoId={selectedId} />
+          <KpiStrip eventoId={selectedId} scope={scope} />
         </Suspense>
 
         {/* Row: Cumulative Sales + Paid Media */}
         <div className="grid grid-cols-4 gap-6">
-          <Suspense fallback={<Skeleton />}>
-            <CumulativeSalesSection eventoId={selectedId} />
+          <Suspense
+            key={`cum-${selectedId}-${compareIds.join("|")}`}
+            fallback={<Skeleton />}
+          >
+            <CumulativeSalesSection
+              eventoId={selectedId}
+              mainNombre={mainEvent?.nombre ?? selectedId}
+              compareIds={compareIds}
+              comparableEvents={comparableEvents}
+              scope={scope}
+            />
           </Suspense>
           <Suspense fallback={<Skeleton />}>
-            <PaidMediaSection eventoId={selectedId} />
+            <PaidMediaSection eventoId={selectedId} scope={scope} />
           </Suspense>
         </div>
 
         {/* Row: Sales Origin + Funnel */}
         <div className="grid grid-cols-4 gap-6">
           <Suspense fallback={<Skeleton />}>
-            <SalesOriginSection eventoId={selectedId} />
+            <SalesOriginSection eventoId={selectedId} scope={scope} />
           </Suspense>
-          <Suspense fallback={<Skeleton />}>
-            <FunnelSection eventoId={selectedId} />
+          <Suspense key={`funnel-${selectedId}-${selectedLandingPages.join("|")}`} fallback={<Skeleton />}>
+            <FunnelSection eventoId={selectedId} landingPages={selectedLandingPages} />
           </Suspense>
         </div>
 
         {/* Row: Campaign Breakdown */}
         <Suspense fallback={<Skeleton />}>
-          <CampaignSection eventoId={selectedId} />
+          <CampaignSection eventoId={selectedId} scope={scope} />
         </Suspense>
 
         {/* Row: UTM Traffic */}
         <Suspense fallback={<Skeleton />}>
-          <UtmTrafficSection eventoId={selectedId} />
+          <UtmTrafficSection eventoId={selectedId} scope={scope} />
         </Suspense>
       </div>
     </div>
@@ -119,11 +176,11 @@ export default async function MarketingWeeklyPage({
 
 // ---------- Section components ----------
 
-async function KpiStrip({ eventoId }: { eventoId: string }) {
+async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
   const [kpis, followersDelta, pm] = await Promise.all([
-    getEventKpis(eventoId),
-    getFollowersDelta(eventoId),
-    getPaidMediaSummary(eventoId),
+    getEventKpis(eventoId, scope),
+    getFollowersDelta(eventoId, scope),
+    getPaidMediaSummary(eventoId, scope),
   ]);
   const soldPct = kpis.goalTickets > 0 ? Math.round((kpis.totalTickets / kpis.goalTickets) * 100) : 0;
   return (
@@ -141,20 +198,52 @@ async function KpiStrip({ eventoId }: { eventoId: string }) {
   );
 }
 
-async function CumulativeSalesSection({ eventoId }: { eventoId: string }) {
-  const [sales, kpis] = await Promise.all([
-    getCumulativeSales(eventoId),
-    getEventKpis(eventoId),
+async function CumulativeSalesSection({
+  eventoId,
+  mainNombre,
+  compareIds,
+  comparableEvents,
+  scope,
+}: {
+  eventoId: string;
+  mainNombre: string;
+  compareIds: string[];
+  comparableEvents: EventOption[];
+  scope?: Scope;
+}) {
+  const ids = [eventoId, ...compareIds];
+  const [series, kpis] = await Promise.all([
+    getCumulativeSalesRelative(ids, scope),
+    getEventKpis(eventoId, scope),
   ]);
+  const events = [
+    { eventoId, nombre: mainNombre },
+    ...comparableEvents
+      .filter((e) => compareIds.includes(e.eventoId))
+      .map((e) => ({ eventoId: e.eventoId, nombre: e.nombre })),
+  ];
   return (
     <BrutalChartPanel title="Venta Acumulada" className="col-span-3">
-      <CumulativeSalesChart data={sales} goalTickets={kpis.goalTickets} fechaEvento={kpis.fechaEvento} />
+      <CompareEventSelector
+        events={comparableEvents.map((e) => ({
+          eventoId: e.eventoId,
+          nombre: e.nombre,
+          fechaEvento: e.fechaEvento,
+        }))}
+        selected={compareIds}
+      />
+      <CumulativeSalesComparisonChart
+        series={series}
+        mainEventoId={eventoId}
+        events={events}
+        goalTickets={kpis.goalTickets}
+      />
     </BrutalChartPanel>
   );
 }
 
-async function PaidMediaSection({ eventoId }: { eventoId: string }) {
-  const pm = await getPaidMediaSummary(eventoId);
+async function PaidMediaSection({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
+  const pm = await getPaidMediaSummary(eventoId, scope);
   return (
     <BrutalHighlightPanel title="Paid Media" className="col-span-1">
       <div className="space-y-4">
@@ -187,8 +276,8 @@ async function PaidMediaSection({ eventoId }: { eventoId: string }) {
   );
 }
 
-async function SalesOriginSection({ eventoId }: { eventoId: string }) {
-  const data = await getSalesOrigin(eventoId);
+async function SalesOriginSection({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
+  const data = await getSalesOrigin(eventoId, scope);
   return (
     <BrutalChartPanel title="Origen de Venta" className="col-span-2">
       <SalesOriginTable data={data} />
@@ -196,26 +285,38 @@ async function SalesOriginSection({ eventoId }: { eventoId: string }) {
   );
 }
 
-async function FunnelSection({ eventoId }: { eventoId: string }) {
-  const data = await getFunnelData(eventoId);
-  if (data.length === 0) {
-    return (
-      <BrutalChartPanel title="Funnel" className="col-span-2">
-        <p className="font-mono-data text-sm text-black/50">Sin datos de funnel para este evento.</p>
-      </BrutalChartPanel>
-    );
-  }
+async function FunnelSection({
+  eventoId,
+  landingPages,
+}: {
+  eventoId: string;
+  landingPages: string[];
+}) {
+  const [data, availableLandingPages] = await Promise.all([
+    getFunnelData(eventoId, landingPages.length > 0 ? landingPages : undefined),
+    getFunnelLandingPages(eventoId),
+  ]);
   return (
     <BrutalChartPanel title="Funnel" className="col-span-2">
-      <FunnelChart data={data} />
+      <FunnelLandingPageFilter
+        landingPages={availableLandingPages}
+        selected={landingPages}
+      />
+      {data.length === 0 ? (
+        <p className="font-mono-data text-sm text-black/50">
+          Sin datos de funnel para este evento.
+        </p>
+      ) : (
+        <FunnelChart data={data} />
+      )}
     </BrutalChartPanel>
   );
 }
 
-async function CampaignSection({ eventoId }: { eventoId: string }) {
+async function CampaignSection({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
   const [data, kpis] = await Promise.all([
-    getCampaignBreakdown(eventoId),
-    getEventKpis(eventoId),
+    getCampaignBreakdown(eventoId, scope),
+    getEventKpis(eventoId, scope),
   ]);
   return (
     <BrutalChartPanel title="Desglose por Campana" className="col-span-4">
@@ -224,8 +325,8 @@ async function CampaignSection({ eventoId }: { eventoId: string }) {
   );
 }
 
-async function UtmTrafficSection({ eventoId }: { eventoId: string }) {
-  const data = await getUtmTraffic(eventoId);
+async function UtmTrafficSection({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
+  const data = await getUtmTraffic(eventoId, scope);
   if (data.length === 0) {
     return (
       <BrutalChartPanel title="Tráfico" className="col-span-4">
