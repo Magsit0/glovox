@@ -33,41 +33,58 @@ function parseDateToYM(dateStr: string): string | null {
 
 interface Props {
   rows: NegocioRow[];
+  groupBy?: "month" | "year";
 }
 
-export default function NegociosAreaEvolutionChart({ rows }: Props) {
+function parseDateToYear(dateStr: string): string | null {
+  if (!dateStr || dateStr === "00-00-00") return null;
+  if (/^\d{2}-\d{2}-\d{4}$/.test(dateStr)) return dateStr.split("-")[2];
+  if (/^\d{4}-\d{2}/.test(dateStr)) return dateStr.slice(0, 4);
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return null;
+  return String(d.getFullYear());
+}
+
+export default function NegociosAreaEvolutionChart({ rows, groupBy = "month" }: Props) {
   const { data, areas } = useMemo(() => {
-    const areaMonth: Record<string, Record<string, number>> = {};
-    const monthSet = new Set<string>();
+    const areaGroup: Record<string, Record<string, number>> = {};
+    const groupSet = new Set<string>();
 
     rows.forEach((row) => {
-      const month = parseDateToYM(row.fecha_asignacion);
-      if (!month) return;
+      const key = groupBy === "year"
+        ? parseDateToYear(row.fecha_asignacion)
+        : parseDateToYM(row.fecha_asignacion);
+      if (!key) return;
       const area = row.area_negocio || "Sin área";
-      if (!areaMonth[area]) areaMonth[area] = {};
-      areaMonth[area][month] = (areaMonth[area][month] || 0) + (parseFloat(row.total_neto) || 0);
-      monthSet.add(month);
+      if (!areaGroup[area]) areaGroup[area] = {};
+      areaGroup[area][key] = (areaGroup[area][key] || 0) + (parseFloat(row.total_neto) || 0);
+      groupSet.add(key);
     });
 
-    const months = Array.from(monthSet).sort();
-    const areasList = Object.keys(areaMonth).sort((a, b) => {
-      const sa = Object.values(areaMonth[a]).reduce((s, v) => s + v, 0);
-      const sb = Object.values(areaMonth[b]).reduce((s, v) => s + v, 0);
+    const groups = Array.from(groupSet).sort();
+    const areasList = Object.keys(areaGroup).sort((a, b) => {
+      const sa = Object.values(areaGroup[a]).reduce((s, v) => s + v, 0);
+      const sb = Object.values(areaGroup[b]).reduce((s, v) => s + v, 0);
       return sb - sa;
     });
 
-    const chartRows = months.map((m) => {
-      const [y, mo] = m.split("-");
-      const label = `${MONTH_NAMES[parseInt(mo, 10) - 1]} ${y.slice(2)}`;
+    const chartRows = groups.map((g) => {
+      let label: string;
+      if (groupBy === "year") {
+        label = g;
+      } else {
+        const [y, mo] = g.split("-");
+        label = `${MONTH_NAMES[parseInt(mo, 10) - 1]} ${y.slice(2)}`;
+      }
       const entry: Record<string, string | number> = { label };
       areasList.forEach((area) => {
-        entry[area] = areaMonth[area]?.[m] ?? 0;
+        entry[area] = areaGroup[area]?.[g] ?? 0;
       });
       return entry;
     });
 
     return { data: chartRows, areas: areasList };
-  }, [rows]);
+  }, [rows, groupBy]);
 
   if (!data.length || !areas.length) {
     return (

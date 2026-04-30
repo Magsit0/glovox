@@ -7,6 +7,7 @@ import {
   getEventList,
   getUpcomingEvents,
   getEventKpis,
+  getTicketDateRange,
   getCumulativeSalesRelative,
   getPaidMediaSummary,
   getSalesOrigin,
@@ -212,9 +213,10 @@ async function CumulativeSalesSection({
   scope?: Scope;
 }) {
   const ids = [eventoId, ...compareIds];
-  const [series, kpis] = await Promise.all([
+  const [series, kpis, range] = await Promise.all([
     getCumulativeSalesRelative(ids, scope),
     getEventKpis(eventoId, scope),
+    getTicketDateRange(eventoId, scope),
   ]);
   const events = [
     { eventoId, nombre: mainNombre },
@@ -222,6 +224,15 @@ async function CumulativeSalesSection({
       .filter((e) => compareIds.includes(e.eventoId))
       .map((e) => ({ eventoId: e.eventoId, nombre: e.nombre })),
   ];
+  let saleStartDaysToEvent: number | undefined;
+  if (kpis.fechaEvento && range.startDate) {
+    const eventMs = Date.parse(`${kpis.fechaEvento}T00:00:00Z`);
+    const startMs = Date.parse(`${range.startDate}T00:00:00Z`);
+    if (Number.isFinite(eventMs) && Number.isFinite(startMs)) {
+      const diff = Math.round((eventMs - startMs) / 86_400_000);
+      if (diff > 0) saleStartDaysToEvent = diff;
+    }
+  }
   return (
     <BrutalChartPanel title="Venta Acumulada" className="col-span-3">
       <CompareEventSelector
@@ -237,6 +248,7 @@ async function CumulativeSalesSection({
         mainEventoId={eventoId}
         events={events}
         goalTickets={kpis.goalTickets}
+        saleStartDaysToEvent={saleStartDaysToEvent}
       />
     </BrutalChartPanel>
   );

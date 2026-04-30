@@ -6,6 +6,7 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import { DashboardProvider, useDashboard, useDateFilter } from "@/components/unabase/context/DashboardContext";
 import FilterBar from "@/components/unabase/filters/FilterBar";
+import MultiSelectFilter from "@/components/unabase/filters/MultiSelectFilter";
 import SummaryCards from "@/components/unabase/panels/SummaryCards";
 import AlertsPanel from "@/components/unabase/panels/AlertsPanel";
 import InsightsPanel from "@/components/unabase/panels/InsightsPanel";
@@ -287,10 +288,30 @@ function applyDateFilter(rows: NegocioRow[], dateStart: string, dateEnd: string)
 function NegociosTab() {
   const { rows, loading, error } = useNegociosData();
   const { dateStart, dateEnd } = useDateFilter();
+  const [selectedAreas, setSelectedAreas] = useState<Set<string>>(new Set());
+  const [evolutionGroupBy, setEvolutionGroupBy] = useState<"month" | "year">("month");
 
   const filteredRows = useMemo(
     () => applyDateFilter(rows, dateStart, dateEnd),
     [rows, dateStart, dateEnd],
+  );
+
+  const areaOptions = useMemo(() => {
+    const set = new Set<string>();
+    filteredRows.forEach((r) => { if (r.area_negocio) set.add(r.area_negocio); });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "es")).map((v) => ({ value: v, label: v }));
+  }, [filteredRows]);
+
+  const availableAreas = useMemo(
+    () => new Set(areaOptions.map((o) => o.value)),
+    [areaOptions],
+  );
+
+  const chartRows = useMemo(
+    () => selectedAreas.size === 0
+      ? filteredRows
+      : filteredRows.filter((r) => selectedAreas.has(r.area_negocio)),
+    [filteredRows, selectedAreas],
   );
 
   if (error) {
@@ -314,11 +335,41 @@ function NegociosTab() {
       transition={{ duration: 0.3, ease: "easeOut" }}
       className="flex flex-col gap-6"
     >
+      <div className="flex flex-wrap gap-3">
+        <MultiSelectFilter
+          name="area_negocio"
+          label="Área de negocio"
+          options={areaOptions}
+          available={availableAreas}
+          selected={selectedAreas}
+          onChange={(_, next) => setSelectedAreas(next)}
+        />
+      </div>
       <Panel title="Resultado por área de negocio">
-        <NegociosAreaResultChart rows={filteredRows} />
+        <NegociosAreaResultChart rows={chartRows} />
       </Panel>
-      <Panel title="Evolución de ingresos por área">
-        <NegociosAreaEvolutionChart rows={filteredRows} />
+      <Panel
+        title="Evolución de ingresos por área"
+        right={
+          <div className="inline-flex rounded-lg border border-[#E5E5E5] bg-white p-0.5">
+            {(["month", "year"] as const).map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => setEvolutionGroupBy(m)}
+                className={`rounded-md px-3 py-1 font-sans text-xs font-medium transition-colors ${
+                  evolutionGroupBy === m
+                    ? "bg-[#F0EFFE] text-[#9F99F8]"
+                    : "text-[#666666] hover:text-[#333333]"
+                }`}
+              >
+                {m === "month" ? "Por mes" : "Por año"}
+              </button>
+            ))}
+          </div>
+        }
+      >
+        <NegociosAreaEvolutionChart rows={chartRows} groupBy={evolutionGroupBy} />
       </Panel>
       <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
         <Panel title="Producción de eventos propios — meta $6.500M">

@@ -5,6 +5,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  LabelList,
   Legend,
   ResponsiveContainer,
   Tooltip,
@@ -46,9 +47,14 @@ export default function NegociosAreaResultChart({ rows }: Props) {
     );
   }
 
+  const dataWithPct = data.map((d) => ({
+    ...d,
+    margenPct: d.ingreso > 0 ? (d.margen / d.ingreso) * 100 : 0,
+  }));
+
   return (
-    <ResponsiveContainer width="100%" height={320}>
-      <BarChart data={data} margin={{ top: 8, right: 16, left: 8, bottom: 8 }} barCategoryGap="30%">
+    <ResponsiveContainer width="100%" height={340}>
+      <BarChart data={dataWithPct} margin={{ top: 28, right: 16, left: 8, bottom: 8 }} barCategoryGap="30%">
         <CartesianGrid {...gridProps} />
         <XAxis
           dataKey="area"
@@ -94,7 +100,20 @@ export default function NegociosAreaResultChart({ rows }: Props) {
           isAnimationActive
           animationDuration={400}
           animationEasing="ease-out"
-        />
+        >
+          <LabelList
+            dataKey="margenPct"
+            position="top"
+            offset={14}
+            formatter={(v: number) => `${v.toFixed(1)}%`}
+            style={{
+              fill: "#333333",
+              fontSize: 12,
+              fontWeight: 700,
+              fontFamily: "var(--font-display, inherit)",
+            }}
+          />
+        </Bar>
         <Bar
           dataKey="margen"
           name="Margen"

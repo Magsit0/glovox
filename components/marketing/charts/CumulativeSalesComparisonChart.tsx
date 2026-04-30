@@ -6,6 +6,7 @@ import {
   ComposedChart,
   Area,
   Bar,
+  Line,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -25,6 +26,7 @@ type Props = {
   mainEventoId: string;
   events: EventInfo[];
   goalTickets?: number;
+  saleStartDaysToEvent?: number;
 };
 
 // Brutalist secondary palette cycled across comparators.
@@ -41,6 +43,7 @@ const COMPARE_COLORS = [
 type ChartRow = {
   daysToEvent: number;
   dailyMain: number | null;
+  target?: number | null;
 } & Record<`cum_${string}`, number | null>;
 
 export default function CumulativeSalesComparisonChart({
@@ -48,6 +51,7 @@ export default function CumulativeSalesComparisonChart({
   mainEventoId,
   events,
   goalTickets,
+  saleStartDaysToEvent,
 }: Props) {
   const { chartData, eventOrder, labelByEventoId } = useMemo(() => {
     const labelByEventoId = new Map<string, string>();
@@ -75,12 +79,35 @@ export default function CumulativeSalesComparisonChart({
       }
     }
 
+    const hasTarget =
+      saleStartDaysToEvent != null &&
+      saleStartDaysToEvent > 0 &&
+      goalTickets != null &&
+      goalTickets > 0;
+
+    if (hasTarget) {
+      for (const d of [saleStartDaysToEvent, 0]) {
+        if (!byDay.has(d)) {
+          byDay.set(d, { daysToEvent: d, dailyMain: null } as ChartRow);
+        }
+      }
+      for (const bucket of byDay.values()) {
+        const d = bucket.daysToEvent;
+        if (d > saleStartDaysToEvent || d < 0) {
+          bucket.target = null;
+        } else {
+          bucket.target =
+            (goalTickets * (saleStartDaysToEvent - d)) / saleStartDaysToEvent;
+        }
+      }
+    }
+
     const chartData = Array.from(byDay.values()).sort(
       (a, b) => b.daysToEvent - a.daysToEvent,
     );
 
     return { chartData, eventOrder, labelByEventoId };
-  }, [series, mainEventoId, events]);
+  }, [series, mainEventoId, events, saleStartDaysToEvent, goalTickets]);
 
   if (chartData.length === 0) {
     return (
@@ -164,36 +191,37 @@ export default function CumulativeSalesComparisonChart({
               strokeWidth={isMain ? 3 : 2}
               fill="none"
               name={labelByEventoId.get(id) ?? id}
-              connectNulls={false}
+              connectNulls
               dot={false}
               isAnimationActive={false}
             />
           );
         })}
-        {goalTickets != null && goalTickets > 0 && (
-          <ReferenceLine
-            yAxisId="cumulative"
-            y={goalTickets}
-            stroke="#000"
-            strokeDasharray="8 4"
-            strokeWidth={2}
-            label={{
-              value: `Meta: ${goalTickets.toLocaleString("es-CL")}`,
-              position: "insideTopRight",
-              fontFamily: "var(--font-ibm-plex-mono)",
-              fontSize: 11,
-              fill: "#000",
-            }}
-          />
-        )}
-        <ReferenceLine
+        {saleStartDaysToEvent != null &&
+          saleStartDaysToEvent > 0 &&
+          goalTickets != null &&
+          goalTickets > 0 && (
+            <Line
+              yAxisId="cumulative"
+              type="linear"
+              dataKey="target"
+              stroke="#000"
+              strokeWidth={2}
+              strokeDasharray="4 4"
+              dot={false}
+              name="Objetivo lineal"
+              isAnimationActive={false}
+              connectNulls
+            />
+          )}
+<ReferenceLine
           yAxisId="cumulative"
           x={0}
           stroke="#FF0000"
           strokeWidth={2}
           label={{
-            value: "Evento",
-            position: "insideTopLeft",
+            value: "Día del evento",
+            position: "top",
             fontFamily: "var(--font-ibm-plex-mono)",
             fontSize: 11,
             fill: "#FF0000",
