@@ -105,7 +105,7 @@ export default function NegociosAreaResultChart({ rows }: Props) {
             dataKey="margenPct"
             position="top"
             offset={14}
-            formatter={(v: number) => `${v.toFixed(1)}%`}
+            formatter={(v: unknown) => `${(v as number).toFixed(1)}%`}
             style={{
               fill: "#333333",
               fontSize: 12,
