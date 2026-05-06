@@ -40,5 +40,5 @@ export default auth((req) => {
 export const config = {
   // Keep api/auth excluded from matcher so NextAuth handles OAuth callbacks natively.
   // Other /api/ routes are excluded inside the callback above.
-  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico).*)"],
+  matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\.svg|.*\\.png|.*\\.jpg|.*\\.jpeg|.*\\.webp|.*\\.ico).*)"],
 };
