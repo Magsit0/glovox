@@ -29,9 +29,11 @@ import {
 } from "@/lib/chart-colors";
 import type {
   FreesDashboardData,
+  FreesEventOption,
   FreesGroupRow,
   FreesKpis,
 } from "@/lib/queries/frees";
+import { FreesEventSelect } from "./FreesEventSelect";
 
 const numberFormatter = new Intl.NumberFormat("es-CL");
 const percentFormatter = new Intl.NumberFormat("es-CL", {
@@ -70,8 +72,20 @@ const TABS: { key: Tab; label: string; description: string; field: keyof FreesDa
   },
 ];
 
-export function FreesDashboard({ data }: { data: FreesDashboardData }) {
+export function FreesDashboard({
+  data,
+  events,
+  selectedEvent,
+}: {
+  data: FreesDashboardData;
+  events: FreesEventOption[];
+  selectedEvent: string;
+}) {
   const [tab, setTab] = useState<Tab>("ticketType");
+  const selectedEventOption = useMemo(
+    () => events.find((e) => e.eventoId === selectedEvent),
+    [events, selectedEvent],
+  );
 
   const activeRows = useMemo<FreesGroupRow[]>(() => {
     switch (tab) {
@@ -94,7 +108,7 @@ export function FreesDashboard({ data }: { data: FreesDashboardData }) {
         transition={{ duration: 0.3, ease: "easeOut" }}
         className="flex flex-col gap-3"
       >
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="flex flex-col gap-2">
             <Link
               href="/"
@@ -116,12 +130,24 @@ export function FreesDashboard({ data }: { data: FreesDashboardData }) {
               Cortesías emitidas y su tasa de canje contra <code>glovox.tickets</code>.
               El canje se determina por el match entre los últimos 8 caracteres del{" "}
               <code>sellerLink</code> y <code>CodigoPromocion</code>.
+              {selectedEventOption && (
+                <>
+                  {" "}
+                  <span className="font-medium text-[#333333]">
+                    Filtrando por evento {selectedEventOption.eventoId} —{" "}
+                    {selectedEventOption.nombre}.
+                  </span>
+                </>
+              )}
             </p>
           </div>
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-white px-2.5 py-1 font-sans text-xs font-medium text-[#333333]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[#9F99F8]" />
-            {formatNumber(data.kpis.totalCortesias)} cortesías
-          </span>
+          <div className="flex flex-col items-end gap-3">
+            <FreesEventSelect events={events} selected={selectedEvent} />
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-white px-2.5 py-1 font-sans text-xs font-medium text-[#333333]">
+              <span className="h-1.5 w-1.5 rounded-full bg-[#9F99F8]" />
+              {formatNumber(data.kpis.totalCortesias)} cortesías
+            </span>
+          </div>
         </div>
       </motion.header>
 

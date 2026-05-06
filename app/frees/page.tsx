@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { getFreesDashboardData } from "@/lib/queries/frees";
+import {
+  getFreesDashboardData,
+  getFreesEventList,
+} from "@/lib/queries/frees";
 import { FreesDashboard } from "@/components/frees/FreesDashboard";
 
 export const metadata: Metadata = {
@@ -10,9 +13,17 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-async function FreesContent() {
-  const data = await getFreesDashboardData();
-  return <FreesDashboard data={data} />;
+async function FreesContent({ eventoId }: { eventoId: string }) {
+  const [events, data] = await Promise.all([
+    getFreesEventList(),
+    getFreesDashboardData(eventoId || undefined),
+  ]);
+  const validEvent = eventoId && events.some((e) => e.eventoId === eventoId)
+    ? eventoId
+    : "";
+  return (
+    <FreesDashboard data={data} events={events} selectedEvent={validEvent} />
+  );
 }
 
 function FreesSkeleton() {
@@ -41,11 +52,17 @@ function FreesSkeleton() {
   );
 }
 
-export default function FreesPage() {
+export default async function FreesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ event?: string }>;
+}) {
+  const params = await searchParams;
+  const eventoId = params.event ?? "";
   return (
     <main id="main-content" className="min-h-screen bg-[#FAFAFA]">
-      <Suspense fallback={<FreesSkeleton />}>
-        <FreesContent />
+      <Suspense key={eventoId} fallback={<FreesSkeleton />}>
+        <FreesContent eventoId={eventoId} />
       </Suspense>
     </main>
   );

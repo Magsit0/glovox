@@ -54,6 +54,14 @@ const ALL_SECTIONS = [
     accentText: "text-black",
     icon: "gift",
   },
+  {
+    title: "FF&BB",
+    description: "Resultados de operación alimentos y bebidas.",
+    href: "/ffbb",
+    accentClass: "bg-[#722F37]",
+    accentText: "text-white",
+    icon: "bottle-wine",
+  },
 ];
 
 export default async function HomePage() {
