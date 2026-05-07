@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import { auth } from "@/lib/auth";
 import Skeleton from "@/components/Skeleton";
 import KpiCard from "@/components/KpiCard";
 import TopSellersTable from "@/components/TopSellersTable";
@@ -146,15 +147,22 @@ export default async function ClubDashboardPage({
   searchParams: Promise<{ country?: string }>;
 }) {
   const params = await searchParams;
-  const country: Country =
-    params.country === "chile" || params.country === "peru"
+  const session = await auth();
+  // Session country (PE/CL) locks the view; URL ?country is only honored
+  // for unrestricted users (country=null, e.g. glovox.cl staff).
+  const sessionCountry = session?.user?.country ?? null;
+  const country: Country = sessionCountry
+    ? sessionCountry === "PE"
+      ? "peru"
+      : "chile"
+    : params.country === "chile" || params.country === "peru"
       ? params.country
       : "all";
 
   return (
     <main id="main-content" className="mx-auto max-w-7xl space-y-4 px-4 py-6 sm:space-y-5 sm:px-6 sm:py-8">
 
-      <CountryFilter active={country} />
+      <CountryFilter active={country} locked={!!sessionCountry} />
 
       <Suspense fallback={<Skeleton height={96} />}>
         <KpiStrip country={country} />

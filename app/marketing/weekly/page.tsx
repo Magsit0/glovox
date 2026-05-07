@@ -2,7 +2,6 @@ import { Suspense } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
-import { getDashboardScope } from "@/lib/permissions";
 import {
   getEventList,
   getUpcomingEvents,
@@ -53,11 +52,7 @@ export default async function MarketingWeeklyPage({
 }) {
   const params = await searchParams;
   const session = await auth();
-  const scope =
-    getDashboardScope(
-      session?.user?.permissions ?? [],
-      "/marketing/weekly",
-    ) ?? undefined;
+  const scope: Scope = { country: session?.user?.country ?? null };
   const [events, upcomingEvents] = await Promise.all([
     getEventList(scope),
     getUpcomingEvents(scope),

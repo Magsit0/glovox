@@ -1,4 +1,9 @@
 import { query } from "@/lib/bigquery";
+import {
+  countryTicketeraFilter,
+  hasCountryScope,
+  type DataScope,
+} from "@/lib/scopes";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 const TICKETS = `\`${P}.glovox.tickets\``;
@@ -23,28 +28,16 @@ const TICKET_TYPE_FILTER = `
   AND EsDevuelto IS FALSE
 `;
 
-// ---------- Data scope (ticketera filter) ----------
+// ---------- Data scope ----------
 //
-// `scope` comes from the user's permissions (see lib/permissions.ts).
-// When scope.ticketera is set, queries are restricted to those values via a
-// BigQuery named parameter — never via SQL interpolation.
+// `scope` carries the user's country attribute (from session.user.country).
+// `ticketeraFilter` derives the actual `Ticketera IN UNNEST(...)` clause from
+// COUNTRY_TICKETERAS in lib/scopes.ts — never via SQL interpolation.
 
-export type Scope = { ticketera?: string[] };
+export type Scope = DataScope;
 
-function ticketeraFilter(
-  scope: Scope | undefined,
-  prefix = "",
-): { sql: string; params: Record<string, unknown> } {
-  if (!scope?.ticketera?.length) return { sql: "", params: {} };
-  return {
-    sql: ` AND ${prefix}Ticketera IN UNNEST(@ticketeraScope)`,
-    params: { ticketeraScope: scope.ticketera },
-  };
-}
-
-function hasScope(scope: Scope | undefined): boolean {
-  return !!scope?.ticketera?.length;
-}
+const ticketeraFilter = countryTicketeraFilter;
+const hasScope = hasCountryScope;
 
 function n(v: unknown): number {
   if (v == null) return 0;

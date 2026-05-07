@@ -74,7 +74,10 @@ export default async function HomePage() {
 
   return (
     <div className="relative">
-      <UserBar email={session?.user?.email} />
+      <UserBar
+        email={session?.user?.email}
+        isSuperadmin={session?.user?.role === "superadmin"}
+      />
       <HomeDashboards sections={visibleSections} />
     </div>
   );

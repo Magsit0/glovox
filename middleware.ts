@@ -18,6 +18,16 @@ export default auth((req) => {
     return NextResponse.redirect(new URL("/", req.nextUrl.origin));
   }
 
+  // /admin/* is gated on role; api/admin guards itself in handlers.
+  if (isLoggedIn && pathname.startsWith("/admin")) {
+    if (req.auth?.user?.role !== "superadmin") {
+      const homeUrl = new URL("/", req.nextUrl.origin);
+      homeUrl.searchParams.set("unauthorized", "1");
+      return NextResponse.redirect(homeUrl);
+    }
+    return NextResponse.next();
+  }
+
   // API routes and public paths skip dashboard permission checks.
   if (PUBLIC_PATHS.includes(pathname) || pathname.startsWith("/api/")) {
     return NextResponse.next();
