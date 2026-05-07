@@ -13,7 +13,6 @@ const SUPERADMIN_EMAIL = "maximiliano@glovox.cl";
 const ALL_DASHBOARD_KEYS = [
   "club",
   "marketing.weekly",
-  "marketingPE.weekly",
   "unabase.cierre-mensual",
   "donations",
   "onepager",
@@ -64,13 +63,6 @@ const DASHBOARD_CATALOG = [
     label: "Marketing semanal",
     appliesCountryScope: true,
     sortOrder: 20,
-  },
-  {
-    key: "marketingPE.weekly",
-    pathPrefix: "/marketingPE/weekly",
-    label: "Marketing semanal — Perú",
-    appliesCountryScope: true,
-    sortOrder: 21,
   },
   {
     key: "unabase.cierre-mensual",
