@@ -78,17 +78,13 @@ export default async function MarketingWeeklyPage({
       ? [params.landingPage]
       : [];
 
-  // Comparators: same category as the main event, excluding it. Filtering
-  // against the already-scoped `events` list enforces both the user's data
-  // scope and the same-category constraint server-side.
+  // Comparators: any event the user can see (already scoped by country in
+  // `getEventList`), excluding the main event itself. The selector lets the
+  // user drill in by category first, then pick events.
   const mainEvent = events.find((e) => e.eventoId === selectedId);
-  const comparableEvents: EventOption[] = mainEvent
-    ? events.filter(
-        (e) =>
-          e.eventoId !== selectedId &&
-          e.categoriaEvento === mainEvent.categoriaEvento,
-      )
-    : [];
+  const comparableEvents: EventOption[] = events.filter(
+    (e) => e.eventoId !== selectedId,
+  );
   const rawCompare = Array.isArray(params.compare)
     ? params.compare
     : params.compare
@@ -136,6 +132,7 @@ export default async function MarketingWeeklyPage({
             <CumulativeSalesSection
               eventoId={selectedId}
               mainNombre={mainEvent?.nombre ?? selectedId}
+              mainCategoria={mainEvent?.categoriaEvento ?? ""}
               compareIds={compareIds}
               comparableEvents={comparableEvents}
               scope={scope}
@@ -197,12 +194,14 @@ async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }
 async function CumulativeSalesSection({
   eventoId,
   mainNombre,
+  mainCategoria,
   compareIds,
   comparableEvents,
   scope,
 }: {
   eventoId: string;
   mainNombre: string;
+  mainCategoria: string;
   compareIds: string[];
   comparableEvents: EventOption[];
   scope?: Scope;
@@ -235,8 +234,10 @@ async function CumulativeSalesSection({
           eventoId: e.eventoId,
           nombre: e.nombre,
           fechaEvento: e.fechaEvento,
+          categoriaEvento: e.categoriaEvento,
         }))}
         selected={compareIds}
+        defaultCategory={mainCategoria}
       />
       <CumulativeSalesComparisonChart
         series={series}

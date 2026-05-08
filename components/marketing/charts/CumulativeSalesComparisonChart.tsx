@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -109,6 +109,18 @@ export default function CumulativeSalesComparisonChart({
     return { chartData, eventOrder, labelByEventoId };
   }, [series, mainEventoId, events, saleStartDaysToEvent, goalTickets]);
 
+  const [zoomLast50, setZoomLast50] = useState(false);
+
+  const visibleChartData = useMemo(
+    () =>
+      zoomLast50
+        ? chartData.filter(
+            (r) => r.daysToEvent >= 0 && r.daysToEvent <= 50,
+          )
+        : chartData,
+    [chartData, zoomLast50],
+  );
+
   if (chartData.length === 0) {
     return (
       <p className="font-mono-data text-sm text-black/50">
@@ -118,11 +130,26 @@ export default function CumulativeSalesComparisonChart({
   }
 
   return (
-    <ResponsiveContainer width="100%" height={360}>
-      <ComposedChart
-        data={chartData}
-        margin={{ top: 16, right: 16, bottom: 8, left: 0 }}
-      >
+    <>
+      <div className="flex justify-end mb-2">
+        <button
+          type="button"
+          onClick={() => setZoomLast50(!zoomLast50)}
+          aria-pressed={zoomLast50}
+          className={`border-2 border-black rounded-none font-mono-data text-xs px-3 py-1.5 cursor-pointer transition-colors duration-150 shadow-[4px_4px_0px_#000] ${
+            zoomLast50
+              ? "bg-[#FFFF00] text-black font-bold"
+              : "bg-white text-black hover:bg-[#FFFF00]"
+          }`}
+        >
+          {zoomLast50 ? "Ver todo" : "Últimos 50 días"}
+        </button>
+      </div>
+      <ResponsiveContainer width="100%" height={360}>
+        <ComposedChart
+          data={visibleChartData}
+          margin={{ top: 16, right: 16, bottom: 8, left: 0 }}
+        >
         <CartesianGrid stroke="#000" strokeDasharray="3 3" strokeOpacity={0.2} />
         <XAxis
           dataKey="daysToEvent"
@@ -227,7 +254,8 @@ export default function CumulativeSalesComparisonChart({
             fill: "#FF0000",
           }}
         />
-      </ComposedChart>
-    </ResponsiveContainer>
+        </ComposedChart>
+      </ResponsiveContainer>
+    </>
   );
 }

@@ -7,23 +7,41 @@ type CompareEventOption = {
   eventoId: string;
   nombre: string;
   fechaEvento: string;
+  categoriaEvento: string;
 };
 
 type Props = {
   events: CompareEventOption[];
   selected: string[];
+  defaultCategory?: string;
 };
 
-export default function CompareEventSelector({ events, selected }: Props) {
+export default function CompareEventSelector({
+  events,
+  selected,
+  defaultCategory = "",
+}: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
+  const [category, setCategory] = useState(defaultCategory);
+  const [catOpen, setCatOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const catRef = useRef<HTMLDivElement>(null);
+
+  const categories = useMemo(
+    () => [...new Set(events.map((e) => e.categoriaEvento))].sort(),
+    [events],
+  );
 
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (catRef.current && !catRef.current.contains(target)) {
+        setCatOpen(false);
+      }
+      if (ref.current && !ref.current.contains(target)) {
         setOpen(false);
       }
     }
@@ -50,14 +68,17 @@ export default function CompareEventSelector({ events, selected }: Props) {
   }
 
   const filtered = useMemo(() => {
+    const byCat = category
+      ? events.filter((e) => e.categoriaEvento === category)
+      : events;
     const q = search.trim().toLowerCase();
-    if (!q) return events;
-    return events.filter(
+    if (!q) return byCat;
+    return byCat.filter(
       (e) =>
         e.nombre.toLowerCase().includes(q) ||
         e.eventoId.toLowerCase().includes(q),
     );
-  }, [events, search]);
+  }, [events, category, search]);
 
   const triggerLabel =
     selected.length === 0
@@ -81,12 +102,52 @@ export default function CompareEventSelector({ events, selected }: Props) {
         }`}
       >
         <span className="truncate max-w-[280px]">
-          Comparar: {disabled ? "Sin eventos en categoría" : triggerLabel}
+          Comparar: {disabled ? "Sin eventos disponibles" : triggerLabel}
         </span>
         <span className="font-display text-xs">{open ? "▲" : "▼"}</span>
       </button>
       {open && !disabled && (
         <div className="absolute top-full left-0 mt-1 z-40 bg-white border-4 border-black rounded-none shadow-[4px_4px_0px_#000] min-w-[320px] w-max max-w-[520px]">
+          <div className="p-2 border-b-2 border-black">
+            <div ref={catRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setCatOpen(!catOpen)}
+                className="w-full bg-white border-2 border-black rounded-none font-mono-data text-xs px-2 py-1 text-black flex items-center gap-2 justify-between hover:bg-[#FFFF00] cursor-pointer transition-colors duration-150"
+              >
+                <span className="truncate">
+                  {category || "Todas las categorías"}
+                </span>
+                <span className="font-display text-xs">
+                  {catOpen ? "▲" : "▼"}
+                </span>
+              </button>
+              {catOpen && (
+                <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white border-2 border-black rounded-none shadow-[4px_4px_0px_#000] max-h-72 overflow-y-auto">
+                  {[
+                    { value: "", label: "Todas las categorías" },
+                    ...categories.map((c) => ({ value: c, label: c })),
+                  ].map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => {
+                        setCategory(opt.value);
+                        setCatOpen(false);
+                      }}
+                      className={`w-full text-left px-2 py-1 font-mono-data text-xs border-b-2 border-black last:border-b-0 transition-colors duration-150 cursor-pointer ${
+                        opt.value === category
+                          ? "bg-[#FFFF00] text-black font-bold"
+                          : "hover:bg-[#FFFF00] text-black"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
           <div className="p-2 border-b-2 border-black flex items-center gap-2">
             <input
               type="text"
@@ -136,7 +197,7 @@ export default function CompareEventSelector({ events, selected }: Props) {
                         {ev.eventoId} — {ev.nombre}
                       </span>
                       <span className="block text-[10px] opacity-60">
-                        {ev.fechaEvento}
+                        {ev.fechaEvento} · {ev.categoriaEvento}
                       </span>
                     </span>
                   </button>
