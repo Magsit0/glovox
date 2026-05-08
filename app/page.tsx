@@ -62,6 +62,15 @@ const ALL_SECTIONS = [
     accentText: "text-white",
     icon: "bottle-wine",
   },
+  {
+    title: "CIERRE NEGOCIO",
+    description:
+      "Informe de cierre por negocio: presupuesto vs gasto real, top proveedores y estado de las OCs.",
+    href: "/cierre-negocio",
+    accentClass: "bg-[#9F99F8]",
+    accentText: "text-white",
+    icon: "briefcase",
+  },
 ];
 
 export default async function HomePage() {

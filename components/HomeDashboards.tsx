@@ -11,10 +11,11 @@ import {
   Ticket,
   Gift,
   Globe,
-  BottleWine,
   Lock,
   AlertCircle,
   X,
+  BottleWine,
+  Briefcase,
 } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -27,7 +28,8 @@ const ICON_MAP: Record<string, React.ElementType> = {
   ticket: Ticket,
   gift: Gift,
   globe: Globe,
-  "bottle-wine": BottleWine,
+  BottleWine: BottleWine,
+  briefcase: Briefcase,
 };
 
 interface Section {
@@ -48,21 +50,15 @@ const MAX_COLS = 4;
 export default function HomeDashboards({ sections }: HomeDashboardsProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [dismissedBannerKey, setDismissedBannerKey] = useState<string | null>(
-    null,
-  );
-  const unauthorizedBannerKey =
-    searchParams.get("unauthorized") === "1" ? searchParams.toString() : null;
-  const showBanner =
-    unauthorizedBannerKey !== null &&
-    dismissedBannerKey !== unauthorizedBannerKey;
+  const [showBanner, setShowBanner] = useState(false);
 
   useEffect(() => {
-    if (unauthorizedBannerKey) {
+    if (searchParams.get("unauthorized") === "1") {
+      setShowBanner(true);
       // Clean the URL without re-rendering
       router.replace("/", { scroll: false });
     }
-  }, [unauthorizedBannerKey, router]);
+  }, [searchParams, router]);
 
   const numRows =
     sections.length > 0 ? Math.ceil(sections.length / MAX_COLS) : 1;
@@ -96,7 +92,7 @@ export default function HomeDashboards({ sections }: HomeDashboardsProps) {
               No tienes acceso a ese dashboard
             </span>
             <button
-              onClick={() => setDismissedBannerKey(unauthorizedBannerKey)}
+              onClick={() => setShowBanner(false)}
               aria-label="Cerrar aviso"
               className="ml-2 shrink-0 text-black hover:opacity-60"
             >
@@ -187,7 +183,7 @@ export default function HomeDashboards({ sections }: HomeDashboardsProps) {
                   href={section.href}
                   className="group flex h-full flex-col border-4 border-black bg-white p-6 shadow-[4px_4px_0px_#000000] transition-transform hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_#000000]"
                 >
-                  <div className="mb-4 flex flex-col items-start gap-4 sm:flex-row">
+                  <div className="mb-4 flex items-center gap-4">
                     <div
                       className={`inline-flex shrink-0 items-center justify-center border-2 border-black p-3 ${section.accentClass}`}
                     >
@@ -197,7 +193,7 @@ export default function HomeDashboards({ sections }: HomeDashboardsProps) {
                         strokeWidth={2.5}
                       />
                     </div>
-                    <h2 className="min-w-0 max-w-full font-display text-base font-black uppercase leading-tight tracking-tight text-black sm:flex-1 sm:text-lg lg:text-xl">
+                    <h2 className="min-w-0 font-display text-xl font-black uppercase leading-none tracking-tight text-black sm:text-2xl">
                       {section.title}
                     </h2>
                   </div>

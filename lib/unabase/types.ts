@@ -96,3 +96,57 @@ export interface NegocioRow {
   updated_at: string;
   user_name: string;
 }
+
+// Cierre de negocio (informe individual)
+
+export interface NegocioItemRow {
+  row_id: string;
+  external_id: string;
+  categoria: string;
+  subcategoria: string;
+  item: string;
+  descripcion: string;
+  cantidad: number;
+  pu_venta: number;
+  subtotal_venta: number;
+  pu_gasto_presupuestado: number;
+  subtotal_gasto_pre: number;
+  gasto_real: number;
+  diferencia: number;
+  porc_diferencia: string;
+  llave_item: string;
+}
+
+export interface DetalleGastoRow {
+  negocio: string;
+  id: string;
+  llave_nv: string;
+  proveedor: string;
+  rut: string;
+  doc: string;
+  folio: string;
+  fecha: string | null;
+  vencimiento: string | null;
+  referencia: string;
+  estado: string;
+  validado: string;
+  excluir_gasto: string;
+  costoempresa: number;
+  item_categoria: string;
+  item_sub_categoria: string;
+  item_nombre: string;
+  item_nombreGasto: string;
+  item_text_negocio: string;
+  item_tipo_documento: string;
+  item_tipo_gasto: string;
+  item_estado_ops: string;
+  item_justificado: string;
+}
+
+export interface NegocioOption {
+  external_id: string;
+  referencia: string;
+  area_negocio: string;
+  estado: string;
+  estadocierre: string;
+}
