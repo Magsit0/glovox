@@ -71,6 +71,15 @@ const ALL_SECTIONS = [
     accentText: "text-white",
     icon: "briefcase",
   },
+  {
+    title: "CIERRE TRIMESTRAL",
+    description:
+      "Cierre de eventos agregado por trimestre: ventas, asistentes, per cápita y desglose por categoría.",
+    href: "/cierre-trimestral",
+    accentClass: "bg-[#87DACD]",
+    accentText: "text-black",
+    icon: "calendar-range",
+  },
 ];
 
 export default async function HomePage() {

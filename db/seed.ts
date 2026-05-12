@@ -99,6 +99,13 @@ const DASHBOARD_CATALOG = [
     appliesCountryScope: true,
     sortOrder: 70,
   },
+  {
+    key: "cierre-negocio",
+    pathPrefix: "/cierre-negocio",
+    label: "Cierre negocio",
+    appliesCountryScope: false,
+    sortOrder: 80,
+  },
 ] as const;
 
 async function main() {

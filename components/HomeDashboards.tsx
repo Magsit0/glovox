@@ -16,6 +16,7 @@ import {
   X,
   BottleWine,
   Briefcase,
+  CalendarRange,
 } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -30,6 +31,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   globe: Globe,
   BottleWine: BottleWine,
   briefcase: Briefcase,
+  "calendar-range": CalendarRange,
 };
 
 interface Section {
