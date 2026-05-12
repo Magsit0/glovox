@@ -7,10 +7,14 @@ import {
   type Country,
   type Role,
 } from "./schema";
+import { DASHBOARDS_CATALOG } from "../lib/dashboards-catalog";
 
 const SUPERADMIN_EMAIL = "maximiliano@glovox.cl";
 
-const ALL_DASHBOARD_KEYS = [
+// Mantiene el comportamiento previo (todos los dashboards del v1 sin incluir
+// cierre-negocio/trimestral); se filtra del catálogo para evitar duplicar la
+// lista a mano.
+const LEGACY_TEAM_KEYS = [
   "club",
   "marketing.weekly",
   "unabase.cierre-mensual",
@@ -19,6 +23,9 @@ const ALL_DASHBOARD_KEYS = [
   "frees",
   "ffbb",
 ];
+const ALL_DASHBOARD_KEYS = DASHBOARDS_CATALOG
+  .map((d) => d.key)
+  .filter((k) => LEGACY_TEAM_KEYS.includes(k));
 
 type SeedUser = {
   email: string;
@@ -49,64 +56,13 @@ const TEAM_USERS: SeedUser[] = [
   },
 ];
 
-const DASHBOARD_CATALOG = [
-  {
-    key: "club",
-    pathPrefix: "/club",
-    label: "Club Glovox",
-    appliesCountryScope: true,
-    sortOrder: 10,
-  },
-  {
-    key: "marketing.weekly",
-    pathPrefix: "/marketing/weekly",
-    label: "Marketing semanal",
-    appliesCountryScope: true,
-    sortOrder: 20,
-  },
-  {
-    key: "unabase.cierre-mensual",
-    pathPrefix: "/unabase/cierre-mensual",
-    label: "Unabase — cierre mensual",
-    appliesCountryScope: false,
-    sortOrder: 30,
-  },
-  {
-    key: "donations",
-    pathPrefix: "/donations",
-    label: "Donaciones",
-    appliesCountryScope: true,
-    sortOrder: 40,
-  },
-  {
-    key: "onepager",
-    pathPrefix: "/onepager",
-    label: "Onepager",
-    appliesCountryScope: true,
-    sortOrder: 50,
-  },
-  {
-    key: "frees",
-    pathPrefix: "/frees",
-    label: "Cortesías",
-    appliesCountryScope: true,
-    sortOrder: 60,
-  },
-  {
-    key: "ffbb",
-    pathPrefix: "/ffbb",
-    label: "Alimentos y bebidas",
-    appliesCountryScope: true,
-    sortOrder: 70,
-  },
-  {
-    key: "cierre-negocio",
-    pathPrefix: "/cierre-negocio",
-    label: "Cierre negocio",
-    appliesCountryScope: false,
-    sortOrder: 80,
-  },
-] as const;
+const DASHBOARD_CATALOG = DASHBOARDS_CATALOG.map((d) => ({
+  key: d.key,
+  pathPrefix: d.pathPrefix,
+  label: d.label,
+  appliesCountryScope: d.appliesCountryScope,
+  sortOrder: d.sortOrder,
+}));
 
 async function main() {
   console.log("→ Seeding dashboards catalog…");

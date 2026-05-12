@@ -1,11 +1,15 @@
 import { listDashboards, listUsers } from "@/lib/admin-users-service";
 import { requireSuperadmin } from "@/lib/access";
+import { ensureDashboardsCatalog } from "@/lib/ensureDashboardsCatalog";
 import { UsersMatrix } from "./_components/UsersMatrix";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminUsersPage() {
   const me = await requireSuperadmin();
+  // Asegura que cualquier dashboard nuevo agregado al catálogo en código
+  // aparezca como opción asignable antes de listar.
+  await ensureDashboardsCatalog();
   const [users, catalog] = await Promise.all([listUsers(), listDashboards()]);
 
   // Strip Date objects → ISO strings so they cross the server/client boundary.

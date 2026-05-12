@@ -1,94 +1,26 @@
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
+import { DASHBOARDS_CATALOG } from "@/lib/dashboards-catalog";
+import { ensureDashboardsCatalog } from "@/lib/ensureDashboardsCatalog";
 import HomeDashboards from "@/components/HomeDashboards";
 import { UserBar } from "@/app/_components/user-bar";
 
-const ALL_SECTIONS = [
-  {
-    title: "CLUB GLOVOX",
-    description:
-      "Ventas de la comunidad, análisis de vendedores, rendimiento de eventos y paneles de ganancias.",
-    href: "/club",
-    accentClass: "bg-[#0000FF]",
-    accentText: "text-white",
-    icon: "users",
-  },
-  {
-    title: "MARKETING",
-    description:
-      "Resumen semanal de marketing: paid media, origen de ventas, referidos del club y rendimiento de campañas.",
-    href: "/marketing/weekly",
-    accentClass: "bg-[#FFFF00]",
-    accentText: "text-black",
-    icon: "megaphone",
-  },
-  {
-    title: "UNABASE",
-    description: "Cierres mensuales por negocio y área de negocios",
-    href: "/unabase/cierre-mensual",
-    accentClass: "bg-[#FF0000]",
-    accentText: "text-white",
-    icon: "database",
-  },
-  {
-    title: "DONACIONES",
-    description: "Resumen de donaciones de Mercado Pago, cortesías y Yoga.",
-    href: "/donations",
-    accentClass: "bg-black",
-    accentText: "text-[#FFFF00]",
-    icon: "heart",
-  },
-  {
-    title: "ONEPAGER",
-    description: "Resumen de ventas de tickets y AA&BB.",
-    href: "/onepager",
-    accentClass: "bg-[#FF0000]",
-    accentText: "text-[#FFFF00]",
-    icon: "ticket",
-  },
-  {
-    title: "CORTESIAS",
-    description: "Resumen de cortesías entregadas.",
-    href: "/frees",
-    accentClass: "bg-[#00FF00]",
-    accentText: "text-black",
-    icon: "gift",
-  },
-  {
-    title: "FF&BB",
-    description: "Resultados de operación alimentos y bebidas.",
-    href: "/ffbb",
-    accentClass: "bg-[#722F37]",
-    accentText: "text-white",
-    icon: "bottle-wine",
-  },
-  {
-    title: "CIERRE NEGOCIO",
-    description:
-      "Informe de cierre por negocio: presupuesto vs gasto real, top proveedores y estado de las OCs.",
-    href: "/cierre-negocio",
-    accentClass: "bg-[#9F99F8]",
-    accentText: "text-white",
-    icon: "briefcase",
-  },
-  {
-    title: "CIERRE TRIMESTRAL",
-    description:
-      "Cierre de eventos agregado por trimestre: ventas, asistentes, per cápita y desglose por categoría.",
-    href: "/cierre-trimestral",
-    accentClass: "bg-[#87DACD]",
-    accentText: "text-black",
-    icon: "calendar-range",
-  },
-];
-
 export default async function HomePage() {
+  // Mantiene la tabla `dashboards` en Neon sincronizada con el catálogo en
+  // código. Idempotente y a lo sumo una vez por proceso.
+  await ensureDashboardsCatalog();
+
   const session = await auth();
   const permissions = session?.user?.permissions ?? [];
 
-  const visibleSections = ALL_SECTIONS.filter((s) =>
-    canAccessPath(permissions, s.href),
-  );
+  const sections = DASHBOARDS_CATALOG.map((d) => ({
+    title: d.title,
+    description: d.description,
+    href: d.pathPrefix,
+    accentClass: d.accentClass,
+    accentText: d.accentText,
+    icon: d.icon,
+  })).filter((s) => canAccessPath(permissions, s.href));
 
   return (
     <div className="relative">
@@ -96,7 +28,7 @@ export default async function HomePage() {
         email={session?.user?.email}
         isSuperadmin={session?.user?.role === "superadmin"}
       />
-      <HomeDashboards sections={visibleSections} />
+      <HomeDashboards sections={sections} />
     </div>
   );
 }
