@@ -11,6 +11,7 @@
  * vista de admin (para que `listDashboards()` muestre los nuevos como
  * opción de permiso).
  */
+import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { dashboards } from "@/db/schema";
 import { DASHBOARDS_CATALOG } from "@/lib/dashboards-catalog";
@@ -19,6 +20,10 @@ let synced = false;
 let inflight: Promise<void> | null = null;
 
 async function runSync(): Promise<void> {
+  // Inserta nuevas entradas con los valores del catálogo (seed inicial).
+  // En conflicto solo actualiza campos NO editables por el superadmin
+  // (`pathPrefix`, `appliesCountryScope`) para no pisar ediciones runtime
+  // de `label`, `title`, `description` y `sortOrder`.
   for (const d of DASHBOARDS_CATALOG) {
     await db
       .insert(dashboards)
@@ -28,14 +33,19 @@ async function runSync(): Promise<void> {
         label: d.label,
         appliesCountryScope: d.appliesCountryScope,
         sortOrder: d.sortOrder,
+        title: d.title,
+        description: d.description,
       })
       .onConflictDoUpdate({
         target: dashboards.key,
         set: {
           pathPrefix: d.pathPrefix,
-          label: d.label,
           appliesCountryScope: d.appliesCountryScope,
-          sortOrder: d.sortOrder,
+          // Seed inicial idempotente: si en DB el campo está vacío (default
+          // tras la migración), lo llenamos con el valor del catálogo; si ya
+          // tiene contenido (edición del superadmin), lo respetamos.
+          title: sql`CASE WHEN ${dashboards.title} = '' THEN ${d.title} ELSE ${dashboards.title} END`,
+          description: sql`CASE WHEN ${dashboards.description} = '' THEN ${d.description} ELSE ${dashboards.description} END`,
         },
       });
   }

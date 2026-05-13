@@ -15,6 +15,13 @@
       "when": 1778693330238,
       "tag": "0001_tired_serpent_society",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1778703266641,
+      "tag": "0002_sharp_magik",
+      "breakpoints": true
     }
   ]
 }

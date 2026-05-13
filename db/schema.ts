@@ -39,6 +39,8 @@ export const dashboards = pgTable("dashboards", {
     .notNull()
     .default(false),
   sortOrder: integer("sort_order").notNull().default(0),
+  title: text("title").notNull().default(""),
+  description: text("description").notNull().default(""),
 });
 
 export const userDashboardAccess = pgTable(
