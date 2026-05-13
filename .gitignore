@@ -41,3 +41,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+#prueba 1 dashboard entel
+BBDD_Entel_The_Grid_FINAL.xlsx
+ENTEL_THE_GRID_SYSTEM.html

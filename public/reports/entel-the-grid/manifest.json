@@ -1,0 +1,75 @@
+{
+  "logo": "/reports/entel-the-grid/logo.png",
+  "hero": [
+    "/reports/entel-the-grid/hero/1.jpg",
+    "/reports/entel-the-grid/hero/2.jpg",
+    "/reports/entel-the-grid/hero/3.jpg",
+    "/reports/entel-the-grid/hero/4.jpg",
+    "/reports/entel-the-grid/hero/5.jpg"
+  ],
+  "gallery": [
+    {
+      "src": "/reports/entel-the-grid/gallery/01.jpg",
+      "caption": "Activación Entel — punto de canje",
+      "span": "tall"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/02.jpg",
+      "caption": "Distribución de vasos Entel"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/03.jpg",
+      "caption": "Equipo en terreno"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/04.jpg",
+      "caption": "Flujo de público"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/05.jpg",
+      "caption": "Stand Entel en horario peak"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/06.jpg",
+      "caption": "Operación general del evento",
+      "span": "wide"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/07.jpg",
+      "caption": "Control de acceso al beneficio"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/08.jpg",
+      "caption": "Activación en alta demanda"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/09.jpg",
+      "caption": "Público participante"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/10.jpg",
+      "caption": "Vista general — Espacio Riesco",
+      "span": "tall"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/11.jpg",
+      "caption": "Canje de beneficio Entel"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/12.jpg",
+      "caption": "Dinámica de activación"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/13.jpg",
+      "caption": "Momento de entrega"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/14.jpg",
+      "caption": "Guardarropía Entel"
+    },
+    {
+      "src": "/reports/entel-the-grid/gallery/15.jpg",
+      "caption": "Cierre de activación"
+    }
+  ]
+}

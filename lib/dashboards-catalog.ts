@@ -146,6 +146,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentClass: "bg-[#87DACD]",
     accentText: "text-black",
   },
+  {
+    key: "reportes.entel.the-grid",
+    pathPrefix: "/reportes/entel-the-grid",
+    label: "Entel · The Grid",
+    appliesCountryScope: false,
+    sortOrder: 100,
+    title: "ENTEL · THE GRID",
+    description:
+      "Reporte de activación Entel en The Grid · kiki — 9 mayo 2026 (Espacio Riesco).",
+    icon: "megaphone",
+    accentClass: "bg-[#0033CC]",
+    accentText: "text-white",
+  },
 ] as const;
 
 export type DashboardKey = (typeof DASHBOARDS_CATALOG)[number]["key"];
