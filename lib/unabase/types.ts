@@ -150,3 +150,41 @@ export interface NegocioOption {
   estado: string;
   estadocierre: string;
 }
+
+export interface VentasAggregateRaw {
+  ventaBrutaNeta: number;
+  ncNeta: number;
+  ndNeta: number;
+  ventaBrutaTotal: number;
+  ivaTotal: number;
+  cobrado: number;
+  porCobrar: number;
+  docsVenta: number;
+  docsNC: number;
+  docsND: number;
+}
+
+export interface DocVentaRow {
+  id: string;
+  folio: string;
+  descripcion: string;
+  referencia: string;
+  tipoDocumentoVentaAbrev: string;
+  fechaEmision: string | null;
+  rut: string;
+  cliente: string;
+  totalNeto_raw: number;
+  totalExento_raw: number;
+  iva_raw: number;
+  totalFactura_raw: number;
+  cobrado_raw: number;
+  porCobrar_raw: number;
+  exchange_monto_facturado: number;
+  estado: string;
+  responsable: string;
+  nc: number;
+  nd: number;
+  is_nc: boolean;
+  is_nd: boolean;
+  id_ref: string;
+}

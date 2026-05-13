@@ -69,6 +69,13 @@ export type OnepagerCategoriaRow = {
   qtty: number;
 };
 
+export type OnepagerFfbbCategoriaProductoRow = {
+  categoria: string;
+  producto: string;
+  venta: number;
+  qtty: number;
+};
+
 export type OnepagerAsistenciaRow = {
   ventaNoventa: string;
   qtty: number;
@@ -429,6 +436,31 @@ export async function getOnepagerFfbbByCategoria(
   );
   return rows.map((r) => ({
     categoria: s(r.categoria),
+    venta:     n(r.venta),
+    qtty:      n(r.qtty),
+  }));
+}
+
+export async function getOnepagerFfbbByCategoriaProducto(
+  eventoId: string
+): Promise<OnepagerFfbbCategoriaProductoRow[]> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    ${ffbbCte()}
+    SELECT
+      Categoria      AS categoria,
+      TipoProducto   AS producto,
+      SUM(Venta)     AS venta,
+      SUM(Qtty)      AS qtty
+    FROM base
+    GROUP BY Categoria, TipoProducto
+    ORDER BY venta DESC
+    `,
+    { eventoId }
+  );
+  return rows.map((r) => ({
+    categoria: s(r.categoria),
+    producto:  s(r.producto),
     venta:     n(r.venta),
     qtty:      n(r.qtty),
   }));

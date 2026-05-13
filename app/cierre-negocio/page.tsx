@@ -12,6 +12,9 @@ import CategoriaBreakdown from "@/components/cierre-negocio/CategoriaBreakdown";
 import CategoriaTree from "@/components/cierre-negocio/CategoriaTree";
 import TopProveedoresChart from "@/components/cierre-negocio/TopProveedoresChart";
 import OcStatusPanel from "@/components/cierre-negocio/OcStatusPanel";
+import ResumenKpis from "@/components/cierre-negocio/ResumenKpis";
+import VentasSection from "@/components/cierre-negocio/VentasSection";
+import DownloadPdfButton from "@/components/cierre-negocio/DownloadPdfButton";
 
 export const dynamic = "force-dynamic";
 
@@ -67,7 +70,11 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
     );
   }
 
-  if (detail.items.length === 0 && detail.gastos.length === 0) {
+  if (
+    detail.items.length === 0 &&
+    detail.gastos.length === 0 &&
+    detail.ventas.length === 0
+  ) {
     return (
       <Shell>
         <Heading />
@@ -78,30 +85,53 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
           </p>
           <p className="mt-2 font-sans text-sm text-[#666666]">
             El negocio <span className="font-medium text-[#333333]">{id}</span> no tiene items
-            presupuestados ni gastos asociados.
+            presupuestados, gastos ni ventas asociadas.
           </p>
         </section>
       </Shell>
     );
   }
 
-  const agg = aggregateNegocio(detail.items, detail.gastos);
+  const agg = aggregateNegocio(
+    detail.items,
+    detail.gastos,
+    detail.ventas,
+    detail.ventasAggregate,
+  );
+
+  const referencia = detail.negocio?.referencia?.trim() || `Negocio ${id}`;
+  const pdfFilename = `Cierre ${id} - ${referencia}`;
 
   return (
     <Shell>
       <Heading />
       <SelectorRow options={options} selectedId={id} />
-      <NegocioHeader negocio={detail.negocio} externalId={id} />
-      <KpiRow agg={agg} />
-      <CategoriaBreakdown
-        rows={agg.porCategoria}
-        itemsConOcByCategoria={agg.itemsConOcByCategoria}
-      />
-      <CategoriaTree arbol={agg.arbol} />
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <TopProveedoresChart rows={agg.topProveedores} />
-        <OcStatusPanel ocStatus={agg.ocStatus} />
+      <div className="flex justify-end" data-no-print="true">
+        <DownloadPdfButton filename={pdfFilename} />
       </div>
+      <NegocioHeader negocio={detail.negocio} externalId={id} />
+      <ResumenKpis agg={agg} />
+      <VentasSection agg={agg} ventas={detail.ventas} />
+      <section className="flex flex-col gap-6">
+        <header className="flex flex-wrap items-baseline gap-3">
+          <h2 className="font-display text-xl font-bold tracking-tight text-[#333333]">
+            Gastos
+          </h2>
+          <span className="font-sans text-xs text-[#666666]">
+            Presupuesto vs gasto real, desglose por categoría y proveedores
+          </span>
+        </header>
+        <KpiRow agg={agg} />
+        <CategoriaBreakdown
+          rows={agg.porCategoria}
+          itemsConOcByCategoria={agg.itemsConOcByCategoria}
+        />
+        <CategoriaTree arbol={agg.arbol} />
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <TopProveedoresChart rows={agg.topProveedores} />
+          <OcStatusPanel ocStatus={agg.ocStatus} />
+        </div>
+      </section>
     </Shell>
   );
 }
@@ -120,6 +150,7 @@ function Heading() {
       <Link
         href="/"
         aria-label="Volver al menú principal"
+        data-no-print="true"
         className="inline-flex w-fit items-center justify-center rounded-full border border-[#E5E5E5] bg-white p-1.5 transition-colors hover:bg-[#FAFAFA]"
       >
         <Image src="/glovox_logo_gvx_black.svg" alt="Glovox" width={18} height={18} />
@@ -140,7 +171,7 @@ function SelectorRow({
   selectedId: string;
 }) {
   return (
-    <section className="flex flex-col gap-3">
+    <section className="flex flex-col gap-3" data-no-print="true">
       <p className="font-sans text-xs text-[#666666]">Negocio</p>
       <div className="max-w-xl">
         <NegocioSelector options={options} selectedId={selectedId} />

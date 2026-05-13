@@ -5,7 +5,7 @@ import {
   getOnepagerKpis,
   getOnepagerByIngreso,
   getOnepagerTicketsByTipo,
-  getOnepagerFfbbByTipo,
+  getOnepagerFfbbByCategoriaProducto,
   getOnepagerFfbbByPuntoVenta,
   getOnepagerFfbbByCategoria,
   getOnepagerTicketsAsistencia,
@@ -107,17 +107,17 @@ export default async function OnepagerPage({
 // ---------- Sections ----------
 
 async function DetalleSection({ eventoId }: { eventoId: string }) {
-  const [ticketsByTipo, ffbbByTipo, ffbbByPuntoVenta, ffbbByCategoria] =
+  const [ticketsByTipo, ffbbByCatProd, ffbbByPuntoVenta, ffbbByCategoria] =
     await Promise.all([
       getOnepagerTicketsByTipo(eventoId),
-      getOnepagerFfbbByTipo(eventoId),
+      getOnepagerFfbbByCategoriaProducto(eventoId),
       getOnepagerFfbbByPuntoVenta(eventoId),
       getOnepagerFfbbByCategoria(eventoId),
     ]);
   return (
     <DetalleTabs
       ticketsByTipo={ticketsByTipo}
-      ffbbByTipo={ffbbByTipo}
+      ffbbByCatProd={ffbbByCatProd}
       ffbbByPuntoVenta={ffbbByPuntoVenta}
       ffbbByCategoria={ffbbByCategoria}
     />

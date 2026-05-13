@@ -1,4 +1,9 @@
-import type { DetalleGastoRow, NegocioItemRow } from "@/lib/unabase/types";
+import type {
+  DetalleGastoRow,
+  DocVentaRow,
+  NegocioItemRow,
+  VentasAggregateRaw,
+} from "@/lib/unabase/types";
 
 export interface CategoriaBreakdown {
   categoria: string;
@@ -45,6 +50,30 @@ export interface CategoriaNode {
   subcategorias: SubcategoriaNode[];
 }
 
+export interface TopCliente {
+  cliente: string;
+  rut: string;
+  total: number;
+  nDocs: number;
+}
+
+export interface VentasAggregate {
+  ventaBrutaNeta: number;
+  ncNeta: number;
+  ndNeta: number;
+  ventaNeta: number;
+  ventaBrutaTotal: number;
+  ivaTotal: number;
+  cobrado: number;
+  porCobrar: number;
+  cobradoPct: number;
+  docsVenta: number;
+  docsNC: number;
+  docsND: number;
+  topClientes: TopCliente[];
+  porTipoDoc: Record<string, number>;
+}
+
 export interface OcStatusCounts {
   porEstado: Record<string, number>;
   totalDocs: number;
@@ -60,6 +89,10 @@ export interface NegocioAggregate {
   totalGastoReal: number;
   margenAbsoluto: number;
   margenPct: number;
+  margenLibro: number;
+  margenLibroPct: number;
+  margenRealFacturado: number;
+  margenRealFacturadoPct: number;
   avancePct: number;
   itemsTotales: number;
   itemsConOC: number;
@@ -69,6 +102,7 @@ export interface NegocioAggregate {
   arbol: CategoriaNode[];
   topProveedores: ProveedorBreakdown[];
   ocStatus: OcStatusCounts;
+  ventas: VentasAggregate;
 }
 
 const TOP_PROVEEDORES_LIMIT = 10;
@@ -86,9 +120,132 @@ function s(value: unknown): string {
   return String(value).trim();
 }
 
+function b(value: unknown): boolean {
+  if (value === true) return true;
+  if (value === false) return false;
+  if (value === null || value === undefined) return false;
+  const str = String(value).trim().toLowerCase();
+  return str === "true" || str === "1";
+}
+
+const TOP_CLIENTES_LIMIT = 5;
+
+export function aggregateVentas(
+  ventas: DocVentaRow[],
+  precomputed?: VentasAggregateRaw,
+): VentasAggregate {
+  // Categóricos / clientes vienen del detalle (no se pueden derivar del agregado).
+  const porTipoDoc: Record<string, number> = {};
+  const clienteMap = new Map<
+    string,
+    { cliente: string; rut: string; total: number; nDocs: number }
+  >();
+
+  for (const v of ventas) {
+    const isNc = b(v.is_nc);
+
+    const tipo = s(v.tipoDocumentoVentaAbrev) || "SIN TIPO";
+    porTipoDoc[tipo] = (porTipoDoc[tipo] ?? 0) + 1;
+
+    if (!isNc) {
+      const rut = s(v.rut);
+      const cliente = s(v.cliente) || "Cliente sin identificar";
+      const key = rut || cliente;
+      let row = clienteMap.get(key);
+      if (!row) {
+        row = { cliente, rut, total: 0, nDocs: 0 };
+        clienteMap.set(key, row);
+      }
+      row.total += n(v.totalNeto_raw) + n(v.totalExento_raw);
+      row.nDocs += 1;
+    }
+  }
+
+  // Totales monetarios: preferir SUM() exacto de BigQuery; sólo caer al
+  // cálculo en JS si no se entregó agregado precomputado.
+  let ventaBrutaNeta = 0;
+  let ncNeta = 0;
+  let ndNeta = 0;
+  let ventaBrutaTotal = 0;
+  let ivaTotal = 0;
+  let cobrado = 0;
+  let porCobrar = 0;
+  let docsVenta = 0;
+  let docsNC = 0;
+  let docsND = 0;
+
+  if (precomputed) {
+    ventaBrutaNeta = n(precomputed.ventaBrutaNeta);
+    ncNeta = n(precomputed.ncNeta);
+    ndNeta = n(precomputed.ndNeta);
+    ventaBrutaTotal = n(precomputed.ventaBrutaTotal);
+    ivaTotal = n(precomputed.ivaTotal);
+    cobrado = n(precomputed.cobrado);
+    porCobrar = n(precomputed.porCobrar);
+    docsVenta = n(precomputed.docsVenta);
+    docsNC = n(precomputed.docsNC);
+    docsND = n(precomputed.docsND);
+  } else {
+    for (const v of ventas) {
+      const neto = n(v.totalNeto_raw);
+      const exento = n(v.totalExento_raw);
+      const total = n(v.totalFactura_raw);
+      const iva = n(v.iva_raw);
+      const isNc = b(v.is_nc);
+      const isNd = b(v.is_nd);
+
+      if (isNc) {
+        ncNeta += neto + exento;
+        docsNC += 1;
+      } else {
+        ventaBrutaNeta += neto + exento;
+        ventaBrutaTotal += total;
+        ivaTotal += iva;
+      }
+      if (isNd) {
+        ndNeta += neto + exento;
+        docsND += 1;
+      }
+      if (!isNc && !isNd) {
+        docsVenta += 1;
+      }
+
+      cobrado += n(v.cobrado_raw);
+      porCobrar += n(v.porCobrar_raw);
+    }
+  }
+
+  const ventaNeta = ventaBrutaNeta - ncNeta + ndNeta;
+  const cobranzaBase = cobrado + porCobrar;
+  const cobradoPct = cobranzaBase > 0 ? cobrado / cobranzaBase : 0;
+
+  const topClientes = Array.from(clienteMap.values())
+    .sort((a, b) => b.total - a.total)
+    .slice(0, TOP_CLIENTES_LIMIT);
+
+  return {
+    ventaBrutaNeta,
+    ncNeta,
+    ndNeta,
+    ventaNeta,
+    ventaBrutaTotal,
+    ivaTotal,
+    cobrado,
+    porCobrar,
+    cobradoPct,
+    docsVenta,
+    docsNC,
+    docsND,
+    topClientes,
+    porTipoDoc,
+  };
+}
+
 export function aggregateNegocio(
   items: NegocioItemRow[],
   gastos: DetalleGastoRow[],
+  ventas: DocVentaRow[] = [],
+  ventasPrecomputed?: VentasAggregateRaw,
 ): NegocioAggregate {
   const totalVenta = items.reduce((sum, it) => sum + n(it.subtotal_venta), 0);
   const totalPresupuestoGasto = items.reduce(
@@ -326,8 +483,15 @@ export function aggregateNegocio(
     porTipoGasto,
   };
 
+  const ventasAgg = aggregateVentas(ventas, ventasPrecomputed);
+
   const margenAbsoluto = totalVenta - totalGastoReal;
   const margenPct = totalVenta > 0 ? margenAbsoluto / totalVenta : 0;
+  const margenLibro = margenAbsoluto;
+  const margenLibroPct = margenPct;
+  const margenRealFacturado = ventasAgg.ventaNeta - totalGastoReal;
+  const margenRealFacturadoPct =
+    ventasAgg.ventaNeta > 0 ? margenRealFacturado / ventasAgg.ventaNeta : 0;
   const avancePct =
     totalPresupuestoGasto > 0 ? totalGastoReal / totalPresupuestoGasto : 0;
 
@@ -337,6 +501,10 @@ export function aggregateNegocio(
     totalGastoReal,
     margenAbsoluto,
     margenPct,
+    margenLibro,
+    margenLibroPct,
+    margenRealFacturado,
+    margenRealFacturadoPct,
     avancePct,
     itemsTotales,
     itemsConOC,
@@ -346,5 +514,6 @@ export function aggregateNegocio(
     arbol,
     topProveedores,
     ocStatus,
+    ventas: ventasAgg,
   };
 }

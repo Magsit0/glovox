@@ -3,17 +3,19 @@
 import { useState } from "react";
 import BrutalChartPanel from "./BrutalChartPanel";
 import TipoProductoChart from "./TipoProductoChart";
+import FfbbRankingChart from "./FfbbRankingChart";
 import PuntoVentaChart from "./PuntoVentaChart";
 import CategoriaFunnel from "./CategoriaFunnel";
 import type {
   OnepagerTipoProductoRow,
+  OnepagerFfbbCategoriaProductoRow,
   OnepagerPuntoVentaRow,
   OnepagerCategoriaRow,
 } from "@/lib/queries/onepager";
 
 type Props = {
   ticketsByTipo: OnepagerTipoProductoRow[];
-  ffbbByTipo: OnepagerTipoProductoRow[];
+  ffbbByCatProd: OnepagerFfbbCategoriaProductoRow[];
   ffbbByPuntoVenta: OnepagerPuntoVentaRow[];
   ffbbByCategoria: OnepagerCategoriaRow[];
 };
@@ -22,7 +24,7 @@ type Tab = "tickets" | "ffbb";
 
 export default function DetalleTabs({
   ticketsByTipo,
-  ffbbByTipo,
+  ffbbByCatProd,
   ffbbByPuntoVenta,
   ffbbByCategoria,
 }: Props) {
@@ -68,11 +70,11 @@ export default function DetalleTabs({
       {tab === "ffbb" && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <BrutalChartPanel title="FF&BB — Tipo Producto">
-              {ffbbByTipo.length === 0 ? (
+            <BrutalChartPanel title="FF&BB — Ranking">
+              {ffbbByCatProd.length === 0 ? (
                 <p className="font-mono-data text-sm text-black/50">Sin datos.</p>
               ) : (
-                <TipoProductoChart data={ffbbByTipo} color="#FF0000" />
+                <FfbbRankingChart data={ffbbByCatProd} color="#FF0000" />
               )}
             </BrutalChartPanel>
             <BrutalChartPanel title="FF&BB — Ranking Punto de Venta">
