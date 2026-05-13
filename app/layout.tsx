@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { Montserrat } from "next/font/google";
+import { auth } from "@/lib/auth";
+import SuperadminPendingsFab from "@/components/SuperadminPendingsFab";
 import "./globals.css";
 
 const montserrat = Montserrat({
@@ -13,11 +15,13 @@ export const metadata: Metadata = {
   description: "Internal data dashboards",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await auth();
+  const role = session?.user?.role ?? "user";
   return (
     <html
       lang="en"
@@ -31,6 +35,7 @@ export default function RootLayout({
           Skip to main content
         </a>
         {children}
+        <SuperadminPendingsFab role={role} />
       </body>
     </html>
   );

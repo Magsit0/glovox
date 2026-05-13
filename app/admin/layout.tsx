@@ -25,6 +25,12 @@ export default async function AdminLayout({
               >
                 Usuarios
               </Link>
+              <Link
+                href="/admin/pendings"
+                className="hover:text-[#333333]"
+              >
+                Pendientes
+              </Link>
             </nav>
           </div>
           <Link

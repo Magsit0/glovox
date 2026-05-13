@@ -8,6 +8,13 @@
       "when": 1778101090016,
       "tag": "0000_noisy_phantom_reporter",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778693330238,
+      "tag": "0001_tired_serpent_society",
+      "breakpoints": true
     }
   ]
 }
