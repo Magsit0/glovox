@@ -34,8 +34,6 @@ export default function ResumenKpis({ agg }: Props) {
   const { ventas } = agg;
   const hasVentas = ventas.ventaNeta > 0 || ventas.docsVenta > 0;
 
-  const cobranzaBase = ventas.cobrado + ventas.porCobrar;
-
   const kpis: Kpi[] = [
     {
       label: "Venta libro",
@@ -72,14 +70,6 @@ export default function ResumenKpis({ agg }: Props) {
       value: hasVentas ? compactCurrency(agg.margenRealFacturado) : "—",
       caption: hasVentas ? pct(agg.margenRealFacturadoPct) : "Sin ventas",
       deltaTone: hasVentas ? marginTone(agg.margenRealFacturado) : "neutral",
-    },
-    {
-      label: "% Cobrado",
-      value: cobranzaBase > 0 ? pct(ventas.cobradoPct) : "—",
-      caption:
-        cobranzaBase > 0
-          ? `${compactCurrency(ventas.cobrado)} de ${compactCurrency(cobranzaBase)}`
-          : "Sin cobranza",
     },
   ];
 

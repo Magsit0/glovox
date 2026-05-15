@@ -119,7 +119,7 @@ export default async function MarketingWeeklyPage({
         </Link>
 
         {/* KPI Strip */}
-        <Suspense fallback={<div className="grid grid-cols-4 gap-4"><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>}>
+        <Suspense fallback={<div className="grid grid-cols-2 md:grid-cols-6 gap-4"><Skeleton /><Skeleton /><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>}>
           <KpiStrip eventoId={selectedId} scope={scope} />
         </Suspense>
 
@@ -177,12 +177,13 @@ async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }
   ]);
   const soldPct = kpis.goalTickets > 0 ? Math.round((kpis.totalTickets / kpis.goalTickets) * 100) : 0;
   return (
-    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
       <BrutalKpiCard
         label="Tickets Vendidos"
         value={kpis.totalTickets}
         suffix={`/${kpis.goalTickets.toLocaleString("es-CL")} (${soldPct}%)`}
       />
+      <BrutalKpiCard label="Venta Tickets" value={kpis.totalRevenue} formatType="clp-compact" />
       <BrutalKpiCard label="Días para el Evento" value={kpis.daysToEvent + 1} formatType="integer" />
       <BrutalKpiCard label="CPA Total Vendidos" value={kpis.cpa} formatType="usd" />
       <BrutalKpiCard label="CPA Paid Media" value={pm.cpa} formatType="usd" />

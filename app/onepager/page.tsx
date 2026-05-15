@@ -8,6 +8,7 @@ import {
   getOnepagerFfbbByCategoriaProducto,
   getOnepagerFfbbByPuntoVenta,
   getOnepagerFfbbByCategoria,
+  getOnepagerFfbbEvolucion,
   getOnepagerTicketsAsistencia,
   getOnepagerEventList,
   getOnepagerRecentEvents,
@@ -107,19 +108,26 @@ export default async function OnepagerPage({
 // ---------- Sections ----------
 
 async function DetalleSection({ eventoId }: { eventoId: string }) {
-  const [ticketsByTipo, ffbbByCatProd, ffbbByPuntoVenta, ffbbByCategoria] =
-    await Promise.all([
-      getOnepagerTicketsByTipo(eventoId),
-      getOnepagerFfbbByCategoriaProducto(eventoId),
-      getOnepagerFfbbByPuntoVenta(eventoId),
-      getOnepagerFfbbByCategoria(eventoId),
-    ]);
+  const [
+    ticketsByTipo,
+    ffbbByCatProd,
+    ffbbByPuntoVenta,
+    ffbbByCategoria,
+    ffbbEvolucion,
+  ] = await Promise.all([
+    getOnepagerTicketsByTipo(eventoId),
+    getOnepagerFfbbByCategoriaProducto(eventoId),
+    getOnepagerFfbbByPuntoVenta(eventoId),
+    getOnepagerFfbbByCategoria(eventoId),
+    getOnepagerFfbbEvolucion(eventoId),
+  ]);
   return (
     <DetalleTabs
       ticketsByTipo={ticketsByTipo}
       ffbbByCatProd={ffbbByCatProd}
       ffbbByPuntoVenta={ffbbByPuntoVenta}
       ffbbByCategoria={ffbbByCategoria}
+      ffbbEvolucion={ffbbEvolucion}
     />
   );
 }

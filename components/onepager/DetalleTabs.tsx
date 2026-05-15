@@ -6,11 +6,13 @@ import TipoProductoChart from "./TipoProductoChart";
 import FfbbRankingChart from "./FfbbRankingChart";
 import PuntoVentaChart from "./PuntoVentaChart";
 import CategoriaFunnel from "./CategoriaFunnel";
+import FfbbEvolucionChart from "./FfbbEvolucionChart";
 import type {
   OnepagerTipoProductoRow,
   OnepagerFfbbCategoriaProductoRow,
   OnepagerPuntoVentaRow,
   OnepagerCategoriaRow,
+  OnepagerFfbbEvolucionRow,
 } from "@/lib/queries/onepager";
 
 type Props = {
@@ -18,6 +20,7 @@ type Props = {
   ffbbByCatProd: OnepagerFfbbCategoriaProductoRow[];
   ffbbByPuntoVenta: OnepagerPuntoVentaRow[];
   ffbbByCategoria: OnepagerCategoriaRow[];
+  ffbbEvolucion: OnepagerFfbbEvolucionRow[];
 };
 
 type Tab = "tickets" | "ffbb";
@@ -27,6 +30,7 @@ export default function DetalleTabs({
   ffbbByCatProd,
   ffbbByPuntoVenta,
   ffbbByCategoria,
+  ffbbEvolucion,
 }: Props) {
   const [tab, setTab] = useState<Tab>("tickets");
 
@@ -69,6 +73,9 @@ export default function DetalleTabs({
 
       {tab === "ffbb" && (
         <div className="space-y-6">
+          <BrutalChartPanel title="FF&BB — Evolución Horaria">
+            <FfbbEvolucionChart data={ffbbEvolucion} />
+          </BrutalChartPanel>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <BrutalChartPanel title="FF&BB — Ranking">
               {ffbbByCatProd.length === 0 ? (

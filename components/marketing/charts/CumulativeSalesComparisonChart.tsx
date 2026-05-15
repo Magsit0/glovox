@@ -163,13 +163,13 @@ export default function CumulativeSalesComparisonChart({
         />
         <YAxis
           yAxisId="cumulative"
-          orientation="left"
+          orientation="right"
           tick={{ fontFamily: "var(--font-ibm-plex-mono)", fontSize: 10, fill: "#000" }}
           stroke="#000"
         />
         <YAxis
           yAxisId="daily"
-          orientation="right"
+          orientation="left"
           tick={{ fontFamily: "var(--font-ibm-plex-mono)", fontSize: 10, fill: "#000" }}
           stroke="#000"
         />
@@ -180,6 +180,11 @@ export default function CumulativeSalesComparisonChart({
             borderRadius: 0,
             fontFamily: "var(--font-ibm-plex-mono)",
             fontSize: 12,
+          }}
+          formatter={(value: number | string, name: string) => {
+            const num = typeof value === "number" ? value : Number(value);
+            if (!Number.isFinite(num)) return [String(value), name];
+            return [Math.round(num).toLocaleString("es-CL"), name];
           }}
           labelFormatter={(label) => {
             const v = Number(label);

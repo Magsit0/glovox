@@ -82,6 +82,16 @@ export type OnepagerAsistenciaRow = {
   qtty2: number;
 };
 
+export type OnepagerFfbbEvolucionRow = {
+  slotIso: string;
+  slotLabel: string;
+  categoria: string;
+  producto: string;
+  puntoVenta: string;
+  venta: number;
+  qtty: number;
+};
+
 
 // ---------- Event list queries ----------
 
@@ -463,6 +473,51 @@ export async function getOnepagerFfbbByCategoriaProducto(
     producto:  s(r.producto),
     venta:     n(r.venta),
     qtty:      n(r.qtty),
+  }));
+}
+
+export async function getOnepagerFfbbEvolucion(
+  eventoId: string
+): Promise<OnepagerFfbbEvolucionRow[]> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH bucketed AS (
+      SELECT
+        TIMESTAMP_SUB(
+          TIMESTAMP_TRUNC(HoraPedido, MINUTE),
+          INTERVAL MOD(EXTRACT(MINUTE FROM HoraPedido), 30) MINUTE
+        )                                    AS slot,
+        IFNULL(Categoria,   '—')             AS categoria,
+        IFNULL(Producto,    '—')             AS producto,
+        IFNULL(NombrePunto, '—')             AS punto_venta,
+        IFNULL(SubTotal, 0)                  AS venta,
+        IFNULL(Cantidad, 0)                  AS qtty
+      FROM ${SOLD_ITEMS}
+      WHERE EventoID = @eventoId
+        AND HoraPedido IS NOT NULL
+    )
+    SELECT
+      FORMAT_TIMESTAMP('%Y-%m-%dT%H:%M:00', slot) AS slot_iso,
+      FORMAT_TIMESTAMP('%H:%M', slot)             AS slot_label,
+      categoria,
+      producto,
+      punto_venta,
+      SUM(venta)  AS venta,
+      SUM(qtty)   AS qtty
+    FROM bucketed
+    GROUP BY slot, categoria, producto, punto_venta
+    ORDER BY slot
+    `,
+    { eventoId }
+  );
+  return rows.map((r) => ({
+    slotIso:    s(r.slot_iso),
+    slotLabel:  s(r.slot_label),
+    categoria:  s(r.categoria),
+    producto:   s(r.producto),
+    puntoVenta: s(r.punto_venta),
+    venta:      n(r.venta),
+    qtty:       n(r.qtty),
   }));
 }
 
