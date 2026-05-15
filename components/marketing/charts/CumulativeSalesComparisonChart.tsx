@@ -181,9 +181,10 @@ export default function CumulativeSalesComparisonChart({
             fontFamily: "var(--font-ibm-plex-mono)",
             fontSize: 12,
           }}
-          formatter={(value: number | string, name: string) => {
-            const num = typeof value === "number" ? value : Number(value);
-            if (!Number.isFinite(num)) return [String(value), name];
+          formatter={(value, name) => {
+            const num =
+              typeof value === "number" ? value : Number(value as unknown);
+            if (!Number.isFinite(num)) return [String(value ?? ""), name];
             return [Math.round(num).toLocaleString("es-CL"), name];
           }}
           labelFormatter={(label) => {
