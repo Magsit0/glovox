@@ -1,11 +1,13 @@
 "use client";
 
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ChevronRight, Inbox, Search } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, Inbox, Search } from "lucide-react";
 import { motion } from "motion/react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
@@ -28,6 +30,7 @@ import {
   SURFACE,
 } from "@/lib/chart-colors";
 import type {
+  FreesCategoryNode,
   FreesDashboardData,
   FreesEventOption,
   FreesGeneroCategory,
@@ -35,8 +38,8 @@ import type {
   FreesGeneroKpis,
   FreesGeneroRow,
   FreesGroupRow,
+  FreesIngresoRow,
   FreesKpis,
-  FreesLinkTypeNode,
 } from "@/lib/queries/frees";
 import { FreesEventSelect } from "./FreesEventSelect";
 
@@ -54,7 +57,7 @@ function formatPercent(v: number): string {
   return percentFormatter.format(v);
 }
 
-type Tab = "ticketType" | "linkType" | "genero";
+type Tab = "ticketType" | "categoria" | "genero";
 
 const GENERO_COLORS: Record<string, string> = {
   Hombre: "#9F99F8",
@@ -69,15 +72,15 @@ const TABS: { key: Tab; label: string; description: string }[] = [
     description: "Distribución por ticketType en cortesías entregadas.",
   },
   {
-    key: "linkType",
-    label: "Link · Categoría · Recipient",
-    description: "Tipo de link declarado en la cortesía.",
+    key: "categoria",
+    label: "Categoría · Recipient",
+    description: "Categoría declarada en la cortesía con sus recipients.",
   },
   {
     key: "genero",
-    label: "Género",
+    label: "Detalle por categoría",
     description:
-      "Inferencia de género del nominado vía nombre. Solo cortesías canjeadas tienen nombre clasificable.",
+      "Distribución por género, hora de ingreso y detalle por categoría/recipient.",
   },
 ];
 
@@ -91,32 +94,28 @@ export function FreesDashboard({
   selectedEvent: string;
 }) {
   const [tab, setTab] = useState<Tab>("ticketType");
-  const selectedEventOption = useMemo(
-    () => events.find((e) => e.eventoId === selectedEvent),
-    [events, selectedEvent],
-  );
 
-  const linkTypeRows = useMemo<FreesGroupRow[]>(
+  const categoriaRows = useMemo<FreesGroupRow[]>(
     () =>
-      data.byLinkType.map((l) => ({
-        label: l.label,
-        total: l.total,
-        canjeadas: l.canjeadas,
-        tasaCanje: l.tasaCanje,
+      data.byCategory.map((c) => ({
+        label: c.label,
+        total: c.total,
+        canjeadas: c.canjeadas,
+        tasaCanje: c.tasaCanje,
       })),
-    [data.byLinkType],
+    [data.byCategory],
   );
 
   const activeRows = useMemo<FreesGroupRow[]>(() => {
     switch (tab) {
       case "ticketType":
         return data.byTicketType;
-      case "linkType":
-        return linkTypeRows;
+      case "categoria":
+        return categoriaRows;
       case "genero":
         return [];
     }
-  }, [tab, data.byTicketType, linkTypeRows]);
+  }, [tab, data.byTicketType, categoriaRows]);
 
   const activeMeta = TABS.find((t) => t.key === tab)!;
 
@@ -147,18 +146,8 @@ export function FreesDashboard({
               Free&apos;s
             </h1>
             <p className="max-w-2xl font-sans text-sm text-[#666666]">
-              Cortesías emitidas y su tasa de canje contra <code>glovox.tickets</code>.
-              El canje se determina por el match entre los últimos 8 caracteres del{" "}
-              <code>sellerLink</code> y <code>CodigoPromocion</code>.
-              {selectedEventOption && (
-                <>
-                  {" "}
-                  <span className="font-medium text-[#333333]">
-                    Filtrando por evento {selectedEventOption.eventoId} —{" "}
-                    {selectedEventOption.nombre}.
-                  </span>
-                </>
-              )}
+              Análisis de cortesías entregadas por evento. Se recomienda escoger
+              un evento en el filtro de la derecha.
             </p>
           </div>
           <div className="flex flex-col items-end gap-3">
@@ -201,34 +190,40 @@ export function FreesDashboard({
         className="grid grid-cols-1 gap-6 lg:grid-cols-12"
       >
         {tab === "genero" ? (
-          <GeneroSection data={data.byGenero} />
+          <GeneroSection
+            data={data.byGenero}
+            ingresoRows={data.ingresoRows}
+            hasEventoFilter={Boolean(selectedEvent)}
+          />
         ) : (
           <>
             <Panel
-              className="lg:col-span-8"
+              className={tab === "ticketType" ? "lg:col-span-8" : "lg:col-span-12"}
               title={`Cortesías por ${activeMeta.label.toLowerCase()}`}
               subtitle={activeMeta.description}
             >
               <GroupBarChart rows={activeRows} />
             </Panel>
-            <Panel
-              className="lg:col-span-4"
-              title="Distribución"
-              subtitle="Top 6 categorías; el resto se agrupa como Otros."
-            >
-              <GroupDonutChart rows={activeRows} />
-            </Panel>
+            {tab === "ticketType" && (
+              <Panel
+                className="lg:col-span-4"
+                title="Cortesías por tipo de link"
+                subtitle="Distribución por linkType declarado en la cortesía."
+              >
+                <GroupDonutChart rows={data.byLinkType} />
+              </Panel>
+            )}
             <Panel
               className="lg:col-span-12"
               title="Detalle"
               subtitle={
-                tab === "linkType"
-                  ? "Total entregadas, canjeadas vía ticket y tasa de canje. Expande un linkType para ver sus categorías; expande una categoría para ver sus recipients."
+                tab === "categoria"
+                  ? "Total entregadas, canjeadas vía ticket y tasa de canje. Expande una categoría para ver sus recipients."
                   : "Total entregadas, canjeadas vía ticket y tasa de canje."
               }
             >
-              {tab === "linkType" ? (
-                <LinkTypeTable nodes={data.byLinkType} />
+              {tab === "categoria" ? (
+                <CategoryTable nodes={data.byCategory} />
               ) : (
                 <GroupTable rows={activeRows} />
               )}
@@ -241,29 +236,48 @@ export function FreesDashboard({
 }
 
 function KpiSection({ kpis }: { kpis: FreesKpis }) {
+  const porAsignar = Math.max(
+    0,
+    kpis.totalCortesias - kpis.cortesiasConRecipient,
+  );
+  const tasaOtorgamiento =
+    kpis.totalCortesias > 0
+      ? kpis.cortesiasConRecipient / kpis.totalCortesias
+      : 0;
+  const noCanjeadasOtorgadas = Math.max(
+    0,
+    kpis.cortesiasConRecipient - kpis.totalCanjeadas,
+  );
+
   return (
-    <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+    <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5">
       <KpiCard
         label="Cortesías emitidas"
         value={formatNumber(kpis.totalCortesias)}
         sub={`${formatNumber(kpis.ticketTypesUnicos)} tipos de ticket distintos`}
       />
       <KpiCard
+        label="Cortesías asignadas"
+        value={formatNumber(kpis.cortesiasConRecipient)}
+        sub={`${formatNumber(porAsignar)} por asignar`}
+      />
+      <KpiCard
+        label="Tasa de otorgamiento"
+        value={formatPercent(tasaOtorgamiento)}
+        sub={`${formatNumber(kpis.cortesiasConRecipient)} de ${formatNumber(kpis.totalCortesias)}`}
+        delta={tasaOtorgamiento >= 0.5 ? "positive" : "negative"}
+      />
+      <KpiCard
         label="Cortesías canjeadas"
         value={formatNumber(kpis.totalCanjeadas)}
-        sub={`${formatNumber(kpis.totalNoCanjeadas)} aún sin canjear`}
+        sub={`${formatNumber(noCanjeadasOtorgadas)} aún sin canjear`}
         delta="positive"
       />
       <KpiCard
         label="Tasa de canje"
         value={formatPercent(kpis.tasaCanje)}
-        sub={`${formatNumber(kpis.totalCanjeadas)} de ${formatNumber(kpis.totalCortesias)}`}
+        sub={`${formatNumber(kpis.totalCanjeadas)} de ${formatNumber(kpis.cortesiasConRecipient)}`}
         delta={kpis.tasaCanje >= 0.5 ? "positive" : "negative"}
-      />
-      <KpiCard
-        label="Con recipient asignado"
-        value={formatNumber(kpis.cortesiasConRecipient)}
-        sub={`${formatNumber(kpis.cortesiasConCategory)} con category`}
       />
     </section>
   );
@@ -492,6 +506,18 @@ function GroupTable({ rows }: { rows: FreesGroupRow[] }) {
   }
 
   const grandTotal = rows.reduce((s, r) => s + r.total, 0);
+  const grandEmitidas = rows.reduce(
+    (s, r) => s + (r.emitidas ?? r.total),
+    0,
+  );
+  const grandCanjeadas = rows.reduce((s, r) => s + r.canjeadas, 0);
+  const avgTasaOtorgamiento =
+    rows.reduce((s, r) => {
+      const emi = r.emitidas ?? r.total;
+      return s + (emi ? r.total / emi : 0);
+    }, 0) / rows.length;
+  const avgTasaCanje =
+    rows.reduce((s, r) => s + r.tasaCanje, 0) / rows.length;
 
   return (
     <div className="overflow-hidden rounded-lg border border-[#E5E5E5]">
@@ -500,23 +526,33 @@ function GroupTable({ rows }: { rows: FreesGroupRow[] }) {
           <thead>
             <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
               <Th>Etiqueta</Th>
+              <Th align="right">Cortesías emitidas</Th>
               <Th align="right">Total</Th>
+              <Th align="right">Tasa de otorgamiento</Th>
               <Th align="right">Canjeadas</Th>
-              <Th align="right">Tasa</Th>
-              <Th align="right">Participación</Th>
+              <Th align="right">Tasa de canje</Th>
+              <Th align="right">% Otorgadas</Th>
             </tr>
           </thead>
           <tbody>
             {rows.map((row) => {
               const share = grandTotal ? row.total / grandTotal : 0;
+              const emitidas = row.emitidas ?? row.total;
+              const tasaOtorgamiento = emitidas ? row.total / emitidas : 0;
               return (
                 <tr
                   key={row.label}
-                  className="border-b border-[#E5E5E5] transition-colors duration-150 last:border-b-0 hover:bg-[#FAFAFA]"
+                  className="border-b border-[#E5E5E5] transition-colors duration-150 hover:bg-[#FAFAFA]"
                 >
                   <td className="px-4 py-3 font-sans text-sm text-[#333333]">{row.label}</td>
                   <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#333333]">
+                    {formatNumber(emitidas)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#333333]">
                     {formatNumber(row.total)}
+                  </td>
+                  <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#666666]">
+                    {formatPercent(tasaOtorgamiento)}
                   </td>
                   <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#333333]">
                     {formatNumber(row.canjeadas)}
@@ -531,14 +567,38 @@ function GroupTable({ rows }: { rows: FreesGroupRow[] }) {
               );
             })}
           </tbody>
+          <tfoot>
+            <tr className="border-t-2 border-[#E5E5E5] bg-[#FAFAFA]">
+              <td className="px-4 py-3 font-sans text-sm font-medium text-[#333333]">
+                Total
+              </td>
+              <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#333333]">
+                {formatNumber(grandEmitidas)}
+              </td>
+              <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#333333]">
+                {formatNumber(grandTotal)}
+              </td>
+              <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#666666]">
+                {formatPercent(avgTasaOtorgamiento)}
+              </td>
+              <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#333333]">
+                {formatNumber(grandCanjeadas)}
+              </td>
+              <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#666666]">
+                {formatPercent(avgTasaCanje)}
+              </td>
+              <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#666666]">
+                {formatPercent(1)}
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
   );
 }
 
-function LinkTypeTable({ nodes }: { nodes: FreesLinkTypeNode[] }) {
-  const [expandedLink, setExpandedLink] = useState<Set<string>>(new Set());
+function CategoryTable({ nodes }: { nodes: FreesCategoryNode[] }) {
   const [expandedCat, setExpandedCat] = useState<Set<string>>(new Set());
 
   if (!nodes.length) {
@@ -552,19 +612,11 @@ function LinkTypeTable({ nodes }: { nodes: FreesLinkTypeNode[] }) {
 
   const grandTotal = nodes.reduce((s, n) => s + n.total, 0);
 
-  function toggleLink(label: string) {
-    setExpandedLink((prev) => {
+  function toggleCat(label: string) {
+    setExpandedCat((prev) => {
       const next = new Set(prev);
       if (next.has(label)) next.delete(label);
       else next.add(label);
-      return next;
-    });
-  }
-  function toggleCat(key: string) {
-    setExpandedCat((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
       return next;
     });
   }
@@ -575,7 +627,7 @@ function LinkTypeTable({ nodes }: { nodes: FreesLinkTypeNode[] }) {
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
-              <Th>Link · Categoría · Recipient</Th>
+              <Th>Categoría · Recipient</Th>
               <Th align="right">Total</Th>
               <Th align="right">Canjeadas</Th>
               <Th align="right">Tasa</Th>
@@ -583,138 +635,81 @@ function LinkTypeTable({ nodes }: { nodes: FreesLinkTypeNode[] }) {
             </tr>
           </thead>
           <tbody>
-            {nodes.map((link) => {
-              const linkOpen = expandedLink.has(link.label);
-              const linkShare = grandTotal ? link.total / grandTotal : 0;
-              const linkHasCats = link.categories.length > 0;
+            {nodes.map((cat) => {
+              const catOpen = expandedCat.has(cat.label);
+              const catShare = grandTotal ? cat.total / grandTotal : 0;
+              const catHasRecipients = cat.recipients.length > 0;
               return (
-                <Fragment key={`link-${link.label}`}>
+                <Fragment key={`cat-${cat.label}`}>
                   <tr
                     className={`border-b border-[#E5E5E5] transition-colors duration-150 ${
-                      linkHasCats ? "cursor-pointer hover:bg-[#FAFAFA]" : ""
+                      catHasRecipients ? "cursor-pointer hover:bg-[#FAFAFA]" : ""
                     }`}
-                    onClick={() => linkHasCats && toggleLink(link.label)}
-                    aria-expanded={linkHasCats ? linkOpen : undefined}
+                    onClick={() => catHasRecipients && toggleCat(cat.label)}
+                    aria-expanded={catHasRecipients ? catOpen : undefined}
                   >
                     <td className="px-4 py-3 font-sans text-sm font-medium text-[#333333]">
                       <span className="inline-flex items-center gap-2">
-                        {linkHasCats ? (
+                        {catHasRecipients ? (
                           <ChevronRight
                             className={`h-3.5 w-3.5 text-[#999999] transition-transform duration-150 ${
-                              linkOpen ? "rotate-90" : ""
+                              catOpen ? "rotate-90" : ""
                             }`}
                           />
                         ) : (
                           <span className="inline-block h-3.5 w-3.5" />
                         )}
-                        <span>{link.label}</span>
-                        {linkHasCats && (
+                        <span>{cat.label}</span>
+                        {catHasRecipients && (
                           <span className="font-sans text-xs text-[#999999]">
-                            · {formatNumber(link.categories.length)}{" "}
-                            {link.categories.length === 1
-                              ? "categoría"
-                              : "categorías"}
+                            · {formatNumber(cat.recipients.length)}{" "}
+                            {cat.recipients.length === 1
+                              ? "recipient"
+                              : "recipients"}
                           </span>
                         )}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#333333]">
-                      {formatNumber(link.total)}
+                      {formatNumber(cat.total)}
                     </td>
                     <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#333333]">
-                      {formatNumber(link.canjeadas)}
+                      {formatNumber(cat.canjeadas)}
                     </td>
                     <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#666666]">
-                      {formatPercent(link.tasaCanje)}
+                      {formatPercent(cat.tasaCanje)}
                     </td>
                     <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#666666]">
-                      {formatPercent(linkShare)}
+                      {formatPercent(catShare)}
                     </td>
                   </tr>
-                  {linkOpen &&
-                    link.categories.map((cat) => {
-                      const catKey = `${link.label}::${cat.label}`;
-                      const catOpen = expandedCat.has(catKey);
-                      const catShare = link.total ? cat.total / link.total : 0;
-                      const catHasRecipients = cat.recipients.length > 0;
+                  {catOpen &&
+                    cat.recipients.map((r) => {
+                      const rShare = cat.total ? r.total / cat.total : 0;
                       return (
-                        <Fragment key={`cat-${catKey}`}>
-                          <tr
-                            className={`border-b border-[#E5E5E5] bg-[#FAFAFA]/60 transition-colors duration-150 ${
-                              catHasRecipients ? "cursor-pointer hover:bg-[#FAFAFA]" : ""
-                            }`}
-                            onClick={() =>
-                              catHasRecipients && toggleCat(catKey)
-                            }
-                            aria-expanded={catHasRecipients ? catOpen : undefined}
-                          >
-                            <td className="px-4 py-2.5 font-sans text-sm text-[#333333]">
-                              <span className="inline-flex items-center gap-2 pl-6">
-                                {catHasRecipients ? (
-                                  <ChevronRight
-                                    className={`h-3.5 w-3.5 text-[#999999] transition-transform duration-150 ${
-                                      catOpen ? "rotate-90" : ""
-                                    }`}
-                                  />
-                                ) : (
-                                  <span className="inline-block h-3.5 w-3.5" />
-                                )}
-                                <span>{cat.label}</span>
-                                {catHasRecipients && (
-                                  <span className="font-sans text-xs text-[#999999]">
-                                    · {formatNumber(cat.recipients.length)}{" "}
-                                    {cat.recipients.length === 1
-                                      ? "recipient"
-                                      : "recipients"}
-                                  </span>
-                                )}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
-                              {formatNumber(cat.total)}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
-                              {formatNumber(cat.canjeadas)}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
-                              {formatPercent(cat.tasaCanje)}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
-                              {formatPercent(catShare)}
-                            </td>
-                          </tr>
-                          {catOpen &&
-                            cat.recipients.map((r) => {
-                              const rShare = cat.total
-                                ? r.total / cat.total
-                                : 0;
-                              return (
-                                <tr
-                                  key={`rec-${catKey}-${r.label}`}
-                                  className="border-b border-[#E5E5E5] bg-[#FAFAFA] transition-colors duration-150"
-                                >
-                                  <td className="px-4 py-2 font-sans text-sm text-[#666666]">
-                                    <span className="inline-flex items-center gap-2 pl-12">
-                                      <span className="h-1 w-1 rounded-full bg-[#9F99F8]" />
-                                      <span>{r.label}</span>
-                                    </span>
-                                  </td>
-                                  <td className="px-4 py-2 text-right font-sans text-sm tabular-nums text-[#333333]">
-                                    {formatNumber(r.total)}
-                                  </td>
-                                  <td className="px-4 py-2 text-right font-sans text-sm tabular-nums text-[#333333]">
-                                    {formatNumber(r.canjeadas)}
-                                  </td>
-                                  <td className="px-4 py-2 text-right font-sans text-sm tabular-nums text-[#666666]">
-                                    {formatPercent(r.tasaCanje)}
-                                  </td>
-                                  <td className="px-4 py-2 text-right font-sans text-sm tabular-nums text-[#999999]">
-                                    {formatPercent(rShare)}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                        </Fragment>
+                        <tr
+                          key={`rec-${cat.label}-${r.label}`}
+                          className="border-b border-[#E5E5E5] bg-[#FAFAFA]/60 transition-colors duration-150"
+                        >
+                          <td className="px-4 py-2.5 font-sans text-sm text-[#666666]">
+                            <span className="inline-flex items-center gap-2 pl-6">
+                              <span className="h-1 w-1 rounded-full bg-[#9F99F8]" />
+                              <span>{r.label}</span>
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
+                            {formatNumber(r.total)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
+                            {formatNumber(r.canjeadas)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
+                            {formatPercent(r.tasaCanje)}
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#999999]">
+                            {formatPercent(rShare)}
+                          </td>
+                        </tr>
                       );
                     })}
                 </Fragment>
@@ -727,9 +722,20 @@ function LinkTypeTable({ nodes }: { nodes: FreesLinkTypeNode[] }) {
   );
 }
 
-function GeneroSection({ data }: { data: FreesGeneroData }) {
+type GeneroOpcion = "" | "Hombre" | "Mujer" | "Sin clasificar";
+
+function GeneroSection({
+  data,
+  ingresoRows,
+  hasEventoFilter,
+}: {
+  data: FreesGeneroData;
+  ingresoRows: FreesIngresoRow[];
+  hasEventoFilter: boolean;
+}) {
   const [categoryFilter, setCategoryFilter] = useState<string>("");
   const [recipientFilter, setRecipientFilter] = useState<string>("");
+  const [generoFilter, setGeneroFilter] = useState<GeneroOpcion>("");
 
   const categoryOptions = useMemo(
     () =>
@@ -739,20 +745,35 @@ function GeneroSection({ data }: { data: FreesGeneroData }) {
     [data.byCategory],
   );
 
-  const recipientQuery = recipientFilter.trim().toLowerCase();
-  const hasFilter = categoryFilter !== "" || recipientQuery !== "";
+  const recipientOptions = useMemo(() => {
+    const cats = categoryFilter
+      ? data.byCategory.filter((c) => c.label === categoryFilter)
+      : data.byCategory;
+    const set = new Set<string>();
+    for (const c of cats) for (const r of c.recipients) set.add(r.label);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
+  }, [data.byCategory, categoryFilter]);
+
+  // Si cambian las opciones de recipient y el filtro actual ya no aplica, lo limpia.
+  useEffect(() => {
+    if (recipientFilter && !recipientOptions.includes(recipientFilter)) {
+      setRecipientFilter("");
+    }
+  }, [recipientOptions, recipientFilter]);
+
+  const hasNonGenderFilter = categoryFilter !== "" || recipientFilter !== "";
 
   const filteredCategories = useMemo<FreesGeneroCategory[]>(() => {
     let cats = data.byCategory;
     if (categoryFilter) {
       cats = cats.filter((c) => c.label === categoryFilter);
     }
-    if (!recipientQuery) return cats;
+    if (!recipientFilter) return cats;
 
     return cats
       .map((cat) => {
-        const recipients = cat.recipients.filter((r) =>
-          r.label.toLowerCase().includes(recipientQuery),
+        const recipients = cat.recipients.filter(
+          (r) => r.label === recipientFilter,
         );
         if (!recipients.length) return null;
         const totals = recipients.reduce(
@@ -777,9 +798,9 @@ function GeneroSection({ data }: { data: FreesGeneroData }) {
         } satisfies FreesGeneroCategory;
       })
       .filter((c): c is FreesGeneroCategory => c !== null);
-  }, [data.byCategory, categoryFilter, recipientQuery]);
+  }, [data.byCategory, categoryFilter, recipientFilter]);
 
-  const filteredTotals = useMemo(() => {
+  const filteredDonutTotals = useMemo(() => {
     let h = 0;
     let m = 0;
     let sc = 0;
@@ -791,42 +812,102 @@ function GeneroSection({ data }: { data: FreesGeneroData }) {
     return { h, m, sc };
   }, [filteredCategories]);
 
+  const filteredIngresoRows = useMemo<FreesIngresoRow[]>(() => {
+    return ingresoRows.filter((r) => {
+      if (categoryFilter && r.category !== categoryFilter) return false;
+      if (recipientFilter && r.recipient !== recipientFilter) return false;
+      if (generoFilter && r.genero !== generoFilter) return false;
+      return true;
+    });
+  }, [ingresoRows, categoryFilter, recipientFilter, generoFilter]);
+
+  const horaMediaLabel = useMemo(() => {
+    if (filteredIngresoRows.length === 0) return "—";
+    if (hasEventoFilter) {
+      const m = median(filteredIngresoRows.map((r) => r.tsSeconds));
+      return clockLabelFromSeconds(m);
+    }
+    const minutes = filteredIngresoRows.map((r) =>
+      Math.floor((((r.tsSeconds % 86400) + 86400) % 86400) / 60),
+    );
+    return clockLabelFromMinutes(median(minutes));
+  }, [filteredIngresoRows, hasEventoFilter]);
+
+  const bucketSeries = useMemo(
+    () =>
+      aggregateByBucket(
+        filteredIngresoRows,
+        hasEventoFilter ? "absolute" : "modulo",
+      ),
+    [filteredIngresoRows, hasEventoFilter],
+  );
+
   return (
     <>
+      <Panel
+        className="lg:col-span-12"
+        title="Filtros"
+        subtitle="Filtra por categoría, recipient y género."
+      >
+        <GeneroFilters
+          categories={categoryOptions}
+          categoryFilter={categoryFilter}
+          onCategoryChange={setCategoryFilter}
+          recipients={recipientOptions}
+          recipientFilter={recipientFilter}
+          onRecipientChange={setRecipientFilter}
+          generoFilter={generoFilter}
+          onGeneroChange={setGeneroFilter}
+        />
+        <p className="font-sans text-xs text-[#999999]">
+          El filtro de género aplica solo a la curva horaria y al card de hora
+          media. El donut y la tabla muestran la distribución completa por
+          género.
+        </p>
+      </Panel>
+
       <div className="lg:col-span-12">
-        <GeneroKpis kpis={data.kpis} />
+        <GeneroKpis
+          kpis={data.kpis}
+          horaMediaLabel={horaMediaLabel}
+          ingresosFiltrados={filteredIngresoRows.length}
+        />
       </div>
 
       <Panel
         className="lg:col-span-4"
         title="Distribución por género"
         subtitle={
-          hasFilter
+          hasNonGenderFilter
             ? "Filtrado: solo categorías y recipients seleccionados."
             : "Hombre · Mujer · Sin clasificar sobre cortesías entregadas."
         }
       >
         <GeneroDonut
-          hombres={hasFilter ? filteredTotals.h : data.kpis.totalHombres}
-          mujeres={hasFilter ? filteredTotals.m : data.kpis.totalMujeres}
+          hombres={
+            hasNonGenderFilter ? filteredDonutTotals.h : data.kpis.totalHombres
+          }
+          mujeres={
+            hasNonGenderFilter ? filteredDonutTotals.m : data.kpis.totalMujeres
+          }
           sinClasificar={
-            hasFilter ? filteredTotals.sc : data.kpis.totalSinClasificar
+            hasNonGenderFilter
+              ? filteredDonutTotals.sc
+              : data.kpis.totalSinClasificar
           }
         />
       </Panel>
 
       <Panel
         className="lg:col-span-8"
-        title="Filtros"
-        subtitle="Filtra por categoría y/o nombre del recipient para ver el corte de género específico."
+        title="Curva de ingresos por hora"
+        subtitle={
+          hasEventoFilter
+            ? "Ingresos canjeados agregados en bloques de 30 min."
+            : "Vista global: la curva mezcla fechas de todos los eventos por hora-del-día."
+        }
       >
-        <GeneroFilters
-          categories={categoryOptions}
-          categoryFilter={categoryFilter}
-          onCategoryChange={setCategoryFilter}
-          recipientFilter={recipientFilter}
-          onRecipientChange={setRecipientFilter}
-        />
+        <IngresoCurva data={bucketSeries} />
       </Panel>
 
       <Panel
@@ -840,9 +921,17 @@ function GeneroSection({ data }: { data: FreesGeneroData }) {
   );
 }
 
-function GeneroKpis({ kpis }: { kpis: FreesGeneroKpis }) {
+function GeneroKpis({
+  kpis,
+  horaMediaLabel,
+  ingresosFiltrados,
+}: {
+  kpis: FreesGeneroKpis;
+  horaMediaLabel: string;
+  ingresosFiltrados: number;
+}) {
   return (
-    <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+    <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5">
       <KpiCard
         label="Hombres"
         value={formatNumber(kpis.totalHombres)}
@@ -874,6 +963,15 @@ function GeneroKpis({ kpis }: { kpis: FreesGeneroKpis }) {
         sub="Cortesías con género inferido"
         delta={kpis.pctClasificable >= 0.5 ? "positive" : "negative"}
       />
+      <KpiCard
+        label="Hora media de ingreso"
+        value={horaMediaLabel}
+        sub={
+          ingresosFiltrados > 0
+            ? `Mediana de ${formatNumber(ingresosFiltrados)} canjeados`
+            : "Sin canjeados en el filtro"
+        }
+      />
     </section>
   );
 }
@@ -882,47 +980,66 @@ function GeneroFilters({
   categories,
   categoryFilter,
   onCategoryChange,
+  recipients,
   recipientFilter,
   onRecipientChange,
+  generoFilter,
+  onGeneroChange,
 }: {
   categories: string[];
   categoryFilter: string;
   onCategoryChange: (v: string) => void;
+  recipients: string[];
   recipientFilter: string;
   onRecipientChange: (v: string) => void;
+  generoFilter: GeneroOpcion;
+  onGeneroChange: (v: GeneroOpcion) => void;
 }) {
-  const hasFilter = categoryFilter !== "" || recipientFilter !== "";
+  const hasFilter =
+    categoryFilter !== "" || recipientFilter !== "" || generoFilter !== "";
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-      <label className="flex flex-1 flex-col gap-1.5">
+      <div className="flex flex-1 flex-col gap-1.5">
         <span className="font-sans text-xs text-[#666666]">Categoría</span>
-        <select
+        <CustomSelect
           value={categoryFilter}
-          onChange={(e) => onCategoryChange(e.target.value)}
-          className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
-        >
-          <option value="">Todas las categorías</option>
-          {categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-      </label>
+          onChange={onCategoryChange}
+          options={[
+            { value: "", label: "Todas las categorías" },
+            ...categories.map((c) => ({ value: c, label: c })),
+          ]}
+          searchable
+          searchPlaceholder="Buscar categoría…"
+        />
+      </div>
 
-      <label className="flex flex-1 flex-col gap-1.5">
+      <div className="flex flex-1 flex-col gap-1.5">
         <span className="font-sans text-xs text-[#666666]">Recipient</span>
-        <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#999999]" />
-          <input
-            type="text"
-            value={recipientFilter}
-            onChange={(e) => onRecipientChange(e.target.value)}
-            placeholder="Buscar recipient…"
-            className="w-full rounded-lg border border-[#E5E5E5] bg-white py-2 pl-9 pr-3 font-sans text-sm text-[#333333] placeholder:text-[#999999] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
-          />
-        </div>
-      </label>
+        <CustomSelect
+          value={recipientFilter}
+          onChange={onRecipientChange}
+          options={[
+            { value: "", label: "Todos los recipients" },
+            ...recipients.map((r) => ({ value: r, label: r })),
+          ]}
+          searchable
+          searchPlaceholder="Buscar recipient…"
+        />
+      </div>
+
+      <div className="flex flex-1 flex-col gap-1.5">
+        <span className="font-sans text-xs text-[#666666]">Género</span>
+        <CustomSelect
+          value={generoFilter}
+          onChange={(v) => onGeneroChange(v as GeneroOpcion)}
+          options={[
+            { value: "", label: "Todos" },
+            { value: "Hombre", label: "Hombre" },
+            { value: "Mujer", label: "Mujer" },
+            { value: "Sin clasificar", label: "Sin clasificar" },
+          ]}
+        />
+      </div>
 
       {hasFilter && (
         <button
@@ -930,11 +1047,112 @@ function GeneroFilters({
           onClick={() => {
             onCategoryChange("");
             onRecipientChange("");
+            onGeneroChange("");
           }}
           className="rounded-lg px-3 py-2 font-sans text-sm text-[#666666] transition-colors hover:bg-[#FAFAFA] hover:text-[#333333]"
         >
           Limpiar
         </button>
+      )}
+    </div>
+  );
+}
+
+type SelectOption = { value: string; label: string };
+
+function CustomSelect({
+  value,
+  onChange,
+  options,
+  searchable = false,
+  searchPlaceholder = "Buscar…",
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  options: SelectOption[];
+  searchable?: boolean;
+  searchPlaceholder?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open) setSearch("");
+  }, [open]);
+
+  const selected = options.find((o) => o.value === value);
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return options;
+    return options.filter((o) => o.label.toLowerCase().includes(q));
+  }, [options, search]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 text-left font-sans text-sm text-[#333333] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+      >
+        <span className="truncate">{selected?.label ?? options[0]?.label}</span>
+        <ChevronDown className="h-4 w-4 shrink-0 text-[#999999]" />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-[calc(100%+4px)] z-30 flex w-full min-w-[220px] flex-col gap-2 rounded-lg border border-[#E5E5E5] bg-white p-2 shadow-md">
+          {searchable && (
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#999999]" />
+              <input
+                type="search"
+                placeholder={searchPlaceholder}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="w-full rounded-lg border border-[#E5E5E5] bg-white py-1.5 pl-8 pr-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+              />
+            </div>
+          )}
+          <div className="max-h-[280px] overflow-auto">
+            {filtered.length === 0 && (
+              <div className="px-3 py-2 font-sans text-sm text-[#999999]">
+                Sin resultados
+              </div>
+            )}
+            {filtered.map((opt) => {
+              const isChecked = opt.value === value;
+              return (
+                <button
+                  key={opt.value || "__all__"}
+                  type="button"
+                  onClick={() => {
+                    onChange(opt.value);
+                    setOpen(false);
+                  }}
+                  className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left font-sans text-sm transition-colors ${
+                    isChecked
+                      ? "bg-[#F0EFFE] font-medium text-[#9F99F8]"
+                      : "text-[#333333] hover:bg-[#FAFAFA]"
+                  }`}
+                >
+                  <span className="flex-1 truncate">{opt.label}</span>
+                  {isChecked && (
+                    <Check className="h-3.5 w-3.5 shrink-0 text-[#9F99F8]" />
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1159,6 +1377,171 @@ function GeneroTable({ categories }: { categories: FreesGeneroCategory[] }) {
       </div>
     </div>
   );
+}
+
+function IngresoCurva({
+  data,
+}: {
+  data: BucketRow[];
+}) {
+  const total = data.reduce((s, d) => s + d.count, 0);
+  if (!total) {
+    return (
+      <div className="flex h-64 flex-col items-center justify-center gap-2 font-sans text-sm text-[#999999]">
+        <Inbox className="h-6 w-6" />
+        Sin ingresos canjeados
+      </div>
+    );
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={320}>
+      <AreaChart
+        data={data}
+        margin={{ top: 8, right: 24, left: 8, bottom: 8 }}
+      >
+        <defs>
+          <linearGradient id="ingresoFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#9F99F8" stopOpacity={0.3} />
+            <stop offset="100%" stopColor="#9F99F8" stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid {...gridProps} vertical={false} />
+        <XAxis
+          dataKey="label"
+          tick={axisTick}
+          axisLine={{ stroke: SURFACE.divider }}
+          tickLine={false}
+          interval={3}
+        />
+        <YAxis
+          tick={axisTick}
+          axisLine={false}
+          tickLine={false}
+          allowDecimals={false}
+        />
+        <Tooltip
+          cursor={{ stroke: SURFACE.divider }}
+          content={({ active, payload }) => {
+            const p = payload?.[0];
+            if (!p) return <ChartTooltip active={false} items={[]} />;
+            const row = p.payload as BucketRow;
+            return (
+              <ChartTooltip
+                active={active}
+                label={`${row.label} – ${row.endLabel}`}
+                items={[
+                  {
+                    name: "Ingresos",
+                    color: "#9F99F8",
+                    formatted: formatNumber(row.count),
+                  },
+                ]}
+              />
+            );
+          }}
+        />
+        <Area
+          type="monotone"
+          dataKey="count"
+          stroke="#9F99F8"
+          strokeWidth={2}
+          fill="url(#ingresoFill)"
+          isAnimationActive
+          animationDuration={400}
+          animationEasing="ease-out"
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function median(values: number[]): number {
+  const n = values.length;
+  if (!n) return NaN;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(n / 2);
+  return n % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function clockLabelFromMinutes(min: number): string {
+  if (!Number.isFinite(min)) return "—";
+  const m = ((Math.round(min) % 1440) + 1440) % 1440;
+  const h = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(h).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
+}
+
+function clockLabelFromSeconds(seconds: number): string {
+  if (!Number.isFinite(seconds)) return "—";
+  return clockLabelFromMinutes(Math.floor(seconds / 60));
+}
+
+type BucketRow = {
+  bucket: number;
+  label: string;
+  endLabel: string;
+  count: number;
+};
+
+function aggregateByBucket(
+  rows: FreesIngresoRow[],
+  mode: "absolute" | "modulo",
+): BucketRow[] {
+  if (mode === "modulo") {
+    // Eje rotado: arranca a las 06:00 para que la noche (cruces de medianoche)
+    // fluya naturalmente al final del gráfico (23:30 → 00:00 → ...).
+    const ANCHOR_MIN = 360;
+    const counts = new Array(48).fill(0) as number[];
+    for (const r of rows) {
+      const minOfDay = Math.floor(
+        (((r.tsSeconds % 86400) + 86400) % 86400) / 60,
+      );
+      const rotated = (minOfDay - ANCHOR_MIN + 1440) % 1440;
+      const b = Math.min(47, Math.floor(rotated / 30));
+      counts[b] += 1;
+    }
+    return counts.map((count, b) => {
+      const realStartMin = (ANCHOR_MIN + b * 30) % 1440;
+      return {
+        bucket: b,
+        label: clockLabelFromMinutes(realStartMin),
+        endLabel: clockLabelFromMinutes(realStartMin + 30),
+        count,
+      };
+    });
+  }
+
+  // Absolute mode: chronological, trim leading/trailing empties.
+  if (rows.length === 0) return [];
+  const BUCKET_SECONDS = 30 * 60;
+  const bucketCounts = new Map<number, number>();
+  for (const r of rows) {
+    if (!Number.isFinite(r.tsSeconds) || r.tsSeconds <= 0) continue;
+    const b = Math.floor(r.tsSeconds / BUCKET_SECONDS);
+    bucketCounts.set(b, (bucketCounts.get(b) ?? 0) + 1);
+  }
+  if (bucketCounts.size === 0) return [];
+  const keys = [...bucketCounts.keys()].sort((a, b) => a - b);
+  const min = keys[0];
+  const max = keys[keys.length - 1];
+
+  // Safety: if range explodes (corrupt data), fall back to modulo.
+  const MAX_BUCKETS = 200;
+  if (max - min > MAX_BUCKETS) {
+    return aggregateByBucket(rows, "modulo");
+  }
+
+  const out: BucketRow[] = [];
+  for (let b = min; b <= max; b++) {
+    out.push({
+      bucket: b,
+      label: clockLabelFromSeconds(b * BUCKET_SECONDS),
+      endLabel: clockLabelFromSeconds((b + 1) * BUCKET_SECONDS),
+      count: bucketCounts.get(b) ?? 0,
+    });
+  }
+  return out;
 }
 
 function Th({

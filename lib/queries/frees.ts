@@ -36,6 +36,7 @@ export type FreesKpis = {
 
 export type FreesGroupRow = {
   label: string;
+  emitidas?: number;
   total: number;
   canjeadas: number;
   tasaCanje: number;
@@ -43,10 +44,6 @@ export type FreesGroupRow = {
 
 export type FreesCategoryNode = FreesGroupRow & {
   recipients: FreesGroupRow[];
-};
-
-export type FreesLinkTypeNode = FreesGroupRow & {
-  categories: FreesCategoryNode[];
 };
 
 export type FreesGeneroRow = {
@@ -75,11 +72,20 @@ export type FreesGeneroData = {
   byCategory: FreesGeneroCategory[];
 };
 
+export type FreesIngresoRow = {
+  category: string;
+  recipient: string;
+  genero: "Hombre" | "Mujer" | "Sin clasificar";
+  tsSeconds: number;
+};
+
 export type FreesDashboardData = {
   kpis: FreesKpis;
   byTicketType: FreesGroupRow[];
-  byLinkType: FreesLinkTypeNode[];
+  byLinkType: FreesGroupRow[];
+  byCategory: FreesCategoryNode[];
   byGenero: FreesGeneroData;
+  ingresoRows: FreesIngresoRow[];
 };
 
 export type FreesEventOption = {
@@ -95,7 +101,7 @@ export type FreesEventOption = {
  * CodigoPromocion coincide con los últimos 8 chars del sellerLink.
  */
 const JOIN_CTE = `
-  WITH cortesias_base AS (
+  WITH cortesias_dedup AS (
     SELECT
       c.id,
       c.ticketType,
@@ -104,9 +110,23 @@ const JOIN_CTE = `
       c.linkType,
       c.externalId,
       c.assignedAt,
-      RIGHT(c.sellerLink, 8) AS promo
+      c.sellerLink,
+      ROW_NUMBER() OVER (PARTITION BY c.id ORDER BY c.assignedAt DESC NULLS LAST) AS rn
     FROM ${CORTESIAS} c
     WHERE (@hasEvento = FALSE OR c.externalId = @eventoId)
+  ),
+  cortesias_base AS (
+    SELECT
+      id,
+      ticketType,
+      recipient,
+      category,
+      linkType,
+      externalId,
+      assignedAt,
+      RIGHT(sellerLink, 8) AS promo
+    FROM cortesias_dedup
+    WHERE rn = 1
   ),
   cortesias_match AS (
     SELECT
@@ -119,7 +139,8 @@ const JOIN_CTE = `
       cb.assignedAt,
       cb.promo,
       COUNT(t.CodigoPromocion) > 0 AS canjeada,
-      ANY_VALUE(t.NombreNominado)   AS nombreNominado
+      ANY_VALUE(t.NombreNominado)   AS nombreNominado,
+      MIN(t.HoraQuemado)            AS horaQuemado
     FROM cortesias_base cb
     LEFT JOIN ${TICKETS} t
       ON t.CodigoPromocion = cb.promo
@@ -144,7 +165,10 @@ const JOIN_CTE = `
     UNNEST(
       SPLIT(
         REGEXP_REPLACE(
-          NORMALIZE(LOWER(IFNULL(cm.nombreNominado, '')), NFD),
+          REGEXP_REPLACE(
+            NORMALIZE(LOWER(IFNULL(cm.nombreNominado, '')), NFD),
+            r'\pM', ''
+          ),
           r'[^a-z ]', ' '
         ),
         ' '
@@ -181,7 +205,7 @@ const JOIN_CTE = `
 `;
 
 const DELIVERED_FILTER =
-  "assignedAt IS NOT NULL OR (recipient IS NOT NULL AND recipient != '')";
+  "(assignedAt IS NOT NULL OR (recipient IS NOT NULL AND recipient != ''))";
 
 function eventoParams(eventoId?: string): Record<string, unknown> {
   return {
@@ -206,38 +230,42 @@ async function fetchKpis(eventoId?: string): Promise<FreesKpis> {
   const r = rows[0] ?? {};
   const total = n(r.totalCortesias);
   const canj = n(r.totalCanjeadas);
+  const asignadas = n(r.cortesiasConRecipient);
   return {
     totalCortesias: total,
     totalCanjeadas: canj,
     totalNoCanjeadas: n(r.totalNoCanjeadas),
-    tasaCanje: total ? canj / total : 0,
-    cortesiasConRecipient: n(r.cortesiasConRecipient),
+    tasaCanje: asignadas ? canj / asignadas : 0,
+    cortesiasConRecipient: asignadas,
     cortesiasConCategory: n(r.cortesiasConCategory),
     ticketTypesUnicos: n(r.ticketTypesUnicos),
   };
 }
 
 async function fetchGroup(
-  field: "ticketType" | "recipient" | "category",
+  field: "ticketType" | "recipient" | "category" | "linkType",
   eventoId?: string,
 ): Promise<FreesGroupRow[]> {
   const sql = `
     ${JOIN_CTE}
     SELECT
       COALESCE(NULLIF(${field}, ''), '${SIN_DATO}') AS label,
-      COUNT(*)                                       AS total,
+      COUNT(*)                                       AS emitidas,
+      COUNTIF(${DELIVERED_FILTER})                   AS total,
       COUNTIF(canjeada)                              AS canjeadas
     FROM cortesias_match
-    WHERE ${DELIVERED_FILTER}
     GROUP BY label
+    HAVING total > 0
     ORDER BY total DESC
   `;
   const rows = await query<Record<string, unknown>>(sql, eventoParams(eventoId));
   return rows.map((r) => {
+    const emitidas = n(r.emitidas);
     const total = n(r.total);
     const canjeadas = n(r.canjeadas);
     return {
       label: s(r.label) || SIN_DATO,
+      emitidas,
       total,
       canjeadas,
       tasaCanje: total ? canjeadas / total : 0,
@@ -245,48 +273,32 @@ async function fetchGroup(
   });
 }
 
-async function fetchLinkTypeTree(
+async function fetchCategoryTree(
   eventoId?: string,
-): Promise<FreesLinkTypeNode[]> {
+): Promise<FreesCategoryNode[]> {
   const sql = `
     ${JOIN_CTE}
     SELECT
-      COALESCE(NULLIF(linkType, ''),  '${SIN_DATO}') AS linkType,
       COALESCE(NULLIF(category, ''),  '${SIN_DATO}') AS category,
       COALESCE(NULLIF(recipient, ''), '${SIN_DATO}') AS recipient,
       COUNT(*)          AS total,
       COUNTIF(canjeada) AS canjeadas
     FROM cortesias_match
     WHERE ${DELIVERED_FILTER}
-    GROUP BY linkType, category, recipient
-    ORDER BY linkType, category, total DESC
+    GROUP BY category, recipient
+    ORDER BY category, total DESC
   `;
   const rows = await query<Record<string, unknown>>(sql, eventoParams(eventoId));
 
-  const byLink = new Map<string, FreesLinkTypeNode>();
-  const byLinkCat = new Map<string, FreesCategoryNode>();
+  const byCat = new Map<string, FreesCategoryNode>();
 
   for (const r of rows) {
-    const linkType = s(r.linkType) || SIN_DATO;
     const category = s(r.category) || SIN_DATO;
     const recipient = s(r.recipient) || SIN_DATO;
     const total = n(r.total);
     const canjeadas = n(r.canjeadas);
 
-    let linkNode = byLink.get(linkType);
-    if (!linkNode) {
-      linkNode = {
-        label: linkType,
-        total: 0,
-        canjeadas: 0,
-        tasaCanje: 0,
-        categories: [],
-      };
-      byLink.set(linkType, linkNode);
-    }
-
-    const catKey = `${linkType}::${category}`;
-    let catNode = byLinkCat.get(catKey);
+    let catNode = byCat.get(category);
     if (!catNode) {
       catNode = {
         label: category,
@@ -295,12 +307,9 @@ async function fetchLinkTypeTree(
         tasaCanje: 0,
         recipients: [],
       };
-      byLinkCat.set(catKey, catNode);
-      linkNode.categories.push(catNode);
+      byCat.set(category, catNode);
     }
 
-    linkNode.total += total;
-    linkNode.canjeadas += canjeadas;
     catNode.total += total;
     catNode.canjeadas += canjeadas;
     catNode.recipients.push({
@@ -311,14 +320,10 @@ async function fetchLinkTypeTree(
     });
   }
 
-  const result = Array.from(byLink.values());
-  for (const link of result) {
-    link.tasaCanje = link.total ? link.canjeadas / link.total : 0;
-    for (const cat of link.categories) {
-      cat.tasaCanje = cat.total ? cat.canjeadas / cat.total : 0;
-      cat.recipients.sort((a, b) => b.total - a.total);
-    }
-    link.categories.sort((a, b) => b.total - a.total);
+  const result = Array.from(byCat.values());
+  for (const cat of result) {
+    cat.tasaCanje = cat.total ? cat.canjeadas / cat.total : 0;
+    cat.recipients.sort((a, b) => b.total - a.total);
   }
   result.sort((a, b) => b.total - a.total);
   return result;
@@ -333,7 +338,7 @@ async function fetchGeneroTree(eventoId?: string): Promise<FreesGeneroData> {
       generoLabel AS genero,
       COUNT(*) AS total
     FROM cortesias_with_genero
-    WHERE ${DELIVERED_FILTER}
+    WHERE (${DELIVERED_FILTER}) AND canjeada
     GROUP BY category, recipient, genero
   `;
   const rows = await query<Record<string, unknown>>(sql, eventoParams(eventoId));
@@ -436,17 +441,51 @@ async function fetchGeneroTree(eventoId?: string): Promise<FreesGeneroData> {
   return { kpis, byCategory: result };
 }
 
+async function fetchIngresoRows(
+  eventoId?: string,
+): Promise<FreesIngresoRow[]> {
+  const sql = `
+    ${JOIN_CTE}
+    SELECT
+      COALESCE(NULLIF(category, ''),  '${SIN_DATO}') AS category,
+      COALESCE(NULLIF(recipient, ''), '${SIN_DATO}') AS recipient,
+      generoLabel AS genero,
+      DATE_DIFF(EXTRACT(DATE FROM horaQuemado), DATE '1970-01-01', DAY) * 86400
+        + EXTRACT(HOUR FROM horaQuemado) * 3600
+        + EXTRACT(MINUTE FROM horaQuemado) * 60 AS tsSeconds
+    FROM cortesias_with_genero
+    WHERE ${DELIVERED_FILTER}
+      AND horaQuemado IS NOT NULL
+      AND EXTRACT(YEAR FROM horaQuemado) BETWEEN 2020 AND 2100
+  `;
+  const rows = await query<Record<string, unknown>>(sql, eventoParams(eventoId));
+  return rows.map((r) => {
+    const gen = s(r.genero);
+    const genero: FreesIngresoRow["genero"] =
+      gen === "Hombre" || gen === "Mujer" ? gen : "Sin clasificar";
+    return {
+      category: s(r.category) || SIN_DATO,
+      recipient: s(r.recipient) || SIN_DATO,
+      genero,
+      tsSeconds: n(r.tsSeconds),
+    };
+  });
+}
+
 export async function getFreesDashboardData(
   eventoId?: string,
 ): Promise<FreesDashboardData> {
-  const [kpis, byTicketType, byLinkType, byGenero] = await Promise.all([
-    fetchKpis(eventoId),
-    fetchGroup("ticketType", eventoId),
-    fetchLinkTypeTree(eventoId),
-    fetchGeneroTree(eventoId),
-  ]);
+  const [kpis, byTicketType, byLinkType, byCategory, byGenero, ingresoRows] =
+    await Promise.all([
+      fetchKpis(eventoId),
+      fetchGroup("ticketType", eventoId),
+      fetchGroup("linkType", eventoId),
+      fetchCategoryTree(eventoId),
+      fetchGeneroTree(eventoId),
+      fetchIngresoRows(eventoId),
+    ]);
 
-  return { kpis, byTicketType, byLinkType, byGenero };
+  return { kpis, byTicketType, byLinkType, byCategory, byGenero, ingresoRows };
 }
 
 export async function getFreesEventList(): Promise<FreesEventOption[]> {
