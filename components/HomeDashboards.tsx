@@ -500,7 +500,7 @@ function CardSurface({ section, mode, dragging, onChange }: CardSurfaceProps) {
             onChange={(v) => onChange({ title: v })}
           />
         ) : (
-          <h2 className="min-w-0 font-display text-xl font-black uppercase leading-none tracking-tight text-black sm:text-2xl">
+          <h2 className="min-w-0 font-display text-xl font-black uppercase leading-none tracking-tight text-black">
             {section.title}
           </h2>
         )}

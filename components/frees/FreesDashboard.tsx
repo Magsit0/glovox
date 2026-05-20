@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Inbox } from "lucide-react";
+import { ChevronRight, Inbox } from "lucide-react";
 import { motion } from "motion/react";
 import {
   Bar,
@@ -32,6 +32,7 @@ import type {
   FreesEventOption,
   FreesGroupRow,
   FreesKpis,
+  FreesLinkTypeNode,
 } from "@/lib/queries/frees";
 import { FreesEventSelect } from "./FreesEventSelect";
 
@@ -49,26 +50,18 @@ function formatPercent(v: number): string {
   return percentFormatter.format(v);
 }
 
-type Tab = "ticketType" | "recipient" | "category";
+type Tab = "ticketType" | "linkType";
 
-const TABS: { key: Tab; label: string; description: string; field: keyof FreesDashboardData }[] = [
+const TABS: { key: Tab; label: string; description: string }[] = [
   {
     key: "ticketType",
     label: "Tipo de ticket",
-    description: "Distribución por ticketType en cortesías.",
-    field: "byTicketType",
+    description: "Distribución por ticketType en cortesías entregadas.",
   },
   {
-    key: "recipient",
-    label: "Recipient",
-    description: "A quién quedó asignada la cortesía.",
-    field: "byRecipient",
-  },
-  {
-    key: "category",
-    label: "Category",
-    description: "Categoría declarada en la cortesía.",
-    field: "byCategory",
+    key: "linkType",
+    label: "Link · Categoría · Recipient",
+    description: "Tipo de link declarado en la cortesía.",
   },
 ];
 
@@ -87,16 +80,25 @@ export function FreesDashboard({
     [events, selectedEvent],
   );
 
+  const linkTypeRows = useMemo<FreesGroupRow[]>(
+    () =>
+      data.byLinkType.map((l) => ({
+        label: l.label,
+        total: l.total,
+        canjeadas: l.canjeadas,
+        tasaCanje: l.tasaCanje,
+      })),
+    [data.byLinkType],
+  );
+
   const activeRows = useMemo<FreesGroupRow[]>(() => {
     switch (tab) {
       case "ticketType":
         return data.byTicketType;
-      case "recipient":
-        return data.byRecipient;
-      case "category":
-        return data.byCategory;
+      case "linkType":
+        return linkTypeRows;
     }
-  }, [tab, data]);
+  }, [tab, data.byTicketType, linkTypeRows]);
 
   const activeMeta = TABS.find((t) => t.key === tab)!;
 
@@ -197,9 +199,17 @@ export function FreesDashboard({
         <Panel
           className="lg:col-span-12"
           title="Detalle"
-          subtitle="Total emitidas, canjeadas vía ticket y tasa de canje."
+          subtitle={
+            tab === "linkType"
+              ? "Total entregadas, canjeadas vía ticket y tasa de canje. Expande un linkType para ver sus categorías; expande una categoría para ver sus recipients."
+              : "Total entregadas, canjeadas vía ticket y tasa de canje."
+          }
         >
-          <GroupTable rows={activeRows} />
+          {tab === "linkType" ? (
+            <LinkTypeTable nodes={data.byLinkType} />
+          ) : (
+            <GroupTable rows={activeRows} />
+          )}
         </Panel>
       </motion.section>
     </div>
@@ -469,7 +479,7 @@ function GroupTable({ rows }: { rows: FreesGroupRow[] }) {
               <Th align="right">Total</Th>
               <Th align="right">Canjeadas</Th>
               <Th align="right">Tasa</Th>
-              <Th align="right">Share</Th>
+              <Th align="right">Participación</Th>
             </tr>
           </thead>
           <tbody>
@@ -494,6 +504,196 @@ function GroupTable({ rows }: { rows: FreesGroupRow[] }) {
                     {formatPercent(share)}
                   </td>
                 </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function LinkTypeTable({ nodes }: { nodes: FreesLinkTypeNode[] }) {
+  const [expandedLink, setExpandedLink] = useState<Set<string>>(new Set());
+  const [expandedCat, setExpandedCat] = useState<Set<string>>(new Set());
+
+  if (!nodes.length) {
+    return (
+      <div className="flex h-32 flex-col items-center justify-center gap-2 font-sans text-sm text-[#999999]">
+        <Inbox className="h-6 w-6" />
+        Sin datos
+      </div>
+    );
+  }
+
+  const grandTotal = nodes.reduce((s, n) => s + n.total, 0);
+
+  function toggleLink(label: string) {
+    setExpandedLink((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }
+  function toggleCat(key: string) {
+    setExpandedCat((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-[#E5E5E5]">
+      <div className="max-h-[560px] overflow-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
+              <Th>Link · Categoría · Recipient</Th>
+              <Th align="right">Total</Th>
+              <Th align="right">Canjeadas</Th>
+              <Th align="right">Tasa</Th>
+              <Th align="right">Participación</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {nodes.map((link) => {
+              const linkOpen = expandedLink.has(link.label);
+              const linkShare = grandTotal ? link.total / grandTotal : 0;
+              const linkHasCats = link.categories.length > 0;
+              return (
+                <Fragment key={`link-${link.label}`}>
+                  <tr
+                    className={`border-b border-[#E5E5E5] transition-colors duration-150 ${
+                      linkHasCats ? "cursor-pointer hover:bg-[#FAFAFA]" : ""
+                    }`}
+                    onClick={() => linkHasCats && toggleLink(link.label)}
+                    aria-expanded={linkHasCats ? linkOpen : undefined}
+                  >
+                    <td className="px-4 py-3 font-sans text-sm font-medium text-[#333333]">
+                      <span className="inline-flex items-center gap-2">
+                        {linkHasCats ? (
+                          <ChevronRight
+                            className={`h-3.5 w-3.5 text-[#999999] transition-transform duration-150 ${
+                              linkOpen ? "rotate-90" : ""
+                            }`}
+                          />
+                        ) : (
+                          <span className="inline-block h-3.5 w-3.5" />
+                        )}
+                        <span>{link.label}</span>
+                        {linkHasCats && (
+                          <span className="font-sans text-xs text-[#999999]">
+                            · {formatNumber(link.categories.length)}{" "}
+                            {link.categories.length === 1
+                              ? "categoría"
+                              : "categorías"}
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#333333]">
+                      {formatNumber(link.total)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#333333]">
+                      {formatNumber(link.canjeadas)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#666666]">
+                      {formatPercent(link.tasaCanje)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#666666]">
+                      {formatPercent(linkShare)}
+                    </td>
+                  </tr>
+                  {linkOpen &&
+                    link.categories.map((cat) => {
+                      const catKey = `${link.label}::${cat.label}`;
+                      const catOpen = expandedCat.has(catKey);
+                      const catShare = link.total ? cat.total / link.total : 0;
+                      const catHasRecipients = cat.recipients.length > 0;
+                      return (
+                        <Fragment key={`cat-${catKey}`}>
+                          <tr
+                            className={`border-b border-[#E5E5E5] bg-[#FAFAFA]/60 transition-colors duration-150 ${
+                              catHasRecipients ? "cursor-pointer hover:bg-[#FAFAFA]" : ""
+                            }`}
+                            onClick={() =>
+                              catHasRecipients && toggleCat(catKey)
+                            }
+                            aria-expanded={catHasRecipients ? catOpen : undefined}
+                          >
+                            <td className="px-4 py-2.5 font-sans text-sm text-[#333333]">
+                              <span className="inline-flex items-center gap-2 pl-6">
+                                {catHasRecipients ? (
+                                  <ChevronRight
+                                    className={`h-3.5 w-3.5 text-[#999999] transition-transform duration-150 ${
+                                      catOpen ? "rotate-90" : ""
+                                    }`}
+                                  />
+                                ) : (
+                                  <span className="inline-block h-3.5 w-3.5" />
+                                )}
+                                <span>{cat.label}</span>
+                                {catHasRecipients && (
+                                  <span className="font-sans text-xs text-[#999999]">
+                                    · {formatNumber(cat.recipients.length)}{" "}
+                                    {cat.recipients.length === 1
+                                      ? "recipient"
+                                      : "recipients"}
+                                  </span>
+                                )}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
+                              {formatNumber(cat.total)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
+                              {formatNumber(cat.canjeadas)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
+                              {formatPercent(cat.tasaCanje)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
+                              {formatPercent(catShare)}
+                            </td>
+                          </tr>
+                          {catOpen &&
+                            cat.recipients.map((r) => {
+                              const rShare = cat.total
+                                ? r.total / cat.total
+                                : 0;
+                              return (
+                                <tr
+                                  key={`rec-${catKey}-${r.label}`}
+                                  className="border-b border-[#E5E5E5] bg-[#FAFAFA] transition-colors duration-150"
+                                >
+                                  <td className="px-4 py-2 font-sans text-sm text-[#666666]">
+                                    <span className="inline-flex items-center gap-2 pl-12">
+                                      <span className="h-1 w-1 rounded-full bg-[#9F99F8]" />
+                                      <span>{r.label}</span>
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-2 text-right font-sans text-sm tabular-nums text-[#333333]">
+                                    {formatNumber(r.total)}
+                                  </td>
+                                  <td className="px-4 py-2 text-right font-sans text-sm tabular-nums text-[#333333]">
+                                    {formatNumber(r.canjeadas)}
+                                  </td>
+                                  <td className="px-4 py-2 text-right font-sans text-sm tabular-nums text-[#666666]">
+                                    {formatPercent(r.tasaCanje)}
+                                  </td>
+                                  <td className="px-4 py-2 text-right font-sans text-sm tabular-nums text-[#999999]">
+                                    {formatPercent(rShare)}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </Fragment>
+                      );
+                    })}
+                </Fragment>
               );
             })}
           </tbody>

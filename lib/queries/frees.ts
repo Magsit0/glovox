@@ -40,11 +40,18 @@ export type FreesGroupRow = {
   tasaCanje: number;
 };
 
+export type FreesCategoryNode = FreesGroupRow & {
+  recipients: FreesGroupRow[];
+};
+
+export type FreesLinkTypeNode = FreesGroupRow & {
+  categories: FreesCategoryNode[];
+};
+
 export type FreesDashboardData = {
   kpis: FreesKpis;
   byTicketType: FreesGroupRow[];
-  byRecipient: FreesGroupRow[];
-  byCategory: FreesGroupRow[];
+  byLinkType: FreesLinkTypeNode[];
 };
 
 export type FreesEventOption = {
@@ -66,7 +73,9 @@ const JOIN_CTE = `
       c.ticketType,
       c.recipient,
       c.category,
+      c.linkType,
       c.externalId,
+      c.assignedAt,
       RIGHT(c.sellerLink, 8) AS promo
     FROM ${CORTESIAS} c
     WHERE (@hasEvento = FALSE OR c.externalId = @eventoId)
@@ -77,15 +86,20 @@ const JOIN_CTE = `
       cb.ticketType,
       cb.recipient,
       cb.category,
+      cb.linkType,
       cb.externalId,
+      cb.assignedAt,
       cb.promo,
       COUNT(t.CodigoPromocion) > 0 AS canjeada
     FROM cortesias_base cb
     LEFT JOIN ${TICKETS} t
       ON t.CodigoPromocion = cb.promo
-    GROUP BY cb.id, cb.ticketType, cb.recipient, cb.category, cb.externalId, cb.promo
+    GROUP BY cb.id, cb.ticketType, cb.recipient, cb.category, cb.linkType, cb.externalId, cb.assignedAt, cb.promo
   )
 `;
+
+const DELIVERED_FILTER =
+  "assignedAt IS NOT NULL OR (recipient IS NOT NULL AND recipient != '')";
 
 function eventoParams(eventoId?: string): Record<string, unknown> {
   return {
@@ -132,6 +146,7 @@ async function fetchGroup(
       COUNT(*)                                       AS total,
       COUNTIF(canjeada)                              AS canjeadas
     FROM cortesias_match
+    WHERE ${DELIVERED_FILTER}
     GROUP BY label
     ORDER BY total DESC
   `;
@@ -148,17 +163,95 @@ async function fetchGroup(
   });
 }
 
+async function fetchLinkTypeTree(
+  eventoId?: string,
+): Promise<FreesLinkTypeNode[]> {
+  const sql = `
+    ${JOIN_CTE}
+    SELECT
+      COALESCE(NULLIF(linkType, ''),  '${SIN_DATO}') AS linkType,
+      COALESCE(NULLIF(category, ''),  '${SIN_DATO}') AS category,
+      COALESCE(NULLIF(recipient, ''), '${SIN_DATO}') AS recipient,
+      COUNT(*)          AS total,
+      COUNTIF(canjeada) AS canjeadas
+    FROM cortesias_match
+    WHERE ${DELIVERED_FILTER}
+    GROUP BY linkType, category, recipient
+    ORDER BY linkType, category, total DESC
+  `;
+  const rows = await query<Record<string, unknown>>(sql, eventoParams(eventoId));
+
+  const byLink = new Map<string, FreesLinkTypeNode>();
+  const byLinkCat = new Map<string, FreesCategoryNode>();
+
+  for (const r of rows) {
+    const linkType = s(r.linkType) || SIN_DATO;
+    const category = s(r.category) || SIN_DATO;
+    const recipient = s(r.recipient) || SIN_DATO;
+    const total = n(r.total);
+    const canjeadas = n(r.canjeadas);
+
+    let linkNode = byLink.get(linkType);
+    if (!linkNode) {
+      linkNode = {
+        label: linkType,
+        total: 0,
+        canjeadas: 0,
+        tasaCanje: 0,
+        categories: [],
+      };
+      byLink.set(linkType, linkNode);
+    }
+
+    const catKey = `${linkType}::${category}`;
+    let catNode = byLinkCat.get(catKey);
+    if (!catNode) {
+      catNode = {
+        label: category,
+        total: 0,
+        canjeadas: 0,
+        tasaCanje: 0,
+        recipients: [],
+      };
+      byLinkCat.set(catKey, catNode);
+      linkNode.categories.push(catNode);
+    }
+
+    linkNode.total += total;
+    linkNode.canjeadas += canjeadas;
+    catNode.total += total;
+    catNode.canjeadas += canjeadas;
+    catNode.recipients.push({
+      label: recipient,
+      total,
+      canjeadas,
+      tasaCanje: total ? canjeadas / total : 0,
+    });
+  }
+
+  const result = Array.from(byLink.values());
+  for (const link of result) {
+    link.tasaCanje = link.total ? link.canjeadas / link.total : 0;
+    for (const cat of link.categories) {
+      cat.tasaCanje = cat.total ? cat.canjeadas / cat.total : 0;
+      cat.recipients.sort((a, b) => b.total - a.total);
+    }
+    link.categories.sort((a, b) => b.total - a.total);
+  }
+  result.sort((a, b) => b.total - a.total);
+  return result;
+}
+
 export async function getFreesDashboardData(
   eventoId?: string,
 ): Promise<FreesDashboardData> {
-  const [kpis, byTicketType, byRecipient, byCategory] = await Promise.all([
+  const [kpis, byTicketType, byLinkType] = await Promise.all([
     fetchKpis(eventoId),
     fetchGroup("ticketType", eventoId),
-    fetchGroup("recipient", eventoId),
-    fetchGroup("category", eventoId),
+    fetchLinkTypeTree(eventoId),
   ]);
 
-  return { kpis, byTicketType, byRecipient, byCategory };
+  return { kpis, byTicketType, byLinkType };
 }
 
 export async function getFreesEventList(): Promise<FreesEventOption[]> {
