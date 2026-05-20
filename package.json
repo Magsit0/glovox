@@ -11,7 +11,8 @@
     "db:migrate": "dotenv -e .env.local -- drizzle-kit migrate",
     "db:push": "dotenv -e .env.local -- drizzle-kit push",
     "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
-    "db:seed": "dotenv -e .env.local -- tsx db/seed.ts"
+    "db:seed": "dotenv -e .env.local -- tsx db/seed.ts",
+    "bq:seed-nombres": "dotenv -e .env.local -- tsx scripts/seed-nombres-genero.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

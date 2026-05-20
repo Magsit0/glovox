@@ -4,6 +4,7 @@ const P = process.env.BIGQUERY_PROJECT_ID;
 const CORTESIAS = `\`${P}.glovox.cortesias\``;
 const TICKETS = `\`${P}.glovox.tickets\``;
 const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
+const NOMBRES = `\`${P}.glovox.nombres_genero\``;
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -48,10 +49,37 @@ export type FreesLinkTypeNode = FreesGroupRow & {
   categories: FreesCategoryNode[];
 };
 
+export type FreesGeneroRow = {
+  label: string;
+  total: number;
+  hombres: number;
+  mujeres: number;
+  sinClasificar: number;
+  pctMujeres: number;
+};
+
+export type FreesGeneroCategory = FreesGeneroRow & {
+  recipients: FreesGeneroRow[];
+};
+
+export type FreesGeneroKpis = {
+  totalHombres: number;
+  totalMujeres: number;
+  totalSinClasificar: number;
+  pctClasificable: number;
+  pctMujeres: number;
+};
+
+export type FreesGeneroData = {
+  kpis: FreesGeneroKpis;
+  byCategory: FreesGeneroCategory[];
+};
+
 export type FreesDashboardData = {
   kpis: FreesKpis;
   byTicketType: FreesGroupRow[];
   byLinkType: FreesLinkTypeNode[];
+  byGenero: FreesGeneroData;
 };
 
 export type FreesEventOption = {
@@ -90,11 +118,65 @@ const JOIN_CTE = `
       cb.externalId,
       cb.assignedAt,
       cb.promo,
-      COUNT(t.CodigoPromocion) > 0 AS canjeada
+      COUNT(t.CodigoPromocion) > 0 AS canjeada,
+      ANY_VALUE(t.NombreNominado)   AS nombreNominado
     FROM cortesias_base cb
     LEFT JOIN ${TICKETS} t
       ON t.CodigoPromocion = cb.promo
     GROUP BY cb.id, cb.ticketType, cb.recipient, cb.category, cb.linkType, cb.externalId, cb.assignedAt, cb.promo
+  ),
+  nombres_norm AS (
+    SELECT
+      REGEXP_REPLACE(
+        NORMALIZE(LOWER(IFNULL(nombre, '')), NFD),
+        r'[^a-z]', ''
+      ) AS nombre,
+      UPPER(genero) AS genero
+    FROM ${NOMBRES}
+    WHERE nombre IS NOT NULL AND nombre != ''
+  ),
+  cortesias_tokens AS (
+    SELECT
+      cm.id,
+      pos,
+      token
+    FROM cortesias_match cm,
+    UNNEST(
+      SPLIT(
+        REGEXP_REPLACE(
+          NORMALIZE(LOWER(IFNULL(cm.nombreNominado, '')), NFD),
+          r'[^a-z ]', ' '
+        ),
+        ' '
+      )
+    ) AS token WITH OFFSET AS pos
+    WHERE token != ''
+  ),
+  cortesias_token_match AS (
+    SELECT
+      ct.id,
+      ct.pos,
+      g.genero
+    FROM cortesias_tokens ct
+    JOIN nombres_norm g ON g.nombre = ct.token
+  ),
+  cortesias_first_match AS (
+    SELECT
+      id,
+      ARRAY_AGG(genero ORDER BY pos LIMIT 1)[SAFE_OFFSET(0)] AS genero
+    FROM cortesias_token_match
+    GROUP BY id
+  ),
+  cortesias_with_genero AS (
+    SELECT
+      cm.*,
+      CASE
+        WHEN fm.genero = 'M' THEN 'Hombre'
+        WHEN fm.genero = 'F' THEN 'Mujer'
+        ELSE 'Sin clasificar'
+      END AS generoLabel
+    FROM cortesias_match cm
+    LEFT JOIN cortesias_first_match fm ON fm.id = cm.id
   )
 `;
 
@@ -242,16 +324,129 @@ async function fetchLinkTypeTree(
   return result;
 }
 
+async function fetchGeneroTree(eventoId?: string): Promise<FreesGeneroData> {
+  const sql = `
+    ${JOIN_CTE}
+    SELECT
+      COALESCE(NULLIF(category, ''),  '${SIN_DATO}') AS category,
+      COALESCE(NULLIF(recipient, ''), '${SIN_DATO}') AS recipient,
+      generoLabel AS genero,
+      COUNT(*) AS total
+    FROM cortesias_with_genero
+    WHERE ${DELIVERED_FILTER}
+    GROUP BY category, recipient, genero
+  `;
+  const rows = await query<Record<string, unknown>>(sql, eventoParams(eventoId));
+
+  const byCategory = new Map<string, FreesGeneroCategory>();
+  const byCatRec = new Map<string, FreesGeneroRow>();
+
+  function ensureCat(label: string): FreesGeneroCategory {
+    let node = byCategory.get(label);
+    if (!node) {
+      node = {
+        label,
+        total: 0,
+        hombres: 0,
+        mujeres: 0,
+        sinClasificar: 0,
+        pctMujeres: 0,
+        recipients: [],
+      };
+      byCategory.set(label, node);
+    }
+    return node;
+  }
+
+  function ensureRecipient(
+    catNode: FreesGeneroCategory,
+    catLabel: string,
+    recLabel: string,
+  ): FreesGeneroRow {
+    const key = `${catLabel}::${recLabel}`;
+    let rec = byCatRec.get(key);
+    if (!rec) {
+      rec = {
+        label: recLabel,
+        total: 0,
+        hombres: 0,
+        mujeres: 0,
+        sinClasificar: 0,
+        pctMujeres: 0,
+      };
+      byCatRec.set(key, rec);
+      catNode.recipients.push(rec);
+    }
+    return rec;
+  }
+
+  let totalHombres = 0;
+  let totalMujeres = 0;
+  let totalSinClasificar = 0;
+
+  for (const r of rows) {
+    const category = s(r.category) || SIN_DATO;
+    const recipient = s(r.recipient) || SIN_DATO;
+    const genero = s(r.genero);
+    const total = n(r.total);
+
+    const catNode = ensureCat(category);
+    const recNode = ensureRecipient(catNode, category, recipient);
+
+    catNode.total += total;
+    recNode.total += total;
+
+    if (genero === "Hombre") {
+      catNode.hombres += total;
+      recNode.hombres += total;
+      totalHombres += total;
+    } else if (genero === "Mujer") {
+      catNode.mujeres += total;
+      recNode.mujeres += total;
+      totalMujeres += total;
+    } else {
+      catNode.sinClasificar += total;
+      recNode.sinClasificar += total;
+      totalSinClasificar += total;
+    }
+  }
+
+  const result = Array.from(byCategory.values());
+  for (const cat of result) {
+    const denomCat = cat.hombres + cat.mujeres;
+    cat.pctMujeres = denomCat ? cat.mujeres / denomCat : 0;
+    for (const rec of cat.recipients) {
+      const denomRec = rec.hombres + rec.mujeres;
+      rec.pctMujeres = denomRec ? rec.mujeres / denomRec : 0;
+    }
+    cat.recipients.sort((a, b) => b.total - a.total);
+  }
+  result.sort((a, b) => b.total - a.total);
+
+  const totalClasificable = totalHombres + totalMujeres;
+  const totalAll = totalClasificable + totalSinClasificar;
+  const kpis: FreesGeneroKpis = {
+    totalHombres,
+    totalMujeres,
+    totalSinClasificar,
+    pctClasificable: totalAll ? totalClasificable / totalAll : 0,
+    pctMujeres: totalClasificable ? totalMujeres / totalClasificable : 0,
+  };
+
+  return { kpis, byCategory: result };
+}
+
 export async function getFreesDashboardData(
   eventoId?: string,
 ): Promise<FreesDashboardData> {
-  const [kpis, byTicketType, byLinkType] = await Promise.all([
+  const [kpis, byTicketType, byLinkType, byGenero] = await Promise.all([
     fetchKpis(eventoId),
     fetchGroup("ticketType", eventoId),
     fetchLinkTypeTree(eventoId),
+    fetchGeneroTree(eventoId),
   ]);
 
-  return { kpis, byTicketType, byLinkType };
+  return { kpis, byTicketType, byLinkType, byGenero };
 }
 
 export async function getFreesEventList(): Promise<FreesEventOption[]> {

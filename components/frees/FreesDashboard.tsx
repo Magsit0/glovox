@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ChevronRight, Inbox } from "lucide-react";
+import { ChevronRight, Inbox, Search } from "lucide-react";
 import { motion } from "motion/react";
 import {
   Bar,
@@ -30,6 +30,10 @@ import {
 import type {
   FreesDashboardData,
   FreesEventOption,
+  FreesGeneroCategory,
+  FreesGeneroData,
+  FreesGeneroKpis,
+  FreesGeneroRow,
   FreesGroupRow,
   FreesKpis,
   FreesLinkTypeNode,
@@ -50,7 +54,13 @@ function formatPercent(v: number): string {
   return percentFormatter.format(v);
 }
 
-type Tab = "ticketType" | "linkType";
+type Tab = "ticketType" | "linkType" | "genero";
+
+const GENERO_COLORS: Record<string, string> = {
+  Hombre: "#9F99F8",
+  Mujer: "#ED75A0",
+  "Sin clasificar": "#999999",
+};
 
 const TABS: { key: Tab; label: string; description: string }[] = [
   {
@@ -62,6 +72,12 @@ const TABS: { key: Tab; label: string; description: string }[] = [
     key: "linkType",
     label: "Link · Categoría · Recipient",
     description: "Tipo de link declarado en la cortesía.",
+  },
+  {
+    key: "genero",
+    label: "Género",
+    description:
+      "Inferencia de género del nominado vía nombre. Solo cortesías canjeadas tienen nombre clasificable.",
   },
 ];
 
@@ -97,6 +113,8 @@ export function FreesDashboard({
         return data.byTicketType;
       case "linkType":
         return linkTypeRows;
+      case "genero":
+        return [];
     }
   }, [tab, data.byTicketType, linkTypeRows]);
 
@@ -182,35 +200,41 @@ export function FreesDashboard({
         transition={{ duration: 0.3, ease: "easeOut" }}
         className="grid grid-cols-1 gap-6 lg:grid-cols-12"
       >
-        <Panel
-          className="lg:col-span-8"
-          title={`Cortesías por ${activeMeta.label.toLowerCase()}`}
-          subtitle={activeMeta.description}
-        >
-          <GroupBarChart rows={activeRows} />
-        </Panel>
-        <Panel
-          className="lg:col-span-4"
-          title="Distribución"
-          subtitle="Top 6 categorías; el resto se agrupa como Otros."
-        >
-          <GroupDonutChart rows={activeRows} />
-        </Panel>
-        <Panel
-          className="lg:col-span-12"
-          title="Detalle"
-          subtitle={
-            tab === "linkType"
-              ? "Total entregadas, canjeadas vía ticket y tasa de canje. Expande un linkType para ver sus categorías; expande una categoría para ver sus recipients."
-              : "Total entregadas, canjeadas vía ticket y tasa de canje."
-          }
-        >
-          {tab === "linkType" ? (
-            <LinkTypeTable nodes={data.byLinkType} />
-          ) : (
-            <GroupTable rows={activeRows} />
-          )}
-        </Panel>
+        {tab === "genero" ? (
+          <GeneroSection data={data.byGenero} />
+        ) : (
+          <>
+            <Panel
+              className="lg:col-span-8"
+              title={`Cortesías por ${activeMeta.label.toLowerCase()}`}
+              subtitle={activeMeta.description}
+            >
+              <GroupBarChart rows={activeRows} />
+            </Panel>
+            <Panel
+              className="lg:col-span-4"
+              title="Distribución"
+              subtitle="Top 6 categorías; el resto se agrupa como Otros."
+            >
+              <GroupDonutChart rows={activeRows} />
+            </Panel>
+            <Panel
+              className="lg:col-span-12"
+              title="Detalle"
+              subtitle={
+                tab === "linkType"
+                  ? "Total entregadas, canjeadas vía ticket y tasa de canje. Expande un linkType para ver sus categorías; expande una categoría para ver sus recipients."
+                  : "Total entregadas, canjeadas vía ticket y tasa de canje."
+              }
+            >
+              {tab === "linkType" ? (
+                <LinkTypeTable nodes={data.byLinkType} />
+              ) : (
+                <GroupTable rows={activeRows} />
+              )}
+            </Panel>
+          </>
+        )}
       </motion.section>
     </div>
   );
@@ -693,6 +717,440 @@ function LinkTypeTable({ nodes }: { nodes: FreesLinkTypeNode[] }) {
                         </Fragment>
                       );
                     })}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function GeneroSection({ data }: { data: FreesGeneroData }) {
+  const [categoryFilter, setCategoryFilter] = useState<string>("");
+  const [recipientFilter, setRecipientFilter] = useState<string>("");
+
+  const categoryOptions = useMemo(
+    () =>
+      data.byCategory
+        .map((c) => c.label)
+        .sort((a, b) => a.localeCompare(b, "es")),
+    [data.byCategory],
+  );
+
+  const recipientQuery = recipientFilter.trim().toLowerCase();
+  const hasFilter = categoryFilter !== "" || recipientQuery !== "";
+
+  const filteredCategories = useMemo<FreesGeneroCategory[]>(() => {
+    let cats = data.byCategory;
+    if (categoryFilter) {
+      cats = cats.filter((c) => c.label === categoryFilter);
+    }
+    if (!recipientQuery) return cats;
+
+    return cats
+      .map((cat) => {
+        const recipients = cat.recipients.filter((r) =>
+          r.label.toLowerCase().includes(recipientQuery),
+        );
+        if (!recipients.length) return null;
+        const totals = recipients.reduce(
+          (acc, r) => {
+            acc.total += r.total;
+            acc.hombres += r.hombres;
+            acc.mujeres += r.mujeres;
+            acc.sinClasificar += r.sinClasificar;
+            return acc;
+          },
+          { total: 0, hombres: 0, mujeres: 0, sinClasificar: 0 },
+        );
+        const denom = totals.hombres + totals.mujeres;
+        return {
+          label: cat.label,
+          total: totals.total,
+          hombres: totals.hombres,
+          mujeres: totals.mujeres,
+          sinClasificar: totals.sinClasificar,
+          pctMujeres: denom ? totals.mujeres / denom : 0,
+          recipients,
+        } satisfies FreesGeneroCategory;
+      })
+      .filter((c): c is FreesGeneroCategory => c !== null);
+  }, [data.byCategory, categoryFilter, recipientQuery]);
+
+  const filteredTotals = useMemo(() => {
+    let h = 0;
+    let m = 0;
+    let sc = 0;
+    for (const c of filteredCategories) {
+      h += c.hombres;
+      m += c.mujeres;
+      sc += c.sinClasificar;
+    }
+    return { h, m, sc };
+  }, [filteredCategories]);
+
+  return (
+    <>
+      <div className="lg:col-span-12">
+        <GeneroKpis kpis={data.kpis} />
+      </div>
+
+      <Panel
+        className="lg:col-span-4"
+        title="Distribución por género"
+        subtitle={
+          hasFilter
+            ? "Filtrado: solo categorías y recipients seleccionados."
+            : "Hombre · Mujer · Sin clasificar sobre cortesías entregadas."
+        }
+      >
+        <GeneroDonut
+          hombres={hasFilter ? filteredTotals.h : data.kpis.totalHombres}
+          mujeres={hasFilter ? filteredTotals.m : data.kpis.totalMujeres}
+          sinClasificar={
+            hasFilter ? filteredTotals.sc : data.kpis.totalSinClasificar
+          }
+        />
+      </Panel>
+
+      <Panel
+        className="lg:col-span-8"
+        title="Filtros"
+        subtitle="Filtra por categoría y/o nombre del recipient para ver el corte de género específico."
+      >
+        <GeneroFilters
+          categories={categoryOptions}
+          categoryFilter={categoryFilter}
+          onCategoryChange={setCategoryFilter}
+          recipientFilter={recipientFilter}
+          onRecipientChange={setRecipientFilter}
+        />
+      </Panel>
+
+      <Panel
+        className="lg:col-span-12"
+        title="Detalle por categoría y recipient"
+        subtitle="Click en una categoría para ver sus recipients. Solo cortesías canjeadas tienen nombre nominado; el resto cae en 'Sin clasificar'."
+      >
+        <GeneroTable categories={filteredCategories} />
+      </Panel>
+    </>
+  );
+}
+
+function GeneroKpis({ kpis }: { kpis: FreesGeneroKpis }) {
+  return (
+    <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <KpiCard
+        label="Hombres"
+        value={formatNumber(kpis.totalHombres)}
+        sub={
+          kpis.totalHombres + kpis.totalMujeres > 0
+            ? `${formatPercent(1 - kpis.pctMujeres)} sobre clasificables`
+            : "Sin clasificables"
+        }
+      />
+      <KpiCard
+        label="Mujeres"
+        value={formatNumber(kpis.totalMujeres)}
+        sub={
+          kpis.totalHombres + kpis.totalMujeres > 0
+            ? `${formatPercent(kpis.pctMujeres)} sobre clasificables`
+            : "Sin clasificables"
+        }
+        delta="positive"
+      />
+      <KpiCard
+        label="Sin clasificar"
+        value={formatNumber(kpis.totalSinClasificar)}
+        sub="Nombre no encontrado o cortesía no canjeada"
+        delta="neutral"
+      />
+      <KpiCard
+        label="% clasificable"
+        value={formatPercent(kpis.pctClasificable)}
+        sub="Cortesías con género inferido"
+        delta={kpis.pctClasificable >= 0.5 ? "positive" : "negative"}
+      />
+    </section>
+  );
+}
+
+function GeneroFilters({
+  categories,
+  categoryFilter,
+  onCategoryChange,
+  recipientFilter,
+  onRecipientChange,
+}: {
+  categories: string[];
+  categoryFilter: string;
+  onCategoryChange: (v: string) => void;
+  recipientFilter: string;
+  onRecipientChange: (v: string) => void;
+}) {
+  const hasFilter = categoryFilter !== "" || recipientFilter !== "";
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+      <label className="flex flex-1 flex-col gap-1.5">
+        <span className="font-sans text-xs text-[#666666]">Categoría</span>
+        <select
+          value={categoryFilter}
+          onChange={(e) => onCategoryChange(e.target.value)}
+          className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+        >
+          <option value="">Todas las categorías</option>
+          {categories.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex flex-1 flex-col gap-1.5">
+        <span className="font-sans text-xs text-[#666666]">Recipient</span>
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[#999999]" />
+          <input
+            type="text"
+            value={recipientFilter}
+            onChange={(e) => onRecipientChange(e.target.value)}
+            placeholder="Buscar recipient…"
+            className="w-full rounded-lg border border-[#E5E5E5] bg-white py-2 pl-9 pr-3 font-sans text-sm text-[#333333] placeholder:text-[#999999] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+          />
+        </div>
+      </label>
+
+      {hasFilter && (
+        <button
+          type="button"
+          onClick={() => {
+            onCategoryChange("");
+            onRecipientChange("");
+          }}
+          className="rounded-lg px-3 py-2 font-sans text-sm text-[#666666] transition-colors hover:bg-[#FAFAFA] hover:text-[#333333]"
+        >
+          Limpiar
+        </button>
+      )}
+    </div>
+  );
+}
+
+function GeneroDonut({
+  hombres,
+  mujeres,
+  sinClasificar,
+}: {
+  hombres: number;
+  mujeres: number;
+  sinClasificar: number;
+}) {
+  const slices = [
+    { name: "Hombre", value: hombres, color: GENERO_COLORS["Hombre"] },
+    { name: "Mujer", value: mujeres, color: GENERO_COLORS["Mujer"] },
+    {
+      name: "Sin clasificar",
+      value: sinClasificar,
+      color: GENERO_COLORS["Sin clasificar"],
+    },
+  ].filter((s) => s.value > 0);
+
+  const total = slices.reduce((s, d) => s + d.value, 0);
+
+  if (!total) {
+    return (
+      <div className="flex h-64 flex-col items-center justify-center gap-2 font-sans text-sm text-[#999999]">
+        <Inbox className="h-6 w-6" />
+        Sin datos
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <ResponsiveContainer width="100%" height={280}>
+        <PieChart>
+          <Pie
+            data={slices}
+            dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            innerRadius="60%"
+            outerRadius="90%"
+            paddingAngle={1}
+            stroke="none"
+            isAnimationActive
+            animationDuration={400}
+            animationEasing="ease-out"
+          >
+            {slices.map((s) => (
+              <Cell key={s.name} fill={s.color} />
+            ))}
+          </Pie>
+          <Tooltip
+            content={({ active, payload }) => (
+              <ChartTooltip
+                active={active}
+                items={(payload ?? []).map((p) => ({
+                  name: String(p.name),
+                  color: p.payload?.fill,
+                  formatted: `${formatNumber(Number(p.value))} cortesías`,
+                }))}
+              />
+            )}
+          />
+          <Legend {...legendProps} />
+        </PieChart>
+      </ResponsiveContainer>
+      <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center -translate-y-6">
+        <span className="font-display text-3xl font-bold leading-none tracking-tight text-[#333333]">
+          {formatNumber(total)}
+        </span>
+        <span className="mt-1 font-sans text-xs text-[#666666]">cortesías</span>
+      </div>
+    </div>
+  );
+}
+
+function GeneroTable({ categories }: { categories: FreesGeneroCategory[] }) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+
+  if (!categories.length) {
+    return (
+      <div className="flex h-32 flex-col items-center justify-center gap-2 font-sans text-sm text-[#999999]">
+        <Inbox className="h-6 w-6" />
+        Sin datos
+      </div>
+    );
+  }
+
+  function toggle(label: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-[#E5E5E5]">
+      <div className="max-h-[560px] overflow-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
+              <Th>Categoría · Recipient</Th>
+              <Th align="right">Total</Th>
+              <Th align="right">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#9F99F8]" />
+                  Hombres
+                </span>
+              </Th>
+              <Th align="right">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#ED75A0]" />
+                  Mujeres
+                </span>
+              </Th>
+              <Th align="right">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-1.5 w-1.5 rounded-full bg-[#999999]" />
+                  Sin clasificar
+                </span>
+              </Th>
+              <Th align="right">% Mujeres</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {categories.map((cat) => {
+              const isOpen = expanded.has(cat.label);
+              const hasRecipients = cat.recipients.length > 0;
+              return (
+                <Fragment key={`gcat-${cat.label}`}>
+                  <tr
+                    className={`border-b border-[#E5E5E5] transition-colors duration-150 ${
+                      hasRecipients ? "cursor-pointer hover:bg-[#FAFAFA]" : ""
+                    }`}
+                    onClick={() => hasRecipients && toggle(cat.label)}
+                    aria-expanded={hasRecipients ? isOpen : undefined}
+                  >
+                    <td className="px-4 py-3 font-sans text-sm font-medium text-[#333333]">
+                      <span className="inline-flex items-center gap-2">
+                        {hasRecipients ? (
+                          <ChevronRight
+                            className={`h-3.5 w-3.5 text-[#999999] transition-transform duration-150 ${
+                              isOpen ? "rotate-90" : ""
+                            }`}
+                          />
+                        ) : (
+                          <span className="inline-block h-3.5 w-3.5" />
+                        )}
+                        <span>{cat.label}</span>
+                        {hasRecipients && (
+                          <span className="font-sans text-xs text-[#999999]">
+                            · {formatNumber(cat.recipients.length)}{" "}
+                            {cat.recipients.length === 1
+                              ? "recipient"
+                              : "recipients"}
+                          </span>
+                        )}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#333333]">
+                      {formatNumber(cat.total)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#333333]">
+                      {formatNumber(cat.hombres)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#333333]">
+                      {formatNumber(cat.mujeres)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#666666]">
+                      {formatNumber(cat.sinClasificar)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#666666]">
+                      {cat.hombres + cat.mujeres > 0
+                        ? formatPercent(cat.pctMujeres)
+                        : "—"}
+                    </td>
+                  </tr>
+                  {isOpen &&
+                    cat.recipients.map((rec) => (
+                      <tr
+                        key={`grec-${cat.label}-${rec.label}`}
+                        className="border-b border-[#E5E5E5] bg-[#FAFAFA]/60 transition-colors duration-150"
+                      >
+                        <td className="px-4 py-2.5 font-sans text-sm text-[#666666]">
+                          <span className="inline-flex items-center gap-2 pl-6">
+                            <span className="h-1 w-1 rounded-full bg-[#9F99F8]" />
+                            <span>{rec.label}</span>
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
+                          {formatNumber(rec.total)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
+                          {formatNumber(rec.hombres)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
+                          {formatNumber(rec.mujeres)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
+                          {formatNumber(rec.sinClasificar)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
+                          {rec.hombres + rec.mujeres > 0
+                            ? formatPercent(rec.pctMujeres)
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
                 </Fragment>
               );
             })}
