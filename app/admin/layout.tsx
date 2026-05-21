@@ -31,6 +31,12 @@ export default async function AdminLayout({
               >
                 Pendientes
               </Link>
+              <Link
+                href="/admin/cierre"
+                className="hover:text-[#333333]"
+              >
+                Gestión de Cierre
+              </Link>
             </nav>
           </div>
           <Link

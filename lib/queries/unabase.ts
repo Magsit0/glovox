@@ -127,3 +127,18 @@ export async function getNegociosRows(
   negociosCache = { data: clean, timestamp: Date.now() };
   return { rows: clean, cached: false, cacheAgeSeconds: 0 };
 }
+
+export async function getAllNegociosAdmin(
+  { timeoutMs = 30_000 }: { timeoutMs?: number } = {},
+): Promise<NegocioRow[]> {
+  const sql = `SELECT * FROM \`${P}.unabase.negocios\` ORDER BY CAST(id AS INT64) DESC`;
+  const queryPromise = query<Record<string, unknown>>(sql);
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error(`BigQuery tardó demasiado (>${Math.floor(timeoutMs / 1000)}s).`)),
+      timeoutMs,
+    ),
+  );
+  const rawRows = await Promise.race([queryPromise, timeoutPromise]);
+  return rawRows.map((row) => serializeRow(row) as unknown as NegocioRow);
+}
