@@ -4,10 +4,15 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import {
+  computeRrssKpis,
   filterByTrimestre,
   filterNegociosByTrimestre,
+  filterRrssByLabel,
+  filterRrssByTrimestre,
   getCierreTrimestralRows,
   getNegociosVentas,
+  getRrssFollowers,
+  getRrssNetworkOptions,
   getTrimestresDisponibles,
 } from "@/lib/queries/cierreTrimestral";
 import { aggregateTrimestre, aggregateVentas } from "@/lib/unabase/cierreTrimestral";
@@ -16,12 +21,15 @@ import KpiRow from "@/components/cierre-trimestral/KpiRow";
 import CategoriaBreakdown from "@/components/cierre-trimestral/CategoriaBreakdown";
 import EventosTable from "@/components/cierre-trimestral/EventosTable";
 import VentasPorArea from "@/components/cierre-trimestral/VentasPorArea";
+import RrssSection from "@/components/cierre-trimestral/RrssSection";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ trimestre?: string }>;
+  searchParams: Promise<{ trimestre?: string; network?: string }>;
 }
+
+const DEFAULT_NETWORK = "instagram";
 
 export default async function CierreTrimestralPage({ searchParams }: PageProps) {
   const session = await auth();
@@ -31,14 +39,16 @@ export default async function CierreTrimestralPage({ searchParams }: PageProps) 
     redirect("/?unauthorized=1");
   }
 
-  const { trimestre } = await searchParams;
+  const { trimestre, network } = await searchParams;
 
   let rows;
   let negociosRows;
+  let rrssRows;
   try {
-    [rows, negociosRows] = await Promise.all([
+    [rows, negociosRows, rrssRows] = await Promise.all([
       getCierreTrimestralRows(),
       getNegociosVentas(),
+      getRrssFollowers(),
     ]);
   } catch (err) {
     return (
@@ -77,6 +87,19 @@ export default async function CierreTrimestralPage({ searchParams }: PageProps) 
   const ventasAgg = aggregateVentas(filterNegociosByTrimestre(negociosRows, selectedId));
   const trimestreLabel = trimestres.find((t) => t.id === selectedId)?.label ?? selectedId;
 
+  const networkOptions = getRrssNetworkOptions(rrssRows);
+  const selectedNetwork =
+    network && networkOptions.includes(network)
+      ? network
+      : networkOptions.includes(DEFAULT_NETWORK)
+        ? DEFAULT_NETWORK
+        : networkOptions[0] ?? DEFAULT_NETWORK;
+  const rrssFiltered = filterRrssByLabel(
+    filterRrssByTrimestre(rrssRows, selectedId),
+    selectedNetwork,
+  );
+  const rrssKpis = computeRrssKpis(rrssFiltered);
+
   return (
     <Shell>
       <Heading />
@@ -98,6 +121,14 @@ export default async function CierreTrimestralPage({ searchParams }: PageProps) 
       <VentasPorArea agg={ventasAgg} />
       <CategoriaBreakdown rows={agg.porCategoria} />
       <EventosTable rows={agg.eventos} />
+      <RrssSection
+        rows={rrssFiltered}
+        kpis={rrssKpis}
+        networkOptions={networkOptions.length > 0 ? networkOptions : [DEFAULT_NETWORK]}
+        selectedNetwork={selectedNetwork}
+        trimestreId={selectedId}
+        trimestreLabel={trimestreLabel}
+      />
     </Shell>
   );
 }

@@ -5,6 +5,7 @@ const P = process.env.BIGQUERY_PROJECT_ID;
 const CIERRE = `\`${P}.ticketsAndAABB.cierreEventos\``;
 const TICKETS = `\`${P}.glovox.tickets\``;
 const NEGOCIOS = `\`${P}.unabase.negocios\``;
+const RRSS = `\`${P}.marketing.rrss_fllws\``;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const QUERY_TIMEOUT_MS = 25_000;
@@ -257,4 +258,98 @@ export function filterByTrimestre(
     const q = quarterFromDate(r.FechaEvento);
     return !!q && q.year === year && q.quarter === quarter;
   });
+}
+
+export interface RrssRow {
+  date: string;
+  network: string | null;
+  label: string | null;
+  totalFollowers: number | null;
+}
+
+const RRSS_SQL = `
+  SELECT
+    CAST(date AS STRING)                AS date,
+    CAST(network AS STRING)             AS network,
+    CAST(label AS STRING)               AS label,
+    SAFE_CAST(total_followers AS INT64) AS total_followers
+  FROM ${RRSS}
+  ORDER BY date ASC
+`;
+
+let rrssCache: { data: RrssRow[]; timestamp: number } | null = null;
+
+export async function getRrssFollowers(): Promise<RrssRow[]> {
+  const now = Date.now();
+  if (rrssCache && now - rrssCache.timestamp < CACHE_TTL_MS) return rrssCache.data;
+  const rows = await withTimeout(query<Record<string, unknown>>(RRSS_SQL));
+  const data: RrssRow[] = rows.map((r) => ({
+    date: s(r.date) ?? "",
+    network: s(r.network),
+    label: s(r.label),
+    totalFollowers: n(r.total_followers),
+  }));
+  rrssCache = { data, timestamp: now };
+  return data;
+}
+
+export function invalidateRrssCache(): void {
+  rrssCache = null;
+}
+
+export function getRrssNetworkOptions(rows: RrssRow[]): string[] {
+  const seen = new Set<string>();
+  for (const r of rows) {
+    if (r.label) seen.add(r.label);
+  }
+  return Array.from(seen).sort();
+}
+
+export function filterRrssByTrimestre(
+  rows: RrssRow[],
+  trimestreId: string,
+): RrssRow[] {
+  const m = /^(\d{4})-Q([1-4])$/.exec(trimestreId);
+  if (!m) return [];
+  const year = Number(m[1]);
+  const quarter = Number(m[2]);
+  return rows.filter((r) => {
+    if (!r.date) return false;
+    const q = quarterFromDate(r.date);
+    return !!q && q.year === year && q.quarter === quarter;
+  });
+}
+
+export function filterRrssByLabel(rows: RrssRow[], label: string): RrssRow[] {
+  return rows.filter((r) => r.label === label);
+}
+
+export interface RrssKpis {
+  initialFollowers: number | null;
+  finalFollowers: number | null;
+  growth: number | null;
+  avgDailyGrowth: number | null;
+}
+
+export function computeRrssKpis(rows: RrssRow[]): RrssKpis {
+  if (rows.length === 0) {
+    return {
+      initialFollowers: null,
+      finalFollowers: null,
+      growth: null,
+      avgDailyGrowth: null,
+    };
+  }
+  const sorted = [...rows].sort((a, b) => a.date.localeCompare(b.date));
+  const initial = sorted[0].totalFollowers;
+  const final = sorted[sorted.length - 1].totalFollowers;
+  const growth = initial !== null && final !== null ? final - initial : null;
+  const avgDailyGrowth =
+    growth !== null && sorted.length > 1 ? growth / (sorted.length - 1) : null;
+  return {
+    initialFollowers: initial,
+    finalFollowers: final,
+    growth,
+    avgDailyGrowth,
+  };
 }
