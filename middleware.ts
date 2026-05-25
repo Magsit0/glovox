@@ -1,5 +1,7 @@
 import { auth } from "@/lib/auth";
 import { canAccessPath, getUserPermissions } from "@/lib/permissions";
+import { matchDashboardKey } from "@/lib/dashboards-catalog";
+import { logDashboardAccess } from "@/lib/dashboard-access-service";
 import { NextResponse } from "next/server";
 
 /** Paths always accessible to any logged-in user. */
@@ -44,10 +46,27 @@ export default auth((req) => {
       homeUrl.searchParams.set("unauthorized", "1");
       return NextResponse.redirect(homeUrl);
     }
+
+    // Logging centralizado: cualquier path que matchee un entry de
+    // DASHBOARDS_CATALOG queda registrado automáticamente, sin necesidad
+    // de tocar el page.tsx del dashboard.
+    //
+    // Fire-and-forget: no bloqueamos la response. El dedupe de 5 min en
+    // logDashboardAccess evita duplicados por refresh / filtros / etc.
+    const userId = req.auth?.user?.userId;
+    if (userId) {
+      const dashboardKey = matchDashboardKey(pathname);
+      if (dashboardKey) {
+        void logDashboardAccess(userId, dashboardKey, pathname);
+      }
+    }
   }
 });
 
 export const config = {
+  // Middleware necesita Node.js runtime para escribir a Postgres
+  // (postgres-js no es compatible con Edge).
+  runtime: "nodejs",
   // Keep api/auth excluded from matcher so NextAuth handles OAuth callbacks natively.
   // Other /api/ routes are excluded inside the callback above.
   matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\.svg|.*\\.png|.*\\.jpg|.*\\.jpeg|.*\\.webp|.*\\.ico).*)"],

@@ -166,3 +166,23 @@ export type DashboardKey = (typeof DASHBOARDS_CATALOG)[number]["key"];
 export const ALL_DASHBOARD_KEYS: readonly string[] = DASHBOARDS_CATALOG.map(
   (d) => d.key,
 );
+
+/**
+ * Resuelve un pathname a la `key` del dashboard al que pertenece.
+ * Compara contra `pathPrefix` y devuelve el match más largo (para casos
+ * donde un prefix es subcadena de otro, ej. `/club` vs `/club/earnings`).
+ */
+export function matchDashboardKey(pathname: string): string | null {
+  let best: { key: string; len: number } | null = null;
+  for (const d of DASHBOARDS_CATALOG) {
+    if (
+      pathname === d.pathPrefix ||
+      pathname.startsWith(`${d.pathPrefix}/`)
+    ) {
+      if (!best || d.pathPrefix.length > best.len) {
+        best = { key: d.key, len: d.pathPrefix.length };
+      }
+    }
+  }
+  return best?.key ?? null;
+}

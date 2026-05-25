@@ -8,6 +8,8 @@ export const metadata: Metadata = {
   title: "Eventos — Glovox Data",
 };
 
+export const dynamic = "force-dynamic";
+
 async function EventsSection() {
   const data = await getEventSales();
   return <EventSalesChart data={data} />;

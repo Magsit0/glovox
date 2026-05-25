@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   title: "Donations",
 };
 
+export const dynamic = "force-dynamic";
+
 const clpFormatter = new Intl.NumberFormat("es-CL", {
   style: "currency",
   currency: "CLP",

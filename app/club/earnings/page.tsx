@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   title: "Venta Tecnología por Mes",
 };
 
+export const dynamic = "force-dynamic";
+
 async function getPenToClpRate(): Promise<number> {
   try {
     const res = await fetch("https://open.er-api.com/v6/latest/PEN", {

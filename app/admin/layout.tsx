@@ -37,6 +37,12 @@ export default async function AdminLayout({
               >
                 Gestión de Cierre
               </Link>
+              <Link
+                href="/admin/accesos"
+                className="hover:text-[#333333]"
+              >
+                Accesos
+              </Link>
             </nav>
           </div>
           <Link

@@ -1,10 +1,12 @@
 import {
   boolean,
+  index,
   integer,
   jsonb,
   pgEnum,
   pgTable,
   primaryKey,
+  serial,
   text,
   timestamp,
   uuid,
@@ -89,11 +91,33 @@ export const auditLog = pgTable("audit_log", {
     .notNull(),
 });
 
+export const dashboardAccessLog = pgTable(
+  "dashboard_access_log",
+  {
+    id: serial("id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    dashboardKey: text("dashboard_key")
+      .notNull()
+      .references(() => dashboards.key, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    accessedAt: timestamp("accessed_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    index("dash_access_user_idx").on(t.userId, t.accessedAt),
+    index("dash_access_dashboard_idx").on(t.dashboardKey, t.accessedAt),
+  ],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Dashboard = typeof dashboards.$inferSelect;
 export type UserDashboardAccess = typeof userDashboardAccess.$inferSelect;
 export type SuperadminPending = typeof superadminPendings.$inferSelect;
+export type DashboardAccessLog = typeof dashboardAccessLog.$inferSelect;
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Country = (typeof countryEnum.enumValues)[number];
 export type PendingStatus = (typeof pendingStatusEnum.enumValues)[number];

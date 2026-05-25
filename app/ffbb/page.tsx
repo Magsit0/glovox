@@ -7,6 +7,8 @@ export const metadata: Metadata = {
   description: "Dashboard de resultados de operacion de alimentos y bebidas.",
 };
 
+export const dynamic = "force-dynamic";
+
 export default function FfbbPage() {
   return (
     <main

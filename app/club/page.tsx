@@ -26,6 +26,8 @@ function fmClp(v: number) {
   return `$${Math.round(v)}`;
 }
 
+export const dynamic = "force-dynamic";
+
 function pct(a: number, b: number) {
   return b === 0 ? "0%" : `${((a / b) * 100).toFixed(1)}%`;
 }
