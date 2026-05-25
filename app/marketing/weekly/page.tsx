@@ -68,11 +68,15 @@ export default async function MarketingWeeklyPage({
     );
   }
 
-  // GLO198 is the default for the unrestricted dashboard. For scoped users
-  // (e.g. only TeleTicket), GLO198 may not be in their event list — fall
-  // back to the first event they actually have access to.
-  const hasGlo198 = events.some((e) => e.eventoId === "GLO198");
-  const defaultId = hasGlo198 ? "GLO198" : events[0].eventoId;
+  // Default: closest upcoming event by `fechaEvento`. If none upcoming,
+  // fall back to the most recent past event. `upcomingEvents` is sorted
+  // ASC and already filtered to fecha_evento >= today; `events` is sorted
+  // DESC, so the first past event there is the latest realized one.
+  const today = new Date().toISOString().slice(0, 10);
+  const defaultId =
+    upcomingEvents[0]?.eventoId ??
+    events.find((e) => e.fechaEvento && e.fechaEvento < today)?.eventoId ??
+    events[0].eventoId;
   const selectedId = params.event ?? defaultId;
   const selectedLandingPages = Array.isArray(params.landingPage)
     ? params.landingPage

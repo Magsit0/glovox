@@ -67,6 +67,25 @@ export default function CompareEventSelector({
     commit([]);
   }
 
+  const categoryIds = useMemo(
+    () =>
+      defaultCategory
+        ? events
+            .filter((e) => e.categoriaEvento === defaultCategory)
+            .map((e) => e.eventoId)
+        : [],
+    [events, defaultCategory],
+  );
+  const categoryPendingCount = useMemo(
+    () => categoryIds.filter((id) => !selected.includes(id)).length,
+    [categoryIds, selected],
+  );
+
+  function compareWithCategory() {
+    if (categoryPendingCount === 0) return;
+    commit(Array.from(new Set([...selected, ...categoryIds])));
+  }
+
   const filtered = useMemo(() => {
     const byCat = category
       ? events.filter((e) => e.categoriaEvento === category)
@@ -89,23 +108,26 @@ export default function CompareEventSelector({
 
   const disabled = events.length === 0;
 
+  const categoryDisabled = !defaultCategory || categoryPendingCount === 0;
+
   return (
-    <div ref={ref} className="relative mb-3">
-      <button
-        type="button"
-        onClick={() => !disabled && setOpen(!open)}
-        disabled={disabled}
-        className={`bg-white border-4 border-black rounded-none font-mono-data text-xs px-3 py-1.5 text-black flex items-center gap-2 max-w-full justify-between shadow-[4px_4px_0px_#000] transition-colors duration-150 ${
-          disabled
-            ? "opacity-50 cursor-not-allowed"
-            : "cursor-pointer hover:bg-[#FFFF00]"
-        }`}
-      >
-        <span className="truncate max-w-[280px]">
-          Comparar: {disabled ? "Sin eventos disponibles" : triggerLabel}
-        </span>
-        <span className="font-display text-xs">{open ? "▲" : "▼"}</span>
-      </button>
+    <div className="flex flex-wrap items-start gap-2 mb-3">
+      <div ref={ref} className="relative">
+        <button
+          type="button"
+          onClick={() => !disabled && setOpen(!open)}
+          disabled={disabled}
+          className={`bg-white border-4 border-black rounded-none font-mono-data text-xs px-3 py-1.5 text-black flex items-center gap-2 max-w-full justify-between shadow-[4px_4px_0px_#000] transition-colors duration-150 ${
+            disabled
+              ? "opacity-50 cursor-not-allowed"
+              : "cursor-pointer hover:bg-[#FFFF00]"
+          }`}
+        >
+          <span className="truncate max-w-[280px]">
+            Comparar: {disabled ? "Sin eventos disponibles" : triggerLabel}
+          </span>
+          <span className="font-display text-xs">{open ? "▲" : "▼"}</span>
+        </button>
       {open && !disabled && (
         <div className="absolute top-full left-0 mt-1 z-40 bg-white border-4 border-black rounded-none shadow-[4px_4px_0px_#000] min-w-[320px] w-max max-w-[520px]">
           <div className="p-2 border-b-2 border-black">
@@ -206,6 +228,37 @@ export default function CompareEventSelector({
             )}
           </div>
         </div>
+      )}
+      </div>
+      {defaultCategory && (
+        <button
+          type="button"
+          onClick={compareWithCategory}
+          disabled={categoryDisabled}
+          title={
+            categoryPendingCount === 0
+              ? "Todos los eventos de la categoría ya están comparados"
+              : `Agregar ${categoryPendingCount} evento${categoryPendingCount === 1 ? "" : "s"} de ${defaultCategory}`
+          }
+          className={`bg-white border-4 border-black rounded-none font-mono-data text-xs px-3 py-1.5 text-black shadow-[4px_4px_0px_#000] transition-colors duration-150 ${
+            categoryDisabled
+              ? "opacity-50 cursor-not-allowed"
+              : "cursor-pointer hover:bg-[#FFFF00]"
+          }`}
+        >
+          Comparar con la categoría
+          {categoryPendingCount > 0 ? ` (+${categoryPendingCount})` : ""}
+        </button>
+      )}
+      {selected.length > 0 && (
+        <button
+          type="button"
+          onClick={clearAll}
+          title="Quitar todos los eventos comparados"
+          className="bg-white border-4 border-black rounded-none font-mono-data text-xs px-3 py-1.5 text-black shadow-[4px_4px_0px_#000] cursor-pointer hover:bg-[#FFFF00] transition-colors duration-150"
+        >
+          Limpiar comparación ({selected.length})
+        </button>
       )}
     </div>
   );
