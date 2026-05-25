@@ -51,10 +51,20 @@ export default auth((req) => {
     // DASHBOARDS_CATALOG queda registrado automáticamente, sin necesidad
     // de tocar el page.tsx del dashboard.
     //
+    // IMPORTANTE: skipeamos las requests de prefetch. Next.js prefetchea
+    // los `<Link>` automáticamente (al renderizar la home, por ejemplo)
+    // y eso genera GETs a cada dashboard sin que el usuario realmente
+    // los abra. Sin este filtro, un superadmin con acceso a todo
+    // tendría una "visita" a cada dashboard cada vez que carga la home.
+    //
     // Fire-and-forget: no bloqueamos la response. El dedupe de 5 min en
     // logDashboardAccess evita duplicados por refresh / filtros / etc.
     const userId = req.auth?.user?.userId;
-    if (userId) {
+    const isPrefetch =
+      req.headers.get("next-router-prefetch") === "1" ||
+      req.headers.get("purpose") === "prefetch" ||
+      req.headers.get("sec-purpose")?.includes("prefetch") === true;
+    if (userId && !isPrefetch) {
       const dashboardKey = matchDashboardKey(pathname);
       if (dashboardKey) {
         void logDashboardAccess(userId, dashboardKey, pathname);
