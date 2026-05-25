@@ -36,11 +36,6 @@ export default function ResumenKpis({ agg }: Props) {
 
   const kpis: Kpi[] = [
     {
-      label: "Venta libro",
-      value: compactCurrency(agg.totalVenta),
-      caption: formatCurrency(agg.totalVenta),
-    },
-    {
       label: "Venta neta facturada",
       value: hasVentas ? compactCurrency(ventas.ventaNeta) : "—",
       caption: hasVentas
@@ -60,12 +55,6 @@ export default function ResumenKpis({ agg }: Props) {
       caption: formatCurrency(agg.totalGastoReal),
     },
     {
-      label: "Margen libro",
-      value: compactCurrency(agg.margenLibro),
-      caption: pct(agg.margenLibroPct),
-      deltaTone: marginTone(agg.margenLibro),
-    },
-    {
       label: "Margen real facturado",
       value: hasVentas ? compactCurrency(agg.margenRealFacturado) : "—",
       caption: hasVentas ? pct(agg.margenRealFacturadoPct) : "Sin ventas",
@@ -74,7 +63,10 @@ export default function ResumenKpis({ agg }: Props) {
   ];
 
   return (
-    <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+    <section
+      data-pdf-grid="kpis-4"
+      className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4"
+    >
       {kpis.map((k) => (
         <article
           key={k.label}

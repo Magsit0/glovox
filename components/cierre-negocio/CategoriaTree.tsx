@@ -92,6 +92,7 @@ function CategoryRow({ node }: { node: CategoriaNode }) {
       >
         <span className="flex min-w-0 items-center gap-2">
           <ChevronRight
+            data-pdf-caret
             className={`h-4 w-4 shrink-0 text-[#999999] transition-transform ${open ? "rotate-90" : ""}`}
             aria-hidden="true"
           />
@@ -116,18 +117,19 @@ function CategoryRow({ node }: { node: CategoriaNode }) {
         </span>
       </button>
 
-      {open && (
-        <ul className="bg-[#FAFAFA]">
-          {node.subcategorias.map((sub) => (
-            <SubcategoryRow key={sub.subcategoria} node={sub} />
-          ))}
-          {node.subcategorias.length === 0 && (
-            <li className="px-4 py-3 pl-12 font-sans text-sm text-[#999999]">
-              Sin subcategorías.
-            </li>
-          )}
-        </ul>
-      )}
+      <ul
+        data-pdf-expand
+        className={`bg-[#FAFAFA] ${open ? "" : "hidden print:block"}`}
+      >
+        {node.subcategorias.map((sub) => (
+          <SubcategoryRow key={sub.subcategoria} node={sub} />
+        ))}
+        {node.subcategorias.length === 0 && (
+          <li className="px-4 py-3 pl-12 font-sans text-sm text-[#999999]">
+            Sin subcategorías.
+          </li>
+        )}
+      </ul>
     </li>
   );
 }
@@ -146,6 +148,7 @@ function SubcategoryRow({ node }: { node: SubcategoriaNode }) {
       >
         <span className="flex min-w-0 items-center gap-2">
           <ChevronRight
+            data-pdf-caret
             className={`h-3.5 w-3.5 shrink-0 text-[#999999] transition-transform ${open ? "rotate-90" : ""}`}
             aria-hidden="true"
           />
@@ -170,18 +173,19 @@ function SubcategoryRow({ node }: { node: SubcategoriaNode }) {
         </span>
       </button>
 
-      {open && (
-        <ul className="bg-white">
-          {node.items.map((it) => (
-            <ItemRow key={it.llave_item} item={it} />
-          ))}
-          {node.items.length === 0 && (
-            <li className="px-4 py-2.5 pl-16 font-sans text-sm text-[#999999]">
-              Sin items.
-            </li>
-          )}
-        </ul>
-      )}
+      <ul
+        data-pdf-expand
+        className={`bg-white ${open ? "" : "hidden print:block"}`}
+      >
+        {node.items.map((it) => (
+          <ItemRow key={it.llave_item} item={it} />
+        ))}
+        {node.items.length === 0 && (
+          <li className="px-4 py-2.5 pl-16 font-sans text-sm text-[#999999]">
+            Sin items.
+          </li>
+        )}
+      </ul>
     </li>
   );
 }

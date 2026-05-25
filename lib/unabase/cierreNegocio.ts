@@ -254,8 +254,6 @@ export function aggregateNegocio(
   );
   const totalGastoReal = gastos.reduce((sum, g) => sum + n(g.costoempresa), 0);
 
-  const itemsTotales = items.length;
-
   // Gastos agregados por llave_item: total y nº de documentos
   const gastoByLlave = new Map<string, { total: number; n: number }>();
   for (const g of gastos) {
@@ -272,7 +270,7 @@ export function aggregateNegocio(
 
   // Detalle por item con su gasto real (sumado desde detalleGasto) y nº facturas
   type ItemWithCat = ItemDetail & { categoria: string; subcategoria: string };
-  const itemDetails: ItemWithCat[] = items.map((it) => {
+  const itemDetailsRaw: ItemWithCat[] = items.map((it) => {
     const llave = s(it.llave_item);
     const presupuesto = n(it.subtotal_gasto_pre);
     const data = gastoByLlave.get(llave);
@@ -291,11 +289,24 @@ export function aggregateNegocio(
     };
   });
 
-  const itemByLlave = new Set<string>();
-  for (const it of items) {
-    const k = s(it.llave_item);
-    if (k) itemByLlave.add(k);
+  // Deduplica por llave_item: la tabla origen puede tener filas repetidas con la
+  // misma llave (problema de datos en origen). Merge: suma presupuesto, conserva
+  // gastoReal del primer registro encontrado (ya es el total consolidado desde
+  // gastoByLlave — todas las filas duplicadas apuntarían al mismo valor).
+  const dedupMap = new Map<string, ItemWithCat>();
+  for (const det of itemDetailsRaw) {
+    const existing = dedupMap.get(det.llave_item);
+    if (existing) {
+      existing.presupuesto += det.presupuesto;
+      existing.diferencia = existing.presupuesto - existing.gastoReal;
+    } else {
+      dedupMap.set(det.llave_item, { ...det });
+    }
   }
+  const itemDetails = Array.from(dedupMap.values());
+  const itemsTotales = itemDetails.length;
+
+  const itemByLlave = new Set<string>(itemDetails.map((d) => d.llave_item).filter(Boolean));
 
   const itemsConOC = itemDetails.filter((d) => d.nFacturas > 0).length;
   const itemsSinOC = itemsTotales - itemsConOC;

@@ -62,7 +62,7 @@ const NEGOCIO_OPTIONS_SQL = `
   FROM ${NEGOCIOS}
   WHERE LOWER(CAST(estado AS STRING)) <> 'cotizacion'
     AND LOWER(CAST(estadonv AS STRING)) <> 'nulo'
-    AND LOWER(CAST(area_negocio AS STRING)) = 'produccion de eventos propios'
+    AND LOWER(CAST(area_negocio AS STRING)) <> 'glovox'
   ORDER BY SAFE_CAST(id AS INT64) DESC
 `;
 

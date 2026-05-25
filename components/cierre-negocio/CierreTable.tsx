@@ -1,17 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
+import { useRouter } from "next/navigation";
 import type { NegocioRow } from "@/lib/unabase/types";
 
 function parseDateStr(dateStr: string): Date | null {
   if (!dateStr) return null;
-  // DD-MM-YYYY
   const match = /^(\d{2})-(\d{2})-(\d{4})$/.exec(dateStr);
   if (match) {
     const d = new Date(Number(match[3]), Number(match[2]) - 1, Number(match[1]));
     return isNaN(d.getTime()) ? null : d;
   }
-  // ISO o cualquier otro formato reconocible por el browser
   const d = new Date(dateStr);
   return isNaN(d.getTime()) ? null : d;
 }
@@ -50,6 +49,7 @@ const COLUMNS: { key: keyof NegocioRow; label: string }[] = [
 ];
 
 export default function CierreTable({ rows }: { rows: NegocioRow[] }) {
+  const router = useRouter();
   const [area, setArea] = useState("__all__");
   const [cliente, setCliente] = useState("__all__");
   const [estado, setEstado] = useState("NOTA DE VENTA");
@@ -105,6 +105,17 @@ export default function CierreTable({ rows }: { rows: NegocioRow[] }) {
     .filter((r) => estado === "__all__" || r.estado === estado)
     .filter((r) => estadonv === "__all__" || r.estadonv === estadonv)
     .filter((r) => estadocierre === "__all__" || String(r.estadocierre) === estadocierre);
+
+  function goToInforme(id: string) {
+    router.push(`/cierre-negocio?id=${encodeURIComponent(id)}`);
+  }
+
+  function rowKeyDown(e: KeyboardEvent<HTMLTableRowElement>, id: string) {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      goToInforme(id);
+    }
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -239,7 +250,12 @@ export default function CierreTable({ rows }: { rows: NegocioRow[] }) {
                 filtered.map((row) => (
                   <tr
                     key={row.id}
-                    className="border-b border-[#E5E5E5] last:border-0 hover:bg-[#FAFAFA]"
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Ver informe de cierre del negocio ${row.id}${row.referencia ? ` - ${row.referencia}` : ""}`}
+                    onClick={() => goToInforme(row.id)}
+                    onKeyDown={(e) => rowKeyDown(e, row.id)}
+                    className="cursor-pointer border-b border-[#E5E5E5] last:border-0 transition-colors hover:bg-[#FAFAFA] focus:bg-[#FAFAFA] focus:outline-none"
                   >
                     {COLUMNS.map((col) => (
                       <td
@@ -279,7 +295,12 @@ export default function CierreTable({ rows }: { rows: NegocioRow[] }) {
                   return (
                     <tr
                       key={row.id}
-                      className="border-b border-[#E5E5E5] last:border-0 hover:bg-[#FAFAFA]"
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Ver informe de cierre del negocio ${row.id}`}
+                      onClick={() => goToInforme(row.id)}
+                      onKeyDown={(e) => rowKeyDown(e, row.id)}
+                      className="cursor-pointer border-b border-[#E5E5E5] last:border-0 transition-colors hover:bg-[#FAFAFA] focus:bg-[#FAFAFA] focus:outline-none"
                     >
                       <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-[#333333]">
                         {days != null ? days : "—"}

@@ -18,39 +18,268 @@ body {
   font-family: var(--font-montserrat), system-ui, sans-serif;
 }
 
+/* Print-only helpers (hidden on screen, shown on paper) */
+.print-only {
+  display: none;
+}
+
 @media print {
+  /* ───────────────── Page setup ───────────────── */
   @page {
     size: A4;
-    margin: 14mm;
+    margin: 12mm 12mm 14mm 12mm;
+  }
+
+  *,
+  *::before,
+  *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
   }
 
   html,
   body {
     background: #ffffff !important;
-    -webkit-print-color-adjust: exact;
-    print-color-adjust: exact;
+    color: #333333 !important;
   }
 
+  body {
+    font-size: 9.5pt;
+    line-height: 1.35;
+  }
+
+  /* Hide screen-only chrome */
   [data-no-print="true"] {
     display: none !important;
   }
 
-  article,
-  section {
+  /* Reveal print-only blocks */
+  .print-only {
+    display: block !important;
+  }
+
+  /* ───────────────── Shell / layout reset ───────────────── */
+  /* Neutralize page padding & max-width so we use the @page area */
+  [data-pdf-shell] {
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    gap: 10pt !important;
+  }
+
+  /* ───────────────── Typography for paper ───────────────── */
+  h1 {
+    font-size: 16pt !important;
+    line-height: 1.2 !important;
+  }
+  h2 {
+    font-size: 12pt !important;
+    line-height: 1.2 !important;
+  }
+  h3 {
+    font-size: 10.5pt !important;
+    line-height: 1.2 !important;
+  }
+
+  /* Big KPI numerals: scale them back so values fit cells */
+  .font-display.text-5xl,
+  .font-display.text-4xl {
+    font-size: 16pt !important;
+    line-height: 1.05 !important;
+  }
+  .font-display.text-3xl {
+    font-size: 14pt !important;
+    line-height: 1.05 !important;
+  }
+  .font-display.text-2xl {
+    font-size: 12pt !important;
+    line-height: 1.05 !important;
+  }
+  .font-display.text-xl {
+    font-size: 11pt !important;
+  }
+  .font-display.text-lg,
+  .font-display.text-base {
+    font-size: 10.5pt !important;
+  }
+
+  /* Body sizes */
+  .text-sm {
+    font-size: 9pt !important;
+  }
+  .text-xs {
+    font-size: 8pt !important;
+  }
+
+  /* Better contrast for grays (avoid ghost text on paper) */
+  .text-\[\#999999\] {
+    color: #555555 !important;
+  }
+
+  /* ───────────────── Spacing compaction ───────────────── */
+  .p-8 {
+    padding: 10pt !important;
+  }
+  .p-6 {
+    padding: 9pt !important;
+  }
+  .p-4 {
+    padding: 7pt !important;
+  }
+  .py-10 {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+  }
+  .gap-8 {
+    gap: 10pt !important;
+  }
+  .gap-6 {
+    gap: 8pt !important;
+  }
+  .gap-4 {
+    gap: 6pt !important;
+  }
+  .gap-3 {
+    gap: 5pt !important;
+  }
+  .mt-6 {
+    margin-top: 6pt !important;
+  }
+  .mt-3,
+  .mt-2 {
+    margin-top: 3pt !important;
+  }
+
+  /* ───────────────── Grids: deterministic for paper ───────────────── */
+  /* KPI rows */
+  [data-pdf-grid="kpis-6"] {
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+    gap: 6pt !important;
+  }
+  [data-pdf-grid="kpis-4"] {
+    display: grid !important;
+    grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+    gap: 6pt !important;
+  }
+  [data-pdf-grid="mini-4"] {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6pt !important;
+  }
+  [data-pdf-grid="categorias"] {
+    display: grid !important;
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 6pt !important;
+  }
+  [data-pdf-grid="side-by-side"] {
+    display: grid !important;
+    grid-template-columns: 1fr !important;
+    gap: 10pt !important;
+  }
+
+  /* ───────────────── Cards / sections page-break behavior ───────────────── */
+  article {
     break-inside: avoid;
     page-break-inside: avoid;
   }
 
-  table {
+  section[data-pdf-section] {
     break-inside: auto;
   }
 
+  [data-pdf-break-before="true"] {
+    break-before: page;
+    page-break-before: always;
+  }
+
+  /* ───────────────── Tables ───────────────── */
+  table {
+    width: 100% !important;
+    min-width: 0 !important;
+    table-layout: fixed !important;
+    border-collapse: collapse !important;
+    break-inside: auto;
+  }
+
+  /* Containers that force min-width on screen should release it in print */
+  [data-pdf-table-wrap] {
+    overflow: visible !important;
+  }
+  [data-pdf-table-wrap] > table {
+    min-width: 0 !important;
+  }
+
   thead {
-    display: table-header-group;
+    display: table-header-group !important;
   }
 
   tr {
     break-inside: avoid;
     page-break-inside: avoid;
+  }
+
+  th,
+  td {
+    word-break: break-word !important;
+    padding: 4pt 6pt !important;
+  }
+
+  /* Borders on tables — force consistency */
+  thead tr {
+    background: #FAFAFA !important;
+    border-bottom: 0.5pt solid #E5E5E5 !important;
+  }
+  tbody tr {
+    border-bottom: 0.4pt solid #E5E5E5 !important;
+  }
+
+  /* ───────────────── Collapsibles: force-expand for print ───────────────── */
+  /* Containers marked as "may be collapsed on screen" must always show in print */
+  [data-pdf-expand] {
+    display: block !important;
+  }
+  ul[data-pdf-expand] {
+    display: block !important;
+  }
+  /* Hide collapse caret chevrons in print */
+  [data-pdf-caret] {
+    display: none !important;
+  }
+
+  /* Rows hidden by client-side "show more" pagination must appear in print */
+  [data-pdf-overflow-row] {
+    display: table-row !important;
+  }
+
+  /* ───────────────── Recharts (SVG) ───────────────── */
+  .recharts-responsive-container,
+  .recharts-wrapper {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .recharts-surface {
+    overflow: visible !important;
+  }
+
+  /* ───────────────── Buttons / interactive UI in print ───────────────── */
+  button {
+    background: transparent !important;
+    border: none !important;
+    padding: 0 !important;
+    color: inherit !important;
+    text-align: left !important;
+    width: 100% !important;
+  }
+
+  /* But preserve filter pill backgrounds inside non-print areas (none in informe) */
+
+  /* Avoid solid fills bleeding into next page */
+  section,
+  article,
+  div {
+    box-shadow: none !important;
   }
 }

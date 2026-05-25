@@ -1,9 +1,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import { getNegocioDetail, getNegocioOptions } from "@/lib/queries/cierreNegocio";
+import { getAllNegociosAdmin } from "@/lib/queries/unabase";
 import { aggregateNegocio } from "@/lib/unabase/cierreNegocio";
 import NegocioSelector from "@/components/cierre-negocio/NegocioSelector";
 import NegocioHeader from "@/components/cierre-negocio/NegocioHeader";
@@ -15,6 +17,7 @@ import OcStatusPanel from "@/components/cierre-negocio/OcStatusPanel";
 import ResumenKpis from "@/components/cierre-negocio/ResumenKpis";
 import VentasSection from "@/components/cierre-negocio/VentasSection";
 import DownloadPdfButton from "@/components/cierre-negocio/DownloadPdfButton";
+import CierreTable from "@/components/cierre-negocio/CierreTable";
 
 export const dynamic = "force-dynamic";
 
@@ -32,27 +35,34 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
 
   const { id } = await searchParams;
 
+  if (!id) {
+    let negocios;
+    try {
+      negocios = await getAllNegociosAdmin();
+    } catch (err) {
+      return (
+        <Shell>
+          <ListHeading />
+          <ErrorView message={errorMessage(err)} />
+        </Shell>
+      );
+    }
+    return (
+      <Shell>
+        <ListHeading />
+        <CierreTable rows={negocios} />
+      </Shell>
+    );
+  }
+
   let options;
   try {
     options = await getNegocioOptions();
   } catch (err) {
-    return <ErrorView message={errorMessage(err)} />;
-  }
-
-  if (!id) {
     return (
       <Shell>
-        <Heading />
-        <section className="rounded-lg border border-[#E5E5E5] bg-white p-8">
-          <p className="font-sans text-xs text-[#666666]">Selecciona un negocio</p>
-          <div className="mt-3 max-w-xl">
-            <NegocioSelector options={options} />
-          </div>
-          <p className="mt-4 font-sans text-sm text-[#666666]">
-            Elige un negocio del listado para ver su informe de cierre: presupuesto vs gasto real,
-            desglose por categoría, top proveedores y estado de las OCs.
-          </p>
-        </section>
+        <DetailHeading />
+        <ErrorView message={errorMessage(err)} />
       </Shell>
     );
   }
@@ -63,7 +73,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
   } catch (err) {
     return (
       <Shell>
-        <Heading />
+        <DetailHeading />
         <SelectorRow options={options} selectedId={id} />
         <ErrorView message={errorMessage(err)} />
       </Shell>
@@ -77,7 +87,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
   ) {
     return (
       <Shell>
-        <Heading />
+        <DetailHeading />
         <SelectorRow options={options} selectedId={id} />
         <section className="rounded-lg border border-[#E5E5E5] bg-white p-8 text-center">
           <p className="font-display text-lg font-bold text-[#333333]">
@@ -104,15 +114,18 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
 
   return (
     <Shell>
-      <Heading />
+      <DetailHeading />
       <SelectorRow options={options} selectedId={id} />
       <div className="flex justify-end" data-no-print="true">
         <DownloadPdfButton filename={pdfFilename} />
       </div>
+      <PrintHeader negocio={detail.negocio} externalId={id} />
       <NegocioHeader negocio={detail.negocio} externalId={id} />
       <ResumenKpis agg={agg} />
-      <VentasSection agg={agg} ventas={detail.ventas} />
-      <section className="flex flex-col gap-6">
+      <section data-pdf-section data-pdf-break-before="true" className="flex flex-col gap-6">
+        <VentasSection agg={agg} ventas={detail.ventas} />
+      </section>
+      <section data-pdf-section data-pdf-break-before="true" className="flex flex-col gap-6">
         <header className="flex flex-wrap items-baseline gap-3">
           <h2 className="font-display text-xl font-bold tracking-tight text-[#333333]">
             Gastos
@@ -127,7 +140,10 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
           itemsConOcByCategoria={agg.itemsConOcByCategoria}
         />
         <CategoriaTree arbol={agg.arbol} />
-        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div
+          data-pdf-grid="side-by-side"
+          className="grid grid-cols-1 gap-6 lg:grid-cols-2"
+        >
           <TopProveedoresChart rows={agg.topProveedores} />
           <OcStatusPanel ocStatus={agg.ocStatus} />
         </div>
@@ -136,29 +152,104 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
   );
 }
 
+function PrintHeader({
+  negocio,
+  externalId,
+}: {
+  negocio: Awaited<ReturnType<typeof getNegocioDetail>>["negocio"];
+  externalId: string;
+}) {
+  const referencia = negocio?.referencia?.trim() || `Negocio ${externalId}`;
+  const area = negocio?.area_negocio?.trim() || "";
+  const today = new Date().toLocaleDateString("es-CL", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+  return (
+    <div className="print-only border-b border-[#E5E5E5] pb-3">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <Image src="/glovox_logo_gvx_black.svg" alt="Glovox" width={20} height={20} />
+          <div className="flex flex-col">
+            <span className="font-sans text-xs uppercase tracking-wide text-[#666666]">
+              Informe de cierre · Negocio {externalId}
+            </span>
+            <span className="font-display text-base font-bold text-[#333333]">
+              {referencia}
+            </span>
+          </div>
+        </div>
+        <div className="flex flex-col items-end">
+          {area && (
+            <span className="font-sans text-xs text-[#666666]">{area}</span>
+          )}
+          <span className="font-sans text-xs text-[#999999]">
+            Generado el {today}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="mx-auto flex max-w-[1600px] flex-col gap-8 px-4 py-10 sm:px-8">
+    <div
+      data-pdf-shell
+      className="mx-auto flex max-w-[1600px] flex-col gap-8 px-4 py-10 sm:px-8"
+    >
       {children}
     </div>
   );
 }
 
-function Heading() {
+function ListHeading() {
   return (
     <header className="flex flex-col gap-2">
       <Link
         href="/"
         aria-label="Volver al menú principal"
-        data-no-print="true"
         className="inline-flex w-fit items-center justify-center rounded-full border border-[#E5E5E5] bg-white p-1.5 transition-colors hover:bg-[#FAFAFA]"
       >
         <Image src="/glovox_logo_gvx_black.svg" alt="Glovox" width={18} height={18} />
       </Link>
       <p className="font-sans text-xs text-[#666666]">Cierre negocio</p>
       <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
-        Informe de cierre
+        Cierre de negocio
       </h1>
+      <p className="font-sans text-sm text-[#666666]">
+        Selecciona un negocio para ver su informe de cierre.
+      </p>
+    </header>
+  );
+}
+
+function DetailHeading() {
+  return (
+    <header className="flex flex-col gap-3" data-no-print="true">
+      <div className="flex flex-wrap items-center gap-3">
+        <Link
+          href="/"
+          aria-label="Volver al menú principal"
+          className="inline-flex w-fit items-center justify-center rounded-full border border-[#E5E5E5] bg-white p-1.5 transition-colors hover:bg-[#FAFAFA]"
+        >
+          <Image src="/glovox_logo_gvx_black.svg" alt="Glovox" width={18} height={18} />
+        </Link>
+        <Link
+          href="/cierre-negocio"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans text-sm font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA]"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Volver al listado
+        </Link>
+      </div>
+      <div>
+        <p className="font-sans text-xs text-[#666666]">Cierre negocio</p>
+        <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
+          Informe de cierre
+        </h1>
+      </div>
     </header>
   );
 }

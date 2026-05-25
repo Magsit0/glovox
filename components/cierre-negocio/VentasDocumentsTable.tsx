@@ -54,8 +54,7 @@ export default function VentasDocumentsTable({ ventas }: Props) {
     );
   }
 
-  const visible = showAll ? sorted : sorted.slice(0, INITIAL_LIMIT);
-  const hidden = sorted.length - visible.length;
+  const hiddenCount = showAll ? 0 : Math.max(0, sorted.length - INITIAL_LIMIT);
 
   return (
     <article className="flex flex-col gap-3 rounded-lg border border-[#E5E5E5] bg-white p-6">
@@ -68,7 +67,7 @@ export default function VentasDocumentsTable({ ventas }: Props) {
         </span>
       </header>
 
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto" data-pdf-table-wrap>
         <table className="w-full min-w-[960px] border-collapse">
           <thead>
             <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA] text-left font-sans text-xs uppercase tracking-wide text-[#666666]">
@@ -85,14 +84,18 @@ export default function VentasDocumentsTable({ ventas }: Props) {
             </tr>
           </thead>
           <tbody>
-            {visible.map((v) => {
+            {sorted.map((v, idx) => {
               const isNc = isTruthy(v.is_nc);
               const isNd = isTruthy(v.is_nd);
               const rowColor = isNc ? "text-[#ED75A0]" : "text-[#333333]";
+              const isOverflow = !showAll && idx >= INITIAL_LIMIT;
               return (
                 <tr
                   key={`${v.id}-${v.folio}`}
-                  className="border-b border-[#F0F0F0] transition-colors hover:bg-[#FAFAFA]"
+                  {...(isOverflow ? { "data-pdf-overflow-row": "true" } : {})}
+                  className={`border-b border-[#F0F0F0] transition-colors hover:bg-[#FAFAFA] ${
+                    isOverflow ? "hidden print:table-row" : ""
+                  }`}
                 >
                   <Td className={`${rowColor} font-medium`}>
                     <span className="inline-flex items-center gap-2">
@@ -136,13 +139,14 @@ export default function VentasDocumentsTable({ ventas }: Props) {
         </table>
       </div>
 
-      {hidden > 0 && (
+      {hiddenCount > 0 && (
         <button
           type="button"
           onClick={() => setShowAll(true)}
+          data-no-print="true"
           className="self-start rounded-lg border border-[#E5E5E5] bg-white px-3 py-1.5 font-sans text-xs font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA]"
         >
-          Mostrar {formatNumber(hidden)} más
+          Mostrar {formatNumber(hiddenCount)} más
         </button>
       )}
     </article>

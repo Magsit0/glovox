@@ -62,7 +62,10 @@ export default function VentasSection({ agg, ventas }: Props) {
         </span>
       </header>
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div
+        data-pdf-grid="mini-4"
+        className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4"
+      >
         <MiniCard
           label="Venta bruta"
           value={compactCurrency(v.ventaBrutaNeta)}

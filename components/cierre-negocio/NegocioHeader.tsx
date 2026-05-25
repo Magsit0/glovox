@@ -12,6 +12,8 @@ function asStr(value: unknown): string {
 
 function pillFor(estadocierre: string): { dot: string; label: string } {
   const v = estadocierre.toLowerCase();
+  if (v === "true") return { dot: "#B1D750", label: "Cerrado para compras" };
+  if (v === "false") return { dot: "#F6C544", label: "Abierto para compras" };
   if (v.includes("cerrado")) return { dot: "#B1D750", label: estadocierre };
   if (v.includes("abierto") || v.includes("ejecu")) return { dot: "#F6C544", label: estadocierre };
   if (v.includes("anul") || v.includes("cancel")) return { dot: "#ED75A0", label: estadocierre };

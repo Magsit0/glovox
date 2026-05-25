@@ -62,7 +62,10 @@ export default function KpiRow({ agg }: Props) {
   ];
 
   return (
-    <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+    <section
+      data-pdf-grid="kpis-4"
+      className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4"
+    >
       {kpis.map((k) => (
         <article
           key={k.label}

@@ -97,7 +97,10 @@ export default function CategoriaBreakdown({ rows, itemsConOcByCategoria }: Prop
           No hay categorías que cumplan el filtro.
         </p>
       ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <div
+          data-pdf-grid="categorias"
+          className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3"
+        >
           {filtered.map((c) => (
             <CategoryCard key={c.categoria} data={c} />
           ))}
