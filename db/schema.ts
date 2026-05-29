@@ -1,5 +1,7 @@
 import {
   boolean,
+  date,
+  doublePrecision,
   index,
   integer,
   jsonb,
@@ -112,12 +114,86 @@ export const dashboardAccessLog = pgTable(
   ],
 );
 
+// FF&BB — Compras de insumos imputadas por Operaciones. La fuente de verdad
+// vive acá; el dashboard cruza contra `onfire.soldItems` × `formulaTragoBQ`
+// (BigQuery) por `eventoId` + `insumo` para calcular consumo vs comprado.
+export const comprasInsumo = pgTable(
+  "compras_insumo",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventoId: text("evento_id"), // null = stock general sin asignar a evento
+    insumo: text("insumo").notNull(),
+    numeroFactura: text("numero_factura"),
+    proveedor: text("proveedor"),
+    fechaCompra: date("fecha_compra"),
+    nPallets: integer("n_pallets"),
+    nDisplay: integer("n_display"),
+    xDisplay: integer("x_display"),
+    sueltas: integer("sueltas"),
+    recibido: integer("recibido"),
+    pedido: integer("pedido"),
+    tipoOperacion: text("tipo_operacion").notNull().default("ingreso"),
+    lugar: text("lugar"),
+    obs: text("obs"),
+    costoUnitario: doublePrecision("costo_unitario"),
+    costoNeto: doublePrecision("costo_neto"),
+    iva: doublePrecision("iva"),
+    bruto: doublePrecision("bruto"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedBy: uuid("updated_by"),
+  },
+  (t) => [
+    index("compras_insumo_evento_idx").on(t.eventoId),
+    index("compras_insumo_insumo_idx").on(t.insumo),
+  ],
+);
+
+// FF&BB — Catálogo de proveedores. Source-of-truth para el dropdown de
+// "proveedor" en el form de imputar compras. Operaciones puede agregar
+// nuevos desde el combobox inline.
+export const proveedores = pgTable("proveedores", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  nombre: text("nombre").notNull().unique(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  createdBy: uuid("created_by"),
+});
+
+// FF&BB — Catálogo de insumos. El "nombre" se usa para cruzar con
+// `formulaTragoBQ` (BigQuery) por igualdad de string. Las otras columnas
+// (grupo, mL, marca, porCaja) son metadata operativa.
+export const insumosCatalogo = pgTable("insumos_catalogo", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  nombre: text("nombre").notNull().unique(),
+  grupo: text("grupo"),
+  ml: integer("ml"),
+  marca: text("marca"),
+  porCaja: integer("por_caja"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  createdBy: uuid("created_by"),
+});
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Dashboard = typeof dashboards.$inferSelect;
 export type UserDashboardAccess = typeof userDashboardAccess.$inferSelect;
 export type SuperadminPending = typeof superadminPendings.$inferSelect;
 export type DashboardAccessLog = typeof dashboardAccessLog.$inferSelect;
+export type CompraInsumo = typeof comprasInsumo.$inferSelect;
+export type NewCompraInsumo = typeof comprasInsumo.$inferInsert;
+export type Proveedor = typeof proveedores.$inferSelect;
+export type NewProveedor = typeof proveedores.$inferInsert;
+export type InsumoCatalogo = typeof insumosCatalogo.$inferSelect;
+export type NewInsumoCatalogo = typeof insumosCatalogo.$inferInsert;
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Country = (typeof countryEnum.enumValues)[number];
 export type PendingStatus = (typeof pendingStatusEnum.enumValues)[number];
