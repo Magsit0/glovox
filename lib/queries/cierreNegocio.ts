@@ -1,5 +1,6 @@
 import { query } from "@/lib/bigquery";
 import type {
+  CierreEventoRow,
   DetalleGastoRow,
   DocVentaRow,
   NegocioItemRow,
@@ -13,6 +14,9 @@ const NEGOCIOS = `\`${P}.unabase.negocios\``;
 const NEGOCIO_ITEM = `\`${P}.unabase.negocioItem\``;
 const DETALLE_GASTO = `\`${P}.unabase.detalleGasto\``;
 const DOCS_VENTA = `\`${P}.unabase.docsVenta\``;
+const CIERRE_EVENTOS = `\`${P}.ticketsAndAABB.cierreEventos\``;
+
+const AREA_PRODUCCION = "produccion de eventos propios";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const QUERY_TIMEOUT_MS = 22_000;
@@ -87,7 +91,21 @@ export interface NegocioDetail {
   gastos: DetalleGastoRow[];
   ventas: DocVentaRow[];
   ventasAggregate: VentasAggregateRaw;
+  evento: CierreEventoRow | null;
 }
+
+const EVENTO_SQL = `
+  SELECT
+    CAST(EventoID AS STRING) AS EventoID,
+    CAST(NombreGlovox AS STRING) AS nombreGlovox,
+    CAST(CategoriaEvento AS STRING) AS categoriaEvento,
+    SAFE_CAST(TotalVentaTICKETS AS FLOAT64) AS totalVentaTickets,
+    SAFE_CAST(TotalVentaFFBB AS FLOAT64) AS totalVentaFfbb,
+    SAFE_CAST(TotalAsistentes AS FLOAT64) AS totalAsistentes
+  FROM ${CIERRE_EVENTOS}
+  WHERE CAST(EventoID AS STRING) = @eventoId
+  LIMIT 1
+`;
 
 const EMPTY_VENTAS_AGGREGATE: VentasAggregateRaw = {
   ventaBrutaNeta: 0,
@@ -189,7 +207,21 @@ export async function getNegocioDetail(externalId: string): Promise<NegocioDetai
     : EMPTY_VENTAS_AGGREGATE;
   const negocio = options.find((o) => o.external_id === externalId) ?? null;
 
-  const detail: NegocioDetail = { negocio, items, gastos, ventas, ventasAggregate };
+  let evento: CierreEventoRow | null = null;
+  if (negocio) {
+    const area = (negocio.area_negocio ?? "").trim().toLowerCase();
+    const eventoId = (negocio.referencia ?? "").trim().slice(0, 6);
+    if (area === AREA_PRODUCCION && eventoId.length === 6) {
+      const eventoRaw = await withTimeout(
+        query<Record<string, unknown>>(EVENTO_SQL, { eventoId }),
+      );
+      evento = eventoRaw[0]
+        ? (serialize(eventoRaw[0]) as unknown as CierreEventoRow)
+        : null;
+    }
+  }
+
+  const detail: NegocioDetail = { negocio, items, gastos, ventas, ventasAggregate, evento };
   detailCache.set(externalId, { data: detail, timestamp: now });
   return detail;
 }

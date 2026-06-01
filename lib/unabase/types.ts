@@ -151,6 +151,17 @@ export interface NegocioOption {
   estadocierre: string;
 }
 
+// Cierre de eventos (ticketsAndAABB.cierreEventos) — solo para "produccion de eventos propios".
+// EventoID se conecta con los primeros 6 caracteres de unabase.negocios.referencia.
+export interface CierreEventoRow {
+  EventoID: string;
+  nombreGlovox: string;
+  categoriaEvento: string;
+  totalVentaTickets: number | null;
+  totalVentaFfbb: number | null;
+  totalAsistentes: number | null;
+}
+
 export interface VentasAggregateRaw {
   ventaBrutaNeta: number;
   ncNeta: number;

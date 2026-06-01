@@ -33,6 +33,20 @@ function fmtQty(value: number) {
   return Math.round(value).toLocaleString("es-CL");
 }
 
+// Slots are 30-minute buckets labeled by their start (see getOnepagerFfbbEvolucion).
+// Render the explicit window so the user sees what range is being aggregated.
+function slotRange(slotLabel: string): string {
+  const [hStr, mStr] = slotLabel.split(":");
+  const h = Number(hStr);
+  const m = Number(mStr);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return slotLabel;
+  const total = (h * 60 + m + 30) % (24 * 60);
+  const eh = Math.floor(total / 60);
+  const em = total % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${slotLabel} – ${pad(eh)}:${pad(em)}`;
+}
+
 type SerieRow = { slotLabel: string; slotIso: string; venta: number; qtty: number };
 
 type TooltipPayloadEntry = {
@@ -53,9 +67,11 @@ function ChartTooltip({
   if (!active || !payload || payload.length === 0) return null;
   const venta = payload.find((p) => p.dataKey === "venta")?.value;
   const qtty  = payload.find((p) => p.dataKey === "qtty")?.value;
+  const labelStr = typeof label === "string" ? label : String(label ?? "");
+  const rangeLabel = labelStr ? slotRange(labelStr) : labelStr;
   return (
     <div className="bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none px-3 py-2 font-mono-data text-xs">
-      <div className="font-bold uppercase mb-1">{label}</div>
+      <div className="font-bold uppercase mb-1">{rangeLabel}</div>
       <div className="flex items-center gap-2">
         <span className="inline-block w-3 h-3 border border-black" style={{ background: "#FFFF00" }} />
         <span className="uppercase">Venta</span>

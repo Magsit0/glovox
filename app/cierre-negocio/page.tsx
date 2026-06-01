@@ -6,6 +6,7 @@ import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import { getNegocioDetail, getNegocioOptions } from "@/lib/queries/cierreNegocio";
 import { getAllNegociosAdmin } from "@/lib/queries/unabase";
+import type { NegocioRow } from "@/lib/unabase/types";
 import { aggregateNegocio } from "@/lib/unabase/cierreNegocio";
 import NegocioSelector from "@/components/cierre-negocio/NegocioSelector";
 import NegocioHeader from "@/components/cierre-negocio/NegocioHeader";
@@ -15,14 +16,41 @@ import CategoriaTree from "@/components/cierre-negocio/CategoriaTree";
 import TopProveedoresChart from "@/components/cierre-negocio/TopProveedoresChart";
 import OcStatusPanel from "@/components/cierre-negocio/OcStatusPanel";
 import ResumenKpis from "@/components/cierre-negocio/ResumenKpis";
+import EventoResumen from "@/components/cierre-negocio/EventoResumen";
 import VentasSection from "@/components/cierre-negocio/VentasSection";
 import DownloadPdfButton from "@/components/cierre-negocio/DownloadPdfButton";
 import CierreTable from "@/components/cierre-negocio/CierreTable";
 
 export const dynamic = "force-dynamic";
 
+type AreaKey = "produccion" | "btl" | "otros";
+
+const AREA_LABELS: Record<AreaKey, string> = {
+  produccion: "Producción de eventos propios",
+  btl: "BTL",
+  otros: "Otros",
+};
+
+function isAreaKey(value: string | undefined): value is AreaKey {
+  return value === "produccion" || value === "btl" || value === "otros";
+}
+
+function filterByArea(rows: NegocioRow[], area: AreaKey): NegocioRow[] {
+  const norm = (value: string | null | undefined) => (value ?? "").trim().toLowerCase();
+  if (area === "produccion") {
+    return rows.filter((r) => norm(r.area_negocio) === "produccion de eventos propios");
+  }
+  if (area === "btl") {
+    return rows.filter((r) => norm(r.area_negocio) === "btl");
+  }
+  return rows.filter((r) => {
+    const a = norm(r.area_negocio);
+    return a !== "produccion de eventos propios" && a !== "btl";
+  });
+}
+
 interface PageProps {
-  searchParams: Promise<{ id?: string }>;
+  searchParams: Promise<{ id?: string; area?: string }>;
 }
 
 export default async function CierreNegocioPage({ searchParams }: PageProps) {
@@ -33,24 +61,33 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
     redirect("/?unauthorized=1");
   }
 
-  const { id } = await searchParams;
+  const { id, area } = await searchParams;
 
   if (!id) {
+    if (!isAreaKey(area)) {
+      return (
+        <Shell>
+          <ChooserHeading />
+          <AreaChooser />
+        </Shell>
+      );
+    }
+
     let negocios;
     try {
       negocios = await getAllNegociosAdmin();
     } catch (err) {
       return (
         <Shell>
-          <ListHeading />
+          <ListHeading area={area} />
           <ErrorView message={errorMessage(err)} />
         </Shell>
       );
     }
     return (
       <Shell>
-        <ListHeading />
-        <CierreTable rows={negocios} />
+        <ListHeading area={area} />
+        <CierreTable rows={filterByArea(negocios, area)} />
       </Shell>
     );
   }
@@ -121,6 +158,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
       </div>
       <PrintHeader negocio={detail.negocio} externalId={id} />
       <NegocioHeader negocio={detail.negocio} externalId={id} />
+      {detail.evento && <EventoResumen evento={detail.evento} />}
       <ResumenKpis agg={agg} />
       <section data-pdf-section data-pdf-break-before="true" className="flex flex-col gap-6">
         <VentasSection agg={agg} ventas={detail.ventas} />
@@ -204,7 +242,7 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ListHeading() {
+function ChooserHeading() {
   return (
     <header className="flex flex-col gap-2">
       <Link
@@ -215,6 +253,53 @@ function ListHeading() {
         <Image src="/glovox_logo_gvx_black.svg" alt="Glovox" width={18} height={18} />
       </Link>
       <p className="font-sans text-xs text-[#666666]">Cierre negocio</p>
+      <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
+        Escoge área de negocio
+      </h1>
+    </header>
+  );
+}
+
+function AreaChooser() {
+  const areas: AreaKey[] = ["produccion", "btl", "otros"];
+  return (
+    <section className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+      {areas.map((key) => (
+        <Link
+          key={key}
+          href={`/cierre-negocio?area=${key}`}
+          className="flex min-h-[120px] flex-col justify-between rounded-lg border border-[#E5E5E5] bg-white p-6 transition-colors hover:border-[#9F99F8] hover:bg-[#FAFAFA] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+        >
+          <span className="inline-block h-2 w-2 rounded-full bg-[#9F99F8]" />
+          <span className="font-display text-lg font-bold leading-tight tracking-tight text-[#333333]">
+            {AREA_LABELS[key]}
+          </span>
+        </Link>
+      ))}
+    </section>
+  );
+}
+
+function ListHeading({ area }: { area: AreaKey }) {
+  return (
+    <header className="flex flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <Link
+          href="/"
+          aria-label="Volver al menú principal"
+          className="inline-flex w-fit items-center justify-center rounded-full border border-[#E5E5E5] bg-white p-1.5 transition-colors hover:bg-[#FAFAFA]"
+        >
+          <Image src="/glovox_logo_gvx_black.svg" alt="Glovox" width={18} height={18} />
+        </Link>
+        <Link
+          href="/cierre-negocio"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans text-sm font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA]"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Cambiar área
+        </Link>
+      </div>
+      <p className="font-sans text-xs text-[#666666]">Cierre negocio · {AREA_LABELS[area]}</p>
       <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
         Cierre de negocio
       </h1>
