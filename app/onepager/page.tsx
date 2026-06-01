@@ -14,6 +14,11 @@ import {
   getOnepagerRecentEvents,
 } from "@/lib/queries/onepager";
 import { getTotalAsistentes } from "@/lib/queries/cierreEventos";
+import {
+  getMarcaClientes,
+  getMarcaIngresosByEvento,
+  getMarcaIngresosAggByEvento,
+} from "@/lib/queries/marca";
 import EventSelector from "@/components/onepager/EventSelector";
 import BrutalKpiCard from "@/components/onepager/BrutalKpiCard";
 import BrutalChartPanel from "@/components/onepager/BrutalChartPanel";
@@ -116,20 +121,27 @@ async function DetalleSection({ eventoId }: { eventoId: string }) {
     ffbbByPuntoVenta,
     ffbbByCategoria,
     ffbbEvolucion,
+    marcaClientes,
+    marcaIngresos,
   ] = await Promise.all([
     getOnepagerTicketsByTipo(eventoId),
     getOnepagerFfbbByCategoriaProducto(eventoId),
     getOnepagerFfbbByPuntoVenta(eventoId),
     getOnepagerFfbbByCategoria(eventoId),
     getOnepagerFfbbEvolucion(eventoId),
+    getMarcaClientes(),
+    getMarcaIngresosByEvento(eventoId),
   ]);
   return (
     <DetalleTabs
+      eventoId={eventoId}
       ticketsByTipo={ticketsByTipo}
       ffbbByCatProd={ffbbByCatProd}
       ffbbByPuntoVenta={ffbbByPuntoVenta}
       ffbbByCategoria={ffbbByCategoria}
       ffbbEvolucion={ffbbEvolucion}
+      marcaClientes={marcaClientes}
+      marcaIngresos={marcaIngresos}
     />
   );
 }
@@ -244,12 +256,32 @@ function fmtClp(value: number) {
   });
 }
 
+function labelIngreso(ingreso: string): string {
+  if (ingreso === "FFBB") return "FF&BB";
+  return ingreso;
+}
+
 async function IngresoSection({ eventoId }: { eventoId: string }) {
-  const [data, totalAsistentes] = await Promise.all([
+  const [bqData, totalAsistentes, marcaAgg] = await Promise.all([
     getOnepagerByIngreso(eventoId),
     getTotalAsistentes(eventoId),
+    getMarcaIngresosAggByEvento(eventoId),
   ]);
   const hasAttendees = totalAsistentes != null && totalAsistentes > 0;
+
+  // Append Marcas como tercera fila usando el monto neto (Postgres) — no viene
+  // de BigQuery porque son imputaciones manuales. Re-ordenamos por venta desc
+  // para que ocupe la posición correcta tanto en la tabla como en el donut.
+  const data = [
+    ...bqData,
+    {
+      ingreso: "MARCAS",
+      venta: marcaAgg.ventaNeto,
+      qtty: marcaAgg.qtty,
+      rebate: 0,
+    },
+  ].sort((a, b) => b.venta - a.venta);
+
   return (
     <BrutalChartPanel title="Ingresos por Fuente" className="col-span-4">
       <div className="flex items-start gap-8">
@@ -275,7 +307,7 @@ async function IngresoSection({ eventoId }: { eventoId: string }) {
                   className="border-b-2 border-black last:border-b-0 hover:bg-[#FFFF00] transition-colors duration-150"
                 >
                   <td className="font-mono-data text-sm px-4 py-3 font-bold">
-                    {row.ingreso === "FFBB" ? "FF&BB" : row.ingreso}
+                    {labelIngreso(row.ingreso)}
                   </td>
                   <td className="font-mono-data text-sm px-4 py-3">
                     {fmtClp(row.venta)}

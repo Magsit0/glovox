@@ -1,0 +1,221 @@
+"use client";
+
+import { useMemo, useState, useTransition } from "react";
+import { motion, AnimatePresence } from "motion/react";
+import { X } from "lucide-react";
+import type { MarcaCliente } from "@/db/schema";
+import { createMarcaIngresoAction } from "@/app/onepager/marca-actions";
+import { netoToBruto } from "@/lib/constants/tax";
+import ClienteCombobox from "./ClienteCombobox";
+
+function fmtClp(value: number) {
+  return "$" + Math.round(value).toLocaleString("es-CL");
+}
+
+/**
+ * Acepta tipeo con separadores tipo CL ("1.234.567"), comas o punto decimal.
+ * Devuelve 0 si no parsea.
+ */
+function parseMonto(v: string): number {
+  if (!v.trim()) return 0;
+  const cleaned = v
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  const n = Number(cleaned);
+  return Number.isFinite(n) ? n : 0;
+}
+
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  eventoId: string;
+  clientes: MarcaCliente[];
+};
+
+export default function MarcaIngresoFormSheet({
+  open,
+  onClose,
+  eventoId,
+  clientes,
+}: Props) {
+  const [clienteId, setClienteId] = useState<string | null>(null);
+  const [montoNetoStr, setMontoNetoStr] = useState("");
+  const [extraClientes, setExtraClientes] = useState<MarcaCliente[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, startTransition] = useTransition();
+
+  // Mergeamos clientes recién creados desde el combobox para que sigan
+  // disponibles si el padre todavía no se ha re-renderizado.
+  const merged = useMemo(() => {
+    const seen = new Set(clientes.map((c) => c.id));
+    return [...clientes, ...extraClientes.filter((c) => !seen.has(c.id))];
+  }, [clientes, extraClientes]);
+
+  const netoNum = useMemo(() => parseMonto(montoNetoStr), [montoNetoStr]);
+  const brutoNum = useMemo(() => netoToBruto(netoNum), [netoNum]);
+
+  // Reset al abrir el sheet (render-phase update con guard de prev value).
+  const formKey = `${open ? "open" : "closed"}::${eventoId}`;
+  const [prevKey, setPrevKey] = useState(formKey);
+  if (prevKey !== formKey) {
+    setPrevKey(formKey);
+    if (open) {
+      setClienteId(null);
+      setMontoNetoStr("");
+      setError(null);
+    }
+  }
+
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!clienteId) {
+      setError("Seleccioná un cliente.");
+      return;
+    }
+    if (netoNum <= 0) {
+      setError("Ingresá un monto neto válido.");
+      return;
+    }
+    startTransition(async () => {
+      const res = await createMarcaIngresoAction({
+        eventoId,
+        clienteId,
+        montoNeto: netoNum,
+      });
+      if (!res.ok) {
+        setError(res.error);
+        return;
+      }
+      onClose();
+    });
+  }
+
+  return (
+    <AnimatePresence>
+      {open && (
+        <>
+          <motion.button
+            type="button"
+            aria-label="Cerrar"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            onClick={onClose}
+            className="fixed inset-0 z-40 bg-black/40"
+          />
+          <motion.div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="marca-ingreso-title"
+            initial={{ opacity: 0, y: 12, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 12, scale: 0.98 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
+          >
+            <div className="pointer-events-auto w-full max-w-lg bg-white border-4 border-black shadow-[8px_8px_0px_#000] rounded-none">
+              <header className="flex items-center justify-between gap-4 border-b-4 border-black px-6 py-4">
+                <h2
+                  id="marca-ingreso-title"
+                  className="font-display uppercase text-2xl leading-none text-black"
+                >
+                  Imputar ingreso
+                </h2>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  aria-label="Cerrar"
+                  className="border-2 border-black p-1 hover:bg-[#FFFF00] cursor-pointer transition-colors"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </header>
+
+              <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
+                <div className="space-y-1">
+                  <label className="font-mono-data uppercase text-[10px] text-black/70 block">
+                    Cliente
+                  </label>
+                  <ClienteCombobox
+                    clientes={merged}
+                    value={clienteId}
+                    onChange={setClienteId}
+                    onClienteCreated={(c) =>
+                      setExtraClientes((prev) =>
+                        prev.some((p) => p.id === c.id)
+                          ? prev
+                          : [
+                              ...prev,
+                              {
+                                id: c.id,
+                                rut: c.rut,
+                                nombre: c.nombre,
+                                createdAt: new Date(),
+                                createdBy: null,
+                                updatedAt: new Date(),
+                              } as MarcaCliente,
+                            ],
+                      )
+                    }
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="font-mono-data uppercase text-[10px] text-black/70 block">
+                    Monto neto (CLP)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={montoNetoStr}
+                    onChange={(e) => setMontoNetoStr(e.target.value)}
+                    placeholder="0"
+                    className="w-full font-mono-data text-sm px-3 py-2 border-2 border-black outline-none focus:bg-[#FFFF00]/30 tabular-nums"
+                  />
+                </div>
+
+                <div className="bg-black text-[#FFFF00] px-4 py-3 border-2 border-black">
+                  <div className="flex items-baseline justify-between gap-4">
+                    <span className="font-mono-data uppercase text-[10px]">
+                      Monto + IVA (19%)
+                    </span>
+                    <span className="font-display text-2xl leading-none tabular-nums">
+                      {fmtClp(brutoNum)}
+                    </span>
+                  </div>
+                </div>
+
+                {error && (
+                  <p className="font-mono-data text-xs text-[#FF0000] border-2 border-[#FF0000] px-3 py-2">
+                    {error}
+                  </p>
+                )}
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    disabled={pending}
+                    className="flex-1 font-display uppercase text-sm leading-none px-4 py-3 border-2 border-black bg-white hover:bg-[#FFFF00] cursor-pointer disabled:opacity-50 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={pending || !clienteId || netoNum <= 0}
+                    className="flex-1 font-display uppercase text-sm leading-none px-4 py-3 border-2 border-black bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black cursor-pointer disabled:opacity-50 transition-colors"
+                  >
+                    {pending ? "Guardando…" : "Agregar"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </motion.div>
+        </>
+      )}
+    </AnimatePresence>
+  );
+}

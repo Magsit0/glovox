@@ -182,6 +182,49 @@ export const insumosCatalogo = pgTable("insumos_catalogo", {
   createdBy: uuid("created_by"),
 });
 
+// MARCAS — Catálogo de clientes (sponsors / marcas) usados en imputación de
+// ingresos manual desde la pestaña "Marcas" del one-pager. Se puede crear un
+// nuevo cliente inline desde el combobox del formulario.
+export const marcaClientes = pgTable("marca_clientes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  rut: text("rut").notNull().unique(),
+  nombre: text("nombre").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  createdBy: uuid("created_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// MARCAS — Ingresos por cliente imputados manualmente al evento. El monto
+// bruto se calcula server-side a partir del neto + IVA (19%). Persistimos
+// snapshot de rut/cliente para mantener el registro estable aunque el cliente
+// cambie de nombre o RUT.
+export const marcaIngresos = pgTable(
+  "marca_ingresos",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventoId: text("evento_id").notNull(),
+    clienteId: uuid("cliente_id")
+      .notNull()
+      .references(() => marcaClientes.id),
+    rutCliente: text("rut_cliente").notNull(),
+    cliente: text("cliente").notNull(),
+    montoNeto: doublePrecision("monto_neto").notNull(),
+    montoBruto: doublePrecision("monto_bruto").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("marca_ingresos_evento_idx").on(t.eventoId)],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Dashboard = typeof dashboards.$inferSelect;
@@ -194,6 +237,10 @@ export type Proveedor = typeof proveedores.$inferSelect;
 export type NewProveedor = typeof proveedores.$inferInsert;
 export type InsumoCatalogo = typeof insumosCatalogo.$inferSelect;
 export type NewInsumoCatalogo = typeof insumosCatalogo.$inferInsert;
+export type MarcaCliente = typeof marcaClientes.$inferSelect;
+export type NewMarcaCliente = typeof marcaClientes.$inferInsert;
+export type MarcaIngreso = typeof marcaIngresos.$inferSelect;
+export type NewMarcaIngreso = typeof marcaIngresos.$inferInsert;
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Country = (typeof countryEnum.enumValues)[number];
 export type PendingStatus = (typeof pendingStatusEnum.enumValues)[number];

@@ -12,6 +12,7 @@
     "db:push": "dotenv -e .env.local -- drizzle-kit push",
     "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
     "db:seed": "dotenv -e .env.local -- tsx db/seed.ts",
+    "db:normalize-marcas": "dotenv -e .env.local -- tsx db/scripts/normalize-marca-clientes.ts",
     "bq:seed-nombres": "dotenv -e .env.local -- tsx scripts/seed-nombres-genero.ts"
   },
   "dependencies": {

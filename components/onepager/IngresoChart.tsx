@@ -6,6 +6,7 @@ import type { OnepagerIngresoRow } from "@/lib/queries/onepager";
 const COLORS: Record<string, string> = {
   TICKETS: "#0000FF",
   FFBB: "#000000",
+  MARCAS: "#FFFF00",
 };
 
 function getColor(ingreso: string) {
@@ -13,7 +14,9 @@ function getColor(ingreso: string) {
 }
 
 function displayLabel(ingreso: string) {
-  return ingreso === "FFBB" ? "FF&BB" : ingreso;
+  if (ingreso === "FFBB") return "FF&BB";
+  if (ingreso === "MARCAS") return "Marcas";
+  return ingreso;
 }
 
 function fmtClp(value: number) {
