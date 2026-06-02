@@ -174,11 +174,7 @@ async function ListadoSection() {
     asistentes:       asistMap.has(r.eventoId) ? asistMap.get(r.eventoId)! : null,
   }));
 
-  return (
-    <BrutalChartPanel title="Listado de eventos">
-      <OnepagerListadoTable rows={rows} />
-    </BrutalChartPanel>
-  );
+  return <OnepagerListadoTable rows={rows} />;
 }
 
 // ---------- Sections ----------
