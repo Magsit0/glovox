@@ -29,6 +29,16 @@ export type OnepagerEventOption = {
   ticketCount: number;
 };
 
+export type OnepagerListadoRow = {
+  eventoId: string;
+  nombre: string;
+  categoriaEvento: string;
+  fechaEvento: string;
+  ventaTickets: number;
+  ticketsComprados: number;
+  ventaFfBb: number;
+};
+
 export type OnepagerIngresoRow = {
   ingreso: string;
   venta: number;
@@ -115,6 +125,69 @@ export async function getOnepagerEventList(): Promise<OnepagerEventOption[]> {
     categoriaEvento: s(r.categoria_evento),
     fechaEvento:     s(r.fecha_evento),
     ticketCount:     n(r.ticket_count),
+  }));
+}
+
+/**
+ * Listado multi-evento con agregados de venta de tickets y FF&BB (BigQuery).
+ * Una fila por evento. Asistentes y Marcas se enriquecen aparte en el caller
+ * (asistentes desde ticketsAndAABB.cierreEventos, marcas desde Postgres).
+ */
+export async function getOnepagerListadoKpis(): Promise<OnepagerListadoRow[]> {
+  const rows = await query<Record<string, unknown>>(`
+    WITH events AS (
+      SELECT
+        c.EventoID                                       AS evento_id,
+        ANY_VALUE(c.NombreGlovox)                        AS nombre,
+        ANY_VALUE(c.CategoriaEvento)                     AS categoria_evento,
+        MAX(t.FechaEvento)                               AS fecha_ts
+      FROM ${CATEGORY} c
+      LEFT JOIN ${TICKETS} t ON c.EventoID = t.EventoID
+      WHERE c.isCanceled IS NOT TRUE
+      GROUP BY c.EventoID
+    ),
+    tickets_agg AS (
+      SELECT
+        EventoID                                                AS evento_id,
+        SUM(Precio - IFNULL(Descuento, 0))                      AS venta,
+        -- Mismo criterio "VENTA" usado en ticketsCte/baseCte: cualquier
+        -- MedioPago distinto de 'Otro' es venta; con 'Otro' sólo cuenta si
+        -- el TipoTicket contiene 'pase' (el resto son cortesías).
+        COUNTIF(
+          MedioPago != 'Otro'
+          OR LOWER(TipoTicket) LIKE '%pase%'
+        )                                                        AS tickets_comprados
+      FROM ${TICKETS}
+      GROUP BY EventoID
+    ),
+    ffbb_agg AS (
+      SELECT
+        EventoID                                                AS evento_id,
+        SUM(SubTotal)                                           AS venta
+      FROM ${SOLD_ITEMS}
+      GROUP BY EventoID
+    )
+    SELECT
+      e.evento_id                                              AS evento_id,
+      e.nombre                                                  AS nombre,
+      e.categoria_evento                                        AS categoria_evento,
+      FORMAT_TIMESTAMP('%Y-%m-%d', e.fecha_ts)                  AS fecha_evento,
+      COALESCE(t.venta, 0)                                      AS venta_tickets,
+      COALESCE(t.tickets_comprados, 0)                          AS tickets_comprados,
+      COALESCE(f.venta, 0)                                      AS venta_ff_bb
+    FROM events e
+    LEFT JOIN tickets_agg t ON e.evento_id = t.evento_id
+    LEFT JOIN ffbb_agg    f ON e.evento_id = f.evento_id
+    ORDER BY e.fecha_ts DESC NULLS LAST
+  `);
+  return rows.map((r) => ({
+    eventoId:         s(r.evento_id),
+    nombre:           s(r.nombre),
+    categoriaEvento:  s(r.categoria_evento),
+    fechaEvento:      s(r.fecha_evento),
+    ventaTickets:     n(r.venta_tickets),
+    ticketsComprados: n(r.tickets_comprados),
+    ventaFfBb:        n(r.venta_ff_bb),
   }));
 }
 

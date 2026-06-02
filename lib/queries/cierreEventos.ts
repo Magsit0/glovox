@@ -20,6 +20,7 @@ function s(v: unknown): string {
 export type CierreEventoRow = {
   eventoId: string;
   totalAsistentes: number | null;
+  categoriaEvento2: string;
 };
 
 export async function getCierreEvento(
@@ -28,8 +29,9 @@ export async function getCierreEvento(
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
-      EventoID        AS evento_id,
-      TotalAsistentes AS total_asistentes
+      EventoID         AS evento_id,
+      TotalAsistentes  AS total_asistentes,
+      CategoriaEvento2 AS categoria_evento_2
     FROM ${CIERRE}
     WHERE EventoID = @eventoId
     LIMIT 1
@@ -41,6 +43,7 @@ export async function getCierreEvento(
   return {
     eventoId: s(r.evento_id),
     totalAsistentes: r.total_asistentes == null ? null : n(r.total_asistentes),
+    categoriaEvento2: s(r.categoria_evento_2),
   };
 }
 
@@ -54,12 +57,14 @@ export async function getTotalAsistentes(
 export async function getCierreEventos(): Promise<CierreEventoRow[]> {
   const rows = await query<Record<string, unknown>>(`
     SELECT
-      EventoID        AS evento_id,
-      TotalAsistentes AS total_asistentes
+      EventoID         AS evento_id,
+      TotalAsistentes  AS total_asistentes,
+      CategoriaEvento2 AS categoria_evento_2
     FROM ${CIERRE}
   `);
   return rows.map((r) => ({
     eventoId: s(r.evento_id),
     totalAsistentes: r.total_asistentes == null ? null : n(r.total_asistentes),
+    categoriaEvento2: s(r.categoria_evento_2),
   }));
 }

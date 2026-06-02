@@ -12,18 +12,23 @@ import {
   getOnepagerTicketsAsistencia,
   getOnepagerEventList,
   getOnepagerRecentEvents,
+  getOnepagerListadoKpis,
 } from "@/lib/queries/onepager";
-import { getTotalAsistentes } from "@/lib/queries/cierreEventos";
+import { getCierreEventos, getTotalAsistentes } from "@/lib/queries/cierreEventos";
 import {
   getMarcaClientes,
   getMarcaIngresosByEvento,
   getMarcaIngresosAggByEvento,
+  getMarcaIngresosAggMap,
 } from "@/lib/queries/marca";
 import EventSelector from "@/components/onepager/EventSelector";
 import BrutalKpiCard from "@/components/onepager/BrutalKpiCard";
 import BrutalChartPanel from "@/components/onepager/BrutalChartPanel";
 import IngresoChart from "@/components/onepager/IngresoChart";
 import DetalleTabs from "@/components/onepager/DetalleTabs";
+import OnepagerListadoTable, {
+  type OnepagerListadoTableRow,
+} from "@/components/onepager/OnepagerListadoTable";
 
 function Skeleton() {
   return (
@@ -42,38 +47,12 @@ export default async function OnepagerPage({
   searchParams: Promise<{ event?: string }>;
 }) {
   const params = await searchParams;
-  const [events, recentEvents] = await Promise.all([
-    getOnepagerEventList(),
-    getOnepagerRecentEvents(),
-  ]);
+  const eventoId = params.event;
 
-  if (events.length === 0) {
+  // Sin ?event=  → vista índice (matriz de todos los eventos).
+  if (!eventoId) {
     return (
-      <div className="bg-white text-black min-h-full p-6">
-        <p className="font-mono-data text-sm">No hay eventos disponibles.</p>
-      </div>
-    );
-  }
-
-  const selectedId = params.event ?? recentEvents[0]?.eventoId;
-
-  if (!selectedId) {
-    return (
-      <div className="bg-white text-black min-h-full p-6">
-        <p className="font-mono-data text-sm">No hay eventos realizados.</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-white text-black min-h-full">
-      <EventSelector
-        events={events}
-        selected={selectedId}
-        recentEvents={recentEvents}
-      />
-
-      <div className="p-6 space-y-6">
+      <div className="bg-white text-black min-h-full p-6 space-y-6">
         <Link
           href="/"
           aria-label="Volver al menú principal"
@@ -87,6 +66,60 @@ export default async function OnepagerPage({
             priority
           />
         </Link>
+        <h1 className="font-display uppercase text-3xl leading-none text-black">
+          Eventos
+        </h1>
+        <Suspense fallback={<Skeleton />}>
+          <ListadoSection />
+        </Suspense>
+      </div>
+    );
+  }
+
+  // Con ?event=  → vista detalle (one-pager por evento).
+  const [events, recentEvents] = await Promise.all([
+    getOnepagerEventList(),
+    getOnepagerRecentEvents(),
+  ]);
+
+  if (events.length === 0) {
+    return (
+      <div className="bg-white text-black min-h-full p-6">
+        <p className="font-mono-data text-sm">No hay eventos disponibles.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white text-black min-h-full">
+      <EventSelector
+        events={events}
+        selected={eventoId}
+        recentEvents={recentEvents}
+      />
+
+      <div className="p-6 space-y-6">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/"
+            aria-label="Volver al menú principal"
+            className="inline-flex items-center justify-center border-4 border-black bg-white p-1.5 shadow-[4px_4px_0px_#000] transition-colors hover:bg-[#FFFF00]"
+          >
+            <Image
+              src="/glovox_logo_gvx_black.svg"
+              alt="Glovox"
+              width={24}
+              height={24}
+              priority
+            />
+          </Link>
+          <Link
+            href="/onepager"
+            className="font-display uppercase text-xs leading-none px-3 py-2 border-4 border-black bg-white shadow-[4px_4px_0px_#000] hover:bg-[#FFFF00] transition-colors"
+          >
+            ← Volver al listado
+          </Link>
+        </div>
         <Suspense
           fallback={
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -97,18 +130,54 @@ export default async function OnepagerPage({
             </div>
           }
         >
-          <KpiStrip eventoId={selectedId} />
+          <KpiStrip eventoId={eventoId} />
         </Suspense>
 
         <Suspense fallback={<Skeleton />}>
-          <IngresoSection eventoId={selectedId} />
+          <IngresoSection eventoId={eventoId} />
         </Suspense>
 
         <Suspense fallback={<Skeleton />}>
-          <DetalleSection eventoId={selectedId} />
+          <DetalleSection eventoId={eventoId} />
         </Suspense>
       </div>
     </div>
+  );
+}
+
+// ---------- Listado section ----------
+
+async function ListadoSection() {
+  const [listado, cierres, marcaMap] = await Promise.all([
+    getOnepagerListadoKpis(),
+    getCierreEventos(),
+    getMarcaIngresosAggMap(),
+  ]);
+
+  const asistMap = new Map<string, number | null>();
+  const cat2Map = new Map<string, string>();
+  for (const c of cierres) {
+    asistMap.set(c.eventoId, c.totalAsistentes);
+    if (c.categoriaEvento2) cat2Map.set(c.eventoId, c.categoriaEvento2);
+  }
+
+  const rows: OnepagerListadoTableRow[] = listado.map((r) => ({
+    eventoId:         r.eventoId,
+    nombre:           r.nombre,
+    categoriaEvento:  r.categoriaEvento,
+    categoriaEvento2: cat2Map.get(r.eventoId) ?? "",
+    fechaEvento:      r.fechaEvento,
+    ventaTickets:     r.ventaTickets,
+    ticketsComprados: r.ticketsComprados,
+    ventaFfBb:        r.ventaFfBb,
+    ventaMarcas:      marcaMap.get(r.eventoId) ?? 0,
+    asistentes:       asistMap.has(r.eventoId) ? asistMap.get(r.eventoId)! : null,
+  }));
+
+  return (
+    <BrutalChartPanel title="Listado de eventos">
+      <OnepagerListadoTable rows={rows} />
+    </BrutalChartPanel>
   );
 }
 

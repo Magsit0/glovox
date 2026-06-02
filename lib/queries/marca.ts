@@ -75,3 +75,24 @@ export async function getMarcaIngresosAggByEvento(
     qtty: Number(r?.qtty ?? 0),
   };
 }
+
+/**
+ * Mapa eventoId → suma de montos netos, agregado en una sola query.
+ * Útil para enriquecer el listado multi-evento del one-pager sin loops.
+ */
+export async function getMarcaIngresosAggMap(): Promise<Map<string, number>> {
+  const rows = await db
+    .select({
+      eventoId: marcaIngresos.eventoId,
+      ventaNeto: sql<number>`COALESCE(SUM(${marcaIngresos.montoNeto}), 0)`.as(
+        "venta_neto",
+      ),
+    })
+    .from(marcaIngresos)
+    .groupBy(marcaIngresos.eventoId);
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    map.set(r.eventoId, Number(r.ventaNeto) || 0);
+  }
+  return map;
+}
