@@ -10,6 +10,12 @@
  * Para sumar un dashboard nuevo:
  *  1. Crear la ruta en `app/<path>/page.tsx`.
  *  2. Agregar una entrada aquí.
+ *  3. REGLA DE COLOR: el `accentClass` (color del icono en la home) debe ser
+ *     único, distinto a TODOS los dashboards existentes. No reutilices un color
+ *     ya tomado ni un tono casi idéntico. La verificación al final de este
+ *     archivo falla en dev si se repite un color.
+ *  4. El `icon` debería representar el contexto del dashboard lo más fielmente
+ *     posible (ver `ICON_MAP` en `components/HomeDashboards.tsx`).
  *
  * El catálogo se sincroniza automáticamente a la base en tiempo de request
  * (ver `lib/ensureDashboardsCatalog.ts`). Por default un dashboard nuevo
@@ -92,9 +98,9 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     sortOrder: 50,
     title: "ONEPAGER",
     description: "Resumen de ventas de tickets y AA&BB.",
-    icon: "ticket",
-    accentClass: "bg-[#FF0000]",
-    accentText: "text-[#FFFF00]",
+    icon: "file-text",
+    accentClass: "bg-[#FF7A00]",
+    accentText: "text-black",
   },
   {
     key: "frees",
@@ -116,7 +122,7 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     sortOrder: 70,
     title: "FF&BB",
     description: "Resultados de operación alimentos y bebidas.",
-    icon: "BottleWine",
+    icon: "utensils-crossed",
     accentClass: "bg-[#722F37]",
     accentText: "text-white",
   },
@@ -129,7 +135,7 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     title: "CIERRE NEGOCIO",
     description:
       "Informe de cierre por negocio: presupuesto vs gasto real, top proveedores y estado de las OCs.",
-    icon: "briefcase",
+    icon: "wallet",
     accentClass: "bg-[#9F99F8]",
     accentText: "text-white",
   },
@@ -147,6 +153,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentText: "text-black",
   },
   {
+    key: "ticketing",
+    pathPrefix: "/ticketing",
+    label: "Ticketing",
+    appliesCountryScope: true,
+    sortOrder: 55,
+    title: "TICKETING",
+    description:
+      "Análisis histórico del producto de ticketing: tipos y categorías de ticket, cantidad y venta por evento.",
+    icon: "ticket",
+    accentClass: "bg-[#E0218A]",
+    accentText: "text-white",
+  },
+  {
     key: "reportes.entel.the-grid",
     pathPrefix: "/reportes/entel-the-grid",
     label: "Entel · The Grid",
@@ -155,11 +174,30 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     title: "ENTEL · THE GRID",
     description:
       "Reporte de activación Entel en The Grid · kiki — 9 mayo 2026 (Espacio Riesco).",
-    icon: "megaphone",
-    accentClass: "bg-[#0033CC]",
-    accentText: "text-white",
+    icon: "zap",
+    accentClass: "bg-[#00BCD4]",
+    accentText: "text-black",
   },
 ] as const;
+
+/**
+ * Regla de color: cada dashboard debe usar un `accentClass` único en la home.
+ * Esta verificación corre solo fuera de producción y falla ruidosamente si se
+ * agrega un dashboard con un color ya tomado, para forzar elegir uno nuevo.
+ */
+if (process.env.NODE_ENV !== "production") {
+  const seenColor = new Map<string, string>();
+  for (const d of DASHBOARDS_CATALOG) {
+    const prev = seenColor.get(d.accentClass);
+    if (prev) {
+      throw new Error(
+        `[dashboards-catalog] color repetido "${d.accentClass}" en "${prev}" y "${d.key}". ` +
+          "Cada dashboard debe tener un color de icono único — elegí uno distinto a los existentes.",
+      );
+    }
+    seenColor.set(d.accentClass, d.key);
+  }
+}
 
 export type DashboardKey = (typeof DASHBOARDS_CATALOG)[number]["key"];
 

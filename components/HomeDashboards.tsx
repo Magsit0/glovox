@@ -17,6 +17,10 @@ import {
   BottleWine,
   Briefcase,
   CalendarRange,
+  FileText,
+  UtensilsCrossed,
+  Wallet,
+  Zap,
   Pencil,
   GripVertical,
   Check,
@@ -58,8 +62,12 @@ const ICON_MAP: Record<string, React.ElementType> = {
   gift: Gift,
   globe: Globe,
   BottleWine: BottleWine,
+  "utensils-crossed": UtensilsCrossed,
   briefcase: Briefcase,
+  wallet: Wallet,
   "calendar-range": CalendarRange,
+  "file-text": FileText,
+  zap: Zap,
 };
 
 const TITLE_MAX = 80;
