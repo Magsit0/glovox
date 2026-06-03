@@ -7,7 +7,16 @@ import {
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 const TICKETS = `\`${P}.glovox.tickets\``;
-const ADS = `\`${P}.paidMedia.generalAds\``;
+// Paid-media source. `ads_performance` replaces the old `generalAds` table: it has
+// no EventoID, multiple currencies, and combined Meta + Google rows. See
+// `attributedAds()` for how each row is tied back to an event.
+const ADS = `\`${P}.paidMedia.ads_performance\``;
+// Maps a Google `campaign_id` to the EventoID(s) it funds (1 campaign -> many
+// events for season-long campaigns). Meta needs no map (EventoID is derived from
+// the campaign name). Populated manually in BigQuery.
+const CAMP_MAP = `\`${P}.paidMedia.campaign_event_map\``;
+// Per-currency USD conversion rates: `usd = gasto / units_per_usd`.
+const FX = `\`${P}.paidMedia.fx_rates\``;
 const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
 const FOLLOWERS = `\`${P}.marketing.rrssFollowers\``;
 const FUNNEL = `\`${P}.google_analytics.funnel\``;
@@ -27,6 +36,53 @@ const TICKET_TYPE_FILTER = `
   END IN ('VENTA', 'PASE TEMPORADA')
   AND EsDevuelto IS FALSE
 `;
+
+// ---------- Paid-media attribution (ads_performance) ----------
+//
+// `ads_performance` has no EventoID. Each row is tied to an event two ways:
+//   - Meta:   EventoID = SUBSTR(campaign_name, 1, 6) — each campaign is event-specific.
+//   - Google: campaign_id is mapped to its event(s) via `campaign_event_map`. A single
+//             season campaign funds many events, so its daily spend is attributed to an
+//             event only on days inside that event's sale window. A campaign mapped to
+//             overlapping events double-counts by design (agreed product decision).
+//
+// Spend is multi-currency (USD / CLP / BRL …); callers convert to USD via `fx_rates`.
+
+// Sale window for @eventoId: first ticket-order date → last order date (or today if
+// the event is still upcoming). Mirrors the window used elsewhere in the dashboard.
+// `tSql` is the scoped ticketera filter fragment from `ticketeraFilter(scope)`.
+function ticketPeriodCte(tSql: string): string {
+  return `ticket_period AS (
+      SELECT
+        MIN(DATE(${FECHA_ORDEN_ADJ})) AS start_date,
+        CASE WHEN MAX(FechaEvento) >= CURRENT_TIMESTAMP() THEN CURRENT_DATE() ELSE MAX(DATE(${FECHA_ORDEN_ADJ})) END AS end_date
+      FROM ${TICKETS}
+      WHERE EventoID = @eventoId
+        AND ${TICKET_TYPE_FILTER}${tSql}
+    )`;
+}
+
+// Rows from `ads_performance` attributed to @eventoId (param required by callers).
+// Requires a `ticket_period` CTE in the same query. `windowMeta=true` also clips Meta
+// to the sale window (used by the time-series breakdown); false sums all Meta spend.
+function attributedAds(windowMeta: boolean): string {
+  const cols = `a.plataforma, a.fecha, a.campaign_id, a.campaign_name, a.currency, a.gasto, a.conversiones`;
+  return `
+    SELECT ${cols}
+    FROM ${ADS} a
+    ${windowMeta ? `CROSS JOIN ticket_period pm` : ``}
+    WHERE a.plataforma = 'meta' AND a.gasto > 0
+      AND SUBSTR(a.campaign_name, 1, 6) = @eventoId
+      ${windowMeta ? `AND a.fecha BETWEEN pm.start_date AND pm.end_date` : ``}
+    UNION ALL
+    SELECT ${cols}
+    FROM ${ADS} a
+    JOIN ${CAMP_MAP} m ON a.campaign_id = m.campaign_id
+    CROSS JOIN ticket_period pg
+    WHERE a.plataforma = 'google' AND a.gasto > 0
+      AND m.EventoID = @eventoId
+      AND a.fecha BETWEEN pg.start_date AND pg.end_date`;
+}
 
 // ---------- Data scope ----------
 //
@@ -89,13 +145,26 @@ export type CumulativeSalesRelativeRow = {
   cumulativeTickets: number;
 };
 
+export type CurrencySpend = {
+  currency: string;
+  spend: number; // raw amount in `currency`
+  spendUsd: number; // converted to USD via fx_rates
+};
+
+export type PlatformSpend = {
+  platform: string; // 'meta', 'google', 'tiktok', ... (raw value from ads_performance)
+  spendUsd: number; // USD, so platforms with different currencies stay comparable
+};
+
 export type PaidMediaSummaryRow = {
-  totalSpend: number;
-  budget: number;
+  totalSpend: number; // USD (sum across currencies)
+  budget: number; // USD (budgetPm is stored in USD)
   execPct: number;
-  purchases: number;
+  purchases: number; // Meta pixel conversions only
   purchasesPuntoticket: number;
-  cpa: number;
+  cpa: number; // USD
+  spendByCurrency: CurrencySpend[];
+  spendByPlatform: PlatformSpend[];
 };
 
 export type SalesOriginRow = {
@@ -261,11 +330,12 @@ export async function getEventKpis(
       WHERE EventoID = @eventoId
         AND ${TICKET_TYPE_FILTER}${t.sql}
     ),
+    ${ticketPeriodCte(t.sql)},
+    ads_evt AS (${attributedAds(false)}),
     ad_stats AS (
-      SELECT
-        SUM(CASE WHEN Account_Currency = 'CLP' THEN Spend / 900 ELSE Spend END) AS total_spend
-      FROM ${ADS}
-      WHERE EventoID = @eventoId AND Spend > 0
+      SELECT SUM(e.gasto / COALESCE(f.units_per_usd, 1)) AS total_spend
+      FROM ads_evt e
+      LEFT JOIN ${FX} f ON f.currency = e.currency
     ),
     event_meta AS (
       SELECT budgetPm, goalTickets
@@ -397,12 +467,33 @@ export async function getPaidMediaSummary(
   const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
-    WITH ad_stats AS (
+    WITH ${ticketPeriodCte(t.sql)},
+    ads_evt AS (${attributedAds(false)}),
+    ads_usd AS (
       SELECT
-        SUM(CASE WHEN Account_Currency = 'CLP' THEN Spend / 900 ELSE Spend END) AS total_spend,
-        SUM(Purchase) AS purchases
-      FROM ${ADS}
-      WHERE EventoID = @eventoId AND Spend > 0
+        e.plataforma,
+        e.currency,
+        e.gasto,
+        e.conversiones,
+        e.gasto / COALESCE(f.units_per_usd, 1) AS gasto_usd
+      FROM ads_evt e
+      LEFT JOIN ${FX} f ON f.currency = e.currency
+    ),
+    by_currency AS (
+      SELECT currency, ROUND(SUM(gasto), 2) AS spend, ROUND(SUM(gasto_usd), 2) AS spend_usd
+      FROM ads_usd
+      GROUP BY currency
+    ),
+    by_platform AS (
+      SELECT plataforma, ROUND(SUM(gasto_usd), 2) AS spend_usd
+      FROM ads_usd
+      GROUP BY plataforma
+    ),
+    totals AS (
+      SELECT
+        SUM(gasto_usd) AS total_spend_usd,
+        SUM(CASE WHEN plataforma = 'meta' THEN conversiones ELSE 0 END) AS meta_purchases
+      FROM ads_usd
     ),
     event_meta AS (
       SELECT budgetPm
@@ -417,19 +508,42 @@ export async function getPaidMediaSummary(
         AND ${TICKET_TYPE_FILTER}${t.sql}
     )
     SELECT
-      COALESCE(a.total_spend, 0) AS total_spend,
+      COALESCE(tt.total_spend_usd, 0) AS total_spend,
       COALESCE(em.budgetPm, 0) AS budget,
-      CASE WHEN em.budgetPm > 0 THEN ROUND(COALESCE(a.total_spend, 0) / em.budgetPm * 100, 1) ELSE 0 END AS exec_pct,
-      COALESCE(a.purchases, 0) AS purchases,
+      CASE WHEN em.budgetPm > 0 THEN ROUND(COALESCE(tt.total_spend_usd, 0) / em.budgetPm * 100, 1) ELSE 0 END AS exec_pct,
+      COALESCE(CAST(ROUND(tt.meta_purchases) AS INT64), 0) AS purchases,
       COALESCE(pt.purchases_pt, 0) AS purchases_puntoticket,
-      CASE WHEN a.purchases > 0 THEN ROUND(a.total_spend / a.purchases, 1) ELSE 0 END AS cpa
-    FROM ad_stats a
+      CASE WHEN tt.meta_purchases > 0 THEN ROUND(tt.total_spend_usd / tt.meta_purchases, 1) ELSE 0 END AS cpa,
+      ARRAY(
+        SELECT AS STRUCT currency, spend, spend_usd
+        FROM by_currency
+        ORDER BY spend_usd DESC
+      ) AS by_currency,
+      ARRAY(
+        SELECT AS STRUCT plataforma AS platform, spend_usd
+        FROM by_platform
+        ORDER BY spend_usd DESC
+      ) AS by_platform
+    FROM totals tt
     CROSS JOIN event_meta em
     CROSS JOIN pt_purchases pt
     `,
     { eventoId, ...t.params }
   );
   const r = rows[0] ?? {};
+  const byCurrency = Array.isArray(r.by_currency)
+    ? (r.by_currency as Record<string, unknown>[]).map((c) => ({
+        currency: s(c.currency),
+        spend: n(c.spend),
+        spendUsd: n(c.spend_usd),
+      }))
+    : [];
+  const byPlatform = Array.isArray(r.by_platform)
+    ? (r.by_platform as Record<string, unknown>[]).map((p) => ({
+        platform: s(p.platform),
+        spendUsd: n(p.spend_usd),
+      }))
+    : [];
   return {
     totalSpend: n(r.total_spend),
     budget: n(r.budget),
@@ -437,6 +551,8 @@ export async function getPaidMediaSummary(
     purchases: n(r.purchases),
     purchasesPuntoticket: n(r.purchases_puntoticket),
     cpa: n(r.cpa),
+    spendByCurrency: byCurrency,
+    spendByPlatform: byPlatform,
   };
 }
 
@@ -699,24 +815,16 @@ export async function getCampaignBreakdown(
   const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
-    WITH ticket_period AS (
-      SELECT
-        MIN(DATE(${FECHA_ORDEN_ADJ})) AS start_date,
-        CASE WHEN MAX(FechaEvento) >= CURRENT_TIMESTAMP() THEN CURRENT_DATE() ELSE MAX(DATE(${FECHA_ORDEN_ADJ})) END AS end_date
-      FROM ${TICKETS}
-      WHERE EventoID = @eventoId
-        AND ${TICKET_TYPE_FILTER}${t.sql}
-    )
+    WITH ${ticketPeriodCte(t.sql)},
+    ads_evt AS (${attributedAds(true)})
     SELECT
-      FORMAT_TIMESTAMP('%Y-%m-%d', a.Fecha) AS date,
-      a.Campaign_Name AS campaign,
-      a.Platform AS platform,
-      SUM(CASE WHEN a.Account_Currency = 'CLP' THEN a.Spend / 900 ELSE a.Spend END) AS spend,
-      SUM(a.Purchase) AS purchases
-    FROM ${ADS} a
-    CROSS JOIN ticket_period p
-    WHERE a.EventoID = @eventoId AND a.Spend > 0
-      AND DATE(a.Fecha) BETWEEN p.start_date AND p.end_date
+      FORMAT_DATE('%Y-%m-%d', e.fecha) AS date,
+      e.campaign_name AS campaign,
+      e.plataforma AS platform,
+      SUM(e.gasto / COALESCE(f.units_per_usd, 1)) AS spend,
+      SUM(e.conversiones) AS purchases
+    FROM ads_evt e
+    LEFT JOIN ${FX} f ON f.currency = e.currency
     GROUP BY date, campaign, platform
     ORDER BY date, campaign
     `,

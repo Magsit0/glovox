@@ -178,6 +178,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentClass: "bg-[#00BCD4]",
     accentText: "text-black",
   },
+  {
+    key: "paid-media",
+    pathPrefix: "/paid-media",
+    label: "Paid media",
+    appliesCountryScope: false,
+    sortOrder: 25,
+    title: "PAID MEDIA",
+    description:
+      "Rendimiento de social media ads: gasto, alcance, CTR, CPC, CPM, conversiones y ROAS por plataforma, cuenta, campaña y adset.",
+    icon: "target",
+    accentClass: "bg-[#4267B2]",
+    accentText: "text-white",
+  },
 ] as const;
 
 /**

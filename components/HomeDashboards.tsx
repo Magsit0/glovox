@@ -21,6 +21,7 @@ import {
   UtensilsCrossed,
   Wallet,
   Zap,
+  Target,
   Pencil,
   GripVertical,
   Check,
@@ -68,6 +69,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "calendar-range": CalendarRange,
   "file-text": FileText,
   zap: Zap,
+  target: Target,
 };
 
 const TITLE_MAX = 80;

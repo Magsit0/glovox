@@ -31,6 +31,21 @@ import CampaignBreakdownChart from "@/components/marketing/charts/CampaignBreakd
 import UtmTrafficTable from "@/components/marketing/charts/UtmTrafficTable";
 
 const fmtUsd = (v: number) => "US$" + v.toFixed(1);
+// Raw amount in its own currency (no symbol; the currency code is shown alongside).
+// USD keeps 1 decimal; CLP/BRL/others are whole-number amounts.
+const fmtAmount = (currency: string, v: number) =>
+  v.toLocaleString("es-CL", {
+    minimumFractionDigits: currency === "USD" ? 1 : 0,
+    maximumFractionDigits: currency === "USD" ? 1 : 0,
+  });
+// Display labels for ad platforms. Unknown values fall back to the raw string,
+// so a new platform (e.g. tiktok) shows up without a code change.
+const PLATFORM_LABELS: Record<string, string> = {
+  meta: "Meta",
+  google: "Google",
+  tiktok: "TikTok",
+};
+const platformLabel = (p: string) => PLATFORM_LABELS[p.toLowerCase()] ?? p;
 
 function Skeleton() {
   return (
@@ -263,9 +278,38 @@ async function PaidMediaSection({ eventoId, scope }: { eventoId: string; scope?:
     <BrutalHighlightPanel title="Paid Media" className="col-span-1">
       <div className="space-y-4">
         <div>
-          <p className="font-mono-data text-xs uppercase">Invertido</p>
+          <p className="font-mono-data text-xs uppercase">Invertido (USD)</p>
           <p className="font-display text-4xl leading-none">{fmtUsd(pm.totalSpend)}</p>
+          {pm.spendByCurrency.length > 0 && (
+            <ul className="mt-2 space-y-0.5 border-t-2 border-black/20 pt-2">
+              {pm.spendByCurrency.map((c) => (
+                <li
+                  key={c.currency}
+                  className="flex items-baseline justify-between font-mono-data text-xs"
+                >
+                  <span className="uppercase">{c.currency}</span>
+                  <span>{fmtAmount(c.currency, c.spend)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
+        {pm.spendByPlatform.length > 0 && (
+          <div>
+            <p className="font-mono-data text-xs uppercase">Por Plataforma (USD)</p>
+            <ul className="mt-1 space-y-0.5">
+              {pm.spendByPlatform.map((p) => (
+                <li
+                  key={p.platform}
+                  className="flex items-baseline justify-between font-mono-data text-xs"
+                >
+                  <span>{platformLabel(p.platform)}</span>
+                  <span>{fmtUsd(p.spendUsd)}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
         <div>
           <p className="font-mono-data text-xs uppercase">Budget</p>
           <p className="font-display text-3xl leading-none">{fmtUsd(pm.budget)}</p>
