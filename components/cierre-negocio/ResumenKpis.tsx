@@ -43,13 +43,6 @@ export default function ResumenKpis({ agg }: Props) {
         : "Sin documentos facturados",
     },
     {
-      label: "Venta total facturada",
-      value: hasVentas ? compactCurrency(ventas.ventaBrutaTotal) : "—",
-      caption: hasVentas
-        ? `Con IVA: ${formatCurrency(ventas.ventaBrutaTotal)}`
-        : "Sin ventas",
-    },
-    {
       label: "Gasto real",
       value: compactCurrency(agg.totalGastoReal),
       caption: formatCurrency(agg.totalGastoReal),
@@ -64,8 +57,8 @@ export default function ResumenKpis({ agg }: Props) {
 
   return (
     <section
-      data-pdf-grid="kpis-4"
-      className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4"
+      data-pdf-grid="kpis-3"
+      className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
     >
       {kpis.map((k) => (
         <article

@@ -13,6 +13,11 @@ import {
   YAxis,
 } from "recharts";
 import BrutalChartPanel from "./BrutalChartPanel";
+import MarcaMatrixSheet, {
+  type MatrixEvento,
+} from "./MarcaMatrixSheet";
+import type { MarcaCliente } from "@/db/schema";
+import type { MarcaMatrixCell } from "@/lib/queries/marca";
 
 export type OnepagerListadoTableRow = {
   eventoId: string;
@@ -140,8 +145,12 @@ function fmtMetricAxis(value: number, m: Metric): string {
 
 export default function OnepagerListadoTable({
   rows,
+  marcaClientes,
+  marcaMatrix,
 }: {
   rows: OnepagerListadoTableRow[];
+  marcaClientes: MarcaCliente[];
+  marcaMatrix: MarcaMatrixCell[];
 }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>("eventos");
@@ -151,6 +160,21 @@ export default function OnepagerListadoTable({
   // Estado del bar chart inferior.
   const [metric, setMetric] = useState<Metric>("total");
   const [sortMode, setSortMode] = useState<SortMode>("fecha-asc");
+  // Sheet global para imputar marcas (matriz cliente × evento).
+  const [marcaSheetOpen, setMarcaSheetOpen] = useState(false);
+
+  // Eventos que recibe el sheet — usa el dataset completo, no el filtrado de
+  // la tabla, así el sheet puede aplicar su propio filtro de categoría.
+  const matrixEventos = useMemo<MatrixEvento[]>(
+    () =>
+      rows.map((r) => ({
+        eventoId: r.eventoId,
+        nombre: r.nombre || r.eventoId,
+        categoriaEvento: r.categoriaEvento,
+        fechaEvento: r.fechaEvento,
+      })),
+    [rows],
+  );
 
   const categoriasOpts = useMemo(() => {
     const set = new Set<string>();
@@ -428,11 +452,18 @@ export default function OnepagerListadoTable({
             )}
             <button
               type="button"
+              onClick={() => setMarcaSheetOpen(true)}
+              className="ml-auto font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-[#FFFF00] text-black hover:bg-black hover:text-[#FFFF00] cursor-pointer transition-colors duration-150"
+            >
+              + Imputar marcas
+            </button>
+            <button
+              type="button"
               onClick={() =>
                 setMode(compareActive ? "eventos" : "categorias")
               }
               aria-pressed={compareActive}
-              className={`ml-auto font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] cursor-pointer transition-colors duration-150 ${
+              className={`font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] cursor-pointer transition-colors duration-150 ${
                 compareActive
                   ? "bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black"
                   : "bg-white text-black hover:bg-[#FFFF00]"
@@ -668,6 +699,14 @@ export default function OnepagerListadoTable({
           heat={chartHeat}
         />
       </BrutalChartPanel>
+
+      <MarcaMatrixSheet
+        open={marcaSheetOpen}
+        onClose={() => setMarcaSheetOpen(false)}
+        eventos={matrixEventos}
+        clientes={marcaClientes}
+        matrix={marcaMatrix}
+      />
     </div>
   );
 }

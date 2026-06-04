@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { marcaClientes, marcaIngresos } from "@/db/schema";
 import { auth } from "@/lib/auth";
@@ -171,6 +171,95 @@ export async function createMarcaIngresoAction(
     return {
       ok: false,
       error: err instanceof Error ? err.message : "Error al imputar el ingreso",
+    };
+  }
+}
+
+// ----------------------------------------------------- Upsert (matriz global)
+//
+// La matriz cliente × evento del editor global garantiza UNA imputación por
+// par. Implementamos delete-then-insert dentro de una transacción para
+// consolidar cualquier duplicado histórico al primer guardado del par.
+// Si `montoNeto` es 0 o nulo, sólo borramos (limpiar la celda).
+
+export interface MarcaIngresoUpsertInput {
+  eventoId: string;
+  clienteId: string;
+  montoNeto: number | null;
+}
+
+export async function upsertMarcaIngresoAction(
+  input: Partial<MarcaIngresoUpsertInput>,
+): Promise<ActionResult<{ montoNeto: number; montoBruto: number } | null>> {
+  let ctx: SessionCtx;
+  try {
+    ctx = await requireOnepagerAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+
+  const eventoId = trimOrEmpty(input.eventoId);
+  const clienteId = trimOrEmpty(input.clienteId);
+  if (!eventoId) return { ok: false, error: "Evento requerido" };
+  if (!clienteId) return { ok: false, error: "Cliente requerido" };
+
+  const montoNeto = numOrNull(input.montoNeto);
+  // 0/null/negativo → limpieza
+  const shouldDelete = montoNeto === null || montoNeto <= 0;
+
+  try {
+    // Snapshot del cliente (sólo si vamos a insertar).
+    let cliente: { id: string; rut: string; nombre: string } | undefined;
+    if (!shouldDelete) {
+      const [row] = await db
+        .select({
+          id: marcaClientes.id,
+          rut: marcaClientes.rut,
+          nombre: marcaClientes.nombre,
+        })
+        .from(marcaClientes)
+        .where(eq(marcaClientes.id, clienteId))
+        .limit(1);
+      if (!row) return { ok: false, error: "Cliente no encontrado" };
+      cliente = row;
+    }
+
+    await db.transaction(async (tx) => {
+      await tx
+        .delete(marcaIngresos)
+        .where(
+          and(
+            eq(marcaIngresos.eventoId, eventoId),
+            eq(marcaIngresos.clienteId, clienteId),
+          ),
+        );
+      if (!shouldDelete && cliente && montoNeto !== null) {
+        const montoBruto = netoToBruto(montoNeto);
+        await tx.insert(marcaIngresos).values({
+          eventoId,
+          clienteId: cliente.id,
+          rutCliente: cliente.rut,
+          cliente: cliente.nombre,
+          montoNeto,
+          montoBruto,
+          createdBy: ctx.userId,
+        });
+      }
+    });
+
+    revalidatePath("/onepager");
+
+    if (shouldDelete || montoNeto === null) {
+      return { ok: true, data: null };
+    }
+    return {
+      ok: true,
+      data: { montoNeto, montoBruto: netoToBruto(montoNeto) },
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Error al guardar el ingreso",
     };
   }
 }

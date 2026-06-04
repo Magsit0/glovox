@@ -20,6 +20,7 @@ import {
   getMarcaIngresosByEvento,
   getMarcaIngresosAggByEvento,
   getMarcaIngresosAggMap,
+  getMarcaIngresosMatrix,
 } from "@/lib/queries/marca";
 import EventSelector from "@/components/onepager/EventSelector";
 import BrutalKpiCard from "@/components/onepager/BrutalKpiCard";
@@ -148,11 +149,14 @@ export default async function OnepagerPage({
 // ---------- Listado section ----------
 
 async function ListadoSection() {
-  const [listado, cierres, marcaMap] = await Promise.all([
-    getOnepagerListadoKpis(),
-    getCierreEventos(),
-    getMarcaIngresosAggMap(),
-  ]);
+  const [listado, cierres, marcaMap, marcaClientes, marcaMatrix] =
+    await Promise.all([
+      getOnepagerListadoKpis(),
+      getCierreEventos(),
+      getMarcaIngresosAggMap(),
+      getMarcaClientes(),
+      getMarcaIngresosMatrix(),
+    ]);
 
   const asistMap = new Map<string, number | null>();
   const cat2Map = new Map<string, string>();
@@ -174,7 +178,13 @@ async function ListadoSection() {
     asistentes:       asistMap.has(r.eventoId) ? asistMap.get(r.eventoId)! : null,
   }));
 
-  return <OnepagerListadoTable rows={rows} />;
+  return (
+    <OnepagerListadoTable
+      rows={rows}
+      marcaClientes={marcaClientes}
+      marcaMatrix={marcaMatrix}
+    />
+  );
 }
 
 // ---------- Sections ----------

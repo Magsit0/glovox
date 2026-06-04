@@ -96,3 +96,32 @@ export async function getMarcaIngresosAggMap(): Promise<Map<string, number>> {
   }
   return map;
 }
+
+export type MarcaMatrixCell = {
+  clienteId: string;
+  eventoId: string;
+  montoNeto: number;
+};
+
+/**
+ * Pivot completo de marca_ingresos para alimentar la matriz cliente × evento
+ * del editor global. Suma por par (consolida cualquier duplicado histórico
+ * a un único valor visible).
+ */
+export async function getMarcaIngresosMatrix(): Promise<MarcaMatrixCell[]> {
+  const rows = await db
+    .select({
+      clienteId: marcaIngresos.clienteId,
+      eventoId: marcaIngresos.eventoId,
+      montoNeto: sql<number>`COALESCE(SUM(${marcaIngresos.montoNeto}), 0)`.as(
+        "monto_neto",
+      ),
+    })
+    .from(marcaIngresos)
+    .groupBy(marcaIngresos.clienteId, marcaIngresos.eventoId);
+  return rows.map((r) => ({
+    clienteId: r.clienteId,
+    eventoId: r.eventoId,
+    montoNeto: Number(r.montoNeto) || 0,
+  }));
+}
