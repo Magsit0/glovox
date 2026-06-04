@@ -1,10 +1,11 @@
 import { query } from "@/lib/bigquery";
+import { getMarcaIngresosAggByEvento } from "@/lib/queries/marca";
 import type {
   CierreEventoRow,
   DetalleGastoRow,
-  DocVentaRow,
   NegocioItemRow,
   NegocioOption,
+  VentaNegocioRow,
   VentasAggregateRaw,
 } from "@/lib/unabase/types";
 
@@ -13,8 +14,23 @@ const P = process.env.BIGQUERY_PROJECT_ID;
 const NEGOCIOS = `\`${P}.unabase.negocios\``;
 const NEGOCIO_ITEM = `\`${P}.unabase.negocioItem\``;
 const DETALLE_GASTO = `\`${P}.unabase.detalleGasto\``;
-const DOCS_VENTA = `\`${P}.unabase.docsVenta\``;
+const VENTAS_NEGOCIO = `\`${P}.finanzas.unabase_ventas_por_negocio\``;
 const CIERRE_EVENTOS = `\`${P}.ticketsAndAABB.cierreEventos\``;
+
+// Filtro común de ventas: documentos vivos del negocio, excluyendo anulados y
+// (por ahora) notas de crédito/débito. tipo_documento es texto descriptivo
+// ("FACTURA ELECTRONICA", "NOTA DE CREDITO ELECTRONICA"), así que filtramos por
+// substring cubriendo variantes con y sin acento.
+const VENTAS_WHERE = `
+  WHERE CAST(id_negocio AS STRING) = @id
+    AND LOWER(IFNULL(CAST(estado AS STRING), '')) NOT IN ('anulado', 'anulada')
+    AND NOT (
+      LOWER(IFNULL(CAST(tipo_documento AS STRING), '')) LIKE '%credito%'
+      OR LOWER(IFNULL(CAST(tipo_documento AS STRING), '')) LIKE '%crédito%'
+      OR LOWER(IFNULL(CAST(tipo_documento AS STRING), '')) LIKE '%debito%'
+      OR LOWER(IFNULL(CAST(tipo_documento AS STRING), '')) LIKE '%débito%'
+    )
+`;
 
 const AREA_PRODUCCION = "produccion de eventos propios";
 
@@ -89,9 +105,12 @@ export interface NegocioDetail {
   negocio: NegocioOption | null;
   items: NegocioItemRow[];
   gastos: DetalleGastoRow[];
-  ventas: DocVentaRow[];
+  ventas: VentaNegocioRow[];
   ventasAggregate: VentasAggregateRaw;
   evento: CierreEventoRow | null;
+  // Ingresos de marcas imputados en el ONEPAGER (Neon). Neto agregado por evento.
+  // null cuando el negocio no es de producción de eventos propios.
+  marcaIngresoNeto: number | null;
 }
 
 const EVENTO_SQL = `
@@ -135,53 +154,45 @@ const GASTOS_SQL = `
     AND LOWER(IFNULL(CAST(excluir_gasto AS STRING), '')) <> 'true'
 `;
 
-// Suma en BigQuery (INT64 → aritmética exacta). Evita acumulación de error
-// y pérdida de precisión por serialización con grandes volúmenes de docs.
+// Suma en BigQuery sobre montos ya prorrateados al negocio (atribuibles).
+// NC/ND se excluyen vía VENTAS_WHERE, por eso ncNeta/ndNeta/docsNC/docsND van en 0.
 const VENTAS_AGGREGATE_SQL = `
   SELECT
-    IFNULL(SUM(IF(NOT IFNULL(is_nc, FALSE), IFNULL(totalNeto_raw, 0) + IFNULL(totalExento_raw, 0), 0)), 0) AS ventaBrutaNeta,
-    IFNULL(SUM(IF(IFNULL(is_nc, FALSE), IFNULL(totalNeto_raw, 0) + IFNULL(totalExento_raw, 0), 0)), 0) AS ncNeta,
-    IFNULL(SUM(IF(IFNULL(is_nd, FALSE), IFNULL(totalNeto_raw, 0) + IFNULL(totalExento_raw, 0), 0)), 0) AS ndNeta,
-    IFNULL(SUM(IF(NOT IFNULL(is_nc, FALSE), IFNULL(totalFactura_raw, 0), 0)), 0) AS ventaBrutaTotal,
-    IFNULL(SUM(IF(NOT IFNULL(is_nc, FALSE), IFNULL(iva_raw, 0), 0)), 0) AS ivaTotal,
-    IFNULL(SUM(IFNULL(cobrado_raw, 0)), 0) AS cobrado,
-    IFNULL(SUM(IFNULL(porCobrar_raw, 0)), 0) AS porCobrar,
-    COUNTIF(NOT IFNULL(is_nc, FALSE) AND NOT IFNULL(is_nd, FALSE)) AS docsVenta,
-    COUNTIF(IFNULL(is_nc, FALSE)) AS docsNC,
-    COUNTIF(IFNULL(is_nd, FALSE)) AS docsND
-  FROM ${DOCS_VENTA}
-  WHERE CAST(negocio AS STRING) = @id
-    AND LOWER(IFNULL(CAST(estado AS STRING), '')) NOT IN ('anulado', 'anulada')
+    IFNULL(SUM(IFNULL(SAFE_CAST(monto_neto_atribuible AS FLOAT64), 0) + IFNULL(SAFE_CAST(monto_exento_atribuible AS FLOAT64), 0)), 0) AS ventaBrutaNeta,
+    0 AS ncNeta,
+    0 AS ndNeta,
+    IFNULL(SUM(IFNULL(SAFE_CAST(monto_total_atribuible AS FLOAT64), 0)), 0) AS ventaBrutaTotal,
+    IFNULL(SUM(IFNULL(SAFE_CAST(monto_iva_atribuible AS FLOAT64), 0)), 0) AS ivaTotal,
+    0 AS cobrado,
+    0 AS porCobrar,
+    COUNT(*) AS docsVenta,
+    0 AS docsNC,
+    0 AS docsND
+  FROM ${VENTAS_NEGOCIO}
+  ${VENTAS_WHERE}
 `;
 
 const VENTAS_SQL = `
   SELECT
-    CAST(id AS STRING) AS id,
+    CAST(id_negocio AS STRING) AS id_negocio,
+    CAST(id_documento AS STRING) AS id_documento,
     CAST(folio AS STRING) AS folio,
-    descripcion,
-    referencia,
-    tipoDocumentoVentaAbrev,
-    CAST(fechaEmision AS STRING) AS fechaEmision,
-    rut,
-    cliente,
-    totalNeto_raw,
-    totalExento_raw,
-    iva_raw,
-    totalFactura_raw,
-    cobrado_raw,
-    porCobrar_raw,
-    exchange_monto_facturado,
+    CAST(fecha_emision AS STRING) AS fecha_emision,
+    CAST(fecha_vencimiento AS STRING) AS fecha_vencimiento,
     estado,
-    responsable,
-    nc,
-    nd,
-    is_nc,
-    is_nd,
-    CAST(id_ref AS STRING) AS id_ref
-  FROM ${DOCS_VENTA}
-  WHERE CAST(negocio AS STRING) = @id
-    AND LOWER(IFNULL(CAST(estado AS STRING), '')) NOT IN ('anulado', 'anulada')
-  ORDER BY fechaEmision DESC, folio DESC
+    tipo_documento,
+    tipo_documento_abrev,
+    cliente,
+    rut_cliente,
+    IFNULL(SAFE_CAST(cantidad_items_atribuibles AS INT64), 0) AS cantidad_items_atribuibles,
+    IFNULL(SAFE_CAST(monto_neto_atribuible AS FLOAT64), 0) AS monto_neto_atribuible,
+    IFNULL(SAFE_CAST(monto_exento_atribuible AS FLOAT64), 0) AS monto_exento_atribuible,
+    IFNULL(SAFE_CAST(monto_iva_atribuible AS FLOAT64), 0) AS monto_iva_atribuible,
+    IFNULL(SAFE_CAST(monto_total_atribuible AS FLOAT64), 0) AS monto_total_atribuible,
+    items_descripciones
+  FROM ${VENTAS_NEGOCIO}
+  ${VENTAS_WHERE}
+  ORDER BY fecha_emision DESC, folio DESC
 `;
 
 export async function getNegocioDetail(externalId: string): Promise<NegocioDetail> {
@@ -201,27 +212,45 @@ export async function getNegocioDetail(externalId: string): Promise<NegocioDetai
 
   const items = itemsRaw.map((r) => serialize(r) as unknown as NegocioItemRow);
   const gastos = gastosRaw.map((r) => serialize(r) as unknown as DetalleGastoRow);
-  const ventas = ventasRaw.map((r) => serialize(r) as unknown as DocVentaRow);
+  const ventas = ventasRaw.map((r) => {
+    const row = serialize(r) as unknown as VentaNegocioRow;
+    // BigQuery devuelve el campo repeated como array; normalizamos a string[].
+    row.items_descripciones = Array.isArray(row.items_descripciones)
+      ? row.items_descripciones.map((d) => String(d)).filter(Boolean)
+      : [];
+    return row;
+  });
   const ventasAggregate: VentasAggregateRaw = ventasAggRaw[0]
     ? (serialize(ventasAggRaw[0]) as unknown as VentasAggregateRaw)
     : EMPTY_VENTAS_AGGREGATE;
   const negocio = options.find((o) => o.external_id === externalId) ?? null;
 
   let evento: CierreEventoRow | null = null;
+  let marcaIngresoNeto: number | null = null;
   if (negocio) {
     const area = (negocio.area_negocio ?? "").trim().toLowerCase();
     const eventoId = (negocio.referencia ?? "").trim().slice(0, 6);
     if (area === AREA_PRODUCCION && eventoId.length === 6) {
-      const eventoRaw = await withTimeout(
-        query<Record<string, unknown>>(EVENTO_SQL, { eventoId }),
-      );
+      const [eventoRaw, marcaAgg] = await Promise.all([
+        withTimeout(query<Record<string, unknown>>(EVENTO_SQL, { eventoId })),
+        getMarcaIngresosAggByEvento(eventoId),
+      ]);
       evento = eventoRaw[0]
         ? (serialize(eventoRaw[0]) as unknown as CierreEventoRow)
         : null;
+      marcaIngresoNeto = marcaAgg.ventaNeto;
     }
   }
 
-  const detail: NegocioDetail = { negocio, items, gastos, ventas, ventasAggregate, evento };
+  const detail: NegocioDetail = {
+    negocio,
+    items,
+    gastos,
+    ventas,
+    ventasAggregate,
+    evento,
+    marcaIngresoNeto,
+  };
   detailCache.set(externalId, { data: detail, timestamp: now });
   return detail;
 }

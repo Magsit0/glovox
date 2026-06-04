@@ -1,11 +1,11 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { DocVentaRow } from "@/lib/unabase/types";
+import type { VentaNegocioRow } from "@/lib/unabase/types";
 import { formatCurrency, formatNumber } from "@/lib/unabase/formatting";
 
 interface Props {
-  ventas: DocVentaRow[];
+  ventas: VentaNegocioRow[];
 }
 
 const INITIAL_LIMIT = 50;
@@ -17,25 +17,13 @@ function formatFecha(fecha: string | null | undefined): string {
   return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
-function isTruthy(value: unknown): boolean {
-  if (value === true) return true;
-  if (value === false || value === null || value === undefined) return false;
-  const str = String(value).trim().toLowerCase();
-  return str === "true" || str === "1";
-}
-
-function signed(value: number, negative: boolean): string {
-  const abs = formatCurrency(Math.abs(value));
-  return negative ? `-${abs}` : abs;
-}
-
 export default function VentasDocumentsTable({ ventas }: Props) {
   const [showAll, setShowAll] = useState(false);
 
   const sorted = useMemo(() => {
     return [...ventas].sort((a, b) => {
-      const da = String(a.fechaEmision ?? "");
-      const db = String(b.fechaEmision ?? "");
+      const da = String(a.fecha_emision ?? "");
+      const db = String(b.fecha_emision ?? "");
       if (da !== db) return db.localeCompare(da);
       return String(b.folio ?? "").localeCompare(String(a.folio ?? ""));
     });
@@ -48,7 +36,7 @@ export default function VentasDocumentsTable({ ventas }: Props) {
           Documentos facturados
         </h3>
         <p className="mt-2 font-sans text-sm text-[#999999]">
-          Este negocio aún no tiene documentos de venta cargados.
+          Este negocio aún no tiene documentos de venta atribuidos.
         </p>
       </article>
     );
@@ -67,7 +55,10 @@ export default function VentasDocumentsTable({ ventas }: Props) {
         </span>
       </header>
 
-      <div className="overflow-x-auto" data-pdf-table-wrap>
+      <div
+        className="max-h-[480px] overflow-auto print:max-h-none print:overflow-visible"
+        data-pdf-table-wrap
+      >
         <table className="w-full min-w-[960px] border-collapse">
           <thead>
             <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA] text-left font-sans text-xs uppercase tracking-wide text-[#666666]">
@@ -75,61 +66,59 @@ export default function VentasDocumentsTable({ ventas }: Props) {
               <Th>Tipo</Th>
               <Th>Fecha</Th>
               <Th>Cliente</Th>
+              <Th>Ítems</Th>
               <ThRight>Neto</ThRight>
               <ThRight>IVA</ThRight>
               <ThRight>Total</ThRight>
-              <ThRight>Cobrado</ThRight>
-              <ThRight>Por cobrar</ThRight>
               <Th>Estado</Th>
             </tr>
           </thead>
           <tbody>
             {sorted.map((v, idx) => {
-              const isNc = isTruthy(v.is_nc);
-              const isNd = isTruthy(v.is_nd);
-              const rowColor = isNc ? "text-[#ED75A0]" : "text-[#333333]";
               const isOverflow = !showAll && idx >= INITIAL_LIMIT;
+              const descripciones = Array.isArray(v.items_descripciones)
+                ? v.items_descripciones
+                : [];
               return (
                 <tr
-                  key={`${v.id}-${v.folio}`}
+                  key={`${v.id_documento}-${v.folio}-${idx}`}
                   {...(isOverflow ? { "data-pdf-overflow-row": "true" } : {})}
                   className={`border-b border-[#F0F0F0] transition-colors hover:bg-[#FAFAFA] ${
                     isOverflow ? "hidden print:table-row" : ""
                   }`}
                 >
-                  <Td className={`${rowColor} font-medium`}>
-                    <span className="inline-flex items-center gap-2">
-                      {isNd && (
-                        <span
-                          className="h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: "#F6C544" }}
-                          title="Nota de débito"
-                        />
-                      )}
-                      {v.folio || "—"}
-                    </span>
-                  </Td>
-                  <Td className="text-[#666666]">{v.tipoDocumentoVentaAbrev || "—"}</Td>
-                  <Td className="text-[#666666]">{formatFecha(v.fechaEmision)}</Td>
-                  <Td className={rowColor}>
-                    <span className="block max-w-[260px] truncate" title={v.cliente}>
+                  <Td className="font-medium text-[#333333]">{v.folio || "—"}</Td>
+                  <Td className="text-[#666666]">{v.tipo_documento_abrev || "—"}</Td>
+                  <Td className="text-[#666666]">{formatFecha(v.fecha_emision)}</Td>
+                  <Td className="text-[#333333]">
+                    <span className="block max-w-[240px] truncate" title={v.cliente}>
                       {v.cliente || "Sin cliente"}
                     </span>
                   </Td>
-                  <TdRight className={`${rowColor} tabular-nums`}>
-                    {signed(v.totalNeto_raw, isNc)}
+                  <Td>
+                    {descripciones.length > 0 ? (
+                      <span className="flex flex-wrap gap-1">
+                        {descripciones.map((d, i) => (
+                          <span
+                            key={`${d}-${i}`}
+                            className="inline-flex items-center rounded-full border border-[#E5E5E5] bg-white px-2 py-0.5 font-sans text-xs text-[#666666]"
+                          >
+                            {d}
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="text-[#999999]">—</span>
+                    )}
+                  </Td>
+                  <TdRight className="tabular-nums text-[#333333]">
+                    {formatCurrency(v.monto_neto_atribuible)}
                   </TdRight>
                   <TdRight className="tabular-nums text-[#666666]">
-                    {formatCurrency(v.iva_raw)}
+                    {formatCurrency(v.monto_iva_atribuible)}
                   </TdRight>
-                  <TdRight className={`${rowColor} tabular-nums`}>
-                    {signed(v.totalFactura_raw, isNc)}
-                  </TdRight>
-                  <TdRight className="tabular-nums text-[#666666]">
-                    {formatCurrency(v.cobrado_raw)}
-                  </TdRight>
-                  <TdRight className="tabular-nums text-[#666666]">
-                    {formatCurrency(v.porCobrar_raw)}
+                  <TdRight className="tabular-nums text-[#333333]">
+                    {formatCurrency(v.monto_total_atribuible)}
                   </TdRight>
                   <Td className="text-[#666666]">{v.estado || "—"}</Td>
                 </tr>
@@ -154,11 +143,17 @@ export default function VentasDocumentsTable({ ventas }: Props) {
 }
 
 function Th({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-3 font-medium">{children}</th>;
+  return (
+    <th className="sticky top-0 z-10 bg-[#FAFAFA] px-4 py-3 font-medium">{children}</th>
+  );
 }
 
 function ThRight({ children }: { children: React.ReactNode }) {
-  return <th className="px-4 py-3 text-right font-medium">{children}</th>;
+  return (
+    <th className="sticky top-0 z-10 bg-[#FAFAFA] px-4 py-3 text-right font-medium">
+      {children}
+    </th>
+  );
 }
 
 function Td({

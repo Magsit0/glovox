@@ -158,7 +158,9 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
       </div>
       <PrintHeader negocio={detail.negocio} externalId={id} />
       <NegocioHeader negocio={detail.negocio} externalId={id} />
-      {detail.evento && <EventoResumen evento={detail.evento} />}
+      {detail.evento && (
+        <EventoResumen evento={detail.evento} marcaIngresoNeto={detail.marcaIngresoNeto} />
+      )}
       <ResumenKpis agg={agg} />
       <section data-pdf-section data-pdf-break-before="true" className="flex flex-col gap-6">
         <VentasSection agg={agg} ventas={detail.ventas} />

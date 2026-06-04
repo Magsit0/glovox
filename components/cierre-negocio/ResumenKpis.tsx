@@ -56,11 +56,15 @@ export default function ResumenKpis({ agg }: Props) {
   ];
 
   return (
-    <section
-      data-pdf-grid="kpis-3"
-      className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
-    >
-      {kpis.map((k) => (
+    <section data-pdf-section className="flex flex-col gap-4">
+      <span className="font-sans text-xs uppercase tracking-wide text-[#999999]">
+        Admin y Finanzas: Unabase
+      </span>
+      <div
+        data-pdf-grid="kpis-3"
+        className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
+      >
+        {kpis.map((k) => (
         <article
           key={k.label}
           className="flex flex-col rounded-lg border border-[#E5E5E5] bg-white p-6"
@@ -83,7 +87,8 @@ export default function ResumenKpis({ agg }: Props) {
             </div>
           )}
         </article>
-      ))}
+        ))}
+      </div>
     </section>
   );
 }

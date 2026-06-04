@@ -1,11 +1,12 @@
 import type { NegocioAggregate } from "@/lib/unabase/cierreNegocio";
-import type { DocVentaRow } from "@/lib/unabase/types";
+import type { VentaNegocioRow } from "@/lib/unabase/types";
 import { compactCurrency, formatCurrency, formatNumber } from "@/lib/unabase/formatting";
 import VentasDocumentsTable from "@/components/cierre-negocio/VentasDocumentsTable";
+import VentasItemsRadar from "@/components/cierre-negocio/VentasItemsRadar";
 
 interface Props {
   agg: NegocioAggregate;
-  ventas: DocVentaRow[];
+  ventas: VentaNegocioRow[];
 }
 
 type Tone = "positive" | "negative" | "neutral";
@@ -67,66 +68,79 @@ export default function VentasSection({ agg, ventas }: Props) {
         className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4"
       >
         <MiniCard
-          label="Venta bruta"
-          value={compactCurrency(v.ventaBrutaNeta)}
-          caption={`${formatNumber(v.docsVenta)} doc${v.docsVenta === 1 ? "" : "s"} · ${formatCurrency(v.ventaBrutaNeta)}`}
+          label="Venta neta"
+          value={compactCurrency(v.ventaNeta)}
+          caption={formatCurrency(v.ventaNeta)}
         />
         <MiniCard
-          label="NC emitidas"
-          value={compactCurrency(v.ncNeta)}
-          caption={`${formatNumber(v.docsNC)} nota${v.docsNC === 1 ? "" : "s"} de crédito`}
-          tone={v.ncNeta > 0 ? "negative" : "neutral"}
+          label="IVA"
+          value={compactCurrency(v.ivaTotal)}
+          caption={formatCurrency(v.ivaTotal)}
         />
         <MiniCard
-          label="ND emitidas"
-          value={compactCurrency(v.ndNeta)}
-          caption={`${formatNumber(v.docsND)} nota${v.docsND === 1 ? "" : "s"} de débito`}
-          tone={v.ndNeta > 0 ? "neutral" : "neutral"}
+          label="Venta total c/IVA"
+          value={compactCurrency(v.ventaBrutaTotal)}
+          caption={formatCurrency(v.ventaBrutaTotal)}
         />
         <MiniCard
-          label="Por cobrar"
-          value={compactCurrency(v.porCobrar)}
-          caption={`Cobrado ${compactCurrency(v.cobrado)}`}
-          tone={v.porCobrar > 0 ? "negative" : "positive"}
+          label="Documentos"
+          value={formatNumber(v.docsVenta)}
+          caption={`doc${v.docsVenta === 1 ? "" : "s"} atribuido${v.docsVenta === 1 ? "" : "s"}`}
         />
       </div>
 
-      {v.topClientes.length >= 2 && (
-        <article className="flex flex-col gap-3 rounded-lg border border-[#E5E5E5] bg-white p-6">
-          <header>
-            <h3 className="font-display text-base font-bold tracking-tight text-[#333333]">
-              Top clientes
-            </h3>
-            <p className="mt-1 font-sans text-xs text-[#666666]">
-              Por venta neta facturada (excluye NC).
-            </p>
-          </header>
-          <ul className="flex flex-col gap-2">
-            {v.topClientes.map((c) => {
-              const pct = v.ventaBrutaNeta > 0 ? c.total / v.ventaBrutaNeta : 0;
-              return (
-                <li
-                  key={`${c.rut || c.cliente}`}
-                  className="flex items-center gap-3 border-b border-[#F0F0F0] py-1.5 last:border-b-0"
-                >
-                  <span className="block max-w-[420px] truncate font-sans text-sm text-[#333333]">
-                    {c.cliente}
-                  </span>
-                  <span className="font-sans text-xs text-[#999999]">{c.rut || ""}</span>
-                  <span className="ml-auto font-sans text-sm tabular-nums text-[#333333]">
-                    {formatCurrency(c.total)}
-                  </span>
-                  <span className="w-12 text-right font-sans text-xs tabular-nums text-[#999999]">
-                    {(pct * 100).toFixed(0)}%
-                  </span>
-                  <span className="w-16 text-right font-sans text-xs tabular-nums text-[#999999]">
-                    {formatNumber(c.nDocs)} doc
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        </article>
+      {v.topClientes.length >= 2 ? (
+        <div
+          data-pdf-grid="side-by-side"
+          className="grid grid-cols-1 gap-6 lg:grid-cols-3"
+        >
+          <article className="flex flex-col gap-3 rounded-lg border border-[#E5E5E5] bg-white p-6 lg:col-span-2">
+            <header>
+              <h3 className="font-display text-base font-bold tracking-tight text-[#333333]">
+                Top clientes
+              </h3>
+              <p className="mt-1 font-sans text-xs text-[#666666]">
+                Por venta neta atribuida al negocio.
+              </p>
+            </header>
+            <div className="flex items-center gap-3 border-b border-[#E5E5E5] pb-2 font-sans text-xs font-medium uppercase tracking-wide text-[#666666]">
+              <span className="block max-w-[420px] truncate">Cliente</span>
+              <span>RUT</span>
+              <span className="ml-auto">Venta neta</span>
+              <span className="w-12 text-right">%</span>
+              <span className="w-16 text-right">Docs</span>
+            </div>
+            <ul className="flex flex-col gap-2">
+              {v.topClientes.map((c) => {
+                const pct = v.ventaNeta > 0 ? c.total / v.ventaNeta : 0;
+                return (
+                  <li
+                    key={`${c.rut || c.cliente}`}
+                    className="flex items-center gap-3 border-b border-[#F0F0F0] py-1.5 last:border-b-0"
+                  >
+                    <span className="block max-w-[420px] truncate font-sans text-sm text-[#333333]">
+                      {c.cliente}
+                    </span>
+                    <span className="font-sans text-xs text-[#999999]">{c.rut || ""}</span>
+                    <span className="ml-auto font-sans text-sm tabular-nums text-[#333333]">
+                      {formatCurrency(c.total)}
+                    </span>
+                    <span className="w-12 text-right font-sans text-xs tabular-nums text-[#999999]">
+                      {(pct * 100).toFixed(0)}%
+                    </span>
+                    <span className="w-16 text-right font-sans text-xs tabular-nums text-[#999999]">
+                      {formatNumber(c.nDocs)} doc
+                    </span>
+                  </li>
+                );
+              })}
+            </ul>
+          </article>
+
+          <VentasItemsRadar rows={v.itemsDescripcion} />
+        </div>
+      ) : (
+        <VentasItemsRadar rows={v.itemsDescripcion} />
       )}
 
       <VentasDocumentsTable ventas={ventas} />

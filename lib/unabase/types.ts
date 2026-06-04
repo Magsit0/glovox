@@ -175,6 +175,28 @@ export interface VentasAggregateRaw {
   docsND: number;
 }
 
+// Ventas prorrateadas por negocio (finanzas.unabase_ventas_por_negocio).
+// Reemplaza a docsVenta: los montos ya vienen atribuidos al negocio (no inflados
+// por facturas compartidas entre varios negocios). Se matchea por id_negocio.
+export interface VentaNegocioRow {
+  id_negocio: string;
+  id_documento: string;
+  folio: string;
+  fecha_emision: string | null;
+  fecha_vencimiento: string | null;
+  estado: string;
+  tipo_documento: string;
+  tipo_documento_abrev: string;
+  cliente: string;
+  rut_cliente: string;
+  cantidad_items_atribuibles: number;
+  monto_neto_atribuible: number;
+  monto_exento_atribuible: number;
+  monto_iva_atribuible: number;
+  monto_total_atribuible: number;
+  items_descripciones: string[];
+}
+
 export interface DocVentaRow {
   id: string;
   folio: string;
