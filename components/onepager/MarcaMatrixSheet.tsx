@@ -9,10 +9,10 @@ import {
 } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X } from "lucide-react";
-import type { MarcaCliente } from "@/db/schema";
-import type { MarcaMatrixCell } from "@/lib/queries/marca";
+import type { MarcaClienteRow, MarcaMatrixCell } from "@/lib/queries/marca";
 import {
   createMarcaClienteAction,
+  updateMarcaClienteAction,
   upsertMarcaIngresoAction,
 } from "@/app/onepager/marca-actions";
 import { netoToBruto } from "@/lib/constants/tax";
@@ -29,7 +29,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   eventos: MatrixEvento[];
-  clientes: MarcaCliente[];
+  clientes: MarcaClienteRow[];
   matrix: MarcaMatrixCell[];
 };
 
@@ -72,14 +72,30 @@ export default function MarcaMatrixSheet({
 
   // Clientes recién creados (se mergean con `clientes` hasta que el padre
   // re-renderice con la fuente fresca).
-  const [extraClientes, setExtraClientes] = useState<MarcaCliente[]>([]);
+  const [extraClientes, setExtraClientes] = useState<MarcaClienteRow[]>([]);
 
-  // Estado del mini-form "Agregar cliente" en el header.
+  // Estado del mini-form "Agregar marca" en el header.
   const [addingCliente, setAddingCliente] = useState(false);
-  const [newRut, setNewRut] = useState("");
   const [newNombre, setNewNombre] = useState("");
+  const [newRut, setNewRut] = useState("");
+  const [newRazonSocial, setNewRazonSocial] = useState("");
   const [addError, setAddError] = useState<string | null>(null);
   const [addPending, startAdd] = useTransition();
+
+  // Estado del mini-form "Editar marca" en el header.
+  const [editingCliente, setEditingCliente] = useState(false);
+  const [editClienteId, setEditClienteId] = useState<string>("");
+  const [editNombre, setEditNombre] = useState("");
+  const [editRut, setEditRut] = useState("");
+  const [editRazonSocial, setEditRazonSocial] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editPending, startEdit] = useTransition();
+
+  // Overrides locales para reflejar ediciones sin esperar a que el padre
+  // re-render con los datos refrescados del server.
+  const [clienteOverrides, setClienteOverrides] = useState<
+    Map<string, { nombre: string; rut: string; razonSocial: string }>
+  >(new Map());
 
   // Estado de los inputs editables: clave "clienteId::eventoId" → string.
   const [draft, setDraft] = useState<Record<string, string>>({});
@@ -102,9 +118,17 @@ export default function MarcaMatrixSheet({
       setExtraClientes([]);
       setCategorias(new Set());
       setAddingCliente(false);
-      setNewRut("");
       setNewNombre("");
+      setNewRut("");
+      setNewRazonSocial("");
       setAddError(null);
+      setEditingCliente(false);
+      setEditClienteId("");
+      setEditNombre("");
+      setEditRut("");
+      setEditRazonSocial("");
+      setEditError(null);
+      setClienteOverrides(new Map());
     }
   }
 
@@ -112,24 +136,34 @@ export default function MarcaMatrixSheet({
     if (!open) return;
     function onKey(e: globalThis.KeyboardEvent) {
       if (e.key === "Escape") {
-        // Si el mini-form está abierto, sólo lo cerramos; sino cerramos el sheet.
+        // Si un mini-form está abierto, sólo lo cerramos; sino cerramos el sheet.
         if (addingCliente) setAddingCliente(false);
+        else if (editingCliente) setEditingCliente(false);
         else onClose();
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [open, onClose, addingCliente]);
+  }, [open, onClose, addingCliente, editingCliente]);
 
   // Lista mergeada de clientes (los nuevos arriba para que sean visibles).
+  // Aplica overrides locales (ediciones en curso) sobre los datos del server.
   const allClientes = useMemo(() => {
     const seen = new Set(clientes.map((c) => c.id));
     const merged = [
       ...extraClientes.filter((c) => !seen.has(c.id)),
       ...clientes,
     ];
-    return merged.sort((a, b) => a.nombre.localeCompare(b.nombre, "es-CL"));
-  }, [clientes, extraClientes]);
+    const withOverrides = merged.map((c) => {
+      const ov = clienteOverrides.get(c.id);
+      return ov
+        ? { ...c, nombre: ov.nombre, rut: ov.rut, razonSocial: ov.razonSocial }
+        : c;
+    });
+    return withOverrides.sort((a, b) =>
+      a.nombre.localeCompare(b.nombre, "es-CL"),
+    );
+  }, [clientes, extraClientes, clienteOverrides]);
 
   // Opciones de categoría sacadas de la lista de eventos.
   const categoriasOpts = useMemo(() => {
@@ -246,12 +280,100 @@ export default function MarcaMatrixSheet({
     return { ok: true as const, msg: `Se guardará como ${formatRut(norm)}` };
   }, [newRut]);
 
+  // Preview del RUT del form de EDIT — misma validación módulo-11.
+  const editRutPreview = useMemo(() => {
+    const trimmed = editRut.trim();
+    if (!trimmed) return null;
+    const norm = normalizeRut(trimmed);
+    if (!norm) return { ok: false as const, msg: "Formato inválido" };
+    if (!isValidRut(norm))
+      return { ok: false as const, msg: "Dígito verificador no coincide" };
+    return { ok: true as const, msg: `Se guardará como ${formatRut(norm)}` };
+  }, [editRut]);
+
+  function handleSelectClienteEdit(id: string) {
+    setEditClienteId(id);
+    setEditError(null);
+    const c = allClientes.find((x) => x.id === id);
+    if (c) {
+      setEditNombre(c.nombre);
+      setEditRut(c.rut);
+      setEditRazonSocial(c.razonSocial);
+    } else {
+      setEditNombre("");
+      setEditRut("");
+      setEditRazonSocial("");
+    }
+  }
+
+  // Facturador existente match para el RUT del form de Agregar: si ya hay un
+  // cliente con ese RUT canónico, locked razon_social a su valor.
+  const addFacturadorLock = useMemo(() => {
+    if (!rutPreview || !rutPreview.ok) return null;
+    const canon = normalizeRut(newRut.trim());
+    if (!canon) return null;
+    const match = allClientes.find((c) => c.rut === canon);
+    return match ? match.razonSocial : null;
+  }, [rutPreview, newRut, allClientes]);
+
+  function handleEditCliente() {
+    setEditError(null);
+    startEdit(async () => {
+      const res = await updateMarcaClienteAction({
+        id: editClienteId,
+        nombre: editNombre,
+        rut: editRut,
+        razonSocial: editRazonSocial,
+      });
+      if (!res.ok || !res.data) {
+        setEditError(res.ok ? "Error desconocido" : res.error);
+        return;
+      }
+      const updated = res.data;
+      setClienteOverrides((prev) => {
+        const next = new Map(prev);
+        next.set(updated.id, {
+          nombre: updated.nombre,
+          rut: updated.rut,
+          razonSocial: updated.razonSocial,
+        });
+        // También aplicamos la nueva razonSocial a todas las marcas que
+        // comparten facturador con la editada (el server hace lo mismo).
+        for (const c of allClientes) {
+          if (c.id !== updated.id && c.rut === updated.rut) {
+            next.set(c.id, {
+              nombre: c.nombre,
+              rut: updated.rut,
+              razonSocial: updated.razonSocial,
+            });
+          }
+        }
+        return next;
+      });
+      setExtraClientes((prev) =>
+        prev.map((c) =>
+          c.id === updated.id
+            ? {
+                ...c,
+                nombre: updated.nombre,
+                rut: updated.rut,
+                razonSocial: updated.razonSocial,
+                facturadorId: updated.facturadorId,
+              }
+            : c,
+        ),
+      );
+      setEditingCliente(false);
+    });
+  }
+
   function handleAddCliente() {
     setAddError(null);
     startAdd(async () => {
       const res = await createMarcaClienteAction({
-        rut: newRut,
         nombre: newNombre,
+        rut: newRut,
+        razonSocial: addFacturadorLock ?? newRazonSocial,
       });
       if (!res.ok || !res.data) {
         setAddError(res.ok ? "Error desconocido" : res.error);
@@ -265,17 +387,19 @@ export default function MarcaMatrixSheet({
               ...prev,
               {
                 id: c.id,
-                rut: c.rut,
                 nombre: c.nombre,
+                facturadorId: c.facturadorId,
+                rut: c.rut,
+                razonSocial: c.razonSocial,
                 createdAt: new Date(),
-                createdBy: null,
                 updatedAt: new Date(),
-              } as MarcaCliente,
+              },
             ],
       );
       setAddingCliente(false);
-      setNewRut("");
       setNewNombre("");
+      setNewRut("");
+      setNewRazonSocial("");
     });
   }
 
@@ -348,7 +472,7 @@ export default function MarcaMatrixSheet({
                     Imputar marcas
                   </h2>
                   <p className="mt-1 font-mono-data text-[10px] uppercase text-black/60">
-                    Una celda = un cliente × un evento · click y enter o tab
+                    Una celda = una marca × un evento · click y enter o tab
                     para guardar
                   </p>
                 </div>
@@ -427,27 +551,64 @@ export default function MarcaMatrixSheet({
                     onClick={() => {
                       setAddingCliente((v) => !v);
                       setAddError(null);
+                      if (!addingCliente) setEditingCliente(false);
                     }}
                     aria-pressed={addingCliente}
                     className="ml-auto font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-white hover:bg-[#FFFF00] cursor-pointer transition-colors duration-150"
                   >
-                    + Agregar cliente
+                    + Agregar marca
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = !editingCliente;
+                      setEditingCliente(next);
+                      setEditError(null);
+                      if (next) {
+                        setAddingCliente(false);
+                        // Si hay clientes y aún no eligió ninguno, preseleccionamos
+                        // el primero para que el form esté listo para editar.
+                        if (!editClienteId && allClientes.length > 0) {
+                          handleSelectClienteEdit(allClientes[0].id);
+                        }
+                      }
+                    }}
+                    aria-pressed={editingCliente}
+                    disabled={allClientes.length === 0}
+                    className="font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-white hover:bg-[#FFFF00] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors duration-150"
+                  >
+                    Editar marca
                   </button>
                 </div>
 
                 {addingCliente && (
                   <div className="border-2 border-black p-3 space-y-2 bg-white">
                     <p className="font-mono-data uppercase text-[10px] text-black/70">
-                      Nuevo cliente
+                      Nueva marca
                     </p>
                     <div className="flex flex-wrap items-start gap-2">
-                      <div className="flex-1 min-w-[200px]">
+                      <div className="flex-1 min-w-[180px]">
+                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                          Nombre de marca
+                        </label>
                         <input
                           type="text"
-                          placeholder="RUT (ej. 76.123.456-7)"
+                          placeholder="Xtreme, Entel..."
+                          value={newNombre}
+                          onChange={(e) => setNewNombre(e.target.value)}
+                          autoFocus
+                          className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-[180px]">
+                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                          RUT facturador
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="ej. 76.123.456-7"
                           value={newRut}
                           onChange={(e) => setNewRut(e.target.value)}
-                          autoFocus
                           className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 outline-none focus:bg-[#FFFF00]/30 ${
                             rutPreview && !rutPreview.ok
                               ? "border-[#FF0000]"
@@ -464,38 +625,172 @@ export default function MarcaMatrixSheet({
                           </p>
                         )}
                       </div>
-                      <input
-                        type="text"
-                        placeholder="Nombre del cliente"
-                        value={newNombre}
-                        onChange={(e) => setNewNombre(e.target.value)}
-                        className="flex-1 min-w-[200px] font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setAddingCliente(false)}
-                        disabled={addPending}
-                        className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-white hover:bg-[#FFFF00] cursor-pointer disabled:opacity-50 transition-colors"
-                      >
-                        Cancelar
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleAddCliente}
-                        disabled={
-                          addPending ||
-                          !newNombre.trim() ||
-                          !rutPreview ||
-                          !rutPreview.ok
-                        }
-                        className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black cursor-pointer disabled:opacity-50 transition-colors"
-                      >
-                        {addPending ? "Guardando…" : "Guardar"}
-                      </button>
+                      <div className="flex-1 min-w-[200px]">
+                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                          Razón social
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Razón social del facturador"
+                          value={addFacturadorLock ?? newRazonSocial}
+                          onChange={(e) =>
+                            addFacturadorLock == null
+                              ? setNewRazonSocial(e.target.value)
+                              : undefined
+                          }
+                          readOnly={addFacturadorLock != null}
+                          className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30 ${
+                            addFacturadorLock != null
+                              ? "bg-black/5 cursor-not-allowed"
+                              : ""
+                          }`}
+                        />
+                        {addFacturadorLock != null && (
+                          <p className="mt-1 font-mono-data text-[10px] text-black/60">
+                            Facturador existente — se reutilizará.
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex gap-2 items-end">
+                        <button
+                          type="button"
+                          onClick={() => setAddingCliente(false)}
+                          disabled={addPending}
+                          className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-white hover:bg-[#FFFF00] cursor-pointer disabled:opacity-50 transition-colors"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAddCliente}
+                          disabled={
+                            addPending ||
+                            !newNombre.trim() ||
+                            !rutPreview ||
+                            !rutPreview.ok ||
+                            !(addFacturadorLock ?? newRazonSocial).trim()
+                          }
+                          className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black cursor-pointer disabled:opacity-50 transition-colors"
+                        >
+                          {addPending ? "Guardando…" : "Guardar"}
+                        </button>
+                      </div>
                     </div>
                     {addError && (
                       <p className="font-mono-data text-[10px] text-[#FF0000]">
                         {addError}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                {editingCliente && (
+                  <div className="border-2 border-black p-3 space-y-2 bg-white">
+                    <p className="font-mono-data uppercase text-[10px] text-black/70">
+                      Editar marca existente
+                    </p>
+                    <div className="flex flex-wrap items-start gap-2">
+                      <div className="flex-1 min-w-[220px]">
+                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                          Marca a editar
+                        </label>
+                        <select
+                          value={editClienteId}
+                          onChange={(e) =>
+                            handleSelectClienteEdit(e.target.value)
+                          }
+                          className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30 cursor-pointer"
+                        >
+                          {allClientes.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.nombre} — {formatRut(c.rut)}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex-1 min-w-[180px]">
+                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                          Nombre de marca
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Xtreme, Entel..."
+                          value={editNombre}
+                          onChange={(e) => setEditNombre(e.target.value)}
+                          className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+                        />
+                      </div>
+                      <div className="flex-1 min-w-[180px]">
+                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                          RUT facturador
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="ej. 76.123.456-7"
+                          value={editRut}
+                          onChange={(e) => setEditRut(e.target.value)}
+                          className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 outline-none focus:bg-[#FFFF00]/30 ${
+                            editRutPreview && !editRutPreview.ok
+                              ? "border-[#FF0000]"
+                              : "border-black"
+                          }`}
+                        />
+                        {editRutPreview && (
+                          <p
+                            className={`mt-1 font-mono-data text-[10px] ${
+                              editRutPreview.ok
+                                ? "text-black/60"
+                                : "text-[#FF0000]"
+                            }`}
+                          >
+                            {editRutPreview.msg}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-[200px]">
+                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                          Razón social
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Razón social del facturador"
+                          value={editRazonSocial}
+                          onChange={(e) => setEditRazonSocial(e.target.value)}
+                          className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+                        />
+                        <p className="mt-1 font-mono-data text-[10px] text-black/60">
+                          Aplica al facturador completo — afecta todas las marcas con este RUT.
+                        </p>
+                      </div>
+                      <div className="flex gap-2 items-end">
+                        <button
+                          type="button"
+                          onClick={() => setEditingCliente(false)}
+                          disabled={editPending}
+                          className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-white hover:bg-[#FFFF00] cursor-pointer disabled:opacity-50 transition-colors"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleEditCliente}
+                          disabled={
+                            editPending ||
+                            !editClienteId ||
+                            !editNombre.trim() ||
+                            !editRutPreview ||
+                            !editRutPreview.ok ||
+                            !editRazonSocial.trim()
+                          }
+                          className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black cursor-pointer disabled:opacity-50 transition-colors"
+                        >
+                          {editPending ? "Guardando…" : "Guardar cambios"}
+                        </button>
+                      </div>
+                    </div>
+                    {editError && (
+                      <p className="font-mono-data text-[10px] text-[#FF0000]">
+                        {editError}
                       </p>
                     )}
                   </div>
@@ -549,7 +844,7 @@ function MatrixGrid({
   totalesCol,
   granTotal,
 }: {
-  clientes: MarcaCliente[];
+  clientes: MarcaClienteRow[];
   eventos: MatrixEvento[];
   cellDisplay: (clienteId: string, eventoId: string) => string;
   cellNeto: (clienteId: string, eventoId: string) => number;
@@ -600,8 +895,11 @@ function MatrixGrid({
               <div className="font-bold uppercase truncate" title={c.nombre}>
                 {c.nombre}
               </div>
-              <div className="text-[10px] text-black/60 tabular-nums">
-                {formatRut(c.rut)}
+              <div
+                className="text-[10px] text-black/60 truncate"
+                title={`${c.razonSocial} · ${formatRut(c.rut)}`}
+              >
+                {c.razonSocial} · {formatRut(c.rut)}
               </div>
             </th>
             {eventos.map((e) => {

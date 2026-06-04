@@ -1,12 +1,21 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
-import {
-  marcaClientes,
-  marcaIngresos,
-  type MarcaCliente,
-} from "@/db/schema";
+import { marcaClientes, marcaFacturadores, marcaIngresos } from "@/db/schema";
 
-export type MarcaClienteRow = MarcaCliente;
+/**
+ * Vista plana de un cliente-marca con los datos de su facturador.
+ * Es el shape que consumen todos los componentes UI — evita tener que
+ * propagar la separación facturador/marca a cada prop.
+ */
+export type MarcaClienteRow = {
+  id: string;
+  nombre: string;          // nombre de la marca (UNIQUE)
+  facturadorId: string;
+  rut: string;             // del facturador
+  razonSocial: string;     // del facturador
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 export type MarcaIngresoRow = {
   id: string;
@@ -18,11 +27,49 @@ export type MarcaIngresoRow = {
 };
 
 /**
- * Lista de clientes-marca, ordenada por nombre para alimentar el combobox del
- * form de imputación.
+ * Lista de clientes-marca con su facturador joined, ordenada por nombre de
+ * marca. Alimenta los combobox y la matriz global.
  */
 export async function getMarcaClientes(): Promise<MarcaClienteRow[]> {
-  return db.select().from(marcaClientes).orderBy(marcaClientes.nombre);
+  const rows = await db
+    .select({
+      id: marcaClientes.id,
+      nombre: marcaClientes.nombre,
+      facturadorId: marcaClientes.facturadorId,
+      rut: marcaFacturadores.rut,
+      razonSocial: marcaFacturadores.razonSocial,
+      createdAt: marcaClientes.createdAt,
+      updatedAt: marcaClientes.updatedAt,
+    })
+    .from(marcaClientes)
+    .innerJoin(
+      marcaFacturadores,
+      eq(marcaClientes.facturadorId, marcaFacturadores.id),
+    )
+    .orderBy(marcaClientes.nombre);
+  return rows;
+}
+
+/**
+ * Lista plana de facturadores (sin marcas asociadas). Útil para selectores
+ * de "asignar facturador existente" sin tener que mostrar todas las marcas
+ * que ya factura.
+ */
+export type MarcaFacturadorRow = {
+  id: string;
+  rut: string;
+  razonSocial: string;
+};
+
+export async function getMarcaFacturadores(): Promise<MarcaFacturadorRow[]> {
+  return db
+    .select({
+      id: marcaFacturadores.id,
+      rut: marcaFacturadores.rut,
+      razonSocial: marcaFacturadores.razonSocial,
+    })
+    .from(marcaFacturadores)
+    .orderBy(marcaFacturadores.razonSocial);
 }
 
 /**

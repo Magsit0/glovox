@@ -3,7 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X } from "lucide-react";
-import type { MarcaCliente } from "@/db/schema";
+import type { MarcaClienteRow } from "@/lib/queries/marca";
 import { createMarcaIngresoAction } from "@/app/onepager/marca-actions";
 import { netoToBruto } from "@/lib/constants/tax";
 import ClienteCombobox from "./ClienteCombobox";
@@ -30,7 +30,7 @@ type Props = {
   open: boolean;
   onClose: () => void;
   eventoId: string;
-  clientes: MarcaCliente[];
+  clientes: MarcaClienteRow[];
 };
 
 export default function MarcaIngresoFormSheet({
@@ -41,7 +41,7 @@ export default function MarcaIngresoFormSheet({
 }: Props) {
   const [clienteId, setClienteId] = useState<string | null>(null);
   const [montoNetoStr, setMontoNetoStr] = useState("");
-  const [extraClientes, setExtraClientes] = useState<MarcaCliente[]>([]);
+  const [extraClientes, setExtraClientes] = useState<MarcaClienteRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -151,12 +151,13 @@ export default function MarcaIngresoFormSheet({
                               ...prev,
                               {
                                 id: c.id,
-                                rut: c.rut,
                                 nombre: c.nombre,
+                                facturadorId: c.facturadorId,
+                                rut: c.rut,
+                                razonSocial: c.razonSocial,
                                 createdAt: new Date(),
-                                createdBy: null,
                                 updatedAt: new Date(),
-                              } as MarcaCliente,
+                              },
                             ],
                       )
                     }

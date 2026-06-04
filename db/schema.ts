@@ -182,13 +182,36 @@ export const insumosCatalogo = pgTable("insumos_catalogo", {
   createdBy: uuid("created_by"),
 });
 
-// MARCAS — Catálogo de clientes (sponsors / marcas) usados en imputación de
-// ingresos manual desde la pestaña "Marcas" del one-pager. Se puede crear un
-// nuevo cliente inline desde el combobox del formulario.
-export const marcaClientes = pgTable("marca_clientes", {
+// MARCAS — Facturadores (entidad legal que recibe la factura).
+// UN facturador es identificado únicamente por su RUT. Un mismo facturador
+// puede emitir facturas representando a varias marcas comerciales distintas
+// (caso típico: agencia o holding intermediario).
+export const marcaFacturadores = pgTable("marca_facturadores", {
   id: uuid("id").defaultRandom().primaryKey(),
   rut: text("rut").notNull().unique(),
-  nombre: text("nombre").notNull(),
+  razonSocial: text("razon_social").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  createdBy: uuid("created_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// MARCAS — Marca commercial / sponsor. Esto es lo que se imputa al evento;
+// cada fila es una marca distinta (Xtreme, Gatorlit, Entel) y apunta a SU
+// facturador. Dos marcas distintas pueden compartir facturador → así "Nube"
+// (intermediario) factura tanto a Xtreme como a Gatorlit, y ambas aparecen
+// como filas separadas en la matriz, manteniendo el RUT del facturador en
+// común. El nombre de la marca es UNIQUE → previene duplicados accidentales
+// tipo "Entel" vs "Entel PCS" como marcas distintas si en realidad son lo mismo.
+export const marcaClientes = pgTable("marca_clientes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  nombre: text("nombre").notNull().unique(),
+  facturadorId: uuid("facturador_id")
+    .notNull()
+    .references(() => marcaFacturadores.id),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -237,6 +260,8 @@ export type Proveedor = typeof proveedores.$inferSelect;
 export type NewProveedor = typeof proveedores.$inferInsert;
 export type InsumoCatalogo = typeof insumosCatalogo.$inferSelect;
 export type NewInsumoCatalogo = typeof insumosCatalogo.$inferInsert;
+export type MarcaFacturador = typeof marcaFacturadores.$inferSelect;
+export type NewMarcaFacturador = typeof marcaFacturadores.$inferInsert;
 export type MarcaCliente = typeof marcaClientes.$inferSelect;
 export type NewMarcaCliente = typeof marcaClientes.$inferInsert;
 export type MarcaIngreso = typeof marcaIngresos.$inferSelect;

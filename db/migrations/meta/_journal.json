@@ -50,6 +50,13 @@
       "when": 1780342564704,
       "tag": "0006_ambitious_madame_web",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780500000000,
+      "tag": "0007_marca_facturadores_split",
+      "breakpoints": true
     }
   ]
 }

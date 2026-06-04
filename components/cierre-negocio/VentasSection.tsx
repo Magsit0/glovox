@@ -110,7 +110,7 @@ export default function VentasSection({ agg, ventas }: Props) {
               <span className="w-12 text-right">%</span>
               <span className="w-16 text-right">Docs</span>
             </div>
-            <ul className="flex flex-col gap-2">
+            <ul className="flex max-h-[294px] flex-col gap-2 overflow-auto print:max-h-none print:overflow-visible">
               {v.topClientes.map((c) => {
                 const pct = v.ventaNeta > 0 ? c.total / v.ventaNeta : 0;
                 return (

@@ -1,12 +1,11 @@
 /**
- * Limpieza de `marca_clientes`:
+ * Limpieza de RUTs en `marca_facturadores`:
  *  - Normaliza el campo `rut` al formato canónico `<body>-<dv>` (sin puntos).
  *  - Descarta filas con RUT estructuralmente inválido o con dígito verificador
  *    incorrecto: las imprime para revisión manual y NO las toca.
- *  - Detecta duplicados (mismo RUT canónico): elige como ganador la fila con
- *    `created_at` más reciente, mueve los ingresos del/los perdedor/es al
- *    ganador (manteniendo snapshot rut/cliente actualizado), y elimina las
- *    filas perdedoras.
+ *  - Detecta facturadores duplicados (mismo RUT canónico): elige como ganador
+ *    al más reciente, redirige las marcas (marca_clientes.facturador_id) y los
+ *    snapshots de marca_ingresos.rut_cliente al ganador, y borra los perdedores.
  *
  * Idempotente — si ya está canónico no hace nada. Corré:
  *
@@ -16,17 +15,17 @@
  */
 import { eq, inArray } from "drizzle-orm";
 import { db } from "../index";
-import { marcaClientes, marcaIngresos } from "../schema";
+import { marcaClientes, marcaFacturadores, marcaIngresos } from "../schema";
 import { isValidRut, normalizeRut } from "../../lib/utils/rut";
 
-type ClienteRow = typeof marcaClientes.$inferSelect;
+type FacturadorRow = typeof marcaFacturadores.$inferSelect;
 
 async function main() {
-  const rows = await db.select().from(marcaClientes);
-  console.log(`→ ${rows.length} clientes en marca_clientes`);
+  const rows = await db.select().from(marcaFacturadores);
+  console.log(`→ ${rows.length} facturadores en marca_facturadores`);
 
-  const byCanon = new Map<string, ClienteRow[]>();
-  const invalid: ClienteRow[] = [];
+  const byCanon = new Map<string, FacturadorRow[]>();
+  const invalid: FacturadorRow[] = [];
 
   for (const r of rows) {
     const norm = normalizeRut(r.rut);
@@ -41,10 +40,12 @@ async function main() {
 
   if (invalid.length > 0) {
     console.warn(
-      `⚠️  ${invalid.length} cliente(s) con RUT inválido — revisar a mano (no se tocan):`,
+      `⚠️  ${invalid.length} facturador(es) con RUT inválido — revisar a mano (no se tocan):`,
     );
     for (const r of invalid) {
-      console.warn(`     ${r.id}  rut="${r.rut}"  nombre="${r.nombre}"`);
+      console.warn(
+        `     ${r.id}  rut="${r.rut}"  razon_social="${r.razonSocial}"`,
+      );
     }
   }
 
@@ -56,25 +57,33 @@ async function main() {
     if (group.length === 1) {
       const r = group[0];
       if (r.rut === canon) {
-        console.log(`=  ${canon} (${r.nombre}) ya canónico`);
+        console.log(`=  ${canon} (${r.razonSocial}) ya canónico`);
         continue;
       }
-      console.log(`→  ${r.rut}  ⟶  ${canon}  (${r.nombre})`);
+      console.log(`→  ${r.rut}  ⟶  ${canon}  (${r.razonSocial})`);
       await db.transaction(async (tx) => {
+        // Actualizar snapshot rut_cliente en marca_ingresos (vía join por marca).
+        const marcas = await tx
+          .select({ id: marcaClientes.id })
+          .from(marcaClientes)
+          .where(eq(marcaClientes.facturadorId, r.id));
+        const marcaIds = marcas.map((m) => m.id);
+        if (marcaIds.length > 0) {
+          await tx
+            .update(marcaIngresos)
+            .set({ rutCliente: canon, updatedAt: new Date() })
+            .where(inArray(marcaIngresos.clienteId, marcaIds));
+        }
         await tx
-          .update(marcaIngresos)
-          .set({ rutCliente: canon })
-          .where(eq(marcaIngresos.clienteId, r.id));
-        await tx
-          .update(marcaClientes)
+          .update(marcaFacturadores)
           .set({ rut: canon, updatedAt: new Date() })
-          .where(eq(marcaClientes.id, r.id));
+          .where(eq(marcaFacturadores.id, r.id));
       });
       normalized++;
       continue;
     }
 
-    // group.length > 1 → mergear
+    // group.length > 1 → mergear duplicados (mismo RUT canónico, distinta forma).
     const sorted = [...group].sort(
       (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
     );
@@ -82,43 +91,41 @@ async function main() {
     const losers = sorted.slice(1);
 
     console.log(
-      `⤵︎  ${group.length} duplicados de ${canon}: gana "${winner.nombre}" (${winner.id})`,
+      `⤵︎  ${group.length} duplicados de ${canon}: gana "${winner.razonSocial}" (${winner.id})`,
     );
     for (const l of losers) {
-      console.log(`       ↳ descarta "${l.nombre}" (${l.id})`);
+      console.log(`       ↳ descarta "${l.razonSocial}" (${l.id})`);
     }
 
     await db.transaction(async (tx) => {
       const loserIds = losers.map((l) => l.id);
-      // Reasignar ingresos de los perdedores al ganador con snapshot actualizado
+      // 1. Reasignar marca_clientes.facturador_id de los perdedores al ganador.
       await tx
-        .update(marcaIngresos)
-        .set({
-          clienteId: winner.id,
-          rutCliente: canon,
-          cliente: winner.nombre,
-          updatedAt: new Date(),
-        })
-        .where(inArray(marcaIngresos.clienteId, loserIds));
-      // Refrescar snapshot de los ingresos ya asociados al ganador
+        .update(marcaClientes)
+        .set({ facturadorId: winner.id, updatedAt: new Date() })
+        .where(inArray(marcaClientes.facturadorId, loserIds));
+      // 2. Refrescar snapshot rut_cliente en TODAS las marcas que apuntan al ganador.
+      const marcasWinner = await tx
+        .select({ id: marcaClientes.id })
+        .from(marcaClientes)
+        .where(eq(marcaClientes.facturadorId, winner.id));
+      const marcaIds = marcasWinner.map((m) => m.id);
+      if (marcaIds.length > 0) {
+        await tx
+          .update(marcaIngresos)
+          .set({ rutCliente: canon, updatedAt: new Date() })
+          .where(inArray(marcaIngresos.clienteId, marcaIds));
+      }
+      // 3. Borrar facturadores perdedores.
       await tx
-        .update(marcaIngresos)
-        .set({
-          rutCliente: canon,
-          cliente: winner.nombre,
-          updatedAt: new Date(),
-        })
-        .where(eq(marcaIngresos.clienteId, winner.id));
-      // Borrar perdedores
-      await tx
-        .delete(marcaClientes)
-        .where(inArray(marcaClientes.id, loserIds));
-      // Normalizar rut del ganador si difería
+        .delete(marcaFacturadores)
+        .where(inArray(marcaFacturadores.id, loserIds));
+      // 4. Normalizar rut del ganador si difería.
       if (winner.rut !== canon) {
         await tx
-          .update(marcaClientes)
+          .update(marcaFacturadores)
           .set({ rut: canon, updatedAt: new Date() })
-          .where(eq(marcaClientes.id, winner.id));
+          .where(eq(marcaFacturadores.id, winner.id));
       }
     });
     merged++;

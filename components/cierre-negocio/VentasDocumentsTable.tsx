@@ -17,8 +17,12 @@ function formatFecha(fecha: string | null | undefined): string {
   return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
+const ALL = "__all__";
+
 export default function VentasDocumentsTable({ ventas }: Props) {
   const [showAll, setShowAll] = useState(false);
+  const [clienteFilter, setClienteFilter] = useState(ALL);
+  const [descFilter, setDescFilter] = useState(ALL);
 
   const sorted = useMemo(() => {
     return [...ventas].sort((a, b) => {
@@ -28,6 +32,42 @@ export default function VentasDocumentsTable({ ventas }: Props) {
       return String(b.folio ?? "").localeCompare(String(a.folio ?? ""));
     });
   }, [ventas]);
+
+  const clientes = useMemo(() => {
+    const set = new Set<string>();
+    for (const v of ventas) {
+      const c = (v.cliente ?? "").trim();
+      if (c) set.add(c);
+    }
+    return Array.from(set).sort();
+  }, [ventas]);
+
+  const descripciones = useMemo(() => {
+    const set = new Set<string>();
+    for (const v of ventas) {
+      const ds = Array.isArray(v.items_descripciones) ? v.items_descripciones : [];
+      for (const d of ds) {
+        const t = String(d).trim();
+        if (t) set.add(t);
+      }
+    }
+    return Array.from(set).sort();
+  }, [ventas]);
+
+  const filtered = useMemo(() => {
+    return sorted.filter((v) => {
+      if (clienteFilter !== ALL && (v.cliente ?? "").trim() !== clienteFilter) {
+        return false;
+      }
+      if (descFilter !== ALL) {
+        const ds = Array.isArray(v.items_descripciones)
+          ? v.items_descripciones.map((d) => String(d).trim())
+          : [];
+        if (!ds.includes(descFilter)) return false;
+      }
+      return true;
+    });
+  }, [sorted, clienteFilter, descFilter]);
 
   if (sorted.length === 0) {
     return (
@@ -42,7 +82,8 @@ export default function VentasDocumentsTable({ ventas }: Props) {
     );
   }
 
-  const hiddenCount = showAll ? 0 : Math.max(0, sorted.length - INITIAL_LIMIT);
+  const hiddenCount = showAll ? 0 : Math.max(0, filtered.length - INITIAL_LIMIT);
+  const isFiltered = clienteFilter !== ALL || descFilter !== ALL;
 
   return (
     <article className="flex flex-col gap-3 rounded-lg border border-[#E5E5E5] bg-white p-6">
@@ -51,9 +92,56 @@ export default function VentasDocumentsTable({ ventas }: Props) {
           Documentos facturados
         </h3>
         <span className="font-sans text-xs text-[#666666]">
-          {formatNumber(sorted.length)} documento{sorted.length === 1 ? "" : "s"}
+          {isFiltered
+            ? `${formatNumber(filtered.length)} de ${formatNumber(sorted.length)} documentos`
+            : `${formatNumber(sorted.length)} documento${sorted.length === 1 ? "" : "s"}`}
         </span>
       </header>
+
+      <div className="flex flex-wrap items-center gap-4" data-no-print="true">
+        <div className="flex items-center gap-2">
+          <label className="font-sans text-sm text-[#666666]">Cliente</label>
+          <select
+            value={clienteFilter}
+            onChange={(e) => setClienteFilter(e.target.value)}
+            className="max-w-[260px] rounded border border-[#E5E5E5] bg-white px-3 py-1.5 font-sans text-sm text-[#333333] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+          >
+            <option value={ALL}>Todos</option>
+            {clientes.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="font-sans text-sm text-[#666666]">Ítem</label>
+          <select
+            value={descFilter}
+            onChange={(e) => setDescFilter(e.target.value)}
+            className="max-w-[260px] rounded border border-[#E5E5E5] bg-white px-3 py-1.5 font-sans text-sm text-[#333333] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+          >
+            <option value={ALL}>Todos</option>
+            {descripciones.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+        </div>
+        {isFiltered && (
+          <button
+            type="button"
+            onClick={() => {
+              setClienteFilter(ALL);
+              setDescFilter(ALL);
+            }}
+            className="font-sans text-xs text-[#666666] transition-colors hover:text-[#333333]"
+          >
+            Limpiar filtros
+          </button>
+        )}
+      </div>
 
       <div
         className="max-h-[480px] overflow-auto print:max-h-none print:overflow-visible"
@@ -74,9 +162,16 @@ export default function VentasDocumentsTable({ ventas }: Props) {
             </tr>
           </thead>
           <tbody>
-            {sorted.map((v, idx) => {
+            {filtered.length === 0 && (
+              <tr>
+                <td colSpan={9} className="px-4 py-8 text-center font-sans text-sm text-[#999999]">
+                  Sin documentos para los filtros seleccionados.
+                </td>
+              </tr>
+            )}
+            {filtered.map((v, idx) => {
               const isOverflow = !showAll && idx >= INITIAL_LIMIT;
-              const descripciones = Array.isArray(v.items_descripciones)
+              const docDescripciones = Array.isArray(v.items_descripciones)
                 ? v.items_descripciones
                 : [];
               return (
@@ -96,9 +191,9 @@ export default function VentasDocumentsTable({ ventas }: Props) {
                     </span>
                   </Td>
                   <Td>
-                    {descripciones.length > 0 ? (
+                    {docDescripciones.length > 0 ? (
                       <span className="flex flex-wrap gap-1">
-                        {descripciones.map((d, i) => (
+                        {docDescripciones.map((d, i) => (
                           <span
                             key={`${d}-${i}`}
                             className="inline-flex items-center rounded-full border border-[#E5E5E5] bg-white px-2 py-0.5 font-sans text-xs text-[#666666]"

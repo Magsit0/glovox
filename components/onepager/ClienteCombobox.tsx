@@ -1,23 +1,33 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
-import type { MarcaCliente } from "@/db/schema";
+import type { MarcaClienteRow } from "@/lib/queries/marca";
 import { createMarcaClienteAction } from "@/app/onepager/marca-actions";
 import { formatRut, isValidRut, normalizeRut } from "@/lib/utils/rut";
 
+type CreatedCliente = {
+  id: string;
+  nombre: string;
+  facturadorId: string;
+  rut: string;
+  razonSocial: string;
+};
+
 type Props = {
-  clientes: MarcaCliente[];
+  clientes: MarcaClienteRow[];
   value: string | null; // selected cliente.id
   onChange: (id: string | null) => void;
-  onClienteCreated?: (c: { id: string; rut: string; nombre: string }) => void;
+  onClienteCreated?: (c: CreatedCliente) => void;
 };
 
 /**
- * Combobox brutalista para seleccionar (o crear inline) un cliente-marca.
- * El estilo sigue el lenguaje del onepager: bordes negros gruesos, acento
- * #FFFF00, font-mono-data. Para crear muestra un mini-form inline con RUT +
- * Nombre — ambos requeridos. Si el RUT ya existe en DB devuelve el cliente
- * existente sin duplicar.
+ * Combobox brutalista para seleccionar (o crear inline) una marca.
+ *
+ * Mini-form de creación: pide nombre de la marca, RUT del facturador y razón
+ * social del facturador. Si el RUT ya existe entre los clientes pasados como
+ * prop, auto-detectamos el facturador y la razón social se vuelve read-only
+ * (no permitimos crear con razon_social distinta — para cambiarla hay que
+ * usar el flujo de editar marca/facturador).
  */
 export default function ClienteCombobox({
   clientes,
@@ -28,8 +38,9 @@ export default function ClienteCombobox({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
-  const [newRut, setNewRut] = useState("");
   const [newNombre, setNewNombre] = useState("");
+  const [newRut, setNewRut] = useState("");
+  const [newRazonSocial, setNewRazonSocial] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [savePending, startSave] = useTransition();
   const ref = useRef<HTMLDivElement>(null);
@@ -42,20 +53,17 @@ export default function ClienteCombobox({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return clientes.slice(0, 200);
-    // Normalizamos la query para que "97004000-5" matchee tanto el storage
-    // canónico como el display con puntos.
     const qStripped = q.replace(/[.\s-]/g, "");
     return clientes
       .filter((c) => {
         if (c.nombre.toLowerCase().includes(q)) return true;
+        if (c.razonSocial.toLowerCase().includes(q)) return true;
         const rutStripped = c.rut.replace(/[.\s-]/g, "").toLowerCase();
         return rutStripped.includes(qStripped);
       })
       .slice(0, 200);
   }, [clientes, query]);
 
-  // Preview de cómo se guardará el RUT y si es válido (módulo-11). Da feedback
-  // inmediato al usuario antes de hacer click en Guardar.
   const rutPreview = useMemo(() => {
     const trimmed = newRut.trim();
     if (!trimmed) return null;
@@ -64,10 +72,23 @@ export default function ClienteCombobox({
     if (!isValidRut(norm)) {
       return { ok: false as const, message: "Dígito verificador no coincide" };
     }
-    return { ok: true as const, message: `Se guardará como ${formatRut(norm)}` };
+    return {
+      ok: true as const,
+      canon: norm,
+      message: `Se guardará como ${formatRut(norm)}`,
+    };
   }, [newRut]);
 
-  // Click-outside + Escape para cerrar
+  // Si el RUT ya existe entre los clientes, lockeamos razon_social: usamos la
+  // del facturador existente. Esto evita inconsistencias accidentales.
+  const existingFacturador = useMemo(() => {
+    if (!rutPreview || !rutPreview.ok) return null;
+    const canon = rutPreview.canon;
+    return clientes.find((c) => c.rut === canon) ?? null;
+  }, [rutPreview, clientes]);
+
+  const lockedRazonSocial = existingFacturador?.razonSocial ?? null;
+
   useEffect(() => {
     if (!open) return;
     function onClick(e: MouseEvent) {
@@ -91,9 +112,9 @@ export default function ClienteCombobox({
   }, [open]);
 
   function startCreate() {
-    // Si el usuario tipeó algo, lo usamos como nombre por defecto.
     setNewNombre(query.trim());
     setNewRut("");
+    setNewRazonSocial("");
     setCreateError(null);
     setCreating(true);
   }
@@ -102,8 +123,9 @@ export default function ClienteCombobox({
     setCreateError(null);
     startSave(async () => {
       const res = await createMarcaClienteAction({
-        rut: newRut,
         nombre: newNombre,
+        rut: newRut,
+        razonSocial: lockedRazonSocial ?? newRazonSocial,
       });
       if (!res.ok || !res.data) {
         setCreateError(res.ok ? "Error desconocido" : res.error);
@@ -119,7 +141,9 @@ export default function ClienteCombobox({
 
   const triggerText = selected
     ? `${selected.nombre} — ${formatRut(selected.rut)}`
-    : "Seleccionar cliente…";
+    : "Seleccionar marca…";
+
+  const razonSocialValue = lockedRazonSocial ?? newRazonSocial;
 
   return (
     <div ref={ref} className="relative">
@@ -141,7 +165,7 @@ export default function ClienteCombobox({
       {open && (
         <div
           role="listbox"
-          className="absolute top-full left-0 z-50 mt-1 w-full min-w-[280px] bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none"
+          className="absolute top-full left-0 z-50 mt-1 w-full min-w-[320px] bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none"
         >
           {!creating && (
             <>
@@ -150,7 +174,7 @@ export default function ClienteCombobox({
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Buscar nombre o RUT…"
+                  placeholder="Buscar marca, razón social o RUT…"
                   autoFocus
                   className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-white bg-white text-black placeholder:text-black/40 outline-none"
                 />
@@ -158,7 +182,7 @@ export default function ClienteCombobox({
               <div className="max-h-[260px] overflow-y-auto">
                 {filtered.length === 0 ? (
                   <div className="font-mono-data text-xs text-black/50 px-3 py-3">
-                    Sin clientes que coincidan.
+                    Sin marcas que coincidan.
                   </div>
                 ) : (
                   filtered.map((c) => {
@@ -181,8 +205,8 @@ export default function ClienteCombobox({
                         <span className="font-mono-data uppercase text-xs font-bold truncate w-full">
                           {c.nombre}
                         </span>
-                        <span className="font-mono-data text-[10px] text-black/60">
-                          {formatRut(c.rut)}
+                        <span className="font-mono-data text-[10px] text-black/60 truncate w-full">
+                          {c.razonSocial} · {formatRut(c.rut)}
                         </span>
                       </button>
                     );
@@ -194,7 +218,7 @@ export default function ClienteCombobox({
                 onClick={startCreate}
                 className="w-full text-left px-3 py-2 border-t-2 border-black bg-white hover:bg-[#FFFF00] font-mono-data uppercase text-xs font-bold cursor-pointer transition-colors duration-150"
               >
-                + Crear cliente nuevo
+                + Crear marca nueva
               </button>
             </>
           )}
@@ -202,15 +226,21 @@ export default function ClienteCombobox({
           {creating && (
             <div className="p-3 space-y-2">
               <p className="font-mono-data uppercase text-[10px] text-black/70">
-                Nuevo cliente
+                Nueva marca
               </p>
+              <input
+                type="text"
+                placeholder="Nombre de la marca (Xtreme, Entel...)"
+                value={newNombre}
+                onChange={(e) => setNewNombre(e.target.value)}
+                className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+              />
               <div>
                 <input
                   type="text"
-                  placeholder="RUT (ej. 76.123.456-7)"
+                  placeholder="RUT del facturador (ej. 76.123.456-7)"
                   value={newRut}
                   onChange={(e) => setNewRut(e.target.value)}
-                  autoFocus
                   className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 outline-none focus:bg-[#FFFF00]/30 ${
                     rutPreview && !rutPreview.ok
                       ? "border-[#FF0000]"
@@ -227,13 +257,27 @@ export default function ClienteCombobox({
                   </p>
                 )}
               </div>
-              <input
-                type="text"
-                placeholder="Nombre del cliente"
-                value={newNombre}
-                onChange={(e) => setNewNombre(e.target.value)}
-                className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
-              />
+              <div>
+                <input
+                  type="text"
+                  placeholder="Razón social del facturador"
+                  value={razonSocialValue}
+                  onChange={(e) =>
+                    lockedRazonSocial == null
+                      ? setNewRazonSocial(e.target.value)
+                      : undefined
+                  }
+                  readOnly={lockedRazonSocial != null}
+                  className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30 ${
+                    lockedRazonSocial != null ? "bg-black/5 cursor-not-allowed" : ""
+                  }`}
+                />
+                {lockedRazonSocial != null && (
+                  <p className="mt-1 font-mono-data text-[10px] text-black/60">
+                    Facturador existente — se reutilizará.
+                  </p>
+                )}
+              </div>
               {createError && (
                 <p className="font-mono-data text-[10px] text-[#FF0000]">
                   {createError}
@@ -255,7 +299,8 @@ export default function ClienteCombobox({
                     savePending ||
                     !newNombre.trim() ||
                     !rutPreview ||
-                    !rutPreview.ok
+                    !rutPreview.ok ||
+                    !razonSocialValue.trim()
                   }
                   className="flex-1 font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black cursor-pointer disabled:opacity-50 transition-colors"
                 >

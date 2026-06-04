@@ -16,8 +16,7 @@ import BrutalChartPanel from "./BrutalChartPanel";
 import MarcaMatrixSheet, {
   type MatrixEvento,
 } from "./MarcaMatrixSheet";
-import type { MarcaCliente } from "@/db/schema";
-import type { MarcaMatrixCell } from "@/lib/queries/marca";
+import type { MarcaClienteRow, MarcaMatrixCell } from "@/lib/queries/marca";
 
 export type OnepagerListadoTableRow = {
   eventoId: string;
@@ -149,7 +148,7 @@ export default function OnepagerListadoTable({
   marcaMatrix,
 }: {
   rows: OnepagerListadoTableRow[];
-  marcaClientes: MarcaCliente[];
+  marcaClientes: MarcaClienteRow[];
   marcaMatrix: MarcaMatrixCell[];
 }) {
   const router = useRouter();

@@ -16,8 +16,7 @@ import type {
   OnepagerCategoriaRow,
   OnepagerFfbbEvolucionRow,
 } from "@/lib/queries/onepager";
-import type { MarcaIngresoRow } from "@/lib/queries/marca";
-import type { MarcaCliente } from "@/db/schema";
+import type { MarcaClienteRow, MarcaIngresoRow } from "@/lib/queries/marca";
 
 type Props = {
   eventoId: string;
@@ -26,7 +25,7 @@ type Props = {
   ffbbByPuntoVenta: OnepagerPuntoVentaRow[];
   ffbbByCategoria: OnepagerCategoriaRow[];
   ffbbEvolucion: OnepagerFfbbEvolucionRow[];
-  marcaClientes: MarcaCliente[];
+  marcaClientes: MarcaClienteRow[];
   marcaIngresos: MarcaIngresoRow[];
 };
 

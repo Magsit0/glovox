@@ -119,7 +119,6 @@ function s(value: unknown): string {
   return String(value).trim();
 }
 
-const TOP_CLIENTES_LIMIT = 5;
 
 const ITEMS_DESCRIPCION_LIMIT = 8;
 
@@ -194,8 +193,7 @@ export function aggregateVentas(
   }
 
   const topClientes = Array.from(clienteMap.values())
-    .sort((a, b) => b.total - a.total)
-    .slice(0, TOP_CLIENTES_LIMIT);
+    .sort((a, b) => b.total - a.total);
 
   const itemsDescripcion: ItemDescripcionBreakdown[] = Array.from(itemDescMap.entries())
     .map(([descripcion, d]) => ({ descripcion, total: d.total, nDocs: d.nDocs }))
