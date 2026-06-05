@@ -191,6 +191,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentClass: "bg-[#4267B2]",
     accentText: "text-white",
   },
+  {
+    key: "proveedor",
+    pathPrefix: "/proveedor",
+    label: "Proveedor",
+    appliesCountryScope: false,
+    sortOrder: 85,
+    title: "PROVEEDOR",
+    description:
+      "Gasto por proveedor: total, evolución en el tiempo y desglose por negocio, con detalle descargable. Excluye negocios de área GLOVOX.",
+    icon: "truck",
+    accentClass: "bg-[#6D4C41]",
+    accentText: "text-white",
+  },
 ] as const;
 
 /**

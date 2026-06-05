@@ -22,6 +22,7 @@ import {
   Wallet,
   Zap,
   Target,
+  Truck,
   Pencil,
   GripVertical,
   Check,
@@ -70,6 +71,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "file-text": FileText,
   zap: Zap,
   target: Target,
+  truck: Truck,
 };
 
 const TITLE_MAX = 80;
