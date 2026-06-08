@@ -18,7 +18,11 @@ const CAMP_MAP = `\`${P}.paidMedia.campaign_event_map\``;
 // Per-currency USD conversion rates: `usd = gasto / units_per_usd`.
 const FX = `\`${P}.paidMedia.fx_rates\``;
 const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
-const FOLLOWERS = `\`${P}.marketing.rrssFollowers\``;
+// Multi-network followers table (replaces the legacy `rrssFollowers`). Columns:
+// blog_id INT64, label STRING, network STRING, date DATE, delta_followers INT64,
+// total_followers INT64, loaded_at TIMESTAMP. We filter by network='instagram'
+// at every call site because the dashboard reports Instagram followers.
+const FOLLOWERS = `\`${P}.marketing.rrss_fllws\``;
 const FUNNEL = `\`${P}.google_analytics.funnel\``;
 const UTM = `\`${P}.google_analytics.utm\``;
 const USERS = `\`${P}.comunidadGlovox.users\``;
@@ -141,7 +145,11 @@ export type EventOption = {
 
 export type EventKpiRow = {
   totalTickets: number;
+  // Net ticket revenue = SUM(Precio - Descuento). Excludes CargoServicio (the
+  // platform's service fee), which is reported separately so this number lines
+  // up with what the ticketera reports for "venta de tickets".
   totalRevenue: number;
+  cargoServicio: number; // SUM(CargoServicio) — shown as a secondary line
   avgPrice: number;
   daysToEvent: number;
   totalSpend: number;
@@ -185,6 +193,15 @@ export type PaidMediaSummaryRow = {
   cpa: number; // USD
   spendByCurrency: CurrencySpend[];
   spendByPlatform: PlatformSpend[];
+};
+
+export type CommunityCount = {
+  // People bought through "Venta Comunidad" channel. Mirrors the "Tickets
+  // Vendidos" KPI weighting: FBM PACK rows count as 2 personas.
+  personas: number;
+  // Subset: number of PACK transactions counted (raw rows). Shown next to the
+  // main number to surface that the "personas" figure is x2-weighted.
+  packs: number;
 };
 
 export type SalesOriginRow = {
@@ -346,8 +363,14 @@ export async function getEventKpis(
         SUM(${personasExpr("t", "c")}) AS total_tickets,
         -- Raw transaction count. Used by CPA so the per-purchase economics stay intact.
         COUNT(*)                        AS total_transactions,
-        SUM(t.PrecioFinal) AS total_revenue,
-        AVG(t.PrecioFinal) AS avg_price,
+        -- Net ticket revenue: face value minus any per-row discount, excluding
+        -- the service fee (which is exposed separately as cargo_servicio). This
+        -- matches what the ticketera reports as "venta de tickets".
+        -- Note: PrecioFinal = (Precio - Descuento) + CargoServicio in the source
+        -- rows, so the old SUM(PrecioFinal) was inflating revenue by the fee.
+        SUM(t.Precio - COALESCE(t.Descuento, 0)) AS total_revenue,
+        SUM(t.CargoServicio)                     AS cargo_servicio,
+        AVG(t.Precio - COALESCE(t.Descuento, 0)) AS avg_price,
         MAX(t.FechaEvento) AS fecha_evento
       FROM ${TICKETS} t
       LEFT JOIN ${CATEGORY} c ON c.EventoID = t.EventoID
@@ -369,6 +392,7 @@ export async function getEventKpis(
     SELECT
       ts.total_tickets,
       ts.total_revenue,
+      ts.cargo_servicio,
       ts.avg_price,
       DATE_DIFF(DATE(ts.fecha_evento), CURRENT_DATE(), DAY) AS days_to_event,
       COALESCE(a.total_spend, 0) AS total_spend,
@@ -388,6 +412,7 @@ export async function getEventKpis(
   return {
     totalTickets: n(r.total_tickets),
     totalRevenue: n(r.total_revenue),
+    cargoServicio: n(r.cargo_servicio),
     avgPrice: n(r.avg_price),
     daysToEvent: n(r.days_to_event),
     totalSpend: n(r.total_spend),
@@ -397,6 +422,37 @@ export async function getEventKpis(
     cpa: n(r.cpa),
     fechaEvento: s(r.fecha_evento),
   };
+}
+
+// Tickets attributed to "VentaComunidad" (the community sales channel) for the
+// event. Returns personas (with FBM PACK rows weighted x2, matching the
+// "Tickets Vendidos" KPI) and the raw count of PACK transactions in that
+// subset — exposed so the UI can show "(N packs)" next to the personas number.
+export async function getCommunityTicketsCount(
+  eventoId: string,
+  scope?: Scope,
+): Promise<CommunityCount> {
+  const t = ticketeraFilter(scope);
+  const rows = await query<Record<string, unknown>>(
+    `
+    SELECT
+      SUM(${personasExpr("t", "c")}) AS personas,
+      SUM(CASE
+        WHEN c.CategoriaEvento = 'FBM'
+         AND UPPER(t.TipoTicket) LIKE '%PACK%'
+         AND REGEXP_CONTAINS(t.TipoTicket, r'(^|\\D)2(\\D|$)')
+        THEN 1 ELSE 0
+      END) AS packs
+    FROM ${TICKETS} t
+    LEFT JOIN ${CATEGORY} c ON c.EventoID = t.EventoID
+    WHERE t.EventoID = @eventoId
+      AND t.VentaComunidad IS TRUE
+      AND ${TICKET_TYPE_FILTER}${t.sql}
+    `,
+    { eventoId, ...t.params }
+  );
+  const r = rows[0] ?? {};
+  return { personas: n(r.personas), packs: n(r.packs) };
 }
 
 export async function getCumulativeSales(
@@ -671,6 +727,7 @@ export async function getFollowersEvolution(
     CROSS JOIN ticket_period p
     CROSS JOIN event_ig e
     WHERE f.blog_id = e.CuentaIG
+      AND f.network = 'instagram'
       AND DATE(f.date) BETWEEN p.start_date AND p.end_date
     ORDER BY date
     `,
@@ -683,10 +740,24 @@ export async function getFollowersEvolution(
   }));
 }
 
+// Instagram followers info over the event's sale window:
+//   - delta:   SUM of daily delta_followers across the window
+//   - initial: total_followers on the first day with data in the window
+//   - final:   total_followers on the last day with data in the window
+// `initial`/`final` are null when no rows exist (e.g. very short past events or
+// IG accounts not yet tracked). The window ends at CURRENT_DATE() for upcoming
+// events or at MAX(FechaOrden) for past ones — same convention as the rest of
+// the dashboard.
+export type FollowersInfo = {
+  delta: number;
+  initial: number | null;
+  final: number | null;
+};
+
 export async function getFollowersDelta(
   eventoId: string,
   scope?: Scope,
-): Promise<number> {
+): Promise<FollowersInfo> {
   const t = ticketeraFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
@@ -702,18 +773,34 @@ export async function getFollowersDelta(
       SELECT CuentaIG
       FROM ${CATEGORY}
       WHERE EventoID = @eventoId
+    ),
+    in_window AS (
+      SELECT f.date, f.total_followers, f.delta_followers
+      FROM ${FOLLOWERS} f
+      CROSS JOIN ticket_period p
+      CROSS JOIN event_ig e
+      WHERE f.blog_id = e.CuentaIG
+        AND f.network = 'instagram'
+        AND DATE(f.date) BETWEEN p.start_date AND p.end_date
     )
     SELECT
-      COALESCE(SUM(f.delta_followers), 0) AS total_delta
-    FROM ${FOLLOWERS} f
-    CROSS JOIN ticket_period p
-    CROSS JOIN event_ig e
-    WHERE f.blog_id = e.CuentaIG
-      AND DATE(f.date) BETWEEN p.start_date AND p.end_date
+      COALESCE(SUM(delta_followers), 0) AS total_delta,
+      ARRAY_AGG(total_followers ORDER BY date ASC  LIMIT 1)[SAFE_OFFSET(0)] AS initial_followers,
+      ARRAY_AGG(total_followers ORDER BY date DESC LIMIT 1)[SAFE_OFFSET(0)] AS final_followers
+    FROM in_window
     `,
     { eventoId, ...t.params }
   );
-  return n(rows[0]?.total_delta);
+  const r = rows[0] ?? {};
+  // Distinguish "no row at all" (null) from a row with value 0. SUM defaults to
+  // 0 via COALESCE; initial/final stay null when in_window is empty.
+  const ini = r.initial_followers;
+  const fin = r.final_followers;
+  return {
+    delta: n(r.total_delta),
+    initial: ini == null ? null : n(ini),
+    final: fin == null ? null : n(fin),
+  };
 }
 
 export async function getClubSales(

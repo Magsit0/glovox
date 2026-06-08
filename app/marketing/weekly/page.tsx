@@ -9,6 +9,7 @@ import {
   getTicketDateRange,
   getCumulativeSalesRelative,
   getTipoTicketOptions,
+  getCommunityTicketsCount,
   getPaidMediaSummary,
   getSalesOrigin,
   getFollowersDelta,
@@ -33,6 +34,14 @@ import CampaignBreakdownChart from "@/components/marketing/charts/CampaignBreakd
 import UtmTrafficTable from "@/components/marketing/charts/UtmTrafficTable";
 
 const fmtUsd = (v: number) => "US$" + v.toFixed(1);
+// CLP compact formatter, matching BrutalKpiCard's "clp-compact" style.
+// Reused for KPI secondary lines so the styling stays consistent.
+const compactClpFmt = new Intl.NumberFormat("es-CL", {
+  notation: "compact",
+  compactDisplay: "short",
+  maximumFractionDigits: 1,
+});
+const fmtClpCompact = (v: number) => "$" + compactClpFmt.format(Math.round(v));
 // Raw amount in its own currency (no symbol; the currency code is shown alongside).
 // USD keeps 1 decimal; CLP/BRL/others are whole-number amounts.
 const fmtAmount = (currency: string, v: number) =>
@@ -139,22 +148,32 @@ export default async function MarketingWeeklyPage({
       />
 
       <div className="p-6 space-y-6">
-        <Link
-          href="/"
-          aria-label="Volver al menú principal"
-          className="inline-flex items-center justify-center border-4 border-black bg-white p-1.5 shadow-[4px_4px_0px_#000] transition-colors hover:bg-[#FFFF00]"
-        >
-          <Image
-            src="/glovox_logo_gvx_black.svg"
-            alt="Glovox"
-            width={24}
-            height={24}
-            priority
-          />
-        </Link>
+        <div className="flex items-center justify-between gap-4">
+          <Link
+            href="/"
+            aria-label="Volver al menú principal"
+            className="inline-flex items-center justify-center border-4 border-black bg-white p-1.5 shadow-[4px_4px_0px_#000] transition-colors hover:bg-[#FFFF00]"
+          >
+            <Image
+              src="/glovox_logo_gvx_black.svg"
+              alt="Glovox"
+              width={24}
+              height={24}
+              priority
+            />
+          </Link>
+          <Suspense
+            key={`countdown-${selectedId}`}
+            fallback={
+              <div className="px-4 py-2 h-[44px] w-[200px] animate-pulse bg-black/5" />
+            }
+          >
+            <EventCountdownBanner eventoId={selectedId} scope={scope} />
+          </Suspense>
+        </div>
 
         {/* KPI Strip */}
-        <Suspense fallback={<div className="grid grid-cols-2 md:grid-cols-6 gap-4"><Skeleton /><Skeleton /><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>}>
+        <Suspense fallback={<div className="grid grid-cols-2 md:grid-cols-5 gap-4"><Skeleton /><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>}>
           <KpiStrip eventoId={selectedId} scope={scope} />
         </Suspense>
 
@@ -205,25 +224,149 @@ export default async function MarketingWeeklyPage({
 
 // ---------- Section components ----------
 
+// Spanish date formatter used by EventCountdownBanner for past events.
+// Renders "14 jun 2026" — short, locale-aware, no day-of-week clutter.
+const dateFmtEs = new Intl.DateTimeFormat("es-CL", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+function formatEventDate(iso: string): string {
+  // `iso` is YYYY-MM-DD straight from BigQuery (see FORMAT_TIMESTAMP in getEventKpis).
+  // Parse it as a UTC date so the displayed day matches the source row (avoids the
+  // off-by-one that Date.parse on a date-only string can introduce in some locales).
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return dateFmtEs.format(new Date(Date.UTC(y, m - 1, d)));
+}
+
+// Days-to-event indicator rendered in the row with the home logo. Classifies by
+// the raw `daysToEvent` (fecha_evento - CURRENT_DATE), but displays the count
+// with the same `+1` convention as the "Días para el Evento" KPI card used to
+// (the inclusive day-of count Glovox uses internally). Three modes:
+//   > 0  → big number + "días para el evento"
+//   = 0  → "DÍA DEL EVENTO"
+//   < 0  → "Realizado" + formatted event date
+//
+// Wraps in flex `items-center` so the number and label sit on the same visual
+// midline (vertical centering with the home logo on the same row).
+async function EventCountdownBanner({
+  eventoId,
+  scope,
+}: {
+  eventoId: string;
+  scope?: Scope;
+}) {
+  const kpis = await getEventKpis(eventoId, scope);
+  const d = kpis.daysToEvent;
+
+  if (d > 0) {
+    const display = d + 1; // matches the KPI card's inclusive count
+    return (
+      <div className="px-4 py-2 flex items-center gap-2">
+        {/* Number kept at the original size; only the label scales up. */}
+        <span className="font-display text-3xl leading-none text-black tabular-nums">
+          {display}
+        </span>
+        <span className="font-mono-data font-bold uppercase text-[0.975rem] leading-none text-black">
+          {display === 1 ? "día para el evento" : "días para el evento"}
+        </span>
+      </div>
+    );
+  }
+
+  if (d === 0) {
+    return (
+      <div className="px-4 py-2 flex items-center">
+        <span className="font-display font-bold uppercase text-[1.625rem] leading-none text-black">
+          Día del evento
+        </span>
+      </div>
+    );
+  }
+
+  // Past event: show the actual event date (kpis.fechaEvento is "YYYY-MM-DD").
+  return (
+    <div className="px-4 py-2 flex items-center gap-2">
+      <span className="font-mono-data font-bold uppercase text-[0.975rem] leading-none text-black/60">
+        Realizado
+      </span>
+      <span className="font-display font-bold text-[1.625rem] leading-none text-black">
+        {kpis.fechaEvento ? formatEventDate(kpis.fechaEvento) : "—"}
+      </span>
+    </div>
+  );
+}
+
 async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
-  const [kpis, followersDelta, pm] = await Promise.all([
+  const [kpis, followers, pm, community] = await Promise.all([
     getEventKpis(eventoId, scope),
     getFollowersDelta(eventoId, scope),
     getPaidMediaSummary(eventoId, scope),
+    getCommunityTicketsCount(eventoId, scope),
   ]);
   const soldPct = kpis.goalTickets > 0 ? Math.round((kpis.totalTickets / kpis.goalTickets) * 100) : 0;
+  // Build the Instagram card's "initial → final" progression line. Only shown
+  // when the IG window actually has observations (e.g. very short past events
+  // can have no rows). Otherwise the card renders just the delta.
+  const fmtFollowers = (v: number) => v.toLocaleString("es-CL");
+  const followersProgression =
+    followers.initial != null && followers.final != null
+      ? {
+          from: fmtFollowers(followers.initial),
+          to: fmtFollowers(followers.final),
+        }
+      : undefined;
+  // Real growth %: relative to the starting follower count. Falls back to
+  // `undefined` (which hides the pill) when initial is missing or 0 — we'd
+  // be dividing by zero or showing nonsense like "Infinity%".
+  const followersPct =
+    followers.initial != null && followers.initial > 0
+      ? (followers.delta / followers.initial) * 100
+      : undefined;
+
+  // Community card: % over total tickets (both already counted as personas),
+  // and an inline "(N packs)" annotation when the event actually has FBM
+  // packs in the community subset.
+  const communityPct =
+    kpis.totalTickets > 0
+      ? Math.round((community.personas / kpis.totalTickets) * 100)
+      : 0;
+  const communityInline =
+    community.packs > 0
+      ? `(${community.packs.toLocaleString("es-CL")} pack${community.packs === 1 ? "" : "s"})`
+      : undefined;
   return (
-    <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+    <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
       <BrutalKpiCard
         label="Tickets Vendidos"
         value={kpis.totalTickets}
         suffix={`/${kpis.goalTickets.toLocaleString("es-CL")} (${soldPct}%)`}
       />
-      <BrutalKpiCard label="Venta Tickets" value={kpis.totalRevenue} formatType="clp-compact" />
-      <BrutalKpiCard label="Días para el Evento" value={kpis.daysToEvent + 1} formatType="integer" />
+      <BrutalKpiCard
+        label="Venta Tickets"
+        value={kpis.totalRevenue}
+        formatType="clp-compact"
+        secondary={{
+          label: "Cargo Servicio",
+          value: fmtClpCompact(kpis.cargoServicio),
+        }}
+      />
       <BrutalKpiCard label="CPA Total Vendidos" value={kpis.cpa} formatType="usd" />
-      <BrutalKpiCard label="CPA Paid Media" value={pm.cpa} formatType="usd" />
-      <BrutalKpiCard label="Instagram Followers Δ" value={followersDelta} formatType="number" delta={followersDelta > 0 ? 1 : followersDelta < 0 ? -1 : 0} />
+      <BrutalKpiCard
+        label="Comunidad"
+        value={community.personas}
+        formatType="number"
+        inlineSuffix={communityInline}
+        secondary={{ label: "Del total", value: `${communityPct}%` }}
+      />
+      <BrutalKpiCard
+        label="Instagram Followers Δ"
+        value={followers.delta}
+        formatType="number"
+        delta={followersPct}
+        progression={followersProgression}
+      />
     </div>
   );
 }
