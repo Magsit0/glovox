@@ -10,6 +10,7 @@ import {
   getDateRange,
   getDocumentos,
   getKpis,
+  getMatrizProveedorAnio,
   getMensual,
   getProveedorOptions,
   DOCUMENTOS_LIMIT,
@@ -23,6 +24,7 @@ import CategoriaDonut from "@/components/proveedor/CategoriaDonut";
 import BreakdownTable, {
   type BreakdownRow,
 } from "@/components/proveedor/BreakdownTable";
+import MatrizProveedorAnio from "@/components/proveedor/MatrizProveedorAnio";
 import DocumentosTable from "@/components/proveedor/DocumentosTable";
 import { dateLabel } from "@/components/proveedor/format";
 
@@ -70,12 +72,14 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
     let mensual;
     let porProveedor;
     let porCategoria;
+    let matriz;
     try {
-      [kpis, mensual, porProveedor, porCategoria] = await Promise.all([
+      [kpis, mensual, porProveedor, porCategoria, matriz] = await Promise.all([
         getKpis(filters),
         getMensual(filters),
         getByProveedor(filters),
         getByCategoria(filters),
+        getMatrizProveedorAnio(filters),
       ]);
     } catch (err) {
       return (
@@ -101,7 +105,7 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
       }));
     const rankingSubtitle =
       porProveedor.length > RANKING_TOP
-        ? `Top ${RANKING_TOP} de ${porProveedor.length} proveedores por gasto. Usá el buscador del filtro para encontrar otros, o descargá el CSV con todos.`
+        ? `Top ${RANKING_TOP} de ${porProveedor.length} proveedores por gasto. Usa el buscador del filtro para encontrar otros, o descarga el CSV con todos.`
         : "Gasto total por proveedor en el período. Click en un proveedor para ver su detalle.";
 
     return (
@@ -110,6 +114,11 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
         <ProveedorFilters_ options={options} proveedor="" from={from ?? ""} to={to ?? ""} />
         <KpiRow kpis={kpis} scopeLabel="Gasto total · todos los proveedores" />
         <EvolucionChart rows={mensual} />
+        <MatrizProveedorAnio
+          years={matriz.years}
+          rows={matriz.rows}
+          baseSearchParams={baseQuery}
+        />
         <BreakdownTable
           title="Ranking de proveedores"
           subtitle={rankingSubtitle}
@@ -120,6 +129,7 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
           baseSearchParams={baseQuery}
           csv={{
             filename: "ranking-proveedores",
+            sheetName: "Ranking proveedores",
             headers: ["Proveedor", "RUT", "Gasto (CLP)", "Documentos", "Negocios"],
             rows: porProveedor.map((p) => [
               p.proveedor,
@@ -205,6 +215,7 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
         rows={negocioRows}
         csv={{
           filename: `negocios-${slug}`,
+          sheetName: "Gasto por negocio",
           headers: ["Negocio ID", "Negocio", "Gasto (CLP)", "Documentos", "Última fecha"],
           rows: porNegocio.map((nrow) => [
             nrow.negocioId,

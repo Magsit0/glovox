@@ -171,8 +171,8 @@ export default function ProveedorCombobox({ options, value, onSelect }: Props) {
 
             {query.trim() === "" && options.length > VISIBLE_WITHOUT_QUERY && (
               <p className="px-3 py-2 font-sans text-xs text-[#999999]">
-                Mostrando {VISIBLE_WITHOUT_QUERY} de {options.length}. Escribí para
-                buscar entre todos.
+                Mostrando {VISIBLE_WITHOUT_QUERY} de {options.length}. Escribe
+                para buscar entre todos.
               </p>
             )}
           </div>

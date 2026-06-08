@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import type { DocumentoRow } from "@/lib/queries/proveedor";
-import CsvButton from "@/components/proveedor/CsvButton";
+import DownloadButtons from "@/components/proveedor/DownloadButtons";
 import {
   dateLabel,
   formatCurrency,
@@ -88,7 +88,7 @@ export default function DocumentosTable({
     <article className="flex flex-col gap-6 rounded-lg border border-[#E5E5E5] bg-white">
       <header className="flex flex-col gap-3 px-6 pt-6">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="flex flex-col gap-1">
+          <div className="flex min-w-0 flex-col gap-1">
             <h2 className="font-display text-lg font-bold tracking-tight text-[#333333]">
               Detalle de documentos
             </h2>
@@ -97,11 +97,11 @@ export default function DocumentosTable({
               {formatNumber(rows.length)} filas · {formatCurrency(totalGasto)}.
             </p>
           </div>
-          <CsvButton
+          <DownloadButtons
             filename={csvFilename}
+            sheetName="Detalle gasto"
             headers={CSV_HEADERS}
             rows={toCsvRows(filtered)}
-            label="Descargar CSV"
           />
         </div>
 
@@ -119,7 +119,7 @@ export default function DocumentosTable({
 
         {capped && (
           <p className="font-sans text-xs text-[#EF8C34]">
-            Mostrando las primeras {formatNumber(rows.length)} filas. Acotá el rango
+            Mostrando las primeras {formatNumber(rows.length)} filas. Acota el rango
             de fechas para ver el resto.
           </p>
         )}
@@ -129,7 +129,7 @@ export default function DocumentosTable({
         <p className="py-12 text-center font-sans text-sm text-[#999999]">
           {proveedor
             ? "Sin documentos para los filtros seleccionados."
-            : "Seleccioná un proveedor para ver su detalle."}
+            : "Selecciona un proveedor para ver su detalle."}
         </p>
       ) : (
         <div className="max-h-[600px] overflow-auto">

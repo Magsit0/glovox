@@ -126,6 +126,20 @@ export type DocumentoRow = {
 
 export type DateRange = { min: string; max: string };
 
+export type MatrizProveedorAnioRow = {
+  proveedor: string;
+  rut: string;
+  /** Gasto por año, indexado por año en string ("2024"). Año ausente = sin gasto. */
+  byYear: Record<string, number>;
+  total: number;
+};
+
+export type MatrizProveedorAnio = {
+  /** Años con datos, ascendente. */
+  years: number[];
+  rows: MatrizProveedorAnioRow[];
+};
+
 // ---------- CTE base ----------
 
 /**
@@ -386,6 +400,57 @@ export async function getByCategoria(
     gasto: n(r.gasto),
     docs: n(r.docs),
   }));
+}
+
+/**
+ * Matriz gasto por proveedor × año (pivote). Respeta fechas; NO aplica el filtro
+ * de proveedor. Solo cuenta filas con fecha parseable (el año sale de la fecha
+ * del documento), así que el total = suma de las columnas de año.
+ */
+export async function getMatrizProveedorAnio(
+  filters: ProveedorFilters,
+): Promise<MatrizProveedorAnio> {
+  const { cte, params } = baseCte({ from: filters.from, to: filters.to });
+  const rows = await withTimeout(
+    query<Record<string, unknown>>(
+      `
+      ${cte}
+      SELECT
+        proveedor                   AS proveedor,
+        ANY_VALUE(rut)              AS rut,
+        EXTRACT(YEAR FROM fecha)    AS anio,
+        SUM(costo)                  AS gasto
+      FROM g
+      WHERE proveedor IS NOT NULL AND TRIM(proveedor) <> '' AND fecha IS NOT NULL
+      GROUP BY proveedor, anio
+      `,
+      params,
+    ),
+  );
+
+  const yearSet = new Set<number>();
+  const map = new Map<string, MatrizProveedorAnioRow>();
+  for (const r of rows) {
+    const prov = s(r.proveedor);
+    const anio = n(r.anio);
+    const gasto = n(r.gasto);
+    const rut = s(r.rut);
+    if (!prov || !Number.isFinite(anio) || anio === 0) continue;
+    yearSet.add(anio);
+    let row = map.get(prov);
+    if (!row) {
+      row = { proveedor: prov, rut, byYear: {}, total: 0 };
+      map.set(prov, row);
+    }
+    row.byYear[String(anio)] = (row.byYear[String(anio)] ?? 0) + gasto;
+    row.total += gasto;
+    if (!row.rut && rut) row.rut = rut;
+  }
+
+  return {
+    years: [...yearSet].sort((a, b) => a - b),
+    rows: [...map.values()].sort((a, b) => b.total - a.total),
+  };
 }
 
 /** Detalle a nivel de ítem para tabla + descarga. Requiere un proveedor en filtros. */

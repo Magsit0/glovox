@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import CsvButton from "@/components/proveedor/CsvButton";
+import DownloadButtons from "@/components/proveedor/DownloadButtons";
 import { formatCurrency, formatNumber } from "@/components/proveedor/format";
 
 export type BreakdownRow = {
@@ -27,15 +27,16 @@ interface Props {
   drillParam?: string;
   baseSearchParams?: Record<string, string | undefined>;
   /**
-   * Datos para el botón de descarga CSV. Se pasan como datos (no como elemento)
-   * y el botón se renderiza acá adentro: pasar un elemento como prop desde un
-   * Server Component cruza la frontera RSC y dispara warnings de keys.
+   * Datos para los botones de descarga (CSV + Excel). Se pasan como datos (no
+   * como elemento) y los botones se renderizan acá adentro: pasar un elemento
+   * como prop desde un Server Component cruza la frontera RSC y dispara warnings
+   * de keys.
    */
   csv?: {
     filename: string;
     headers: string[];
     rows: (string | number | null | undefined)[][];
-    label?: string;
+    sheetName?: string;
   };
   emptyText?: string;
 }
@@ -147,18 +148,18 @@ export default function BreakdownTable({
   return (
     <article className="flex flex-col gap-6 rounded-lg border border-[#E5E5E5] bg-white">
       <header className="flex flex-col gap-3 px-6 pt-6 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex flex-col gap-1">
+        <div className="flex min-w-0 flex-col gap-1">
           <h2 className="font-display text-lg font-bold tracking-tight text-[#333333]">
             {title}
           </h2>
           <p className="font-sans text-sm text-[#666666]">{subtitle}</p>
         </div>
         {csv && (
-          <CsvButton
+          <DownloadButtons
             filename={csv.filename}
+            sheetName={csv.sheetName}
             headers={csv.headers}
             rows={csv.rows}
-            label={csv.label}
           />
         )}
       </header>
