@@ -48,6 +48,26 @@ const TICKET_TYPE_FILTER = `
 //
 // Spend is multi-currency (USD / CLP / BRL …); callers convert to USD via `fx_rates`.
 
+// People-count weight per ticket row. Most rows are 1 person; FBM packs sell to
+// two people under a single ticket row, so they count as 2. Used by metrics that
+// represent "attendees" (the Venta Acumulada chart and the "Tickets Vendidos"
+// KPI). CPA and the rest of the dashboard keep counting raw transactions.
+//
+// Match rule: CategoriaEvento = 'FBM' AND TipoTicket contains 'PACK' AND has an
+// isolated '2' (no neighboring digits) — covers the three current names
+// (`PACK 2 PERSONAS`, `PACK PARA 2`, `PACK 2X GENERAL`) and any future variant
+// like `PACK ... 2 ...`, but excludes things like `PACK 24h` or `PACK 25 PERSONAS`.
+// Requires the query to expose CategoriaEvento (LEFT JOIN with `categoriaEvento`).
+function personasExpr(tAlias: string, cAlias: string): string {
+  return `CASE
+    WHEN ${cAlias}.CategoriaEvento = 'FBM'
+     AND UPPER(${tAlias}.TipoTicket) LIKE '%PACK%'
+     AND REGEXP_CONTAINS(${tAlias}.TipoTicket, r'(^|\\D)2(\\D|$)')
+    THEN 2
+    ELSE 1
+  END`;
+}
+
 // Sale window for @eventoId: first ticket-order date → last order date (or today if
 // the event is still upcoming). Mirrors the window used elsewhere in the dashboard.
 // `tSql` is the scoped ticketera filter fragment from `ticketeraFilter(scope)`.
@@ -322,12 +342,16 @@ export async function getEventKpis(
     `
     WITH ticket_stats AS (
       SELECT
-        COUNT(*)         AS total_tickets,
-        SUM(PrecioFinal) AS total_revenue,
-        AVG(PrecioFinal) AS avg_price,
-        MAX(FechaEvento) AS fecha_evento
-      FROM ${TICKETS}
-      WHERE EventoID = @eventoId
+        -- Personas (PACK rows in FBM count as 2). Drives the "Tickets Vendidos" KPI.
+        SUM(${personasExpr("t", "c")}) AS total_tickets,
+        -- Raw transaction count. Used by CPA so the per-purchase economics stay intact.
+        COUNT(*)                        AS total_transactions,
+        SUM(t.PrecioFinal) AS total_revenue,
+        AVG(t.PrecioFinal) AS avg_price,
+        MAX(t.FechaEvento) AS fecha_evento
+      FROM ${TICKETS} t
+      LEFT JOIN ${CATEGORY} c ON c.EventoID = t.EventoID
+      WHERE t.EventoID = @eventoId
         AND ${TICKET_TYPE_FILTER}${t.sql}
     ),
     ${ticketPeriodCte(t.sql)},
@@ -351,7 +375,8 @@ export async function getEventKpis(
       COALESCE(em.budgetPm, 0) AS budget_pm,
       CASE WHEN em.budgetPm > 0 THEN ROUND(COALESCE(a.total_spend, 0) / em.budgetPm * 100, 1) ELSE 0 END AS budget_exec_pct,
       COALESCE(em.goalTickets, 0) AS goal_tickets,
-      CASE WHEN ts.total_tickets > 0 THEN ROUND(COALESCE(a.total_spend, 0) / ts.total_tickets, 1) ELSE 0 END AS cpa,
+      -- CPA = spend / transactions (NOT personas) so a "PACK 2 PERSONAS" stays one purchase.
+      CASE WHEN ts.total_transactions > 0 THEN ROUND(COALESCE(a.total_spend, 0) / ts.total_transactions, 1) ELSE 0 END AS cpa,
       FORMAT_TIMESTAMP('%Y-%m-%d', ts.fecha_evento) AS fecha_evento
     FROM ticket_stats ts
     CROSS JOIN ad_stats a
@@ -416,9 +441,15 @@ export async function getCumulativeSales(
 export async function getCumulativeSalesRelative(
   eventoIds: string[],
   scope?: Scope,
+  tipoTickets?: string[],
 ): Promise<CumulativeSalesRelativeRow[]> {
   if (eventoIds.length === 0) return [];
   const t = ticketeraFilter(scope);
+  // Optional ticket-type filter. The user picks values from the union of all
+  // selected events; matching is by exact TipoTicket string (each event has its
+  // own naming, so cross-event semantics are the caller's concern).
+  const hasTipo = (tipoTickets?.length ?? 0) > 0;
+  const tipoSql = hasTipo ? ` AND TipoTicket IN UNNEST(@tipoTickets)` : ``;
   const rows = await query<Record<string, unknown>>(
     `
     WITH event_dates AS (
@@ -432,11 +463,14 @@ export async function getCumulativeSalesRelative(
       SELECT
         t.EventoID                                                        AS evento_id,
         DATE_DIFF(DATE(e.fecha_evento), DATE(CASE WHEN t.EventoID = 'GLO198' AND t.TipoTicket = 'GENERAL DGTL' THEN TIMESTAMP('2026-03-18') ELSE t.FechaOrden END), DAY) AS days_to_event,
-        COUNT(*)                                                           AS daily_tickets
+        -- Personas (FBM PACK rows weighted x2). Keeps the chart aligned with
+        -- the "Tickets Vendidos" KPI and the event's people-based goalTickets.
+        SUM(${personasExpr("t", "c")})                                     AS daily_tickets
       FROM ${TICKETS} t
       JOIN event_dates e ON e.EventoID = t.EventoID
+      LEFT JOIN ${CATEGORY} c ON c.EventoID = t.EventoID
       WHERE t.EventoID IN UNNEST(@eventoIds)
-        AND ${TICKET_TYPE_FILTER}${t.sql}
+        AND ${TICKET_TYPE_FILTER}${tipoSql}${t.sql}
       GROUP BY evento_id, days_to_event
     )
     SELECT
@@ -450,13 +484,40 @@ export async function getCumulativeSalesRelative(
     FROM daily
     ORDER BY evento_id, days_to_event DESC
     `,
-    { eventoIds, ...t.params },
+    { eventoIds, ...t.params, ...(hasTipo ? { tipoTickets } : {}) },
   );
   return rows.map((r) => ({
     eventoId: s(r.evento_id),
     daysToEvent: n(r.days_to_event),
     dailyTickets: n(r.daily_tickets),
     cumulativeTickets: n(r.cumulative_tickets),
+  }));
+}
+
+// Distinct TipoTicket values for the union of `eventoIds`. Each event has its
+// own naming, so we return the union with per-value ticket counts (used to sort
+// the dropdown by relevance). Filter rules mirror `getCumulativeSalesRelative`.
+export async function getTipoTicketOptions(
+  eventoIds: string[],
+  scope?: Scope,
+): Promise<{ tipoTicket: string; tickets: number }[]> {
+  if (eventoIds.length === 0) return [];
+  const t = ticketeraFilter(scope);
+  const rows = await query<Record<string, unknown>>(
+    `
+    SELECT TipoTicket AS tipo_ticket, COUNT(*) AS tickets
+    FROM ${TICKETS}
+    WHERE EventoID IN UNNEST(@eventoIds)
+      AND ${TICKET_TYPE_FILTER}${t.sql}
+      AND TipoTicket IS NOT NULL AND TipoTicket != ''
+    GROUP BY tipo_ticket
+    ORDER BY tickets DESC
+    `,
+    { eventoIds, ...t.params },
+  );
+  return rows.map((r) => ({
+    tipoTicket: s(r.tipo_ticket),
+    tickets: n(r.tickets),
   }));
 }
 

@@ -8,6 +8,7 @@ import {
   getEventKpis,
   getTicketDateRange,
   getCumulativeSalesRelative,
+  getTipoTicketOptions,
   getPaidMediaSummary,
   getSalesOrigin,
   getFollowersDelta,
@@ -20,6 +21,7 @@ import {
 } from "@/lib/queries/marketing";
 import EventSelector from "@/components/marketing/EventSelector";
 import CompareEventSelector from "@/components/marketing/CompareEventSelector";
+import TipoTicketFilter from "@/components/marketing/TipoTicketFilter";
 import BrutalKpiCard from "@/components/marketing/BrutalKpiCard";
 import BrutalChartPanel from "@/components/marketing/BrutalChartPanel";
 import BrutalHighlightPanel from "@/components/marketing/BrutalHighlightPanel";
@@ -65,6 +67,7 @@ export default async function MarketingWeeklyPage({
     event?: string;
     landingPage?: string | string[];
     compare?: string | string[];
+    tipoTicket?: string | string[];
   }>;
 }) {
   const params = await searchParams;
@@ -116,6 +119,17 @@ export default async function MarketingWeeklyPage({
     comparableIds.has(id),
   );
 
+  // TipoTicket filter (applies only to the cumulative-sales chart). The user
+  // picks values from the union of TipoTickets across the visible events
+  // (main + active comparators). Deduped + canonicalised here so the cache key
+  // below is stable across reorderings.
+  const rawTipoTicket = Array.isArray(params.tipoTicket)
+    ? params.tipoTicket
+    : params.tipoTicket
+      ? [params.tipoTicket]
+      : [];
+  const selectedTipoTickets = Array.from(new Set(rawTipoTicket)).sort();
+
   return (
     <div className="bg-white text-black min-h-full">
       <EventSelector
@@ -147,7 +161,7 @@ export default async function MarketingWeeklyPage({
         {/* Row: Cumulative Sales + Paid Media */}
         <div className="grid grid-cols-4 gap-6">
           <Suspense
-            key={`cum-${selectedId}-${compareIds.join("|")}`}
+            key={`cum-${selectedId}-${compareIds.join("|")}-${selectedTipoTickets.join("|")}`}
             fallback={<Skeleton />}
           >
             <CumulativeSalesSection
@@ -156,6 +170,7 @@ export default async function MarketingWeeklyPage({
               mainCategoria={mainEvent?.categoriaEvento ?? ""}
               compareIds={compareIds}
               comparableEvents={comparableEvents}
+              tipoTickets={selectedTipoTickets}
               scope={scope}
             />
           </Suspense>
@@ -219,6 +234,7 @@ async function CumulativeSalesSection({
   mainCategoria,
   compareIds,
   comparableEvents,
+  tipoTickets,
   scope,
 }: {
   eventoId: string;
@@ -226,13 +242,18 @@ async function CumulativeSalesSection({
   mainCategoria: string;
   compareIds: string[];
   comparableEvents: EventOption[];
+  tipoTickets: string[];
   scope?: Scope;
 }) {
   const ids = [eventoId, ...compareIds];
-  const [series, kpis, range] = await Promise.all([
-    getCumulativeSalesRelative(ids, scope),
+  const [series, kpis, range, tipoOptions] = await Promise.all([
+    getCumulativeSalesRelative(ids, scope, tipoTickets),
     getEventKpis(eventoId, scope),
     getTicketDateRange(eventoId, scope),
+    // List of available TipoTickets is the union across the visible events
+    // (main + active comparators). Computed regardless of the current filter
+    // so the user can always change selection.
+    getTipoTicketOptions(ids, scope),
   ]);
   const events = [
     { eventoId, nombre: mainNombre },
@@ -249,24 +270,31 @@ async function CumulativeSalesSection({
       if (diff > 0) saleStartDaysToEvent = diff;
     }
   }
+  // When a TipoTicket filter is active, hide the target line: `goalTickets`
+  // is the event's total goal (not broken down by ticket type), so it would
+  // be misleading next to a filtered series.
+  const filterActive = tipoTickets.length > 0;
   return (
     <BrutalChartPanel title="Venta Acumulada" className="col-span-3">
-      <CompareEventSelector
-        events={comparableEvents.map((e) => ({
-          eventoId: e.eventoId,
-          nombre: e.nombre,
-          fechaEvento: e.fechaEvento,
-          categoriaEvento: e.categoriaEvento,
-        }))}
-        selected={compareIds}
-        defaultCategory={mainCategoria}
-      />
+      <div className="flex flex-wrap gap-2">
+        <CompareEventSelector
+          events={comparableEvents.map((e) => ({
+            eventoId: e.eventoId,
+            nombre: e.nombre,
+            fechaEvento: e.fechaEvento,
+            categoriaEvento: e.categoriaEvento,
+          }))}
+          selected={compareIds}
+          defaultCategory={mainCategoria}
+        />
+        <TipoTicketFilter options={tipoOptions} selected={tipoTickets} />
+      </div>
       <CumulativeSalesComparisonChart
         series={series}
         mainEventoId={eventoId}
         events={events}
-        goalTickets={kpis.goalTickets}
-        saleStartDaysToEvent={saleStartDaysToEvent}
+        goalTickets={filterActive ? undefined : kpis.goalTickets}
+        saleStartDaysToEvent={filterActive ? undefined : saleStartDaysToEvent}
       />
     </BrutalChartPanel>
   );
