@@ -7,7 +7,6 @@ import {
   getOnepagerTicketsByTipo,
   getOnepagerFfbbByCategoriaProducto,
   getOnepagerFfbbByPuntoVenta,
-  getOnepagerFfbbByCategoria,
   getOnepagerFfbbEvolucion,
   getOnepagerTicketsAsistencia,
   getOnepagerEventList,
@@ -194,7 +193,6 @@ async function DetalleSection({ eventoId }: { eventoId: string }) {
     ticketsByTipo,
     ffbbByCatProd,
     ffbbByPuntoVenta,
-    ffbbByCategoria,
     ffbbEvolucion,
     marcaClientes,
     marcaIngresos,
@@ -202,7 +200,6 @@ async function DetalleSection({ eventoId }: { eventoId: string }) {
     getOnepagerTicketsByTipo(eventoId),
     getOnepagerFfbbByCategoriaProducto(eventoId),
     getOnepagerFfbbByPuntoVenta(eventoId),
-    getOnepagerFfbbByCategoria(eventoId),
     getOnepagerFfbbEvolucion(eventoId),
     getMarcaClientes(),
     getMarcaIngresosByEvento(eventoId),
@@ -213,7 +210,6 @@ async function DetalleSection({ eventoId }: { eventoId: string }) {
       ticketsByTipo={ticketsByTipo}
       ffbbByCatProd={ffbbByCatProd}
       ffbbByPuntoVenta={ffbbByPuntoVenta}
-      ffbbByCategoria={ffbbByCategoria}
       ffbbEvolucion={ffbbEvolucion}
       marcaClientes={marcaClientes}
       marcaIngresos={marcaIngresos}

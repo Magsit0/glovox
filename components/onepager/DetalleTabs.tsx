@@ -5,7 +5,7 @@ import BrutalChartPanel from "./BrutalChartPanel";
 import TipoProductoChart from "./TipoProductoChart";
 import FfbbRankingChart from "./FfbbRankingChart";
 import PuntoVentaChart from "./PuntoVentaChart";
-import CategoriaFunnel from "./CategoriaFunnel";
+import FfbbDetalleTable from "./FfbbDetalleTable";
 import FfbbEvolucionChart from "./FfbbEvolucionChart";
 import MarcaIngresosTable from "./MarcaIngresosTable";
 import MarcaIngresoFormSheet from "./MarcaIngresoFormSheet";
@@ -13,7 +13,6 @@ import type {
   OnepagerTipoProductoRow,
   OnepagerFfbbCategoriaProductoRow,
   OnepagerPuntoVentaRow,
-  OnepagerCategoriaRow,
   OnepagerFfbbEvolucionRow,
 } from "@/lib/queries/onepager";
 import type { MarcaClienteRow, MarcaIngresoRow } from "@/lib/queries/marca";
@@ -23,7 +22,6 @@ type Props = {
   ticketsByTipo: OnepagerTipoProductoRow[];
   ffbbByCatProd: OnepagerFfbbCategoriaProductoRow[];
   ffbbByPuntoVenta: OnepagerPuntoVentaRow[];
-  ffbbByCategoria: OnepagerCategoriaRow[];
   ffbbEvolucion: OnepagerFfbbEvolucionRow[];
   marcaClientes: MarcaClienteRow[];
   marcaIngresos: MarcaIngresoRow[];
@@ -36,7 +34,6 @@ export default function DetalleTabs({
   ticketsByTipo,
   ffbbByCatProd,
   ffbbByPuntoVenta,
-  ffbbByCategoria,
   ffbbEvolucion,
   marcaClientes,
   marcaIngresos,
@@ -103,8 +100,8 @@ export default function DetalleTabs({
               )}
             </BrutalChartPanel>
           </div>
-          <BrutalChartPanel title="FF&BB — Venta por Categoría">
-            <CategoriaFunnel data={ffbbByCategoria} />
+          <BrutalChartPanel title="FF&BB — Detalle por Producto">
+            <FfbbDetalleTable data={ffbbByCatProd} eventoId={eventoId} />
           </BrutalChartPanel>
         </div>
       )}
