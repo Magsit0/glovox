@@ -13,7 +13,11 @@ import {
   getMatrizProveedorAnio,
   getMensual,
   getProveedorOptions,
+  getProveedorPorDimension,
+  DIMENSION_LIMIT,
   DOCUMENTOS_LIMIT,
+  type ProveedorDimension,
+  type ProveedorDimensionRow,
   type ProveedorFilters,
 } from "@/lib/queries/proveedor";
 import ProveedorFilters_ from "@/components/proveedor/ProveedorFilters";
@@ -25,6 +29,7 @@ import BreakdownTable, {
   type BreakdownRow,
 } from "@/components/proveedor/BreakdownTable";
 import MatrizProveedorAnio from "@/components/proveedor/MatrizProveedorAnio";
+import ProveedorDimensionTable from "@/components/proveedor/ProveedorDimensionTable";
 import DocumentosTable from "@/components/proveedor/DocumentosTable";
 import { dateLabel } from "@/components/proveedor/format";
 
@@ -73,14 +78,21 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
     let porProveedor;
     let porCategoria;
     let matriz;
+    let dimCat;
+    let dimSub;
+    let dimItem;
     try {
-      [kpis, mensual, porProveedor, porCategoria, matriz] = await Promise.all([
-        getKpis(filters),
-        getMensual(filters),
-        getByProveedor(filters),
-        getByCategoria(filters),
-        getMatrizProveedorAnio(filters),
-      ]);
+      [kpis, mensual, porProveedor, porCategoria, matriz, dimCat, dimSub, dimItem] =
+        await Promise.all([
+          getKpis(filters),
+          getMensual(filters),
+          getByProveedor(filters),
+          getByCategoria(filters),
+          getMatrizProveedorAnio(filters),
+          getProveedorPorDimension(filters, "categoria"),
+          getProveedorPorDimension(filters, "subcategoria"),
+          getProveedorPorDimension(filters, "item"),
+        ]);
     } catch (err) {
       return (
         <Shell>
@@ -107,6 +119,17 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
       porProveedor.length > RANKING_TOP
         ? `Top ${RANKING_TOP} de ${porProveedor.length} proveedores por gasto. Usa el buscador del filtro para encontrar otros, o descarga el CSV con todos.`
         : "Gasto total por proveedor en el período. Click en un proveedor para ver su detalle.";
+
+    const dimData: Record<ProveedorDimension, ProveedorDimensionRow[]> = {
+      categoria: dimCat,
+      subcategoria: dimSub,
+      item: dimItem,
+    };
+    const dimCapped: Record<ProveedorDimension, boolean> = {
+      categoria: dimCat.length >= DIMENSION_LIMIT,
+      subcategoria: dimSub.length >= DIMENSION_LIMIT,
+      item: dimItem.length >= DIMENSION_LIMIT,
+    };
 
     return (
       <Shell>
@@ -141,6 +164,11 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
           }}
         />
         <CategoriaDonut rows={porCategoria} />
+        <ProveedorDimensionTable
+          data={dimData}
+          capped={dimCapped}
+          baseSearchParams={baseQuery}
+        />
       </Shell>
     );
   }
@@ -153,13 +181,28 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
   let porNegocio;
   let porCategoria;
   let documentos;
+  let dimCatP;
+  let dimSubP;
+  let dimItemP;
   try {
-    [kpis, mensual, porNegocio, porCategoria, documentos] = await Promise.all([
+    [
+      kpis,
+      mensual,
+      porNegocio,
+      porCategoria,
+      documentos,
+      dimCatP,
+      dimSubP,
+      dimItemP,
+    ] = await Promise.all([
       getKpis(filters),
       getMensual(filters),
       getByNegocio(filters),
       getByCategoria(filters),
       getDocumentos(filters),
+      getProveedorPorDimension(filters, "categoria"),
+      getProveedorPorDimension(filters, "subcategoria"),
+      getProveedorPorDimension(filters, "item"),
     ]);
   } catch (err) {
     return (
@@ -183,6 +226,17 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
 
   const capped = documentos.length >= DOCUMENTOS_LIMIT;
   const slug = proveedor.replace(/[^a-zA-Z0-9]+/g, "-").toLowerCase();
+
+  const dimDataP: Record<ProveedorDimension, ProveedorDimensionRow[]> = {
+    categoria: dimCatP,
+    subcategoria: dimSubP,
+    item: dimItemP,
+  };
+  const dimCappedP: Record<ProveedorDimension, boolean> = {
+    categoria: dimCatP.length >= DIMENSION_LIMIT,
+    subcategoria: dimSubP.length >= DIMENSION_LIMIT,
+    item: dimItemP.length >= DIMENSION_LIMIT,
+  };
 
   return (
     <Shell>
@@ -226,6 +280,8 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
           ]),
         }}
       />
+
+      <ProveedorDimensionTable data={dimDataP} capped={dimCappedP} proveedorScope />
 
       <DocumentosTable
         rows={documentos}

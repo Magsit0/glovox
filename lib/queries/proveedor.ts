@@ -134,6 +134,22 @@ export type MatrizProveedorAnioRow = {
   total: number;
 };
 
+export type ProveedorDimension = "categoria" | "subcategoria" | "item";
+
+export type ProveedorDimensionRow = {
+  proveedor: string;
+  rut: string;
+  /** Valor de la dimensión (categoría, subcategoría o ítem). */
+  dimension: string;
+  /** Suma de item_costo_empresa en el período. */
+  gasto: number;
+  /** Negocios distintos donde el proveedor participó con esta dimensión. */
+  negocios: number;
+  /** Promedio por negocio = gasto / negocios. */
+  promedio: number;
+  ultimaFecha: string;
+};
+
 export type MatrizProveedorAnio = {
   /** Años con datos, ascendente. */
   years: number[];
@@ -451,6 +467,77 @@ export async function getMatrizProveedorAnio(
     years: [...yearSet].sort((a, b) => a - b),
     rows: [...map.values()].sort((a, b) => b.total - a.total),
   };
+}
+
+/**
+ * Mapeo seguro de dimensión → columna BigQuery (NO interpolar input del usuario
+ * directo en SQL; este map es la única fuente de verdad).
+ */
+const DIMENSION_COL: Record<ProveedorDimension, string> = {
+  categoria: "item_categoria",
+  subcategoria: "item_sub_categoria",
+  item: "item_nombre",
+};
+
+const DIMENSION_FALLBACK: Record<ProveedorDimension, string> = {
+  categoria: "Sin categoría",
+  subcategoria: "Sin subcategoría",
+  item: "Sin ítem",
+};
+
+/**
+ * Tope de filas para la matriz proveedor × dimensión. Cubre con margen el caso
+ * sin filtros (más grande): ~28K combinaciones para `item` en producción.
+ * Si se alcanza, el componente avisa que está topado.
+ */
+export const DIMENSION_LIMIT = 30000;
+
+/**
+ * Gasto por proveedor × dimensión (categoría / subcategoría / ítem). Devuelve
+ * monto total, cantidad de negocios donde el proveedor participó con esa
+ * dimensión, promedio por negocio y última fecha. Respeta filtros (proveedor,
+ * fechas, área, excluir_gasto).
+ */
+export async function getProveedorPorDimension(
+  filters: ProveedorFilters,
+  dimension: ProveedorDimension,
+): Promise<ProveedorDimensionRow[]> {
+  const col = DIMENSION_COL[dimension];
+  const fallback = DIMENSION_FALLBACK[dimension];
+  const { cte, params } = baseCte(filters);
+  const rows = await withTimeout(
+    query<Record<string, unknown>>(
+      `
+      ${cte}
+      SELECT
+        proveedor                                                       AS proveedor,
+        ANY_VALUE(rut)                                                  AS rut,
+        IFNULL(NULLIF(TRIM(${col}), ''), @fallback)                    AS dimension,
+        SUM(costo)                                                      AS gasto,
+        COUNT(DISTINCT negocio_id)                                      AS negocios,
+        FORMAT_DATE('%Y-%m-%d', MAX(fecha))                            AS ultima
+      FROM g
+      WHERE proveedor IS NOT NULL AND TRIM(proveedor) <> ''
+      GROUP BY proveedor, dimension
+      ORDER BY gasto DESC
+      LIMIT ${DIMENSION_LIMIT}
+      `,
+      { ...params, fallback },
+    ),
+  );
+  return rows.map((r) => {
+    const gasto = n(r.gasto);
+    const negocios = n(r.negocios);
+    return {
+      proveedor: s(r.proveedor),
+      rut: s(r.rut),
+      dimension: s(r.dimension),
+      gasto,
+      negocios,
+      promedio: negocios > 0 ? gasto / negocios : 0,
+      ultimaFecha: s(r.ultima),
+    };
+  });
 }
 
 /** Detalle a nivel de ítem para tabla + descarga. Requiere un proveedor en filtros. */
