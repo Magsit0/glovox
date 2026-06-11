@@ -23,8 +23,23 @@ const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
 // total_followers INT64, loaded_at TIMESTAMP. We filter by network='instagram'
 // at every call site because the dashboard reports Instagram followers.
 const FOLLOWERS = `\`${P}.marketing.rrss_fllws\``;
-const FUNNEL = `\`${P}.google_analytics.funnel\``;
-const UTM = `\`${P}.google_analytics.utm\``;
+// Funnel mart: vista sobre google_analytics.funnel con landing_page normalizada.
+// La tabla cruda tiene miles de landing pages únicas (códigos personales
+// /codigo/EVENTO/50/XXXX, retornos de pago /Compra/Exito/<orden>, páginas QA);
+// la vista las colapsa en `landing_normalizada` y las clasifica en `familia`.
+// Definición: data-governance/schemas/bigquery/views/marts_ga4_funnel.sql
+const FUNNEL = `\`${P}.marts.ga4_funnel\``;
+// Asignación landing↔evento. Una propiedad GA4 es de la MARCA (GRID, Piknic),
+// no del evento: sin este mapa, el funnel de un evento mezcla el tráfico de
+// todos los eventos de la marca. Auto-poblada desde las URLs de prueba del
+// equipo; se re-siembra con data-governance/scripts/ga4_seed_landing_event_map.sql
+// y admite filas manuales (fuente='manual').
+const LANDING_MAP = `\`${P}.glovox_inputs.ga4_landing_event_map\``;
+// Tráfico UTM mart: vista con `canal` (clasifica el source/medium informal del
+// equipo — meta/venta_*, mt/pm, ff/ref… — en canales de negocio) y landing
+// normalizada para acotar por evento. Definición:
+// data-governance/schemas/bigquery/views/marts_ga4_utm.sql
+const UTM = `\`${P}.marts.ga4_utm\``;
 const USERS = `\`${P}.comunidadGlovox.users\``;
 
 // Override FechaOrden for GLO198 / GENERAL DGTL tickets to 2026-03-18 for chart display
@@ -251,6 +266,7 @@ export type CampaignRow = {
 };
 
 export type UtmTrafficRow = {
+  canal: string;
   source: string;
   medium: string;
   content: string;
@@ -260,6 +276,15 @@ export type UtmTrafficRow = {
   pageViews: number;
   bounceRate: number;
   engPerSession: number;
+};
+
+// Una fila por día × canal, con las órdenes reales del día repetidas en cada
+// fila (el componente pivotea). Para el gráfico tráfico vs ventas.
+export type TrafficTimelineRow = {
+  date: string;
+  canal: string;
+  sessions: number;
+  ordenes: number;
 };
 
 export type TicketDateRange = {
@@ -913,16 +938,38 @@ export async function getFunnelData(
 ): Promise<FunnelRow[]> {
   const list = landingPages ?? [];
   const hasFilter = list.length > 0;
+  // Acotado por defecto a (a) la ventana de venta del evento — igual que la
+  // sección UTM — y (b) las landings del evento: las del LANDING_MAP más las
+  // URLs que traen el EventoID embebido (/codigo/GLO198/...). Piknic reusa el
+  // mismo slug entre ediciones, por eso fechas y mapa se aplican JUNTOS. Si el
+  // evento no tiene landings mapeadas, cae a toda la propiedad (solo excluye
+  // códigos de otros eventos). La selección manual reemplaza el criterio (b).
   const rows = await query<Record<string, unknown>>(
     `
+    WITH ${ticketPeriodCte("")},
+    mapa_evento AS (
+      SELECT property_id, landing_normalizada
+      FROM ${LANDING_MAP}
+      WHERE evento_id = @eventoId
+    )
     SELECT
       f.funnel_step AS step,
       f.step_order,
       SUM(f.total_users) AS users
     FROM ${FUNNEL} f
     JOIN ${CATEGORY} c ON f.property_id = CAST(c.property_ga4 AS STRING)
+    LEFT JOIN mapa_evento m
+      ON m.property_id = f.property_id
+      AND m.landing_normalizada = f.landing_normalizada
+    CROSS JOIN ticket_period p
     WHERE c.EventoID = @eventoId
-      AND (@hasFilter = FALSE OR f.landing_page IN UNNEST(@landingPages))
+      AND f.date BETWEEN p.start_date AND p.end_date
+      AND CASE
+        WHEN @hasFilter THEN f.landing_normalizada IN UNNEST(@landingPages)
+        WHEN f.evento_id_url = @eventoId OR m.landing_normalizada IS NOT NULL THEN TRUE
+        WHEN EXISTS (SELECT 1 FROM mapa_evento) THEN FALSE
+        ELSE f.evento_id_url IS NULL
+      END
     GROUP BY step, step_order
     ORDER BY step_order
     `,
@@ -944,12 +991,30 @@ export async function getFunnelLandingPages(
 ): Promise<string[]> {
   const rows = await query<Record<string, unknown>>(
     `
-    SELECT DISTINCT f.landing_page AS landing_page
+    WITH mapa_evento AS (
+      SELECT property_id, landing_normalizada
+      FROM ${LANDING_MAP}
+      WHERE evento_id = @eventoId
+    )
+    SELECT f.landing_normalizada AS landing_page
     FROM ${FUNNEL} f
     JOIN ${CATEGORY} c ON f.property_id = CAST(c.property_ga4 AS STRING)
+    LEFT JOIN mapa_evento m
+      ON m.property_id = f.property_id
+      AND m.landing_normalizada = f.landing_normalizada
     WHERE c.EventoID = @eventoId
-      AND f.landing_page IS NOT NULL
-    ORDER BY landing_page
+    GROUP BY landing_page
+    ORDER BY
+      MAX(IF(f.evento_id_url = @eventoId OR m.landing_normalizada IS NOT NULL, 1, 0)) DESC,
+      MIN(CASE f.familia
+        WHEN 'pagina_evento' THEN 0
+        WHEN 'codigo_personal' THEN 1
+        WHEN 'link_referido' THEN 2
+        WHEN 'checkout_interno' THEN 3
+        WHEN 'retorno_pago' THEN 4
+        ELSE 5
+      END),
+      SUM(f.total_users) DESC
     `,
     { eventoId }
   );
@@ -1001,8 +1066,14 @@ export async function getUtmTraffic(
       FROM ${TICKETS}
       WHERE EventoID = @eventoId
         AND ${TICKET_TYPE_FILTER}${t.sql}
+    ),
+    mapa_evento AS (
+      SELECT property_id, landing_normalizada
+      FROM ${LANDING_MAP}
+      WHERE evento_id = @eventoId
     )
     SELECT
+      u.canal AS canal,
       COALESCE(u.medium, '(none)') AS medium,
       COALESCE(u.source, '(direct)') AS source,
       COALESCE(u.content, '') AS content,
@@ -1014,15 +1085,24 @@ export async function getUtmTraffic(
       SAFE_DIVIDE(SUM(u.event_count), SUM(u.sessions)) AS eng_per_session
     FROM ${UTM} u
     JOIN ${CATEGORY} c ON u.property_id = CAST(c.property_ga4 AS STRING)
+    LEFT JOIN mapa_evento m
+      ON m.property_id = u.property_id
+      AND m.landing_normalizada = u.landing_normalizada
     CROSS JOIN ticket_period p
     WHERE c.EventoID = @eventoId
       AND u.date BETWEEN p.start_date AND p.end_date
-    GROUP BY medium, source, content, term
+      AND CASE
+        WHEN u.evento_id_url = @eventoId OR m.landing_normalizada IS NOT NULL THEN TRUE
+        WHEN EXISTS (SELECT 1 FROM mapa_evento) THEN FALSE
+        ELSE u.evento_id_url IS NULL
+      END
+    GROUP BY canal, medium, source, content, term
     ORDER BY sessions DESC
     `,
     { eventoId, ...t.params }
   );
   return rows.map((r) => ({
+    canal: s(r.canal),
     medium: s(r.medium),
     source: s(r.source),
     content: s(r.content),
@@ -1032,5 +1112,61 @@ export async function getUtmTraffic(
     pageViews: n(r.page_views),
     bounceRate: n(r.bounce_rate),
     engPerSession: n(r.eng_per_session),
+  }));
+}
+
+// Tráfico diario por canal + órdenes reales del día (glovox.tickets), dentro
+// de la ventana de venta y acotado a las landings del evento — el cruce
+// "termómetro web vs caja registradora". Las órdenes llegan repetidas en cada
+// fila del mismo día (ANY_VALUE); el componente las desduplica al pivotear.
+export async function getTrafficTimeline(
+  eventoId: string,
+  scope?: Scope,
+): Promise<TrafficTimelineRow[]> {
+  const t = ticketeraFilter(scope);
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH ${ticketPeriodCte(t.sql)},
+    mapa_evento AS (
+      SELECT property_id, landing_normalizada
+      FROM ${LANDING_MAP}
+      WHERE evento_id = @eventoId
+    ),
+    ordenes_dia AS (
+      SELECT DATE(${FECHA_ORDEN_ADJ}) AS dia, COUNT(DISTINCT OrdenID) AS ordenes
+      FROM ${TICKETS}
+      WHERE EventoID = @eventoId
+        AND ${TICKET_TYPE_FILTER}${t.sql}
+      GROUP BY dia
+    )
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', u.date) AS date,
+      u.canal AS canal,
+      SUM(u.sessions) AS sessions,
+      ANY_VALUE(COALESCE(o.ordenes, 0)) AS ordenes
+    FROM ${UTM} u
+    JOIN ${CATEGORY} c ON u.property_id = CAST(c.property_ga4 AS STRING)
+    LEFT JOIN mapa_evento m
+      ON m.property_id = u.property_id
+      AND m.landing_normalizada = u.landing_normalizada
+    CROSS JOIN ticket_period p
+    LEFT JOIN ordenes_dia o ON o.dia = u.date
+    WHERE c.EventoID = @eventoId
+      AND u.date BETWEEN p.start_date AND p.end_date
+      AND CASE
+        WHEN u.evento_id_url = @eventoId OR m.landing_normalizada IS NOT NULL THEN TRUE
+        WHEN EXISTS (SELECT 1 FROM mapa_evento) THEN FALSE
+        ELSE u.evento_id_url IS NULL
+      END
+    GROUP BY date, canal
+    ORDER BY date
+    `,
+    { eventoId, ...t.params }
+  );
+  return rows.map((r) => ({
+    date: s(r.date),
+    canal: s(r.canal),
+    sessions: n(r.sessions),
+    ordenes: n(r.ordenes),
   }));
 }

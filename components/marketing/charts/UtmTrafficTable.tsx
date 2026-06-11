@@ -14,6 +14,7 @@ import {
   Pie,
   Cell,
   Legend,
+  LabelList,
 } from "recharts";
 import type { UtmTrafficRow } from "@/lib/queries/marketing";
 
@@ -21,40 +22,50 @@ type Props = {
   data: UtmTrafficRow[];
 };
 
-const PIE_COLORS = ["#FF0000", "#0000FF", "#000000", "#FFFF00"];
-const SCATTER_COLORS = ["#FF0000", "#0000FF", "#000000", "#FFFF00"];
+const PIE_COLORS = [
+  "#FF0000",
+  "#0000FF",
+  "#000000",
+  "#FFFF00",
+  "#FF00FF",
+  "#00FFFF",
+  "#00FF00",
+  "#FF8000",
+];
+const SCATTER_COLORS = PIE_COLORS;
 
-// ---------- Grouping logic (same pattern as SalesOriginTable) ----------
+// ---------- Agrupación por canal (la vista marts.ga4_utm clasifica el
+// source/medium informal — meta/venta_*, mt/pm, ff/ref — en canales) ----------
 
-type MediumGroup = {
-  medium: string;
+type CanalGroup = {
+  canal: string;
   totalSessions: number;
   pct: number;
   children: UtmTrafficRow[];
 };
 
-type Entry = { type: "group"; group: MediumGroup } | { type: "single"; row: UtmTrafficRow };
+type Entry = { type: "group"; group: CanalGroup } | { type: "single"; row: UtmTrafficRow };
 
 function buildEntries(data: UtmTrafficRow[], totalSessions: number): Entry[] {
-  const mediumMap = new Map<string, UtmTrafficRow[]>();
+  const canalMap = new Map<string, UtmTrafficRow[]>();
   for (const row of data) {
-    const key = row.medium;
-    if (!mediumMap.has(key)) mediumMap.set(key, []);
-    mediumMap.get(key)!.push(row);
+    const key = row.canal;
+    if (!canalMap.has(key)) canalMap.set(key, []);
+    canalMap.get(key)!.push(row);
   }
 
   const entries: Entry[] = [];
-  for (const [medium, rows] of mediumMap) {
-    const mediumSessions = rows.reduce((s, r) => s + r.sessions, 0);
+  for (const [canal, rows] of canalMap) {
+    const canalSessions = rows.reduce((s, r) => s + r.sessions, 0);
     if (rows.length === 1) {
       entries.push({ type: "single", row: rows[0] });
     } else {
       entries.push({
         type: "group",
         group: {
-          medium,
-          totalSessions: mediumSessions,
-          pct: totalSessions > 0 ? Math.round((mediumSessions / totalSessions) * 100) : 0,
+          canal,
+          totalSessions: canalSessions,
+          pct: totalSessions > 0 ? Math.round((canalSessions / totalSessions) * 100) : 0,
           children: rows.sort((a, b) => b.sessions - a.sessions),
         },
       });
@@ -70,11 +81,18 @@ function buildEntries(data: UtmTrafficRow[], totalSessions: number): Entry[] {
   return entries;
 }
 
-// ---------- Scatter data: aggregate by source for the bubble chart ----------
+// ---------- Scatter: volumen vs calidad, UN punto por canal ----------
+// Por source el gráfico era una nube ilegible (60+ puntos aplastados por el
+// eje lineal, colores repetidos, fuentes de 1 sesión disparadas en Y). Un punto
+// por canal con etiqueta responde una sola pregunta bien: ¿qué canal trae
+// volumen Y calidad? El detalle por fuente vive en la tabla expandible.
+
+// Canales con menos sesiones que esto no entran al scatter: con 2 visitas el
+// "engagement promedio" es ruido, no señal.
+const MIN_SESSIONS_SCATTER = 100;
 
 type ScatterPoint = {
   name: string;
-  medium: string;
   sessions: number;
   engPerSession: number;
 };
@@ -88,8 +106,7 @@ export default function UtmTrafficTable({ data }: Props) {
   const pieData = useMemo(() => {
     const agg = new Map<string, number>();
     for (const row of data) {
-      const key = `${row.medium} / ${row.source}`;
-      agg.set(key, (agg.get(key) ?? 0) + row.sessions);
+      agg.set(row.canal, (agg.get(row.canal) ?? 0) + row.sessions);
     }
     return [...agg.entries()]
       .map(([name, value]) => ({ name, value }))
@@ -98,29 +115,26 @@ export default function UtmTrafficTable({ data }: Props) {
   }, [data]);
 
   const scatterData: ScatterPoint[] = useMemo(() => {
-    const agg = new Map<string, { sessions: number; engTotal: number; medium: string }>();
+    const agg = new Map<string, { sessions: number; engTotal: number }>();
     for (const row of data) {
-      const key = `${row.source}`;
-      const existing = agg.get(key);
+      const existing = agg.get(row.canal);
       if (existing) {
         existing.sessions += row.sessions;
         existing.engTotal += row.engPerSession * row.sessions;
       } else {
-        agg.set(key, {
+        agg.set(row.canal, {
           sessions: row.sessions,
           engTotal: row.engPerSession * row.sessions,
-          medium: row.medium,
         });
       }
     }
     return [...agg.entries()]
       .map(([name, v]) => ({
         name,
-        medium: v.medium,
         sessions: v.sessions,
         engPerSession: v.sessions > 0 ? Math.round((v.engTotal / v.sessions) * 10) / 10 : 0,
       }))
-      .filter((p) => p.sessions > 0);
+      .filter((p) => p.sessions >= MIN_SESSIONS_SCATTER);
   }, [data]);
 
   const avgSessions = scatterData.length > 0
@@ -130,14 +144,11 @@ export default function UtmTrafficTable({ data }: Props) {
     ? scatterData.reduce((s, p) => s + p.engPerSession, 0) / scatterData.length
     : 0;
 
-  // Color by medium
-  const mediums = useMemo(() => [...new Set(scatterData.map((p) => p.medium))], [scatterData]);
-
-  function toggle(medium: string) {
+  function toggle(canal: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(medium)) next.delete(medium);
-      else next.add(medium);
+      if (next.has(canal)) next.delete(canal);
+      else next.add(canal);
       return next;
     });
   }
@@ -148,7 +159,7 @@ export default function UtmTrafficTable({ data }: Props) {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Pie chart */}
         <div>
-          <p className="font-mono-data uppercase text-xs mb-2 font-bold">Sessions por Medium / Source</p>
+          <p className="font-mono-data uppercase text-xs mb-2 font-bold">Sessions por Canal</p>
           <ResponsiveContainer width="100%" height={300}>
             <PieChart>
               <Pie
@@ -183,22 +194,29 @@ export default function UtmTrafficTable({ data }: Props) {
               />
             </PieChart>
           </ResponsiveContainer>
+          <p className="font-mono-data text-xs text-black/50 mt-2">
+            Cómo leer: de todas las sesiones del período de venta, qué porción
+            entró por cada canal. «Directo / sin etiqueta» = links sin UTM
+            (WhatsApp, stories, escribir la URL).
+          </p>
         </div>
 
-        {/* Scatter: engagement vs sessions */}
+        {/* Scatter: volumen vs calidad, un punto por canal */}
         <div>
-          <p className="font-mono-data uppercase text-xs mb-2 font-bold">Volumen vs Calidad de Engagement</p>
+          <p className="font-mono-data uppercase text-xs mb-2 font-bold">Volumen vs Calidad por Canal</p>
           <ResponsiveContainer width="100%" height={300}>
-            <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 10 }}>
+            <ScatterChart margin={{ top: 24, right: 60, bottom: 20, left: 10 }}>
               <CartesianGrid stroke="#000" strokeDasharray="3 3" strokeOpacity={0.2} />
               <XAxis
                 dataKey="sessions"
                 type="number"
                 name="Sessions"
+                scale="log"
+                domain={[50, "auto"]}
                 tick={{ fontFamily: "var(--font-ibm-plex-mono)", fontSize: 10, fill: "#000" }}
                 stroke="#000"
                 label={{
-                  value: "Sessions →",
+                  value: "Sessions (escala log) →",
                   position: "insideBottom",
                   offset: -10,
                   fontFamily: "var(--font-ibm-plex-mono)",
@@ -252,42 +270,40 @@ export default function UtmTrafficTable({ data }: Props) {
                   payload?.[0]?.payload?.name ?? ""
                 }
               />
-              {mediums.map((medium, mi) => (
-                <Scatter
-                  key={medium}
-                  name={medium}
-                  data={scatterData.filter((p) => p.medium === medium)}
-                  fill={SCATTER_COLORS[mi % SCATTER_COLORS.length]}
-                  stroke="#000"
-                  strokeWidth={2}
+              <Scatter data={scatterData} stroke="#000" strokeWidth={2}>
+                {scatterData.map((_, i) => (
+                  <Cell key={i} fill={SCATTER_COLORS[i % SCATTER_COLORS.length]} />
+                ))}
+                <LabelList
+                  dataKey="name"
+                  position="top"
+                  style={{
+                    fontFamily: "var(--font-ibm-plex-mono)",
+                    fontSize: 10,
+                    fill: "#000",
+                  }}
                 />
-              ))}
+              </Scatter>
             </ScatterChart>
           </ResponsiveContainer>
-          {/* Legend */}
-          <div className="flex flex-wrap gap-4 mt-2">
-            {mediums.map((medium, mi) => (
-              <div key={medium} className="flex items-center gap-2">
-                <div
-                  className="w-3 h-3 border-2 border-black rounded-none"
-                  style={{ backgroundColor: SCATTER_COLORS[mi % SCATTER_COLORS.length] }}
-                />
-                <span className="font-mono-data text-xs uppercase">{medium}</span>
-              </div>
-            ))}
-          </div>
+          <p className="font-mono-data text-xs text-black/50 mt-2">
+            Cómo leer: un punto por canal (mínimo {MIN_SESSIONS_SCATTER} sesiones).
+            Derecha = trae más visitas; arriba = visitas que interactúan más.
+            Arriba-derecha = canal estrella; abajo-derecha = mucho tráfico que
+            no engancha; arriba-izquierda = candidato a escalar.
+          </p>
         </div>
       </div>
 
-      {/* Grouped table by medium */}
+      {/* Grouped table by canal */}
       <div className="border-4 border-black rounded-none w-full overflow-x-auto">
         <table className="w-full">
           <thead>
             <tr className="bg-black text-white">
-              <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Medium</th>
+              <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Canal</th>
               <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Source</th>
+              <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Medium</th>
               <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Content</th>
-              <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Term</th>
               <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">Sessions</th>
               <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">%</th>
               <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">Eng/S</th>
@@ -297,14 +313,18 @@ export default function UtmTrafficTable({ data }: Props) {
           <tbody>
             {entries.map((entry) =>
               entry.type === "single" ? (
-                <SingleRow key={`s-${entry.row.medium}-${entry.row.source}`} row={entry.row} totalSessions={totalSessions} />
+                <SingleRow
+                  key={`s-${entry.row.canal}-${entry.row.source}-${entry.row.medium}`}
+                  row={entry.row}
+                  totalSessions={totalSessions}
+                />
               ) : (
                 <GroupRows
-                  key={`g-${entry.group.medium}`}
+                  key={`g-${entry.group.canal}`}
                   group={entry.group}
                   totalSessions={totalSessions}
-                  isExpanded={expanded.has(entry.group.medium)}
-                  onToggle={() => toggle(entry.group.medium)}
+                  isExpanded={expanded.has(entry.group.canal)}
+                  onToggle={() => toggle(entry.group.canal)}
                 />
               )
             )}
@@ -318,10 +338,10 @@ export default function UtmTrafficTable({ data }: Props) {
 function SingleRow({ row, totalSessions }: { row: UtmTrafficRow; totalSessions: number }) {
   return (
     <tr className="border-b-2 border-black hover:bg-[#FFFF00] transition-colors duration-150">
-      <td className="font-mono-data text-sm px-4 py-3">{row.medium}</td>
+      <td className="font-mono-data text-sm px-4 py-3 font-bold">{row.canal}</td>
       <td className="font-mono-data text-sm px-4 py-3">{row.source}</td>
+      <td className="font-mono-data text-sm px-4 py-3 max-w-[160px] truncate">{row.medium}</td>
       <td className="font-mono-data text-sm px-4 py-3 max-w-[200px] truncate">{row.content || "—"}</td>
-      <td className="font-mono-data text-sm px-4 py-3">{row.term || "—"}</td>
       <td className="font-mono-data text-sm px-4 py-3 text-right">{row.sessions.toLocaleString("es-CL")}</td>
       <td className="font-mono-data text-sm px-4 py-3 text-right">
         {totalSessions > 0 ? Math.round((row.sessions / totalSessions) * 100) : 0}%
@@ -338,7 +358,7 @@ function GroupRows({
   isExpanded,
   onToggle,
 }: {
-  group: MediumGroup;
+  group: CanalGroup;
   totalSessions: number;
   isExpanded: boolean;
   onToggle: () => void;
@@ -358,7 +378,8 @@ function GroupRows({
       >
         <td className="font-mono-data text-sm px-4 py-3 font-bold" colSpan={4}>
           <span className="mr-2">{isExpanded ? "▼" : "▶"}</span>
-          {group.medium}
+          {group.canal}
+          <span className="ml-2 font-normal text-black/50">({group.children.length} fuentes)</span>
         </td>
         <td className="font-mono-data text-sm px-4 py-3 text-right font-bold">
           {group.totalSessions.toLocaleString("es-CL")}
@@ -367,26 +388,48 @@ function GroupRows({
         <td className="font-mono-data text-sm px-4 py-3 text-right font-bold">{avgEng.toFixed(1)}</td>
         <td className="font-mono-data text-sm px-4 py-3 text-right font-bold">{(avgBounce * 100).toFixed(0)}%</td>
       </tr>
-      {isExpanded &&
-        group.children.map((row, i) => (
-          <tr
-            key={`${row.source}-${row.content}-${row.term}-${i}`}
-            className="border-b border-black/30 bg-black/5 transition-colors duration-150"
-          >
-            <td className="font-mono-data text-xs px-4 py-2 pl-10 text-black/60">{row.medium}</td>
-            <td className="font-mono-data text-xs px-4 py-2 text-black/60">{row.source}</td>
-            <td className="font-mono-data text-xs px-4 py-2 text-black/60 max-w-[200px] truncate">{row.content || "—"}</td>
-            <td className="font-mono-data text-xs px-4 py-2 text-black/60">{row.term || "—"}</td>
-            <td className="font-mono-data text-xs px-4 py-2 text-right text-black/60">
-              {row.sessions.toLocaleString("es-CL")}
-            </td>
-            <td className="font-mono-data text-xs px-4 py-2 text-right text-black/60">
-              {totalSessions > 0 ? Math.round((row.sessions / totalSessions) * 100) : 0}%
-            </td>
-            <td className="font-mono-data text-xs px-4 py-2 text-right text-black/60">{row.engPerSession.toFixed(1)}</td>
-            <td className="font-mono-data text-xs px-4 py-2 text-right text-black/60">{(row.bounceRate * 100).toFixed(0)}%</td>
-          </tr>
-        ))}
+      {isExpanded && (
+        <tr className="border-b-2 border-black">
+          <td colSpan={8} className="p-0">
+            {/* Scroll interno: canales como Vendedores traen cientos de fuentes */}
+            <div className="max-h-80 overflow-y-auto bg-black/5">
+              <table className="w-full table-fixed">
+                <colgroup>
+                  <col className="w-[14%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[14%]" />
+                  <col className="w-[22%]" />
+                  <col className="w-[12%]" />
+                  <col className="w-[6%]" />
+                  <col className="w-[9%]" />
+                  <col className="w-[9%]" />
+                </colgroup>
+                <tbody>
+                  {group.children.map((row, i) => (
+                    <tr
+                      key={`${row.source}-${row.medium}-${row.content}-${i}`}
+                      className="border-b border-black/30 transition-colors duration-150"
+                    >
+                      <td className="font-mono-data text-xs px-4 py-2 pl-10 text-black/60 truncate">{row.canal}</td>
+                      <td className="font-mono-data text-xs px-4 py-2 text-black/60 truncate">{row.source}</td>
+                      <td className="font-mono-data text-xs px-4 py-2 text-black/60 truncate">{row.medium}</td>
+                      <td className="font-mono-data text-xs px-4 py-2 text-black/60 truncate">{row.content || "—"}</td>
+                      <td className="font-mono-data text-xs px-4 py-2 text-right text-black/60">
+                        {row.sessions.toLocaleString("es-CL")}
+                      </td>
+                      <td className="font-mono-data text-xs px-4 py-2 text-right text-black/60">
+                        {totalSessions > 0 ? Math.round((row.sessions / totalSessions) * 100) : 0}%
+                      </td>
+                      <td className="font-mono-data text-xs px-4 py-2 text-right text-black/60">{row.engPerSession.toFixed(1)}</td>
+                      <td className="font-mono-data text-xs px-4 py-2 text-right text-black/60">{(row.bounceRate * 100).toFixed(0)}%</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </td>
+        </tr>
+      )}
     </>
   );
 }

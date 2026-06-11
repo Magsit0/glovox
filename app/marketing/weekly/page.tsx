@@ -17,6 +17,7 @@ import {
   getFunnelLandingPages,
   getCampaignBreakdown,
   getUtmTraffic,
+  getTrafficTimeline,
   type EventOption,
   type Scope,
 } from "@/lib/queries/marketing";
@@ -32,6 +33,7 @@ import FunnelChart from "@/components/marketing/charts/FunnelChart";
 import FunnelLandingPageFilter from "@/components/marketing/FunnelLandingPageFilter";
 import CampaignBreakdownChart from "@/components/marketing/charts/CampaignBreakdownChart";
 import UtmTrafficTable from "@/components/marketing/charts/UtmTrafficTable";
+import TrafficTimelineChart from "@/components/marketing/charts/TrafficTimelineChart";
 
 const fmtUsd = (v: number) => "US$" + v.toFixed(1);
 // CLP compact formatter, matching BrutalKpiCard's "clp-compact" style.
@@ -556,7 +558,10 @@ async function CampaignSection({ eventoId, scope }: { eventoId: string; scope?: 
 }
 
 async function UtmTrafficSection({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
-  const data = await getUtmTraffic(eventoId, scope);
+  const [data, timeline] = await Promise.all([
+    getUtmTraffic(eventoId, scope),
+    getTrafficTimeline(eventoId, scope),
+  ]);
   if (data.length === 0) {
     return (
       <BrutalChartPanel title="Tráfico" className="col-span-4">
@@ -566,7 +571,10 @@ async function UtmTrafficSection({ eventoId, scope }: { eventoId: string; scope?
   }
   return (
     <BrutalChartPanel title="Tráfico" className="col-span-4">
-      <UtmTrafficTable data={data} />
+      <div className="space-y-6">
+        <TrafficTimelineChart data={timeline} />
+        <UtmTrafficTable data={data} />
+      </div>
     </BrutalChartPanel>
   );
 }
