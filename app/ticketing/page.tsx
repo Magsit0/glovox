@@ -22,6 +22,8 @@ import EvolucionChart from "@/components/ticketing/EvolucionChart";
 import ProductoSection from "@/components/ticketing/ProductoSection";
 import PrecioSection from "@/components/ticketing/PrecioSection";
 import VipGralDonut from "@/components/ticketing/VipGralDonut";
+import TicketingTabs, { type TicketingTabKey } from "@/components/ticketing/TicketingTabs";
+import PricingTabSection from "@/components/ticketing/pricing/PricingTabSection";
 
 export const dynamic = "force-dynamic";
 
@@ -34,11 +36,17 @@ interface PageProps {
     to?: string;
     clase?: string;
     devueltos?: string;
+    tab?: string;
+    plan?: string;
   }>;
 }
 
 function parseClase(v?: string): ClaseVenta | undefined {
   return v === "VENTA" || v === "CORTESIA" || v === "OTRO" ? v : undefined;
+}
+
+function parseTab(v?: string): TicketingTabKey {
+  return v === "pricing" ? "pricing" : "analisis";
 }
 
 function fmtFecha(iso: string): string {
@@ -73,6 +81,21 @@ export default async function TicketingPage({ searchParams }: PageProps) {
     : params.country === "chile" || params.country === "peru"
       ? params.country
       : "all";
+
+  const tab = parseTab(params.tab);
+  const canEditPricing = (session.user.role ?? "user") === "superadmin";
+
+  // Tab Planificador de pricing: builder editable (no requiere las queries
+  // pesadas del análisis). Solo superadmin puede editar; el resto ve un aviso.
+  if (tab === "pricing") {
+    return (
+      <Shell>
+        <Heading />
+        <TicketingTabs active="pricing" eventParam={params.event} showPricing={canEditPricing} />
+        <PricingTabSection country={country} canEdit={canEditPricing} planId={params.plan} />
+      </Shell>
+    );
+  }
 
   const baseFilters: Omit<TicketingFilters, "eventoId"> = {
     categoriaEvento: params.categoria || undefined,
@@ -169,6 +192,8 @@ export default async function TicketingPage({ searchParams }: PageProps) {
   return (
     <Shell>
       <Heading />
+
+      <TicketingTabs active="analisis" eventParam={params.event} showPricing={canEditPricing} />
 
       <TicketingFilters_
         events={events}

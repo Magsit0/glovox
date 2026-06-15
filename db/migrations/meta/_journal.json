@@ -57,6 +57,34 @@
       "when": 1780500000000,
       "tag": "0007_marca_facturadores_split",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781403376812,
+      "tag": "0008_polite_skin",
+      "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1781456072019,
+      "tag": "0009_charming_fabian_cortez",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781456189631,
+      "tag": "0010_smart_mikhail_rasputin",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1781547643572,
+      "tag": "0011_wakeful_la_nuit",
+      "breakpoints": true
     }
   ]
 }

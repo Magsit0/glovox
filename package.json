@@ -21,6 +21,7 @@
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@google-cloud/bigquery": "^8.1.1",
+    "@neondatabase/serverless": "^1.1.0",
     "@types/chroma-js": "^3.1.2",
     "ai": "^6.0.192",
     "chroma-js": "^3.2.0",
@@ -34,6 +35,7 @@
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "recharts": "^3.8.0",
+    "ws": "^8.21.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {
@@ -41,6 +43,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/ws": "^8.18.1",
     "dotenv-cli": "^7.4.4",
     "drizzle-kit": "^0.31.10",
     "eslint": "^9",

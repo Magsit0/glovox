@@ -11,6 +11,7 @@ import {
   serial,
   text,
   timestamp,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -248,6 +249,33 @@ export const marcaIngresos = pgTable(
   (t) => [index("marca_ingresos_evento_idx").on(t.eventoId)],
 );
 
+// TICKETING — Planes de pricing (constructor del tab `/ticketing?tab=pricing`).
+// Reemplaza el armado manual en Excel ("Plan Ticketing Piknic"). MVP: modelo
+// DOCUMENTO — el plan completo (etapas, tipos de producto, sponsors+%, y la
+// grilla tipo×etapa con precio/stock) vive en el jsonb `doc` (shape PlanDoc en
+// lib/ticketing-pricing/config.ts). Las columnas de cabecera son para listar y
+// filtrar; las fórmulas (CPS, ingresos, rebate) se derivan en cliente y
+// servidor con lib/ticketing-pricing/formulas.ts, no se persisten.
+export const ticketingPlanes = pgTable(
+  "ticketing_planes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    nombre: text("nombre").notNull(),
+    country: countryEnum("country").notNull(),
+    fechaEvento: date("fecha_evento"),
+    doc: jsonb("doc").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedBy: uuid("updated_by"),
+  },
+  (t) => [index("ticketing_planes_country_idx").on(t.country)],
+);
+
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
 export type Dashboard = typeof dashboards.$inferSelect;
@@ -266,6 +294,35 @@ export type MarcaCliente = typeof marcaClientes.$inferSelect;
 export type NewMarcaCliente = typeof marcaClientes.$inferInsert;
 export type MarcaIngreso = typeof marcaIngresos.$inferSelect;
 export type NewMarcaIngreso = typeof marcaIngresos.$inferInsert;
+// TICKETING — Catálogo de sponsors/marcas para el constructor de pricing.
+// Estandariza el NOMBRE de la marca (evita "ENTEL + BANCO" vs "Entel+Banco"):
+// el builder lo elige de acá en vez de tipearlo libre. El % de descuento y el
+// cupo NO viven acá — varían por evento y se cargan en el `doc` del plan. Soft
+// delete vía `activo` (desactivar no rompe planes viejos, que guardan el nombre
+// denormalizado). Único por (país, nombre).
+export const ticketingSponsors = pgTable(
+  "ticketing_sponsors",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    nombre: text("nombre").notNull(),
+    country: countryEnum("country").notNull(),
+    activo: boolean("activo").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedBy: uuid("updated_by"),
+  },
+  (t) => [uniqueIndex("ticketing_sponsors_country_nombre_idx").on(t.country, t.nombre)],
+);
+
+export type TicketingPlan = typeof ticketingPlanes.$inferSelect;
+export type NewTicketingPlan = typeof ticketingPlanes.$inferInsert;
+export type TicketingSponsor = typeof ticketingSponsors.$inferSelect;
+export type NewTicketingSponsor = typeof ticketingSponsors.$inferInsert;
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Country = (typeof countryEnum.enumValues)[number];
 export type PendingStatus = (typeof pendingStatusEnum.enumValues)[number];
