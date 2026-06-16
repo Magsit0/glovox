@@ -352,3 +352,68 @@ export async function getTicketingEvolucion(
     venta:       n(r.venta),
   }));
 }
+
+// ---------- Análisis global ----------
+
+export type GlobalEventoRow = {
+  eventoId: string;
+  /** NombreGlovox de glovox.categoriaEvento (vacío si el evento no está mapeado). */
+  nombre: string;
+  /** Venue (recinto) de glovox.categoriaEvento; vacío si no está cargado. */
+  venue: string;
+  /** Inicio de venta = primera orden registrada del evento (MIN(FechaOrden)). */
+  fechaInicioVenta: string;
+  /** Fecha del evento (MIN(FechaEvento)). */
+  fechaEvento: string;
+  /** Días de campaña = días entre el inicio de venta y la fecha del evento. */
+  diasCampania: number | null;
+};
+
+/** Días entre dos fechas ISO (YYYY-MM-DD); null si falta alguna. */
+function diasEntre(desde: string, hasta: string): number | null {
+  if (!desde || !hasta) return null;
+  const ms = new Date(`${hasta}T00:00:00`).getTime() - new Date(`${desde}T00:00:00`).getTime();
+  return Number.isFinite(ms) ? Math.round(ms / 86_400_000) : null;
+}
+
+/**
+ * Vista general de todos los eventos: una fila por EventoID con su fecha de
+ * inicio de venta (MIN(FechaOrden) en glovox.tickets). Filtra por país según el
+ * prefijo del EventoID (GLO=Chile, GLP=Perú), igual que el resto del ticketing.
+ */
+export async function getGlobalEventos(country: Country): Promise<GlobalEventoRow[]> {
+  const cond =
+    country === "chile" ? "AND t.EventoID LIKE 'GLO%'"
+    : country === "peru" ? "AND t.EventoID LIKE 'GLP%'"
+    : "";
+  const rows = await query<Record<string, unknown>>(`
+    WITH cat AS (
+      SELECT EventoID, NombreGlovox, venue
+      FROM ${CATEGORY}
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
+    )
+    SELECT
+      t.EventoID                                         AS evento_id,
+      ANY_VALUE(c.NombreGlovox)                          AS nombre,
+      ANY_VALUE(c.venue)                                 AS venue,
+      FORMAT_TIMESTAMP('%Y-%m-%d', MIN(t.FechaOrden))    AS fecha_inicio_venta,
+      FORMAT_TIMESTAMP('%Y-%m-%d', MIN(t.FechaEvento))   AS fecha_evento
+    FROM ${TICKETS} t
+    LEFT JOIN cat c ON c.EventoID = t.EventoID
+    WHERE t.EventoID IS NOT NULL AND t.FechaOrden IS NOT NULL ${cond}
+    GROUP BY t.EventoID
+    ORDER BY fecha_inicio_venta DESC
+  `);
+  return rows.map((r) => {
+    const fechaInicioVenta = s(r.fecha_inicio_venta);
+    const fechaEvento = s(r.fecha_evento);
+    return {
+      eventoId: s(r.evento_id),
+      nombre: s(r.nombre),
+      venue: s(r.venue),
+      fechaInicioVenta,
+      fechaEvento,
+      diasCampania: diasEntre(fechaInicioVenta, fechaEvento),
+    };
+  });
+}

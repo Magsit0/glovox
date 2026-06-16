@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-export type TicketingTabKey = "analisis" | "pricing";
+export type TicketingTabKey = "analisis" | "global" | "pricing";
 
 interface Props {
   active: TicketingTabKey;
@@ -13,6 +13,7 @@ interface Props {
 
 export default function TicketingTabs({ active, eventParam, showPricing }: Props) {
   const tabs: { key: TicketingTabKey; label: string; href: string }[] = [
+    { key: "global", label: "Análisis global", href: "/ticketing?tab=global" },
     { key: "analisis", label: "Análisis", href: "/ticketing" },
     {
       key: "pricing",

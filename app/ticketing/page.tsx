@@ -24,6 +24,7 @@ import PrecioSection from "@/components/ticketing/PrecioSection";
 import VipGralDonut from "@/components/ticketing/VipGralDonut";
 import TicketingTabs, { type TicketingTabKey } from "@/components/ticketing/TicketingTabs";
 import PricingTabSection from "@/components/ticketing/pricing/PricingTabSection";
+import GlobalAnalysisSection from "@/components/ticketing/GlobalAnalysisSection";
 
 export const dynamic = "force-dynamic";
 
@@ -46,7 +47,9 @@ function parseClase(v?: string): ClaseVenta | undefined {
 }
 
 function parseTab(v?: string): TicketingTabKey {
-  return v === "pricing" ? "pricing" : "analisis";
+  if (v === "pricing") return "pricing";
+  if (v === "global") return "global";
+  return "analisis";
 }
 
 function fmtFecha(iso: string): string {
@@ -93,6 +96,18 @@ export default async function TicketingPage({ searchParams }: PageProps) {
         <Heading />
         <TicketingTabs active="pricing" eventParam={params.event} showPricing={canEditPricing} />
         <PricingTabSection country={country} canEdit={canEditPricing} planId={params.plan} />
+      </Shell>
+    );
+  }
+
+  // Tab Análisis global: tabla general de eventos (no requiere las queries
+  // pesadas del análisis por evento).
+  if (tab === "global") {
+    return (
+      <Shell>
+        <Heading />
+        <TicketingTabs active="global" eventParam={params.event} showPricing={canEditPricing} />
+        <GlobalAnalysisSection country={country} />
       </Shell>
     );
   }

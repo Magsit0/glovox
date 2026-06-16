@@ -37,6 +37,12 @@ export default async function AdminLayout({
               >
                 Accesos
               </Link>
+              <Link
+                href="/admin/eventos"
+                className="hover:text-[#333333]"
+              >
+                Eventos
+              </Link>
             </nav>
           </div>
           <Link
