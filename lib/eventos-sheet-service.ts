@@ -87,6 +87,13 @@ function venuesTabName(): string {
   return process.env.EVENTOS_VENUES_TAB?.trim() || "venues";
 }
 
+/** Pestaña-registro columna→tipo (para castear en el sync a BQ). */
+const TYPES_TAB = "_tipos";
+
+/** Tipos BQ que el usuario puede asignar a una columna desde el panel. */
+export const COLUMN_TYPES = ["STRING", "NUMERIC", "DATE", "BOOL"] as const;
+export type ColumnType = (typeof COLUMN_TYPES)[number];
+
 /**
  * Resuelve la pestaña y el rango a operar según el target.
  * - "venues": pestaña `EVENTOS_VENUES_TAB` (default "venues").
@@ -263,9 +270,11 @@ export async function addColumn(
   actorId: string | null,
   email: string,
   nameRaw: string,
+  tipo: ColumnType = "STRING",
 ): Promise<void> {
   const name = nameRaw.trim();
   if (!name) throw new Error("El nombre de la columna es obligatorio");
+  if (name.includes("`")) throw new Error("El nombre de la columna no puede contener backticks");
   const { spreadsheetId, sheetTitle } = await resolveTarget(target);
   const client = getSheetsClient();
 
@@ -317,7 +326,11 @@ export async function addColumn(
     requestBody: { values: [[name]] },
   });
 
-  await logAudit(actorId, `${target}.sheet.add_column`, { email, name, col: targetCol });
+  await logAudit(actorId, `${target}.sheet.add_column`, { email, name, col: targetCol, tipo });
+
+  if (tipo !== "STRING") {
+    await recordColumnType(spreadsheetId, sheetTitle, name, tipo);
+  }
 }
 
 /** Agrega una fila nueva al final de la pestaña `target`. */
@@ -338,4 +351,112 @@ export async function appendRow(
   });
 
   await logAudit(actorId, `${target}.sheet.append`, { email, cols: values.length });
+}
+
+// ---------- Registro de tipos por columna (pestaña _tipos) ----------
+
+/** Crea la pestaña `_tipos` (pestaña | columna | tipo) si no existe. */
+async function ensureTypesTab(spreadsheetId: string): Promise<void> {
+  const client = getSheetsClient();
+  const meta = await client.spreadsheets.get({
+    spreadsheetId,
+    fields: "sheets.properties(title)",
+  });
+  const exists = (meta.data.sheets ?? []).some(
+    (s) => s.properties?.title === TYPES_TAB,
+  );
+  if (exists) return;
+  await client.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          addSheet: {
+            properties: {
+              title: TYPES_TAB,
+              gridProperties: { rowCount: 200, columnCount: 3 },
+            },
+          },
+        },
+      ],
+    },
+  });
+  await client.spreadsheets.values.update({
+    spreadsheetId,
+    range: `${quoteSheet(TYPES_TAB)}!A1:C1`,
+    valueInputOption: "RAW",
+    requestBody: { values: [["pestaña", "columna", "tipo"]] },
+  });
+}
+
+/** Upsert del tipo de una columna en `_tipos` (clave: pestaña + columna). */
+async function recordColumnType(
+  spreadsheetId: string,
+  sheetTitle: string,
+  name: string,
+  bqType: ColumnType,
+): Promise<void> {
+  await ensureTypesTab(spreadsheetId);
+  const client = getSheetsClient();
+  const res = await client.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${quoteSheet(TYPES_TAB)}!A:C`,
+    majorDimension: "ROWS",
+  });
+  const rows = res.data.values ?? [];
+  let foundRow = -1; // 1-based
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (
+      String(r[0] ?? "") === sheetTitle &&
+      String(r[1] ?? "").trim().toLowerCase() === name.toLowerCase()
+    ) {
+      foundRow = i + 1;
+      break;
+    }
+  }
+  if (foundRow > 0) {
+    await client.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${quoteSheet(TYPES_TAB)}!C${foundRow}`,
+      valueInputOption: "RAW",
+      requestBody: { values: [[bqType]] },
+    });
+  } else {
+    await client.spreadsheets.values.append({
+      spreadsheetId,
+      range: `${quoteSheet(TYPES_TAB)}!A:C`,
+      valueInputOption: "RAW",
+      insertDataOption: "INSERT_ROWS",
+      requestBody: { values: [[sheetTitle, name, bqType]] },
+    });
+  }
+}
+
+/**
+ * Lee `_tipos` y devuelve el mapa columna→tipo BQ para la pestaña dada
+ * (solo columnas con tipo registrado ≠ STRING). {} si la pestaña no existe.
+ */
+export async function readColumnTypes(
+  sheetTitle: string,
+): Promise<Record<string, string>> {
+  const spreadsheetId = getSpreadsheetId();
+  try {
+    const res = await getSheetsClient().spreadsheets.values.get({
+      spreadsheetId,
+      range: `${quoteSheet(TYPES_TAB)}!A:C`,
+      majorDimension: "ROWS",
+    });
+    const rows = res.data.values ?? [];
+    const out: Record<string, string> = {};
+    rows.slice(1).forEach((r) => {
+      const tab = String(r[0] ?? "");
+      const col = String(r[1] ?? "").trim();
+      const tipo = String(r[2] ?? "").trim().toUpperCase();
+      if (tab === sheetTitle && col && tipo) out[col] = tipo;
+    });
+    return out;
+  } catch {
+    return {};
+  }
 }

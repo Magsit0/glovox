@@ -2,13 +2,18 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
+import { db } from "@/db";
+import { auditLog } from "@/db/schema";
 import {
   addColumn,
   appendRow,
   saveCells,
+  COLUMN_TYPES,
   type CellEdit,
+  type ColumnType,
   type SheetTarget,
 } from "@/lib/eventos-sheet-service";
+import { runSync } from "@/lib/bigquery-sync";
 
 export type ActionResult<T = void> =
   | { ok: true; data?: T }
@@ -90,6 +95,7 @@ export async function appendRowAction(
 export async function appendColumnAction(
   target: string,
   name: string,
+  tipo: string = "STRING",
 ): Promise<ActionResult> {
   let ctx: ActorCtx;
   try {
@@ -100,10 +106,51 @@ export async function appendColumnAction(
   if (typeof name !== "string" || !name.trim()) {
     return { ok: false, error: "El nombre de la columna es obligatorio" };
   }
+  const bqType = (COLUMN_TYPES as readonly string[]).includes(tipo)
+    ? (tipo as ColumnType)
+    : "STRING";
   try {
-    await addColumn(parseTarget(target), ctx.userId, ctx.email, name);
+    await addColumn(parseTarget(target), ctx.userId, ctx.email, name, bqType);
     revalidatePath("/admin/eventos");
     return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/**
+ * Sincroniza el Sheet → BigQuery corriendo el CREATE OR REPLACE de
+ * glovox.categoriaEvento. A demanda (botón en /admin/eventos), con el SA escritor
+ * (`bqaccess@`) aislado en lib/bigquery-sync.ts.
+ */
+export async function syncBigQueryAction(
+  target: string,
+): Promise<ActionResult<{ rows: number }>> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireEventosAccess();
+  } catch (err) {
+    return fail(err);
+  }
+  let t: SheetTarget;
+  try {
+    t = parseTarget(target);
+  } catch (err) {
+    return fail(err);
+  }
+  try {
+    const res = await runSync(t);
+    // Auditoría best-effort: no debe tumbar el resultado del sync.
+    try {
+      await db.insert(auditLog).values({
+        actorId: ctx.userId,
+        action: `${t}.sync_bq`,
+        payload: { email: ctx.email, rows: res.rows },
+      });
+    } catch {
+      /* noop */
+    }
+    return { ok: true, data: res };
   } catch (err) {
     return fail(err);
   }

@@ -2,12 +2,14 @@ import Link from "next/link";
 import { ExternalLink } from "lucide-react";
 import { requireSuperadmin } from "@/lib/access";
 import {
+  readColumnTypes,
   readSheetGrid,
   readVenuesList,
   type SheetGrid,
   type SheetTarget,
 } from "@/lib/eventos-sheet-service";
 import EventosSheetEditor from "./_components/EventosSheetEditor";
+import SyncBigQueryButton from "./_components/SyncBigQueryButton";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +32,7 @@ export default async function AdminEventosPage({ searchParams }: PageProps) {
   // no construir JSX dentro de try/catch).
   let grid: SheetGrid | null = null;
   let venues: string[] = [];
+  let columnTypes: Record<string, string> = {};
   let errorMsg: string | null = null;
   try {
     if (tab === "venues") {
@@ -40,6 +43,7 @@ export default async function AdminEventosPage({ searchParams }: PageProps) {
         readVenuesList(),
       ]);
     }
+    columnTypes = await readColumnTypes(grid.sheetTitle);
   } catch (err) {
     errorMsg = err instanceof Error ? err.message : "No se pudo cargar la hoja.";
   }
@@ -57,16 +61,18 @@ export default async function AdminEventosPage({ searchParams }: PageProps) {
         tab === "venues" ? (
           <>
             <SubHeader
-              subtitle="Recintos estandarizados. El nombre (columna venue) alimenta el desplegable de la columna VENUE en eventos."
+              subtitle="Recintos estandarizados (dimensión glovox.venues). El nombre (columna venue) alimenta el desplegable de la columna VENUE en eventos."
               viewUrl={grid.viewUrl}
+              action={<SyncBigQueryButton target="venues" />}
             />
-            <EventosSheetEditor data={grid} target="venues" />
+            <EventosSheetEditor data={grid} target="venues" columnTypes={columnTypes} />
           </>
         ) : (
           <>
             <SubHeader
               subtitle={`Hoja maestra de la que nace glovox.categoriaEvento · pestaña “${grid.sheetTitle}”.`}
               viewUrl={grid.viewUrl}
+              action={<SyncBigQueryButton target="eventos" />}
             />
             <EventosSheetEditor
               data={grid}
@@ -74,6 +80,7 @@ export default async function AdminEventosPage({ searchParams }: PageProps) {
               hiddenColumns={HIDDEN_EVENTOS}
               venueColumn="venue"
               venues={venues}
+              columnTypes={columnTypes}
             />
           </>
         )
@@ -110,19 +117,30 @@ function TabNav({ active }: { active: SheetTarget }) {
   );
 }
 
-function SubHeader({ subtitle, viewUrl }: { subtitle: string; viewUrl: string }) {
+function SubHeader({
+  subtitle,
+  viewUrl,
+  action,
+}: {
+  subtitle: string;
+  viewUrl: string;
+  action?: React.ReactNode;
+}) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       <p className="max-w-2xl font-sans text-sm text-[#666666]">{subtitle}</p>
-      <Link
-        href={viewUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="inline-flex items-center gap-1.5 rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans text-sm font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA]"
-      >
-        <ExternalLink className="h-4 w-4" />
-        Abrir en Google Sheets
-      </Link>
+      <div className="flex items-start gap-2">
+        {action}
+        <Link
+          href={viewUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans text-sm font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA]"
+        >
+          <ExternalLink className="h-4 w-4" />
+          Abrir en Google Sheets
+        </Link>
+      </div>
     </div>
   );
 }

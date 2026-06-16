@@ -3,12 +3,14 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, X } from "lucide-react";
-import type { TicketingPlan, Country as PgCountry } from "@/db/schema";
+import type { TicketingPlan } from "@/db/schema";
+import type { EventoOption } from "@/lib/queries/ticketing";
 import { createPlanAction } from "@/app/ticketing/actions";
 
 interface Props {
   planes: TicketingPlan[];
-  defaultCountry: PgCountry;
+  /** Eventos de categoriaEvento que aún no tienen plan (para crear uno nuevo). */
+  eventosDisponibles: EventoOption[];
 }
 
 function fmtFecha(v: string | null): string {
@@ -18,7 +20,12 @@ function fmtFecha(v: string | null): string {
   return d.toLocaleDateString("es-CL", { day: "2-digit", month: "short", year: "numeric" });
 }
 
-export default function PlanList({ planes, defaultCountry }: Props) {
+function eventoIdDe(p: TicketingPlan): string {
+  const doc = p.doc as { eventoId?: unknown } | null;
+  return typeof doc?.eventoId === "string" ? doc.eventoId : "";
+}
+
+export default function PlanList({ planes, eventosDisponibles }: Props) {
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
 
@@ -30,8 +37,8 @@ export default function PlanList({ planes, defaultCountry }: Props) {
             Planes de pricing
           </h2>
           <p className="mt-1 font-sans text-sm text-[#666666]">
-            Armá el pricing de un evento: etapas de venta, tipos de producto y sponsors. Guardá y
-            exportá a Excel para compartir con la ticketera.
+            Cada plan se crea a partir de un evento de glovox.categoriaEvento. La info general
+            (nombre, país, venue, fecha) viene de ahí.
           </p>
         </div>
         <button
@@ -46,7 +53,7 @@ export default function PlanList({ planes, defaultCountry }: Props) {
 
       {showForm && (
         <NewPlanForm
-          defaultCountry={defaultCountry}
+          eventos={eventosDisponibles}
           onClose={() => setShowForm(false)}
           onCreated={(id) => router.push(`/ticketing?tab=pricing&plan=${id}`)}
         />
@@ -57,6 +64,7 @@ export default function PlanList({ planes, defaultCountry }: Props) {
           <thead>
             <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
               <th className="px-4 py-3 text-left font-medium text-[#666666]">Evento</th>
+              <th className="px-4 py-3 text-left font-medium text-[#666666]">EventoID</th>
               <th className="px-4 py-3 text-left font-medium text-[#666666]">País</th>
               <th className="px-4 py-3 text-left font-medium text-[#666666]">Fecha</th>
               <th className="px-4 py-3 text-left font-medium text-[#666666]">Actualizado</th>
@@ -65,7 +73,7 @@ export default function PlanList({ planes, defaultCountry }: Props) {
           <tbody>
             {planes.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-12 text-center font-sans text-sm text-[#999999]">
+                <td colSpan={5} className="px-4 py-12 text-center font-sans text-sm text-[#999999]">
                   Todavía no hay planes. Creá el primero con “Nuevo plan”.
                 </td>
               </tr>
@@ -77,6 +85,7 @@ export default function PlanList({ planes, defaultCountry }: Props) {
                 className="cursor-pointer border-b border-[#E5E5E5] transition-colors last:border-0 hover:bg-[#FAFAFA]"
               >
                 <td className="px-4 py-3 font-medium text-[#333333]">{p.nombre}</td>
+                <td className="px-4 py-3 tabular-nums text-[#666666]">{eventoIdDe(p) || "—"}</td>
                 <td className="px-4 py-3 text-[#666666]">{p.country}</td>
                 <td className="px-4 py-3 text-[#666666]">{fmtFecha(p.fechaEvento)}</td>
                 <td className="px-4 py-3 text-[#666666]">
@@ -97,32 +106,27 @@ export default function PlanList({ planes, defaultCountry }: Props) {
 }
 
 function NewPlanForm({
-  defaultCountry,
+  eventos,
   onClose,
   onCreated,
 }: {
-  defaultCountry: PgCountry;
+  eventos: EventoOption[];
   onClose: () => void;
   onCreated: (id: string) => void;
 }) {
-  const [nombre, setNombre] = useState("");
-  const [country, setCountry] = useState<PgCountry>(defaultCountry);
-  const [fechaEvento, setFechaEvento] = useState("");
+  const [eventoId, setEventoId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const sel = eventos.find((e) => e.eventoId === eventoId);
 
   function submit() {
     setError(null);
-    if (!nombre.trim()) {
-      setError("El nombre del evento es obligatorio");
+    if (!eventoId) {
+      setError("Elegí un evento de categoriaEvento");
       return;
     }
     startTransition(async () => {
-      const res = await createPlanAction({
-        nombre: nombre.trim(),
-        country,
-        fechaEvento: fechaEvento || null,
-      });
+      const res = await createPlanAction(eventoId);
       if (!res.ok) {
         setError(res.error);
         return;
@@ -145,35 +149,38 @@ function NewPlanForm({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <Field label="Nombre del evento *">
-          <input
-            type="text"
-            value={nombre}
-            onChange={(e) => setNombre(e.target.value)}
-            placeholder="Piknic 9 26-27"
-            className={inputCls}
-          />
-        </Field>
-        <Field label="País">
-          <select
-            value={country}
-            onChange={(e) => setCountry(e.target.value as PgCountry)}
-            className={inputCls}
-          >
-            <option value="CL">Chile</option>
-            <option value="PE">Perú</option>
-          </select>
-        </Field>
-        <Field label="Fecha del evento">
-          <input
-            type="date"
-            value={fechaEvento}
-            onChange={(e) => setFechaEvento(e.target.value)}
-            className={inputCls}
-          />
-        </Field>
-      </div>
+      {eventos.length === 0 ? (
+        <p className="font-sans text-sm text-[#666666]">
+          No hay eventos en glovox.categoriaEvento sin plan asignado. Cargá el evento en esa tabla
+          (con su EventoID, nombre y fecha) o revisá si ya todos tienen plan.
+        </p>
+      ) : (
+        <>
+          <label className="flex flex-col gap-1.5">
+            <span className="font-sans text-xs text-[#666666]">Evento (de glovox.categoriaEvento)</span>
+            <select
+              value={eventoId}
+              onChange={(e) => setEventoId(e.target.value)}
+              className={inputCls}
+            >
+              <option value="">— Elegí un evento —</option>
+              {eventos.map((ev) => (
+                <option key={ev.eventoId} value={ev.eventoId}>
+                  {ev.eventoId} — {ev.nombre || "sin nombre"}
+                  {ev.fecha ? ` · ${ev.fecha}` : ""}
+                </option>
+              ))}
+            </select>
+          </label>
+          {sel && (
+            <p className="mt-2 font-sans text-sm text-[#666666]">
+              {sel.country === "PE" ? "Perú" : "Chile"}
+              {sel.venue ? ` · ${sel.venue}` : ""}
+              {sel.fecha ? ` · ${sel.fecha}` : " · fecha s/d"}
+            </p>
+          )}
+        </>
+      )}
 
       {error && (
         <div className="mt-4 flex items-start gap-2 rounded-lg border border-[#ED75A0] bg-white p-3">
@@ -194,7 +201,7 @@ function NewPlanForm({
         <button
           type="button"
           onClick={submit}
-          disabled={pending || !nombre.trim()}
+          disabled={pending || !eventoId}
           className="rounded-lg bg-[#9F99F8] px-4 py-2 font-sans text-sm font-medium text-white transition-colors hover:bg-[#8780F0] disabled:opacity-50"
         >
           {pending ? "Creando…" : "Crear plan"}
@@ -206,12 +213,3 @@ function NewPlanForm({
 
 const inputCls =
   "w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]";
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="font-sans text-xs text-[#666666]">{label}</span>
-      {children}
-    </label>
-  );
-}

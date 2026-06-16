@@ -9,12 +9,14 @@ import { DEFAULT_PARAMS } from "./formulas";
 /** Etapas de venta disponibles para elegir (orden de despliegue). */
 export const STAGE_OPTIONS = [
   "Pre-registro",
+  "Registrados",
   "Early bird",
   "Preventa",
   "Preventa 1",
   "Preventa 2",
   "Preventa 3",
   "Venta general",
+  "Venta final",
 ] as const;
 
 /** Tipos de producto por defecto al crear un plan (editables). */
@@ -75,13 +77,24 @@ export type TipoConfig = {
   cortesias: number | null;
 };
 
+/**
+ * Config por etapa de venta: fecha de inicio de esa etapa (YYYY-MM-DD; "" = sin
+ * definir). El día del evento es el cierre de la última etapa.
+ */
+export type EtapaConfig = {
+  etapa: string;
+  fechaInicio: string;
+};
+
 /** Documento completo de un plan (persistido en jsonb). */
 export type PlanDoc = {
   cpsPct: number; // cargo por servicio (0..1)
   rebatePct: number; // rebate sobre el CPS (0..1)
+  eventoId: string; // EventoID real ligado (para curvas tickets/PM/RRSS del informe)
   venueCapacidad: number | null; // capacidad total del venue
   ventaEsperada: number | null; // venta esperada (objetivo, en la moneda del país)
   etapas: string[];
+  etapasConfig: EtapaConfig[]; // por etapa: fecha de inicio (alineado a etapas)
   tiposProducto: string[];
   tiposConfig: TipoConfig[]; // por tipo: a vender + cortesías (alineado a tiposProducto)
   sponsors: Sponsor[];
@@ -93,9 +106,11 @@ export function emptyDoc(): PlanDoc {
   return {
     cpsPct: DEFAULT_PARAMS.cpsPct,
     rebatePct: DEFAULT_PARAMS.rebatePct,
+    eventoId: "",
     venueCapacidad: null,
     ventaEsperada: null,
     etapas: [],
+    etapasConfig: [],
     tiposProducto: [...DEFAULT_TIPOS],
     tiposConfig: DEFAULT_TIPOS.map((tipo) => ({ tipo, aVender: null, cortesias: null })),
     sponsors: [],
@@ -191,12 +206,30 @@ export function coerceDoc(raw: unknown): PlanDoc {
     cortesias: rawConfig.get(tipo)?.cortesias ?? null,
   }));
 
+  // etapasConfig SIEMPRE alineado a etapas: una entrada por etapa, con su fecha
+  // de inicio (planes viejos sin fechas quedan con "").
+  const rawEtapaCfg = new Map<string, string>();
+  if (Array.isArray(d.etapasConfig)) {
+    for (const c of d.etapasConfig) {
+      const o = (c ?? {}) as Record<string, unknown>;
+      if (typeof o.etapa === "string") {
+        rawEtapaCfg.set(o.etapa, typeof o.fechaInicio === "string" ? o.fechaInicio : "");
+      }
+    }
+  }
+  const etapasConfig: EtapaConfig[] = etapas.map((etapa) => ({
+    etapa,
+    fechaInicio: rawEtapaCfg.get(etapa) ?? "",
+  }));
+
   return {
     cpsPct: num(d.cpsPct, base.cpsPct),
     rebatePct: num(d.rebatePct, base.rebatePct),
+    eventoId: typeof d.eventoId === "string" ? d.eventoId : "",
     venueCapacidad: nonNegOrNull(d.venueCapacidad),
     ventaEsperada: nonNegOrNull(d.ventaEsperada),
     etapas,
+    etapasConfig,
     tiposProducto,
     tiposConfig,
     sponsors,

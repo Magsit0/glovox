@@ -17,6 +17,13 @@ import {
   setSponsorActivo,
 } from "@/lib/ticketing-sponsors-service";
 import { coerceDoc, type PlanDoc } from "@/lib/ticketing-pricing/config";
+import {
+  getEventTimeseries,
+  getEventCampaigns,
+  getEventInfo,
+  type EventTimeseriesPoint,
+  type EventCampaignRow,
+} from "@/lib/queries/ticketing";
 
 export type ActionResult<T = void> =
   | { ok: true; data?: T }
@@ -91,7 +98,7 @@ function sanitizeHeader(raw: Partial<PlanHeader>): PlanHeader | { error: string 
 // ---------- Actions ----------
 
 export async function createPlanAction(
-  input: Partial<PlanHeader>,
+  eventoId: string,
 ): Promise<ActionResult<{ id: string }>> {
   let ctx: SessionCtx;
   try {
@@ -99,10 +106,20 @@ export async function createPlanAction(
   } catch (err) {
     return fail(err);
   }
-  const header = sanitizeHeader(input);
-  if ("error" in header) return { ok: false, error: header.error };
+  const clean = trimOrNull(eventoId);
+  if (!clean) return { ok: false, error: "Elegí un evento de categoriaEvento" };
   try {
-    const res = await createPlan(ctx.userId, header);
+    // La info general nace del evento; el plan queda ligado al EventoID.
+    const info = await getEventInfo(clean);
+    if (!info) {
+      return { ok: false, error: `El evento ${clean} no está cargado en glovox.categoriaEvento` };
+    }
+    const country: Country = info.country === "PE" ? "PE" : "CL";
+    const res = await createPlan(
+      ctx.userId,
+      { nombre: info.nombre || clean, country, fechaEvento: info.fechaEvento || null },
+      clean,
+    );
     revalidatePath("/ticketing");
     return { ok: true, data: res };
   } catch (err) {
@@ -210,6 +227,40 @@ export async function setSponsorActivoAction(
     await setSponsorActivo(ctx.userId, id, activo);
     revalidatePath("/ticketing");
     return { ok: true };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function getEventTimeseriesAction(
+  eventoId: string,
+): Promise<ActionResult<EventTimeseriesPoint[]>> {
+  try {
+    await requireTicketingPricingAccess();
+  } catch (err) {
+    return fail(err);
+  }
+  const clean = trimOrNull(eventoId);
+  if (!clean) return { ok: true, data: [] };
+  try {
+    return { ok: true, data: await getEventTimeseries(clean) };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function getEventCampaignsAction(
+  eventoId: string,
+): Promise<ActionResult<EventCampaignRow[]>> {
+  try {
+    await requireTicketingPricingAccess();
+  } catch (err) {
+    return fail(err);
+  }
+  const clean = trimOrNull(eventoId);
+  if (!clean) return { ok: true, data: [] };
+  try {
+    return { ok: true, data: await getEventCampaigns(clean) };
   } catch (err) {
     return fail(err);
   }

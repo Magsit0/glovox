@@ -1,6 +1,8 @@
 import type { Country } from "@/lib/queries/comunidad";
 import type { Country as PgCountry } from "@/db/schema";
 import { getPlan, listPlanes, listSponsors } from "@/lib/queries/pricing";
+import { getEventInfo, getCategoriaEventos } from "@/lib/queries/ticketing";
+import { coerceDoc } from "@/lib/ticketing-pricing/config";
 import PlanList from "./PlanList";
 import PlanBuilder from "./PlanBuilder";
 import SponsorManager from "./SponsorManager";
@@ -35,10 +37,7 @@ export default async function PricingTabSection({ country, canEdit, planId }: Pr
 
   // Modo edición de un plan concreto.
   if (planId) {
-    const [plan, sponsorCatalog] = await Promise.all([
-      getPlan(planId),
-      listSponsors(), // activos, ambos países (el builder filtra por el país del plan)
-    ]);
+    const plan = await getPlan(planId);
     if (!plan) {
       return (
         <section className="rounded-lg border border-[#ED75A0] bg-white p-6">
@@ -48,17 +47,26 @@ export default async function PricingTabSection({ country, canEdit, planId }: Pr
         </section>
       );
     }
-    return <PlanBuilder plan={plan} sponsorCatalog={sponsorCatalog} />;
+    // Info general del evento (fuente de verdad: glovox.categoriaEvento).
+    const [sponsorCatalog, eventInfo] = await Promise.all([
+      listSponsors(),
+      getEventInfo(coerceDoc(plan.doc).eventoId),
+    ]);
+    return <PlanBuilder plan={plan} sponsorCatalog={sponsorCatalog} eventInfo={eventInfo} />;
   }
 
   // Modo listado: planes + gestión del catálogo de sponsors.
-  const [planes, sponsors] = await Promise.all([
+  const [planes, sponsors, eventosCat] = await Promise.all([
     listPlanes(pgCountry),
     listSponsors({ includeInactive: true }), // todos (incluye inactivos) para gestionar
+    getCategoriaEventos(country), // eventos del catálogo para crear planes
   ]);
+  // Eventos disponibles para un plan nuevo = los de categoriaEvento sin plan aún.
+  const usados = new Set(planes.map((p) => coerceDoc(p.doc).eventoId).filter(Boolean));
+  const eventosDisponibles = eventosCat.filter((e) => !usados.has(e.eventoId));
   return (
     <div className="flex flex-col gap-8">
-      <PlanList planes={planes} defaultCountry={pgCountry ?? "CL"} />
+      <PlanList planes={planes} eventosDisponibles={eventosDisponibles} />
       <SponsorManager sponsors={sponsors} defaultCountry={pgCountry ?? "CL"} />
     </div>
   );

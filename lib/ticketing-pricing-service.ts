@@ -10,7 +10,7 @@
  * Las server actions (app/ticketing/actions.ts) validan permisos y sanitizan;
  * acá vive la lógica de negocio + el audit.
  */
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { auditLog, ticketingPlanes, type Country } from "@/db/schema";
 import { withNeonRetry } from "@/lib/neon-retry";
@@ -31,24 +31,35 @@ export type PlanHeader = {
   fechaEvento: string | null;
 };
 
-/** Crea un plan nuevo (documento inicial: tipos por defecto, sin etapas). */
+/**
+ * Crea un plan nuevo ligado a un evento (EventoID de glovox.categoriaEvento).
+ * El doc nace con `eventoId` fijado. Rechaza si ya existe un plan para ese
+ * evento (1 plan por evento).
+ */
 export async function createPlan(
   actorId: string | null,
   header: PlanHeader,
+  eventoId: string,
 ): Promise<{ id: string }> {
   return withNeonRetry(async () => {
+    const existing = await db
+      .select({ id: ticketingPlanes.id })
+      .from(ticketingPlanes)
+      .where(sql`${ticketingPlanes.doc} ->> 'eventoId' = ${eventoId}`)
+      .limit(1);
+    if (existing[0]) throw new Error(`Ya existe un plan para el evento ${eventoId}`);
     const [row] = await db
       .insert(ticketingPlanes)
       .values({
         nombre: header.nombre,
         country: header.country,
         fechaEvento: header.fechaEvento,
-        doc: emptyDoc(),
+        doc: { ...emptyDoc(), eventoId },
         createdBy: actorId,
         updatedBy: actorId,
       })
       .returning({ id: ticketingPlanes.id });
-    await logAudit(actorId, "pricing.plan.create", row.id, { nombre: header.nombre });
+    await logAudit(actorId, "pricing.plan.create", row.id, { nombre: header.nombre, eventoId });
     return { id: row.id };
   });
 }

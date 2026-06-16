@@ -15,6 +15,7 @@ import {
   type PlanDoc,
 } from "@/lib/ticketing-pricing/config";
 import { formatNumber } from "@/lib/unabase/formatting";
+import EventoTimeseriesChart from "./EventoTimeseriesChart";
 
 interface Props {
   nombre: string;
@@ -158,6 +159,15 @@ export default function PlanInforme({ nombre, country, fechaEvento, doc }: Props
         )}
       </section>
 
+      {/* Evolución del evento (tickets · PM · RRSS) */}
+      {doc.eventoId && (
+        <EventoTimeseriesChart
+          key={doc.eventoId}
+          eventoId={doc.eventoId}
+          etapas={doc.etapasConfig}
+        />
+      )}
+
       {/* Matriz tipo × etapa */}
       {tipos.length === 0 || etapas.length === 0 ? (
         <div className="rounded-lg border border-[#E5E5E5] bg-white p-8 text-center font-sans text-sm text-[#999999]">
@@ -247,6 +257,62 @@ export default function PlanInforme({ nombre, country, fechaEvento, doc }: Props
         <Kpi label="Ingreso neto (sin IVA)" value={money(netoProyectado)} card />
         <Kpi label="Rebate recuperado" value={money(totals.rebate)} card />
         <Kpi label="Ingreso + rebate" value={money(totals.ingresoTotal)} card />
+      </section>
+
+      {/* Función objetivo (modelo) — planteada, a resolver en una iteración futura */}
+      <section className="rounded-lg border border-[#E5E5E5] bg-white p-6">
+        <h3 className="font-display text-lg font-bold text-[#333333]">Función objetivo</h3>
+        <p className="mt-1 font-sans text-sm text-[#666666]">
+          Planteada para optimizar el plan de pricing. La resolución (asignación óptima de
+          cantidades) se define en una iteración posterior.
+        </p>
+
+        <div className="mt-4 flex flex-col gap-2 rounded-lg border border-[#E5E5E5] bg-[#FAFAFA] p-4">
+          <div className="flex items-baseline gap-3 font-sans text-sm">
+            <span className="w-24 shrink-0 text-[#666666]">Maximizar</span>
+            <span className="text-[#333333]">
+              Σ<sub>i</sub> q<sub>i</sub> · p<sub>i</sub>
+              <span className="ml-2 text-xs text-[#999999]">(ingreso bruto total)</span>
+            </span>
+          </div>
+          <div className="flex items-baseline gap-3 font-sans text-sm">
+            <span className="w-24 shrink-0 text-[#666666]">Sujeto a</span>
+            <span className="text-[#333333]">
+              Σ<sub>i</sub> q<sub>i</sub> ≤ T
+              <span className="ml-2 text-xs text-[#999999]">
+                (capacidad{capValido ? ` = ${formatNumber(capacidad)}` : ""})
+              </span>
+            </span>
+          </div>
+          <div className="flex items-baseline gap-3 font-sans text-sm">
+            <span className="w-24 shrink-0" />
+            <span className="text-[#333333]">
+              0 ≤ q<sub>i</sub> ≤ esperado<sub>i</sub>
+              <span className="ml-2 text-xs text-[#999999]">(límite por fila)</span>
+            </span>
+          </div>
+        </div>
+
+        <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-1 font-sans text-xs text-[#666666] sm:grid-cols-2">
+          <div>
+            <dt className="inline font-medium text-[#333333]">q<sub>i</sub></dt> — tickets a vender de la
+            fila i (producto × etapa × sponsor)
+          </div>
+          <div>
+            <dt className="inline font-medium text-[#333333]">p<sub>i</sub></dt> — precio bruto de la fila i
+          </div>
+          <div>
+            <dt className="inline font-medium text-[#333333]">T</dt> — capacidad del venue
+          </div>
+          <div>
+            <dt className="inline font-medium text-[#333333]">esperado<sub>i</sub></dt> — límite esperado
+            por fila (imputado o histórico)
+          </div>
+        </dl>
+
+        <p className="mt-3 font-sans text-xs text-[#999999]">
+          Nota: restricción a confirmar (¿debe incorporar el tiempo t<sub>i</sub> por etapa?).
+        </p>
       </section>
 
       {/* Sponsors — resumen */}

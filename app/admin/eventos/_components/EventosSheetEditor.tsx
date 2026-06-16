@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertCircle, Loader2, Plus, Save, Search, X } from "lucide-react";
+import { AlertCircle, Check, Loader2, Plus, Save, Search, X } from "lucide-react";
 import type {
   SheetGrid,
   CellEdit,
@@ -50,7 +50,17 @@ interface Props {
   venueColumn?: string;
   /** Lista estandarizada de venues para el desplegable. */
   venues?: string[];
+  /** Mapa columna→tipo BQ (de la pestaña _tipos): DATE/NUMERIC/BOOL. */
+  columnTypes?: Record<string, string>;
 }
+
+/** Opciones del desplegable de tipo al agregar columna. */
+const TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: "STRING", label: "Texto" },
+  { value: "NUMERIC", label: "Número" },
+  { value: "DATE", label: "Fecha" },
+  { value: "BOOL", label: "Sí/No" },
+];
 
 export default function EventosSheetEditor({
   data,
@@ -58,6 +68,7 @@ export default function EventosSheetEditor({
   hiddenColumns = [],
   venueColumn,
   venues = [],
+  columnTypes = {},
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -74,6 +85,10 @@ export default function EventosSheetEditor({
   const [epoch, setEpoch] = useState(0);
   // Fila borrador para "Agregar fila".
   const [draft, setDraft] = useState<string[] | null>(null);
+  // Formulario inline para "Agregar columna".
+  const [adding, setAdding] = useState(false);
+  const [newColName, setNewColName] = useState("");
+  const [newColType, setNewColType] = useState("STRING");
 
   // Resincronización cuando el server manda data fresca (tras router.refresh()):
   // ajustar estado durante el render comparando el prop anterior es el patrón
@@ -112,6 +127,16 @@ export default function EventosSheetEditor({
   const venueColNorm = venueColumn ? normHeader(venueColumn) : null;
   const isVenueCol = (c: number) =>
     venueColNorm != null && normHeader(header[c] ?? "") === venueColNorm;
+
+  // Lookup columna→tipo (normalizado) para decidir el widget de la celda.
+  const typeLookup = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const [k, v] of Object.entries(columnTypes)) {
+      m[normHeader(k)] = String(v).toUpperCase();
+    }
+    return m;
+  }, [columnTypes]);
+  const isDateCol = (c: number) => typeLookup[normHeader(header[c] ?? "")] === "DATE";
 
   const pendingValue = (r: number, c: number) =>
     editsRef.current.get(cellKey(r, c))?.newValue;
@@ -181,11 +206,18 @@ export default function EventosSheetEditor({
     });
   }
 
-  function agregarColumna() {
-    const name = window.prompt("Nombre de la nueva columna:");
-    if (name == null) return; // cancelado
-    if (!name.trim()) return;
-    run(() => appendColumnAction(target, name));
+  function confirmarColumna() {
+    const name = newColName.trim();
+    if (!name) return;
+    run(async () => {
+      const res = await appendColumnAction(target, name, newColType);
+      if (res.ok) {
+        setAdding(false);
+        setNewColName("");
+        setNewColType("STRING");
+      }
+      return res;
+    });
   }
 
   function guardarFila() {
@@ -215,8 +247,8 @@ export default function EventosSheetEditor({
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={agregarColumna}
-            disabled={pending}
+            onClick={() => setAdding(true)}
+            disabled={pending || adding}
             className="inline-flex items-center gap-1.5 rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans text-sm font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA] disabled:opacity-50"
           >
             <Plus className="h-4 w-4" />
@@ -246,6 +278,63 @@ export default function EventosSheetEditor({
           </button>
         </div>
       </div>
+
+      {adding && (
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[#E5E5E5] bg-white p-3">
+          <input
+            autoFocus
+            value={newColName}
+            onChange={(e) => setNewColName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                confirmarColumna();
+              } else if (e.key === "Escape") {
+                setAdding(false);
+                setNewColName("");
+              }
+            }}
+            placeholder="Nombre de la columna…"
+            className="w-64 max-w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+          />
+          <select
+            value={newColType}
+            onChange={(e) => setNewColType(e.target.value)}
+            className="cursor-pointer rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+          >
+            {TYPE_OPTIONS.map((t) => (
+              <option key={t.value} value={t.value}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={confirmarColumna}
+            disabled={pending || !newColName.trim()}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#9F99F8] px-4 py-2 font-sans text-sm font-medium text-white transition-colors hover:bg-[#8780F0] disabled:opacity-50"
+          >
+            {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+            Crear columna
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAdding(false);
+              setNewColName("");
+              setNewColType("STRING");
+            }}
+            disabled={pending}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 font-sans text-sm font-medium text-[#666666] transition-colors hover:bg-[#F5F5F5] disabled:opacity-50"
+          >
+            <X className="h-4 w-4" />
+            Cancelar
+          </button>
+          <span className="font-sans text-xs text-[#999999]">
+            El tipo define cómo queda en BigQuery (Fecha → DATE) al sincronizar.
+          </span>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-start gap-2 rounded-lg border border-[#ED75A0] bg-white p-3">
@@ -311,6 +400,16 @@ export default function EventosSheetEditor({
                               </option>
                             ))}
                           </select>
+                        ) : isDateCol(c) ? (
+                          <input
+                            type="date"
+                            defaultValue={initial}
+                            data-dirty={initial !== base ? "true" : undefined}
+                            onChange={(e) =>
+                              onCellChange(r, c, e.target.value, e.currentTarget)
+                            }
+                            className="w-full min-w-[9rem] bg-transparent px-3 py-2 font-sans text-sm text-[#333333] outline-none focus:bg-[#F0EFFE] data-[dirty=true]:bg-[#F0EFFE]"
+                          />
                         ) : (
                           <input
                             defaultValue={initial}
@@ -352,6 +451,14 @@ export default function EventosSheetEditor({
                               </option>
                             ))}
                           </select>
+                        ) : isDateCol(c) ? (
+                          <input
+                            type="date"
+                            autoFocus={i === 0}
+                            value={draft[c] ?? ""}
+                            onChange={(e) => setCell(e.target.value)}
+                            className="w-full min-w-[9rem] bg-transparent px-3 py-2 font-sans text-sm text-[#333333] outline-none focus:bg-white"
+                          />
                         ) : (
                           <input
                             autoFocus={i === 0}

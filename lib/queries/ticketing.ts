@@ -4,6 +4,9 @@ import type { Country } from "@/lib/queries/comunidad";
 const P        = process.env.BIGQUERY_PROJECT_ID;
 const TICKETS  = `\`${P}.glovox.tickets\``;
 const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
+const ADS      = `\`${P}.paidMedia.ads_performance\``;
+const RRSS     = `\`${P}.marketing.rrss_fllws\``;
+const VENUES   = `\`${P}.glovox.venues\``;
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -416,4 +419,229 @@ export async function getGlobalEventos(country: Country): Promise<GlobalEventoRo
       diasCampania: diasEntre(fechaInicioVenta, fechaEvento),
     };
   });
+}
+
+// ---------- Eventos de categoriaEvento (para crear planes) ----------
+
+export type EventoOption = {
+  eventoId: string;
+  nombre: string;
+  venue: string;
+  fecha: string; // categoriaEvento.Fecha (YYYY-MM-DD) o ""
+  country: "CL" | "PE" | "";
+};
+
+/**
+ * Eventos del catálogo glovox.categoriaEvento (para elegir al crear un plan).
+ * Filtra cancelados y por país (prefijo del EventoID). Dedup defensivo.
+ */
+export async function getCategoriaEventos(country: Country): Promise<EventoOption[]> {
+  const cond =
+    country === "chile" ? "AND EventoID LIKE 'GLO%'"
+    : country === "peru" ? "AND EventoID LIKE 'GLP%'"
+    : "";
+  const rows = await query<Record<string, unknown>>(`
+    SELECT
+      EventoID                              AS evento_id,
+      NombreGlovox                          AS nombre,
+      venue                                 AS venue,
+      FORMAT_DATE('%Y-%m-%d', Fecha)        AS fecha
+    FROM ${CATEGORY}
+    WHERE EventoID IS NOT NULL AND isCanceled IS NOT TRUE ${cond}
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
+    ORDER BY fecha DESC
+  `);
+  return rows.map((r) => {
+    const eventoId = s(r.evento_id);
+    return {
+      eventoId,
+      nombre: s(r.nombre),
+      venue: s(r.venue),
+      fecha: s(r.fecha),
+      country: eventoId.startsWith("GLP") ? "PE" : eventoId.startsWith("GLO") ? "CL" : "",
+    };
+  });
+}
+
+// ---------- Info general del evento (desde categoriaEvento) ----------
+
+export type EventInfo = {
+  eventoId: string;
+  nombre: string; // NombreGlovox
+  venue: string;
+  capacidad: number | null; // glovox.venues.capacidad (cruce por nombre de venue)
+  country: "CL" | "PE" | "";
+  fechaEvento: string; // categoriaEvento.Fecha (fallback tickets)
+  fechaInicioVenta: string; // MIN(FechaOrden) de tickets
+};
+
+/**
+ * Info general de un evento, fuente de verdad = glovox.categoriaEvento
+ * (nombre, venue) + glovox.tickets (fechas). País por prefijo del EventoID.
+ * Devuelve null si el evento no está en categoriaEvento.
+ */
+export async function getEventInfo(eventoId: string): Promise<EventInfo | null> {
+  if (!eventoId) return null;
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH cat AS (
+      SELECT EventoID, NombreGlovox, venue, Fecha FROM ${CATEGORY}
+      WHERE EventoID = @id
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
+    )
+    SELECT
+      c.EventoID                                       AS evento_id,
+      c.NombreGlovox                                   AS nombre,
+      c.venue                                          AS venue,
+      -- capacidad del venue: cruce de categoriaEvento.venue con glovox.venues
+      (SELECT MAX(capacidad) FROM ${VENUES} v WHERE v.venue = c.venue) AS capacidad,
+      FORMAT_DATE('%Y-%m-%d', DATE(MIN(t.FechaOrden))) AS inicio,
+      -- fecha del evento: categoriaEvento.Fecha (fuente), fallback a tickets
+      FORMAT_DATE('%Y-%m-%d', COALESCE(c.Fecha, DATE(MIN(t.FechaEvento)))) AS evento
+    FROM cat c
+    LEFT JOIN ${TICKETS} t ON t.EventoID = c.EventoID
+    GROUP BY c.EventoID, c.NombreGlovox, c.venue, c.Fecha
+    `,
+    { id: eventoId },
+  );
+  if (!rows[0]) return null;
+  const r = rows[0];
+  const country = eventoId.startsWith("GLP") ? "PE" : eventoId.startsWith("GLO") ? "CL" : "";
+  return {
+    eventoId,
+    nombre: s(r.nombre),
+    venue: s(r.venue),
+    capacidad: r.capacidad == null ? null : n(r.capacidad),
+    country,
+    fechaEvento: s(r.evento),
+    fechaInicioVenta: s(r.inicio),
+  };
+}
+
+// ---------- Serie temporal del evento (tickets · PM · RRSS) ----------
+
+export type EventTimeseriesPoint = {
+  fecha: string; // YYYY-MM-DD
+  tickets: number; // tickets vendidos ese día (no devueltos)
+  gastoPm: number; // gasto de paid media ese día
+  rrssDelta: number | null; // delta diario de seguidores IG (null = sin dato)
+};
+
+/**
+ * Serie diaria de un evento desde el inicio de venta (MIN FechaOrden) hasta el
+ * día del evento, combinando:
+ *  - tickets: glovox.tickets por DATE(FechaOrden)
+ *  - PM: paidMedia.ads_performance, SUM(gasto) por fecha, ligado por el EventoID
+ *    al inicio del campaign_name
+ *  - RRSS: marketing.rrss_fllws (instagram) por blog_id = categoriaEvento.CuentaIG
+ * Devuelve vacío si el evento no tiene ventas.
+ */
+export async function getEventTimeseries(eventoId: string): Promise<EventTimeseriesPoint[]> {
+  if (!eventoId) return [];
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH cuenta AS (
+      SELECT CuentaIG, Fecha FROM ${CATEGORY} WHERE EventoID = @id
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
+    ),
+    win AS (
+      SELECT DATE(MIN(FechaOrden)) AS d0,
+             -- cierre = fecha del evento (categoriaEvento.Fecha), fallback a tickets
+             COALESCE((SELECT Fecha FROM cuenta), DATE(MIN(FechaEvento)), DATE(MAX(FechaOrden))) AS d1
+      FROM ${TICKETS} WHERE EventoID = @id AND FechaOrden IS NOT NULL
+    ),
+    spine AS (
+      SELECT d FROM win, UNNEST(GENERATE_DATE_ARRAY(d0, d1)) AS d
+      WHERE d0 IS NOT NULL
+    ),
+    tk AS (
+      SELECT DATE(FechaOrden) AS d, COUNT(*) AS tickets
+      FROM ${TICKETS}
+      WHERE EventoID = @id AND EsDevuelto IS NOT TRUE AND FechaOrden IS NOT NULL
+      GROUP BY d
+    ),
+    pm AS (
+      SELECT fecha AS d, SUM(gasto) AS gasto
+      FROM ${ADS}
+      WHERE REGEXP_EXTRACT(campaign_name, r'^([A-Z]{2,3}[0-9]+|[0-9]{6})') = @id
+      GROUP BY fecha
+    ),
+    rs AS (
+      SELECT date AS d, delta_followers
+      FROM ${RRSS}
+      WHERE network = 'instagram' AND blog_id = (SELECT CuentaIG FROM cuenta)
+    )
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', s.d) AS fecha,
+      IFNULL(tk.tickets, 0)        AS tickets,
+      IFNULL(pm.gasto, 0)          AS gasto_pm,
+      rs.delta_followers           AS rrss_delta
+    FROM spine s
+    LEFT JOIN tk ON tk.d = s.d
+    LEFT JOIN pm ON pm.d = s.d
+    LEFT JOIN rs ON rs.d = s.d
+    ORDER BY s.d
+    `,
+    { id: eventoId },
+  );
+  return rows.map((r) => ({
+    fecha: s(r.fecha),
+    tickets: n(r.tickets),
+    gastoPm: n(r.gasto_pm),
+    rrssDelta: r.rrss_delta == null ? null : n(r.rrss_delta),
+  }));
+}
+
+export type EventCampaignRow = {
+  campaignName: string;
+  objective: string;
+  plataforma: string;
+  gasto: number;
+  impresiones: number;
+  clics: number;
+  desde: string;
+  hasta: string;
+};
+
+/**
+ * Campañas de paid media de un evento (las que alimentan la curva PM del
+ * gráfico): ligadas por el EventoID al inicio del campaign_name, dentro de la
+ * misma ventana del evento. Agrupadas por nombre × objective × plataforma.
+ */
+export async function getEventCampaigns(eventoId: string): Promise<EventCampaignRow[]> {
+  if (!eventoId) return [];
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH win AS (
+      SELECT DATE(MIN(FechaOrden)) AS d0,
+             COALESCE(DATE(MIN(FechaEvento)), DATE(MAX(FechaOrden))) AS d1
+      FROM ${TICKETS} WHERE EventoID = @id AND FechaOrden IS NOT NULL
+    )
+    SELECT
+      campaign_name                            AS campaign_name,
+      objective                                AS objective,
+      plataforma                               AS plataforma,
+      SUM(gasto)                               AS gasto,
+      SUM(impresiones)                         AS impresiones,
+      SUM(clics)                               AS clics,
+      FORMAT_DATE('%Y-%m-%d', MIN(fecha))      AS desde,
+      FORMAT_DATE('%Y-%m-%d', MAX(fecha))      AS hasta
+    FROM ${ADS}, win
+    WHERE REGEXP_EXTRACT(campaign_name, r'^([A-Z]{2,3}[0-9]+|[0-9]{6})') = @id
+      AND fecha BETWEEN win.d0 AND win.d1
+    GROUP BY campaign_name, objective, plataforma
+    ORDER BY gasto DESC
+    `,
+    { id: eventoId },
+  );
+  return rows.map((r) => ({
+    campaignName: s(r.campaign_name),
+    objective: s(r.objective),
+    plataforma: s(r.plataforma),
+    gasto: n(r.gasto),
+    impresiones: n(r.impresiones),
+    clics: n(r.clics),
+    desde: s(r.desde),
+    hasta: s(r.hasta),
+  }));
 }
