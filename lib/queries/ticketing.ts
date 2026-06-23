@@ -11,6 +11,26 @@ const VENUES   = `\`${P}.glovox.venues\``;
 // Vista canónica tipo×etapa (etapa_norm estandarizada, ya sin devueltos):
 //   venta = Precio - IFNULL(Descuento, 0). Misma fuente que el pricing.
 const DEMAND   = `\`${P}.marts.ticketing_demand_by_stage\``;
+// Mapeo CategoriaTicket → etapa canónica (para el desglose por etapa).
+const ETAPA_MAP = `\`${P}.marts.ticketing_etapa_map\``;
+
+// Familia de producto a partir de TipoTicket. ESPEJO del CASE en
+// marts.ticketing_demand_by_stage (data-governance/.../marts_ticketing_pricing.sql):
+// si cambia allá, cambiar aquí. Se usa para filtrar el desglose por producto.
+const PRODUCTO_CASE_SQL = `
+    CASE
+      WHEN t.Precio = 0 OR t.Precio IS NULL                                                  THEN 'FREE'
+      WHEN UPPER(t.TipoTicket) LIKE '%VIP%' OR UPPER(t.TipoTicket) LIKE '%BACKSTAGE%'
+        OR UPPER(t.TipoTicket) LIKE '%HOSPITALITY%' OR UPPER(t.TipoTicket) LIKE '%STANDING%' THEN 'VIP'
+      WHEN UPPER(t.TipoTicket) LIKE '%EARLY%ENTRY%' OR UPPER(t.TipoTicket) LIKE '%HAPPY%'    THEN 'EARLY_ENTRY'
+      WHEN UPPER(t.TipoTicket) LIKE '%NIÑO%' OR UPPER(t.TipoTicket) LIKE '%NINO%'
+        OR UPPER(t.TipoTicket) LIKE '%KIDS%' OR UPPER(t.TipoTicket) LIKE '%INFANTIL%'        THEN 'NINO'
+      WHEN UPPER(t.TipoTicket) LIKE '%PACK%' OR UPPER(t.TipoTicket) LIKE '%FAMILIAR%'
+        OR UPPER(t.TipoTicket) LIKE '%2 PERSONAS%' OR UPPER(t.TipoTicket) LIKE '%PARA 2%'
+        OR UPPER(t.TipoTicket) LIKE '%2X%'                                                   THEN 'PACK'
+      WHEN UPPER(t.TipoTicket) LIKE '%PASE%' OR UPPER(t.TipoTicket) LIKE '%ABONO%'           THEN 'PASE'
+      ELSE 'GENERAL'
+    END`;
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -133,6 +153,9 @@ export type TicketingEventOption = {
   eventoId: string;
   nombre: string;
   categoriaEvento: string;
+  categoriaEvento2: string;
+  categoriaEvento3: string;
+  temporada: string;
   fechaEvento: string;
 };
 
@@ -185,6 +208,9 @@ export async function getTicketingEventOptions(
       c.EventoID                                       AS evento_id,
       ANY_VALUE(c.NombreGlovox)                        AS nombre,
       ANY_VALUE(c.CategoriaEvento)                     AS categoria_evento,
+      ANY_VALUE(c.CategoriaEvento2)                    AS categoria_evento_2,
+      ANY_VALUE(c.CategoriaEvento3)                    AS categoria_evento_3,
+      ANY_VALUE(c.Temporada)                           AS temporada,
       FORMAT_TIMESTAMP('%Y-%m-%d', MAX(t.FechaEvento)) AS fecha_evento
     FROM ${CATEGORY} c
     LEFT JOIN ${TICKETS} t ON c.EventoID = t.EventoID ${countryCond}
@@ -194,10 +220,13 @@ export async function getTicketingEventOptions(
     ORDER BY fecha_evento DESC
   `);
   return rows.map((r) => ({
-    eventoId:        s(r.evento_id),
-    nombre:          s(r.nombre),
-    categoriaEvento: s(r.categoria_evento),
-    fechaEvento:     s(r.fecha_evento),
+    eventoId:         s(r.evento_id),
+    nombre:           s(r.nombre),
+    categoriaEvento:  s(r.categoria_evento),
+    categoriaEvento2: s(r.categoria_evento_2),
+    categoriaEvento3: s(r.categoria_evento_3),
+    temporada:        s(r.temporada),
+    fechaEvento:      s(r.fecha_evento),
   }));
 }
 
@@ -478,6 +507,9 @@ export type GlobalPrecioMatrizFila = {
   minimo: number;
   /** Mayor precio medio entre los eventos con dato en esta etapa. */
   maximo: number;
+  /** CategoriaTicket (texto crudo) que se clasifican en esta etapa dentro del
+   *  alcance filtrado, ordenadas por volumen. Para el hover card de la fila. */
+  categorias: { categoria: string; tickets: number }[];
 };
 
 export type GlobalPrecioMatriz = {
@@ -513,8 +545,17 @@ export async function getGlobalPrecioMatriz(
     params.productos = filters.productos;
   }
 
-  const rows = await query<Record<string, unknown>>(
-    `
+  // Mismas condiciones, pero contra la tabla cruda (alias t/c) para el desglose
+  // de CategoriaTicket por etapa: la vista DEMAND ya no conserva CategoriaTicket.
+  const catConds: string[] = ["m.etapa_norm IS NOT NULL"];
+  if (filters.country === "chile") catConds.push("t.EventoID LIKE 'GLO%'");
+  if (filters.country === "peru") catConds.push("t.EventoID LIKE 'GLP%'");
+  if (filters.categoriaEventos?.length) catConds.push("c.CategoriaEvento IN UNNEST(@categoriaEventos)");
+  if (filters.eventoIds?.length) catConds.push("t.EventoID IN UNNEST(@eventoIds)");
+
+  const [rows, catRows] = await Promise.all([
+    query<Record<string, unknown>>(
+      `
     WITH cat AS (
       SELECT EventoID, Fecha
       FROM ${CATEGORY}
@@ -534,8 +575,36 @@ export async function getGlobalPrecioMatriz(
     GROUP BY d.evento_id, d.etapa_norm
     HAVING tickets > 0
   `,
-    params,
-  );
+      params,
+    ),
+    query<Record<string, unknown>>(
+      `
+    WITH cat AS (
+      SELECT EventoID, CategoriaEvento
+      FROM ${CATEGORY}
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
+    ),
+    base AS (
+      SELECT
+        m.etapa_norm        AS etapa_norm,
+        t.CategoriaTicket   AS categoria,
+        ${PRODUCTO_CASE_SQL} AS producto
+      FROM ${TICKETS} t
+      LEFT JOIN ${ETAPA_MAP} m ON t.CategoriaTicket = m.CategoriaTicket
+      LEFT JOIN cat c ON t.EventoID = c.EventoID
+      WHERE t.EsDevuelto IS NOT TRUE
+        AND t.Precio > 0
+        AND ${catConds.join("\n        AND ")}
+    )
+    SELECT etapa_norm, categoria, COUNT(*) AS tickets
+    FROM base
+    ${filters.productos?.length ? "WHERE producto IN UNNEST(@productos)" : ""}
+    GROUP BY etapa_norm, categoria
+    ORDER BY tickets DESC
+  `,
+      params,
+    ),
+  ]);
 
   // Pivote: una columna por evento, una fila por etapa.
   const eventos = new Map<string, GlobalPrecioMatrizEvento>();
@@ -556,6 +625,17 @@ export async function getGlobalPrecioMatriz(
       filas.set(etapaNorm, fila);
     }
     fila.precios.set(eventoId, n(r.precio_medio));
+  }
+
+  // Desglose de categorías por etapa (ya viene ordenado por tickets desc).
+  const catByEtapa = new Map<string, { categoria: string; tickets: number }[]>();
+  for (const r of catRows) {
+    const etapaNorm = s(r.etapa_norm);
+    const categoria = s(r.categoria);
+    if (!categoria) continue;
+    const list = catByEtapa.get(etapaNorm) ?? [];
+    list.push({ categoria, tickets: n(r.tickets) });
+    catByEtapa.set(etapaNorm, list);
   }
 
   // Columnas: evento más reciente primero (los sin fecha, al final).
@@ -582,11 +662,185 @@ export async function getGlobalPrecioMatriz(
         promedio,
         minimo,
         maximo,
+        categorias: catByEtapa.get(etapaNorm) ?? [],
       };
     })
     .sort((a, b) => a.etapaOrden - b.etapaOrden);
 
   return { eventos: eventosOrden, filas: filasOrden };
+}
+
+// ---------- Demanda temporal por tipo de ticket ----------
+
+export type DemandaGranularidad = "ISOWEEK" | "MONTH" | "EVENTO" | "CATEGORIA";
+export type DemandaMetrica = "tickets" | "venta";
+
+export type DemandaQueryFilters = {
+  country: Country;
+  categoriaEventos?: string[];
+  categoriaEventos2?: string[];
+  categoriaEventos3?: string[];
+  temporadas?: string[];
+  eventoIds?: string[];
+  granularidad: DemandaGranularidad;
+};
+
+export type DemandaRow = {
+  periodo: string; // YYYY-MM-DD para semana/mes, EventoID para EVENTO
+  label: string;   // nombre del evento (EVENTO) o fecha formateada (ISOWEEK/MONTH)
+  // Cantidad de tickets
+  general: number;
+  vip: number;
+  earlyEntry: number;
+  free: number;
+  upgrade: number;
+  total: number;
+  // Monto recaudado (Precio − Descuento)
+  generalVenta: number;
+  vipVenta: number;
+  earlyEntryVenta: number;
+  freeVenta: number;
+  upgradeVenta: number;
+  totalVenta: number;
+};
+
+/**
+ * Tickets vendidos por semana o mes, desglosados en GENERAL / VIP / EARLY_ENTRY.
+ * El eje temporal es FechaOrden (cuándo se compró), no FechaEvento.
+ * Devueltos excluidos. Granularity interpolada de un enum controlado.
+ */
+export async function getDemandaEvolucion(
+  filters: DemandaQueryFilters,
+): Promise<DemandaRow[]> {
+  const conds: string[] = ["t.EsDevuelto IS NOT TRUE", "t.FechaOrden IS NOT NULL"];
+  const params: Record<string, unknown> = {};
+  if (filters.country === "chile") conds.push("t.EventoID LIKE 'GLO%'");
+  if (filters.country === "peru") conds.push("t.EventoID LIKE 'GLP%'");
+  if (filters.categoriaEventos?.length) {
+    conds.push("c.CategoriaEvento IN UNNEST(@categoriaEventos)");
+    params.categoriaEventos = filters.categoriaEventos;
+  }
+  if (filters.categoriaEventos2?.length) {
+    conds.push("c.CategoriaEvento2 IN UNNEST(@categoriaEventos2)");
+    params.categoriaEventos2 = filters.categoriaEventos2;
+  }
+  if (filters.categoriaEventos3?.length) {
+    conds.push("c.CategoriaEvento3 IN UNNEST(@categoriaEventos3)");
+    params.categoriaEventos3 = filters.categoriaEventos3;
+  }
+  if (filters.temporadas?.length) {
+    conds.push("c.Temporada IN UNNEST(@temporadas)");
+    params.temporadas = filters.temporadas;
+  }
+  if (filters.eventoIds?.length) {
+    conds.push("t.EventoID IN UNNEST(@eventoIds)");
+    params.eventoIds = filters.eventoIds;
+  }
+  const PRODUCTO_CASE = `
+        CASE
+          WHEN t.Precio = 0 OR t.Precio IS NULL                                                  THEN 'FREE'
+          WHEN UPPER(t.TipoTicket) LIKE '%VIP%'         OR UPPER(t.TipoTicket) LIKE '%BACKSTAGE%'
+            OR UPPER(t.TipoTicket) LIKE '%HOSPITALITY%' OR UPPER(t.TipoTicket) LIKE '%STANDING%' THEN 'VIP'
+          WHEN UPPER(t.TipoTicket) LIKE '%EARLY%ENTRY%' OR UPPER(t.TipoTicket) LIKE '%HAPPY%'    THEN 'EARLY_ENTRY'
+          WHEN UPPER(t.TipoTicket) LIKE '%UPGRADE%'                                             THEN 'UPGRADE'
+          ELSE 'GENERAL'
+        END`;
+
+  const AGG_COLS = `
+      COUNTIF(producto = 'GENERAL')                   AS general,
+      COUNTIF(producto = 'VIP')                       AS vip,
+      COUNTIF(producto = 'EARLY_ENTRY')               AS early_entry,
+      COUNTIF(producto = 'FREE')                      AS free,
+      COUNTIF(producto = 'UPGRADE')                   AS upgrade,
+      COUNT(*)                                        AS total,
+      SUM(IF(producto = 'GENERAL',     venta, 0))     AS general_venta,
+      SUM(IF(producto = 'VIP',         venta, 0))     AS vip_venta,
+      SUM(IF(producto = 'EARLY_ENTRY', venta, 0))     AS early_entry_venta,
+      SUM(IF(producto = 'FREE',        venta, 0))     AS free_venta,
+      SUM(IF(producto = 'UPGRADE',     venta, 0))     AS upgrade_venta,
+      SUM(venta)                                      AS total_venta`;
+
+  let sql: string;
+  if (filters.granularidad === "EVENTO") {
+    sql = `
+    WITH base AS (
+      SELECT
+        t.EventoID                          AS grupo,
+        c.NombreGlovox                      AS evento_nombre,
+        t.FechaEvento                       AS fecha_ev,
+        t.Precio - IFNULL(t.Descuento, 0)  AS venta,
+        ${PRODUCTO_CASE}                    AS producto
+      FROM ${TICKETS} t
+      LEFT JOIN ${CATEGORY} c ON t.EventoID = c.EventoID
+      WHERE ${conds.join("\n        AND ")}
+    )
+    SELECT
+      grupo                                           AS periodo,
+      ANY_VALUE(evento_nombre)                        AS label,
+      ${AGG_COLS}
+    FROM base
+    GROUP BY grupo
+    ORDER BY MIN(fecha_ev)
+    `;
+  } else if (filters.granularidad === "CATEGORIA") {
+    sql = `
+    WITH base AS (
+      SELECT
+        IFNULL(c.CategoriaEvento, 'Sin categoría') AS grupo,
+        t.Precio - IFNULL(t.Descuento, 0)          AS venta,
+        ${PRODUCTO_CASE}                            AS producto
+      FROM ${TICKETS} t
+      LEFT JOIN ${CATEGORY} c ON t.EventoID = c.EventoID
+      WHERE ${conds.join("\n        AND ")}
+    )
+    SELECT
+      grupo                                           AS periodo,
+      grupo                                           AS label,
+      ${AGG_COLS}
+    FROM base
+    GROUP BY grupo
+    ORDER BY grupo
+    `;
+  } else {
+    // Safe: granularidad es enum controlado (ISOWEEK | MONTH), nunca input de usuario.
+    const trunc = filters.granularidad === "MONTH" ? "MONTH" : "ISOWEEK";
+    sql = `
+    WITH base AS (
+      SELECT
+        DATE_TRUNC(DATE(t.FechaOrden), ${trunc})   AS grupo,
+        t.Precio - IFNULL(t.Descuento, 0)          AS venta,
+        ${PRODUCTO_CASE}                            AS producto
+      FROM ${TICKETS} t
+      LEFT JOIN ${CATEGORY} c ON t.EventoID = c.EventoID
+      WHERE ${conds.join("\n        AND ")}
+    )
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', grupo)                  AS periodo,
+      FORMAT_DATE('%Y-%m-%d', grupo)                  AS label,
+      ${AGG_COLS}
+    FROM base
+    GROUP BY grupo
+    ORDER BY grupo
+    `;
+  }
+
+  const rows = await query<Record<string, unknown>>(sql, params);
+  return rows.map((r) => ({
+    periodo:         s(r.periodo),
+    label:           s(r.label),
+    general:         n(r.general),
+    vip:             n(r.vip),
+    earlyEntry:      n(r.early_entry),
+    free:            n(r.free),
+    upgrade:         n(r.upgrade),
+    total:           n(r.total),
+    generalVenta:    n(r.general_venta),
+    vipVenta:        n(r.vip_venta),
+    earlyEntryVenta: n(r.early_entry_venta),
+    freeVenta:       n(r.free_venta),
+    upgradeVenta:    n(r.upgrade_venta),
+    totalVenta:      n(r.total_venta),
+  }));
 }
 
 // ---------- Pace histórico de venta (para el forecast) ----------

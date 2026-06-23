@@ -25,6 +25,9 @@ import VipGralDonut from "@/components/ticketing/VipGralDonut";
 import TicketingTabs, { type TicketingTabKey } from "@/components/ticketing/TicketingTabs";
 import PricingTabSection from "@/components/ticketing/pricing/PricingTabSection";
 import GlobalAnalysisSection from "@/components/ticketing/GlobalAnalysisSection";
+import DemandaSection from "@/components/ticketing/DemandaSection";
+import type { DemandaGranularidad } from "@/lib/queries/ticketing";
+import type { ProyeccionMetodo } from "@/lib/ticketing/demanda-forecast";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +46,13 @@ interface PageProps {
     categorias?: string | string[];
     eventos?: string | string[];
     productos?: string | string[];
+    // Tab "Demanda".
+    granularidad?: string;
+    metrica?: string;
+    proyeccion?: string;
+    categorias2?: string | string[];
+    categorias3?: string | string[];
+    temporadas?: string | string[];
   }>;
 }
 
@@ -59,7 +69,25 @@ function toArray(v: string | string[] | undefined): string[] {
 function parseTab(v?: string): TicketingTabKey {
   if (v === "pricing") return "pricing";
   if (v === "global") return "global";
+  if (v === "demanda") return "demanda";
   return "analisis";
+}
+
+function parseGranularidad(v?: string): DemandaGranularidad {
+  if (v === "MONTH") return "MONTH";
+  if (v === "EVENTO") return "EVENTO";
+  if (v === "CATEGORIA") return "CATEGORIA";
+  return "ISOWEEK";
+}
+
+function parseMetrica(v?: string): import("@/lib/queries/ticketing").DemandaMetrica {
+  return v === "venta" ? "venta" : "tickets";
+}
+
+function parseProyeccion(v?: string): ProyeccionMetodo {
+  if (v === "lineal") return "lineal";
+  if (v === "holt") return "holt";
+  return "ninguna";
 }
 
 function fmtFecha(iso: string): string {
@@ -123,6 +151,28 @@ export default async function TicketingPage({ searchParams }: PageProps) {
           categoriaEventos={toArray(params.categorias)}
           eventoIds={toArray(params.eventos)}
           productos={toArray(params.productos)}
+        />
+      </Shell>
+    );
+  }
+
+  // Tab Demanda: evolución temporal de tickets vendidos por tipo.
+  if (tab === "demanda") {
+    return (
+      <Shell>
+        <Heading />
+        <TicketingTabs active="demanda" eventParam={params.event} showPricing={canEditPricing} />
+        <DemandaSection
+          country={country}
+          countryLocked={countryLocked}
+          categoriaEventos={toArray(params.categorias)}
+          categoriaEventos2={toArray(params.categorias2)}
+          categoriaEventos3={toArray(params.categorias3)}
+          temporadas={toArray(params.temporadas)}
+          eventoIds={toArray(params.eventos)}
+          granularidad={parseGranularidad(params.granularidad)}
+          metrica={parseMetrica(params.metrica)}
+          proyeccion={parseProyeccion(params.proyeccion)}
         />
       </Shell>
     );

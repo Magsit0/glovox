@@ -61,10 +61,10 @@ export const PRODUCTOS = [
   "GENERAL",
   "VIP",
   "EARLY_ENTRY",
-  "HAPPY",
   "PACK",
   "PASE",
   "NINO",
+  "FREE",
 ] as const;
 
 export type Producto = (typeof PRODUCTOS)[number];
@@ -72,11 +72,11 @@ export type Producto = (typeof PRODUCTOS)[number];
 export const PRODUCTO_LABEL: Record<Producto, string> = {
   GENERAL: "General",
   VIP: "VIP",
-  EARLY_ENTRY: "Early entry",
-  HAPPY: "Happy Piknic",
+  EARLY_ENTRY: "Early entry / Happy",
   PACK: "Pack",
   PASE: "Pase / Abono",
   NINO: "Niño",
+  FREE: "Free / Cortesía",
 };
 
 /** Parámetros de fórmula de un plan (default = los del Excel). */
