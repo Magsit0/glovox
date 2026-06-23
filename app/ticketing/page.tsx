@@ -39,11 +39,21 @@ interface PageProps {
     devueltos?: string;
     tab?: string;
     plan?: string;
+    // Tab "Análisis global": filtros multi-selección (params repetibles).
+    categorias?: string | string[];
+    eventos?: string | string[];
+    productos?: string | string[];
   }>;
 }
 
 function parseClase(v?: string): ClaseVenta | undefined {
   return v === "VENTA" || v === "CORTESIA" || v === "OTRO" ? v : undefined;
+}
+
+/** Normaliza un searchParam repetible a string[] (descarta vacíos). */
+function toArray(v: string | string[] | undefined): string[] {
+  if (v == null) return [];
+  return (Array.isArray(v) ? v : [v]).filter(Boolean);
 }
 
 function parseTab(v?: string): TicketingTabKey {
@@ -107,7 +117,13 @@ export default async function TicketingPage({ searchParams }: PageProps) {
       <Shell>
         <Heading />
         <TicketingTabs active="global" eventParam={params.event} showPricing={canEditPricing} />
-        <GlobalAnalysisSection country={country} />
+        <GlobalAnalysisSection
+          country={country}
+          countryLocked={countryLocked}
+          categoriaEventos={toArray(params.categorias)}
+          eventoIds={toArray(params.eventos)}
+          productos={toArray(params.productos)}
+        />
       </Shell>
     );
   }

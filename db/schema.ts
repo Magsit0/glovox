@@ -83,6 +83,25 @@ export const superadminPendings = pgTable("superadmin_pendings", {
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
 
+// GOVERNANCE — estado editable por activo del catálogo de datos. El catálogo
+// declarativo (qué debería existir) vive en `data/governance-catalog.json`,
+// generado desde el repo `data-governance`. Esta tabla guarda las anotaciones
+// que el equipo edita en vivo desde `/governance`: override de estado, owner,
+// notas y tags. Scaffolding para la edición (v2); en v1 `/governance` es solo
+// lectura y el estado sale del manifiesto.
+export const governanceAssetState = pgTable("governance_asset_state", {
+  // == CatalogAsset.key (FQN "dataset.tabla")
+  assetKey: text("asset_key").primaryKey(),
+  statusOverride: text("status_override"),
+  owner: text("owner"),
+  notes: text("notes"),
+  tags: text("tags").array(),
+  updatedBy: uuid("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
 export const auditLog = pgTable("audit_log", {
   id: uuid("id").defaultRandom().primaryKey(),
   actorId: uuid("actor_id"),
@@ -281,6 +300,8 @@ export type NewUser = typeof users.$inferInsert;
 export type Dashboard = typeof dashboards.$inferSelect;
 export type UserDashboardAccess = typeof userDashboardAccess.$inferSelect;
 export type SuperadminPending = typeof superadminPendings.$inferSelect;
+export type GovernanceAssetState = typeof governanceAssetState.$inferSelect;
+export type NewGovernanceAssetState = typeof governanceAssetState.$inferInsert;
 export type DashboardAccessLog = typeof dashboardAccessLog.$inferSelect;
 export type CompraInsumo = typeof comprasInsumo.$inferSelect;
 export type NewCompraInsumo = typeof comprasInsumo.$inferInsert;

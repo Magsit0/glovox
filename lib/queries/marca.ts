@@ -96,6 +96,7 @@ export async function getMarcaIngresosByEvento(
 
 export type MarcaIngresoAgg = {
   ventaNeto: number;
+  ventaBruto: number;
   qtty: number;
 };
 
@@ -112,6 +113,9 @@ export async function getMarcaIngresosAggByEvento(
       ventaNeto: sql<number>`COALESCE(SUM(${marcaIngresos.montoNeto}), 0)`.as(
         "venta_neto",
       ),
+      ventaBruto: sql<number>`COALESCE(SUM(${marcaIngresos.montoBruto}), 0)`.as(
+        "venta_bruto",
+      ),
       qtty: sql<number>`COUNT(*)`.as("qtty"),
     })
     .from(marcaIngresos)
@@ -119,6 +123,7 @@ export async function getMarcaIngresosAggByEvento(
   const r = rows[0];
   return {
     ventaNeto: Number(r?.ventaNeto ?? 0),
+    ventaBruto: Number(r?.ventaBruto ?? 0),
     qtty: Number(r?.qtty ?? 0),
   };
 }

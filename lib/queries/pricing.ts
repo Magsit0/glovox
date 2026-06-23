@@ -20,6 +20,7 @@ import {
 import { query } from "@/lib/bigquery";
 import { withNeonRetry } from "@/lib/neon-retry";
 import type { Country } from "@/lib/queries/comunidad";
+import { bucketTipo } from "@/lib/ticketing-pricing/optimizer";
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -219,6 +220,191 @@ export async function getComparableEvents(
     tickets: n(r.tickets),
     score: n(r.score),
   }));
+}
+
+/** Un evento candidato a referencia (para el selector del optimizador). */
+export type ComparableCandidate = {
+  eventoId: string;
+  nombre: string;
+  categoriaEvento: string;
+  temporada: string;
+  tickets: number;
+};
+
+/**
+ * TODOS los eventos de la misma marca + país con ventas (sin límite ni score),
+ * para que la UI los agrupe por temporada/categoría y el usuario elija cuáles
+ * usar como referencia. Devuelve también la marca del target.
+ */
+export async function getComparableCandidates(
+  targetEventoId: string,
+): Promise<{ marca: string; candidates: ComparableCandidate[] }> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH cat AS (
+      SELECT * FROM \`root-emissary-313321.glovox.categoriaEvento\`
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
+    ),
+    target AS (
+      SELECT REGEXP_REPLACE(CategoriaEvento, r'\\s*\\d+-\\d+$', '') AS marca, LEFT(EventoID, 3) AS pais
+      FROM cat WHERE EventoID = @eventoId
+    )
+    SELECT
+      c.EventoID AS evento_id,
+      ANY_VALUE(c.NombreGlovox) AS nombre,
+      ANY_VALUE(c.CategoriaEvento) AS categoria_evento,
+      ANY_VALUE(c.Temporada) AS temporada,
+      COUNTIF(t.EsDevuelto IS NOT TRUE) AS tickets
+    FROM cat c
+    JOIN \`root-emissary-313321.glovox.tickets\` t ON t.EventoID = c.EventoID
+    CROSS JOIN target tg
+    WHERE c.isCanceled IS NOT TRUE
+      AND REGEXP_REPLACE(c.CategoriaEvento, r'\\s*\\d+-\\d+$', '') = tg.marca
+      AND LEFT(c.EventoID, 3) = tg.pais
+      AND c.EventoID <> @eventoId
+    GROUP BY c.EventoID
+    HAVING tickets > 0
+    ORDER BY categoria_evento DESC, tickets DESC
+    `,
+    { eventoId: targetEventoId },
+  );
+  const candidates = rows.map((r) => ({
+    eventoId: s(r.evento_id),
+    nombre: s(r.nombre),
+    categoriaEvento: s(r.categoria_evento),
+    temporada: s(r.temporada),
+    tickets: n(r.tickets),
+  }));
+  const marca = candidates[0] ? candidates[0].categoriaEvento.replace(/\s*\d+-\d+$/, "") : "";
+  return { marca, candidates };
+}
+
+// ---------- Anclas de demanda por etapa (para el optimizador) ----------
+
+/** Ancla histórica de una celda (bucket × etapa) = PROMEDIO de los eventos elegidos. */
+export type DemandAnchorPoint = {
+  bucket: "VIP" | "GENERAL";
+  etapaNorm: string;
+  etapaOrden: number;
+  /** D0 = promedio de cantidades vendidas en la celda entre los eventos elegidos. */
+  d0: number;
+  /** p0 = promedio de precios efectivos en la celda entre los eventos elegidos. */
+  p0: number;
+  nEventos: number;
+  /** Lo que aportó cada evento al promedio (cantidad y precio). */
+  porEvento: { eventoId: string; nombre: string; tickets: number; precio: number }[];
+};
+
+export type DemandAnchorsResult = {
+  /** Suma de D0 = tamaño promedio de los eventos elegidos. */
+  magnitudTotal: number;
+  magnitudFuente: "comparables" | "capacidad";
+  anchors: DemandAnchorPoint[];
+  /** Eventos efectivamente usados como referencia (con datos). */
+  eventosRef: { eventoId: string; nombre: string }[];
+  comparables: ComparableEvent[];
+  marca: string;
+};
+
+/**
+ * Anclas de demanda por (bucket × etapa) desde el histórico de marca:
+ * `p0` = PROMEDIO de los precios efectivos y `D0` = PROMEDIO de las cantidades
+ * vendidas, entre los eventos elegidos como referencia. El sponsor viene
+ * embebido en `tipo_ticket` ("GENERAL ENTEL") y se agrega al bucket del
+ * producto. Excluye CORTESIA/OTRO; el precio ignora los tickets gratis. Devuelve
+ * además el detalle por evento (lo que cada uno aportó al promedio).
+ */
+export async function getDemandAnchorsByStage(
+  eventoId: string,
+  opts?: { refEventoIds?: string[]; capacidadFallback?: number | null },
+): Promise<DemandAnchorsResult> {
+  const comparables = await getComparableEvents(eventoId);
+  const refs = opts?.refEventoIds?.length ? opts.refEventoIds : comparables.map((c) => c.eventoId);
+  const marca = comparables[0]?.marca ?? "";
+
+  if (!refs.length) {
+    return {
+      magnitudTotal: opts?.capacidadFallback ?? 0,
+      magnitudFuente: "capacidad",
+      anchors: [],
+      eventosRef: [],
+      comparables,
+      marca,
+    };
+  }
+
+  const rows = await getDemandByStageForEvents(refs);
+
+  // Agregar por (evento, bucket, etapa): tickets + ingreso pagado.
+  type EvCell = { paidTickets: number; paidIngreso: number };
+  const byEventCell = new Map<string, EvCell>();
+  const nombreDe = new Map<string, string>();
+  const etapaOrdenDe = new Map<string, number>();
+  for (const r of rows) {
+    if (r.etapaNorm === "CORTESIA" || r.etapaNorm === "OTRO") continue;
+    nombreDe.set(r.eventoId, r.nombre);
+    const cellKey = `${bucketTipo(r.tipoTicket)}|${r.etapaNorm}`;
+    etapaOrdenDe.set(cellKey, r.etapaOrden);
+    const k = `${r.eventoId}|${cellKey}`;
+    let e = byEventCell.get(k);
+    if (!e) {
+      e = { paidTickets: 0, paidIngreso: 0 };
+      byEventCell.set(k, e);
+    }
+    // Sólo tickets PAGADOS (precio > 0): las cortesías/invitaciones a $0 no son
+    // ventas, así que no cuentan en la referencia (ni en cantidad ni en precio).
+    if (r.precioEfectivo > 0) {
+      e.paidTickets += r.tickets;
+      e.paidIngreso += r.ingreso;
+    }
+  }
+
+  // Juntar, por celda, lo que VENDIÓ cada evento (descartando celdas sin ventas pagas).
+  const porCelda = new Map<string, { eventoId: string; nombre: string; tickets: number; precio: number }[]>();
+  for (const [k, e] of byEventCell) {
+    if (e.paidTickets <= 0) continue;
+    const i = k.indexOf("|");
+    const eventoId = k.slice(0, i);
+    const cellKey = k.slice(i + 1);
+    const arr = porCelda.get(cellKey) ?? [];
+    arr.push({
+      eventoId,
+      nombre: nombreDe.get(eventoId) ?? eventoId,
+      tickets: e.paidTickets,
+      precio: Math.round(e.paidIngreso / e.paidTickets),
+    });
+    porCelda.set(cellKey, arr);
+  }
+
+  const anchors: DemandAnchorPoint[] = [...porCelda.entries()]
+    .map(([cellKey, porEvento]) => {
+      const [bucket, etapaNorm] = cellKey.split("|");
+      const conPrecio = porEvento.filter((p) => p.precio > 0);
+      const p0 = conPrecio.length
+        ? Math.round(conPrecio.reduce((s, p) => s + p.precio, 0) / conPrecio.length)
+        : 0;
+      const d0 = porEvento.length
+        ? Math.round(porEvento.reduce((s, p) => s + p.tickets, 0) / porEvento.length)
+        : 0;
+      return {
+        bucket: bucket as "VIP" | "GENERAL",
+        etapaNorm,
+        etapaOrden: etapaOrdenDe.get(cellKey) ?? 9,
+        d0,
+        p0,
+        nEventos: porEvento.length,
+        porEvento: porEvento.sort((a, b) => b.tickets - a.tickets),
+      };
+    })
+    .filter((a) => a.p0 > 0)
+    .sort((x, y) => x.etapaOrden - y.etapaOrden || x.bucket.localeCompare(y.bucket));
+
+  const magnitudTotal = anchors.reduce((s, a) => s + a.d0, 0);
+  const eventosRef = refs
+    .filter((id) => nombreDe.has(id))
+    .map((id) => ({ eventoId: id, nombre: nombreDe.get(id) ?? id }));
+
+  return { magnitudTotal, magnitudFuente: "comparables", anchors, eventosRef, comparables, marca };
 }
 
 // ---------- Postgres: planes (modelo documento) ----------

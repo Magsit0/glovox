@@ -108,9 +108,10 @@ export interface NegocioDetail {
   ventas: VentaNegocioRow[];
   ventasAggregate: VentasAggregateRaw;
   evento: CierreEventoRow | null;
-  // Ingresos de marcas imputados en el ONEPAGER (Neon). Neto agregado por evento.
-  // null cuando el negocio no es de producción de eventos propios.
+  // Ingresos de marcas imputados en el ONEPAGER (Neon). Neto y bruto agregados por
+  // evento. null cuando el negocio no es de producción de eventos propios.
   marcaIngresoNeto: number | null;
+  marcaIngresoBruto: number | null;
 }
 
 const EVENTO_SQL = `
@@ -119,6 +120,7 @@ const EVENTO_SQL = `
     CAST(NombreGlovox AS STRING) AS nombreGlovox,
     CAST(CategoriaEvento AS STRING) AS categoriaEvento,
     SAFE_CAST(TotalVentaTICKETS AS FLOAT64) AS totalVentaTickets,
+    SAFE_CAST(TotalCargoServicio AS FLOAT64) AS totalCargoServicio,
     SAFE_CAST(TotalVentaFFBB AS FLOAT64) AS totalVentaFfbb,
     SAFE_CAST(TotalAsistentes AS FLOAT64) AS totalAsistentes
   FROM ${CIERRE_EVENTOS}
@@ -227,6 +229,7 @@ export async function getNegocioDetail(externalId: string): Promise<NegocioDetai
 
   let evento: CierreEventoRow | null = null;
   let marcaIngresoNeto: number | null = null;
+  let marcaIngresoBruto: number | null = null;
   if (negocio) {
     const area = (negocio.area_negocio ?? "").trim().toLowerCase();
     const eventoId = (negocio.referencia ?? "").trim().slice(0, 6);
@@ -239,6 +242,7 @@ export async function getNegocioDetail(externalId: string): Promise<NegocioDetai
         ? (serialize(eventoRaw[0]) as unknown as CierreEventoRow)
         : null;
       marcaIngresoNeto = marcaAgg.ventaNeto;
+      marcaIngresoBruto = marcaAgg.ventaBruto;
     }
   }
 
@@ -250,6 +254,7 @@ export async function getNegocioDetail(externalId: string): Promise<NegocioDetai
     ventasAggregate,
     evento,
     marcaIngresoNeto,
+    marcaIngresoBruto,
   };
   detailCache.set(externalId, { data: detail, timestamp: now });
   return detail;

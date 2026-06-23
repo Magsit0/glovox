@@ -1,0 +1,3778 @@
+{
+  "generatedAt": "2026-06-22T21:52:01.734444+00:00",
+  "sources": [
+    {
+      "id": "metricool",
+      "label": "Metricool",
+      "type": "api",
+      "area": "marketing",
+      "endpoints": [
+        "GET /api/stats/timeline/* — seguidores diarios por red social"
+      ],
+      "envVars": [
+        "METRICOOL_USER_ID",
+        "METRICOOL_TOKEN"
+      ]
+    },
+    {
+      "id": "ga4",
+      "label": "Google Analytics 4",
+      "type": "api",
+      "area": "marketing",
+      "endpoints": [
+        "GA4 Data API runReport — UTM breakdown y embudo (4 pasos)"
+      ],
+      "envVars": [
+        "GA4_PROPERTY_IDS",
+        "GOOGLE_APPLICATION_CREDENTIALS"
+      ],
+      "notes": "Sin token: la Data API se autentica con el service account (Lector en GA4)."
+    },
+    {
+      "id": "google_ads",
+      "label": "Google Ads (MCC)",
+      "type": "api",
+      "area": "marketing",
+      "endpoints": [
+        "Google Ads API — campaign_performance y adgroup_performance"
+      ],
+      "envVars": [
+        "GOOGLE_ADS_DEVELOPER_TOKEN",
+        "GOOGLE_ADS_CLIENT_ID",
+        "GOOGLE_ADS_CLIENT_SECRET",
+        "GOOGLE_ADS_REFRESH_TOKEN"
+      ]
+    },
+    {
+      "id": "meta_ads",
+      "label": "Meta Ads",
+      "type": "api",
+      "area": "marketing",
+      "endpoints": [
+        "Marketing API — accounts (maestro) y adset insights"
+      ],
+      "envVars": [
+        "META_ADS_ACCESS_TOKEN"
+      ]
+    },
+    {
+      "id": "tiktok_ads",
+      "label": "TikTok Ads",
+      "type": "api",
+      "area": "marketing",
+      "endpoints": [
+        "TikTok Business API — accounts (maestro) y adgroup performance"
+      ],
+      "envVars": [
+        "TIKTOK_APP_ID",
+        "TIKTOK_SECRET",
+        "TIKTOK_ACCESS_TOKEN"
+      ],
+      "notes": "Vars TIKTOK_* aún no documentadas en .env.example (deuda D7 del diagnóstico)."
+    },
+    {
+      "id": "unabase",
+      "label": "Unabase (facturación)",
+      "type": "api",
+      "area": "finanzas",
+      "endpoints": [
+        "GET /v1/documentos-venta/{negocio_id} — cabecera + items de venta",
+        "GET /v1/detalle-gasto — gastos por negocio",
+        "GET /v1/negocios/items/{negocio_id} — líneas del presupuesto (Categoría → Subcategoría → Ítem)",
+        "estadoNegocio — selección de negocios a ingerir"
+      ],
+      "envVars": [
+        "UNABASE_API_TOKEN",
+        "UNABASE_API_BASE_URL"
+      ]
+    },
+    {
+      "id": "fever",
+      "label": "Fever (ticketing)",
+      "type": "api",
+      "area": "tickets",
+      "endpoints": [
+        "API async (polling) — order_items por evento"
+      ],
+      "envVars": [
+        "FEVER_USERNAME",
+        "FEVER_PASSWORD"
+      ]
+    },
+    {
+      "id": "puntoticket",
+      "label": "Comunidad Glovox (cortesías)",
+      "type": "api",
+      "area": "comunidad",
+      "endpoints": [
+        "GET /api/v1/... — cortesías por evento (lectura sin auth)",
+        "POST /api/v1/invitations — carga histórica (requiere bearer)"
+      ],
+      "envVars": [
+        "PUNTOTICKET_EVENT_IDS",
+        "BEARER_TOKEN_INVITATIONS"
+      ],
+      "notes": "El dataset se llama `puntoticket` pero la fuente es la API de Comunidad."
+    },
+    {
+      "id": "drip",
+      "label": "Drip (email marketing)",
+      "type": "api",
+      "area": "email",
+      "endpoints": [
+        "Reverse-ETL — tags desde fever.order_items"
+      ],
+      "envVars": [
+        "DRIP_ACCOUNT_ID",
+        "DRIP_TOKEN"
+      ]
+    },
+    {
+      "id": "onfire",
+      "label": "OnFire (POS / FF&BB)",
+      "type": "api",
+      "area": "ffbb",
+      "endpoints": [
+        "POST /validate (login 2 pasos) → userToken; ventas en evento"
+      ],
+      "envVars": [
+        "ONFIRE_EMAIL",
+        "ONFIRE_PASSWORD"
+      ],
+      "notes": "Dominio FFBB sin migrar (Fase 3). Solo explorado con scripts/inspect_onfire_endpoint.py."
+    },
+    {
+      "id": "legacy",
+      "label": "Infra legacy (Cloud Run viejo / Cloud Shell)",
+      "type": "legacy",
+      "area": "tickets",
+      "endpoints": [
+        "Productores no versionados (googlecloudshell/, Cloud Run sin código en repo)"
+      ],
+      "envVars": [],
+      "notes": "Origen real de las tablas glovox.*, ticketsAndAABB.*, paidMedia.*, etc. Sin monitoreo."
+    },
+    {
+      "id": "app",
+      "label": "glovox-data (la app)",
+      "type": "app",
+      "area": "tickets",
+      "endpoints": [
+        "Escrituras desde la app (sync de Sheets, seeds, builder de pricing)"
+      ],
+      "envVars": []
+    }
+  ],
+  "assets": [
+    {
+      "key": "metricool.followers_daily",
+      "area": "marketing",
+      "source": "metricool",
+      "endpoint": "https://app.metricool.com/api/stats/timeline/*",
+      "pipeline": "pipelines/marketing/rrss/metricool/rrss_fllws.py",
+      "schema": "metricool_followers_daily",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "merge",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "replaces": "marketing.rrss_fllws",
+      "upstream": [],
+      "consumers": [],
+      "notes": "Reemplazo construido; falta el switch en /marketing/weekly y /cierre-trimestral.",
+      "metrics": [
+        "Seguidores totales y delta diario por red",
+        "Crecimiento % por red social"
+      ],
+      "endpointLabel": "GET /stats/timeline/*",
+      "fields": [
+        {
+          "name": "blog_id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "ID interno de la cuenta en Metricool (parte de la clave de upsert)"
+        },
+        {
+          "name": "label",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre legible de la cuenta"
+        },
+        {
+          "name": "network",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Red social: instagram, facebook, twitter, linkedin, tiktok, youtube (parte de la clave de upsert)"
+        },
+        {
+          "name": "date",
+          "type": "DATE",
+          "mode": "REQUIRED",
+          "description": "Fecha del registro (parte de la clave de upsert)"
+        },
+        {
+          "name": "delta_followers",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Cambio neto de seguidores en el día"
+        },
+        {
+          "name": "total_followers",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Total acumulado de seguidores a la fecha"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga del registro"
+        }
+      ]
+    },
+    {
+      "key": "google_analytics.utm",
+      "area": "marketing",
+      "source": "ga4",
+      "endpoint": "GA4 Data API runReport (UTM breakdown)",
+      "pipeline": "pipelines/marketing/analytics/ga4_ingesta.py",
+      "schema": "google_analytics_utm",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "delete-then-append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "/marketing/weekly"
+      ],
+      "notes": "Schema y pipeline versionados; el productor en producción aún es legacy (_rescate-ga4 sin deployar).",
+      "metrics": [
+        "Sesiones y usuarios por fuente/medio/campaña",
+        "Landing pages top + atribución UTM"
+      ],
+      "endpointLabel": "GA4 runReport · UTM",
+      "fields": [
+        {
+          "name": "property_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "ID de la propiedad GA4 (clave de la ventana de reemplazo)"
+        },
+        {
+          "name": "evento_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Vestigial, siempre NULL. El amarre evento↔propiedad vive en glovox.categoriaEvento.property_ga4"
+        },
+        {
+          "name": "date",
+          "type": "DATE",
+          "mode": "REQUIRED",
+          "description": "Día del tráfico (clave de la ventana de reemplazo)"
+        },
+        {
+          "name": "source",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm_source manual de la sesión (sessionManualSource)"
+        },
+        {
+          "name": "medium",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm_medium manual de la sesión (sessionManualMedium)"
+        },
+        {
+          "name": "campaign",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm_campaign manual de la sesión (sessionManualCampaignName)"
+        },
+        {
+          "name": "content",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm_content manual de la sesión (sessionManualAdContent)"
+        },
+        {
+          "name": "term",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm_term manual de la sesión (sessionManualTerm)"
+        },
+        {
+          "name": "landing_page",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Página de aterrizaje de la sesión"
+        },
+        {
+          "name": "screen_page_views",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Vistas de página"
+        },
+        {
+          "name": "sessions",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Sesiones"
+        },
+        {
+          "name": "bounce_rate",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Tasa de rebote (0-1) que reporta GA4 para la combinación"
+        },
+        {
+          "name": "total_users",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Usuarios distintos"
+        },
+        {
+          "name": "event_count",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Cantidad total de eventos GA4 de la combinación"
+        },
+        {
+          "name": "ingested_at",
+          "type": "TIMESTAMP",
+          "mode": "REQUIRED",
+          "description": "Timestamp UTC de la carga del registro"
+        }
+      ]
+    },
+    {
+      "key": "google_analytics.funnel",
+      "area": "marketing",
+      "source": "ga4",
+      "endpoint": "GA4 Data API runReport (embudo 4 pasos)",
+      "pipeline": "pipelines/marketing/analytics/ga4_ingesta.py",
+      "schema": "google_analytics_funnel",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "delete-then-append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "/marketing/weekly"
+      ],
+      "notes": "Schema y pipeline versionados; productor en producción aún legacy (deploy pendiente).",
+      "metrics": [
+        "Tasa de conversión por paso del embudo",
+        "Drop-off entre pasos"
+      ],
+      "endpointLabel": "GA4 runReport · embudo",
+      "fields": [
+        {
+          "name": "property_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "ID de la propiedad GA4 (clave de la ventana de reemplazo)"
+        },
+        {
+          "name": "evento_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Vestigial, siempre NULL. El amarre evento↔propiedad vive en glovox.categoriaEvento.property_ga4"
+        },
+        {
+          "name": "date",
+          "type": "DATE",
+          "mode": "REQUIRED",
+          "description": "Día del tráfico (clave de la ventana de reemplazo)"
+        },
+        {
+          "name": "funnel_step",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Paso del embudo: landing_page, seleccion_entradas, metodo_pago, confirmar"
+        },
+        {
+          "name": "step_order",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "Orden del paso (1-4)"
+        },
+        {
+          "name": "landing_page",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Página de aterrizaje de la sesión"
+        },
+        {
+          "name": "total_users",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Usuarios distintos que alcanzaron el paso"
+        },
+        {
+          "name": "ingested_at",
+          "type": "TIMESTAMP",
+          "mode": "REQUIRED",
+          "description": "Timestamp UTC de la carga del registro"
+        }
+      ]
+    },
+    {
+      "key": "google_ads.campaign_performance",
+      "area": "marketing",
+      "source": "google_ads",
+      "endpoint": "Google Ads API — campaign metrics",
+      "pipeline": "pipelines/marketing/paidmedia/ads_google/google_ads_campaigns.py",
+      "schema": "google_ads_campaign_performance",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "merge",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "replaces": "paidMedia.ads_performance",
+      "upstream": [],
+      "consumers": [],
+      "metrics": [
+        "Spend, CPC, CPM, CTR por campaña",
+        "Conversiones y ROAS"
+      ],
+      "endpointLabel": "Ads API · campaigns",
+      "fields": [
+        {
+          "name": "fecha",
+          "type": "DATE",
+          "mode": "REQUIRED",
+          "description": "Día de las métricas (parte de la clave de upsert)"
+        },
+        {
+          "name": "customer_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Customer ID Google Ads (cuenta hija del MCC, parte de la clave de upsert)"
+        },
+        {
+          "name": "customer_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre legible de la cuenta hija (mapeo interno)"
+        },
+        {
+          "name": "campaign_id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "ID de la campaña (parte de la clave de upsert)"
+        },
+        {
+          "name": "campaign_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre de la campaña"
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado actual de la campaña (ENABLED, PAUSED, etc.)"
+        },
+        {
+          "name": "channel_type",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de canal (SEARCH, DISPLAY, VIDEO, etc.)"
+        },
+        {
+          "name": "bid_strategy",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estrategia de puja"
+        },
+        {
+          "name": "currency",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Moneda de la cuenta"
+        },
+        {
+          "name": "budget_daily",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Presupuesto diario de la campaña (en moneda de la cuenta)"
+        },
+        {
+          "name": "gasto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Gasto del día (cost_micros / 1e6)"
+        },
+        {
+          "name": "impresiones",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Impresiones del día"
+        },
+        {
+          "name": "clics",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Clics del día"
+        },
+        {
+          "name": "ctr_pct",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Click-through rate en porcentaje"
+        },
+        {
+          "name": "avg_cpc",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "CPC promedio (average_cpc / 1e6)"
+        },
+        {
+          "name": "conversiones",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Conversiones del día"
+        },
+        {
+          "name": "valor_conversion",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Valor de las conversiones del día"
+        },
+        {
+          "name": "costo_por_conversion",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo por conversión (cost_per_conversion / 1e6)"
+        },
+        {
+          "name": "all_conversions",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Todas las conversiones (incluyendo cross-device, view-through, etc.)"
+        },
+        {
+          "name": "interacciones",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Interacciones del día"
+        },
+        {
+          "name": "tasa_interaccion_pct",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Interaction rate en porcentaje"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga"
+        }
+      ]
+    },
+    {
+      "key": "google_ads.adgroup_performance",
+      "area": "marketing",
+      "source": "google_ads",
+      "endpoint": "Google Ads API — adgroup metrics",
+      "pipeline": "pipelines/marketing/paidmedia/ads_google/google_ads_adgroups.py",
+      "schema": "google_ads_adgroup_performance",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "merge",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "replaces": "paidMedia.ads_performance",
+      "upstream": [],
+      "consumers": [],
+      "metrics": [
+        "Spend y CTR por adgroup"
+      ],
+      "endpointLabel": "Ads API · adgroups",
+      "fields": [
+        {
+          "name": "fecha",
+          "type": "DATE",
+          "mode": "REQUIRED",
+          "description": "Día de las métricas (parte de la clave de upsert)"
+        },
+        {
+          "name": "customer_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Customer ID Google Ads (cuenta hija del MCC, parte de la clave de upsert)"
+        },
+        {
+          "name": "customer_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre legible de la cuenta hija (mapeo interno)"
+        },
+        {
+          "name": "campaign_id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "ID de la campaña (parte de la clave de upsert)"
+        },
+        {
+          "name": "campaign_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre de la campaña"
+        },
+        {
+          "name": "campaign_status",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado actual de la campaña (ENABLED, PAUSED, etc.)"
+        },
+        {
+          "name": "channel_type",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de canal de la campaña (SEARCH, DISPLAY, VIDEO, etc.). Proxy de objective."
+        },
+        {
+          "name": "bid_strategy",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estrategia de puja de la campaña"
+        },
+        {
+          "name": "ad_group_id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "ID del ad group (equivalente a ad set en Meta, parte de la clave de upsert)"
+        },
+        {
+          "name": "ad_group_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre del ad group"
+        },
+        {
+          "name": "ad_group_status",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado actual del ad group (ENABLED, PAUSED, etc.)"
+        },
+        {
+          "name": "ad_group_type",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo del ad group (SEARCH_STANDARD, DISPLAY_STANDARD, etc.)"
+        },
+        {
+          "name": "currency",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Moneda de la cuenta"
+        },
+        {
+          "name": "gasto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Gasto del día (cost_micros / 1e6)"
+        },
+        {
+          "name": "impresiones",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Impresiones del día"
+        },
+        {
+          "name": "clics",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Clics del día"
+        },
+        {
+          "name": "ctr_pct",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Click-through rate en porcentaje"
+        },
+        {
+          "name": "avg_cpc",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "CPC promedio (average_cpc / 1e6)"
+        },
+        {
+          "name": "conversiones",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Conversiones del día"
+        },
+        {
+          "name": "valor_conversion",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Valor de las conversiones del día"
+        },
+        {
+          "name": "costo_por_conversion",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo por conversión (cost_per_conversion / 1e6)"
+        },
+        {
+          "name": "all_conversions",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Todas las conversiones (incluyendo cross-device, view-through, etc.)"
+        },
+        {
+          "name": "interacciones",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Interacciones del día"
+        },
+        {
+          "name": "tasa_interaccion_pct",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Interaction rate en porcentaje"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga"
+        }
+      ]
+    },
+    {
+      "key": "meta_ads.accounts",
+      "area": "marketing",
+      "source": "meta_ads",
+      "endpoint": "Meta Marketing API — accounts master",
+      "pipeline": "pipelines/marketing/paidmedia/ads_meta/meta_accounts.py",
+      "schema": "meta_ads_accounts",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "truncate-load",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [],
+      "metrics": [],
+      "endpointLabel": "Meta API · accounts",
+      "fields": [
+        {
+          "name": "account_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "ID de la cuenta publicitaria (formato act_XXXX)"
+        },
+        {
+          "name": "account_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre legible de la cuenta"
+        },
+        {
+          "name": "status",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Código de status según Meta (1=Activa, 2=Deshabilitada, 3=Sin confirmar, 7=Pendiente revisión, 9=En revisión, 101=Cerrada, 201=Anuncio pendiente)"
+        },
+        {
+          "name": "status_label",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Etiqueta legible del status"
+        },
+        {
+          "name": "currency",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Moneda de la cuenta"
+        },
+        {
+          "name": "timezone",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Zona horaria de la cuenta"
+        },
+        {
+          "name": "active",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "True si status == 1"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga"
+        }
+      ]
+    },
+    {
+      "key": "meta_ads.adset_performance",
+      "area": "marketing",
+      "source": "meta_ads",
+      "endpoint": "Meta Marketing API — adset insights",
+      "pipeline": "pipelines/marketing/paidmedia/ads_meta/meta_adset_performance.py",
+      "schema": "meta_ads_adset_performance",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "truncate-merge",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "replaces": "paidMedia.ads_performance",
+      "upstream": [
+        "meta_ads.accounts"
+      ],
+      "consumers": [],
+      "metrics": [
+        "Spend, alcance, CPM, CTR por adset",
+        "Conversiones y ROAS"
+      ],
+      "endpointLabel": "Meta API · adset insights",
+      "fields": [
+        {
+          "name": "fecha",
+          "type": "DATE",
+          "mode": "REQUIRED",
+          "description": "Día de las métricas (parte de la clave de upsert)"
+        },
+        {
+          "name": "account_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "ID de la cuenta publicitaria Meta (parte de la clave de upsert)"
+        },
+        {
+          "name": "campaign_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "ID de la campaña"
+        },
+        {
+          "name": "campaign_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre de la campaña"
+        },
+        {
+          "name": "campaign_objective",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Objetivo de la campaña"
+        },
+        {
+          "name": "adset_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "ID del ad set (parte de la clave de upsert)"
+        },
+        {
+          "name": "adset_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre del ad set"
+        },
+        {
+          "name": "currency",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Moneda de la cuenta publicitaria (CLP, USD, etc.)"
+        },
+        {
+          "name": "impresiones",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Impresiones del día"
+        },
+        {
+          "name": "clics",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Clics del día"
+        },
+        {
+          "name": "alcance",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Alcance (reach) del día"
+        },
+        {
+          "name": "gasto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Gasto del día en la moneda de la cuenta"
+        },
+        {
+          "name": "ctr",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Click-through rate"
+        },
+        {
+          "name": "cpc",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo por clic"
+        },
+        {
+          "name": "cpm",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo por mil impresiones"
+        },
+        {
+          "name": "conversiones",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Cantidad de conversiones de tipo purchase"
+        },
+        {
+          "name": "valor_conversion",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Valor monetario de las conversiones purchase"
+        },
+        {
+          "name": "roas",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Return on ad spend = valor_conversion / gasto"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga"
+        }
+      ]
+    },
+    {
+      "key": "tiktok_ads.accounts",
+      "area": "marketing",
+      "source": "tiktok_ads",
+      "endpoint": "TikTok Business API — accounts",
+      "pipeline": "pipelines/marketing/paidmedia/ads_tiktok/tiktok_accounts.py",
+      "schema": "tiktok_ads_accounts",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "merge",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [],
+      "notes": "Sin carpeta deploy/ aún (único pipeline sin camino a producción, deuda D7).",
+      "metrics": [],
+      "endpointLabel": "TikTok API · accounts",
+      "fields": [
+        {
+          "name": "advertiser_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "ID del advertiser TikTok"
+        },
+        {
+          "name": "advertiser_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre del advertiser"
+        },
+        {
+          "name": "company",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Empresa registrada del advertiser (puede no coincidir con Glovox)"
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Status TikTok crudo (STATUS_ENABLE, STATUS_DISABLE, STATUS_LIMIT, STATUS_PUNISH, STATUS_CONFIRM, STATUS_WAIT_DEAL, etc.)"
+        },
+        {
+          "name": "status_label",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Etiqueta legible del status"
+        },
+        {
+          "name": "currency",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Moneda del advertiser (CLP, USD, etc.)"
+        },
+        {
+          "name": "timezone",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Zona horaria del advertiser"
+        },
+        {
+          "name": "active",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "True si status in (STATUS_ENABLE, STATUS_LIMIT) — STATUS_LIMIT no detiene las campaigns en ejecución"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga"
+        }
+      ]
+    },
+    {
+      "key": "tiktok_ads.adgroup_performance",
+      "area": "marketing",
+      "source": "tiktok_ads",
+      "endpoint": "TikTok Business API — adgroup performance",
+      "pipeline": "pipelines/marketing/paidmedia/ads_tiktok/tiktok_adgroup_performance.py",
+      "schema": "tiktok_ads_adgroup_performance",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "merge",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "replaces": "paidMedia.ads_performance",
+      "upstream": [
+        "tiktok_ads.accounts"
+      ],
+      "consumers": [],
+      "metrics": [
+        "Spend, CPC, CTR por adgroup"
+      ],
+      "endpointLabel": "TikTok API · adgroups",
+      "fields": [
+        {
+          "name": "fecha",
+          "type": "DATE",
+          "mode": "REQUIRED",
+          "description": "Día de las métricas (parte de la clave de upsert)"
+        },
+        {
+          "name": "advertiser_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "ID del advertiser TikTok (parte de la clave de upsert)"
+        },
+        {
+          "name": "campaign_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "ID de la campaña"
+        },
+        {
+          "name": "campaign_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre de la campaña"
+        },
+        {
+          "name": "campaign_objective",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Objetivo de la campaña (REACH, TRAFFIC, CONVERSIONS, etc.)"
+        },
+        {
+          "name": "adgroup_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "ID del ad group (parte de la clave de upsert)"
+        },
+        {
+          "name": "adgroup_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre del ad group"
+        },
+        {
+          "name": "currency",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Moneda del advertiser (preloaded desde tiktok_ads.accounts)"
+        },
+        {
+          "name": "impresiones",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Impresiones del día"
+        },
+        {
+          "name": "clics",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Clics del día"
+        },
+        {
+          "name": "alcance",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Alcance (reach) del día"
+        },
+        {
+          "name": "gasto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Gasto del día en la moneda del advertiser"
+        },
+        {
+          "name": "ctr",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Click-through rate"
+        },
+        {
+          "name": "cpc",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo por clic"
+        },
+        {
+          "name": "cpm",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo por mil impresiones"
+        },
+        {
+          "name": "conversiones",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Cantidad de complete_payment (purchases trackeadas por pixel)"
+        },
+        {
+          "name": "valor_conversion",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Valor monetario de los complete_payment, derivado de gasto * complete_payment_roas"
+        },
+        {
+          "name": "roas",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Return on ad spend (complete_payment_roas reportado por TikTok)"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga"
+        }
+      ]
+    },
+    {
+      "key": "finanzas.unabase_negocios",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Unabase — maestro de negocios",
+      "pipeline": "pipelines/finanzas/unabase/negocios.py",
+      "schema": "finanzas_unabase_negocios",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "truncate-load",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "/proveedor",
+        "/cierre-negocio"
+      ],
+      "metrics": [
+        "Maestro de negocios activos"
+      ],
+      "endpointLabel": "GET /negocios",
+      "fields": [
+        {
+          "name": "id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "ID del negocio (clave lógica del maestro)"
+        },
+        {
+          "name": "folio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Folio del negocio"
+        },
+        {
+          "name": "referencia",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Referencia del negocio"
+        },
+        {
+          "name": "area_negocio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Área a la que pertenece el negocio"
+        },
+        {
+          "name": "ejecutivo",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Ejecutivo asignado"
+        },
+        {
+          "name": "user_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Usuario responsable"
+        },
+        {
+          "name": "estado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado del negocio (COTIZACION, ASIGNADO, CERRADO, NULO, etc.)"
+        },
+        {
+          "name": "estadonv",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado de la nota de venta"
+        },
+        {
+          "name": "closed_compras",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Indicador de cierre de compras (raw del API)"
+        },
+        {
+          "name": "closed_ventas",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Indicador de cierre de ventas (raw del API)"
+        },
+        {
+          "name": "razon_cliente",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Razón social del cliente"
+        },
+        {
+          "name": "rut_cliente",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "RUT del cliente"
+        },
+        {
+          "name": "nro_oc_cliente",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Número de OC del cliente"
+        },
+        {
+          "name": "total_oc_cliente",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total de la OC del cliente"
+        },
+        {
+          "name": "fecha_emision_oc_cliente",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha emisión OC cliente. Parseada desde dd-mm-yyyy; sentinels 00-00-00/'' → NULL."
+        },
+        {
+          "name": "fecha_asignacion",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de asignación del negocio. Parseada desde dd-mm-yyyy; sentinels 00-00-00/'' → NULL."
+        },
+        {
+          "name": "fecha_realizacion",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de realización. Parseada desde dd-mm-yyyy; sentinels 00-00-00/'' → NULL."
+        },
+        {
+          "name": "fecha_cierre_negocio",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de cierre del negocio. Parseada desde dd-mm-yyyy; sentinels 00-00-00/'' → NULL."
+        },
+        {
+          "name": "updated_at",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Última modificación en Unabase. Parseada desde dd-mm-yyyy; sentinels 00-00-00/'' → NULL."
+        },
+        {
+          "name": "dscto_porcentaje",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Descuento aplicado en porcentaje"
+        },
+        {
+          "name": "porcentaje_ca_adicional",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Porcentaje de carga administrativa adicional"
+        },
+        {
+          "name": "total_venta",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total de venta"
+        },
+        {
+          "name": "total_neto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total neto"
+        },
+        {
+          "name": "total_nv",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total de la nota de venta"
+        },
+        {
+          "name": "total_facturado",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total facturado"
+        },
+        {
+          "name": "total_por_facturar",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total pendiente de facturar"
+        },
+        {
+          "name": "total_cobrado",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total cobrado"
+        },
+        {
+          "name": "total_por_cobrar",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total pendiente de cobrar"
+        },
+        {
+          "name": "costo_presupuestado",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo presupuestado (de costo.presupuestado)"
+        },
+        {
+          "name": "costo_real",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo real (de costo.real)"
+        },
+        {
+          "name": "costo_por_gastar",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo por gastar (de costo.por_gastar)"
+        },
+        {
+          "name": "costo_total_justificado",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo total justificado (de costo.total_justificado)"
+        },
+        {
+          "name": "costo_total_por_justificar",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo total por justificar (de costo.total_por_justificar)"
+        },
+        {
+          "name": "costo_total_pagado",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo total pagado (de costo.total_pagado)"
+        },
+        {
+          "name": "costo_total_por_pagar",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo total por pagar (de costo.total_por_pagar)"
+        },
+        {
+          "name": "utilidad_presupuestado",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Utilidad presupuestada (de utilidad.presupuestado)"
+        },
+        {
+          "name": "utilidad_real",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Utilidad real (de utilidad.real)"
+        },
+        {
+          "name": "utilidad_final",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Utilidad final (de utilidad.final)"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga"
+        }
+      ]
+    },
+    {
+      "key": "finanzas.unabase_detalle_gasto",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Unabase — detalle de gasto por negocio",
+      "pipeline": "pipelines/finanzas/unabase/unabase_ingesta.py",
+      "schema": "finanzas_unabase_detalle_gasto",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "delete-then-append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [
+        "unabase.estadoNegocio"
+      ],
+      "consumers": [
+        "/proveedor"
+      ],
+      "metrics": [
+        "Gasto por negocio y proveedor",
+        "Presupuesto vs real"
+      ],
+      "endpointLabel": "GET /gastos/{id}",
+      "fields": [
+        {
+          "name": "negocio",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "negocio_id usado en la query (clave del delete-then-append)."
+        },
+        {
+          "name": "id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "ID del gasto en Unabase."
+        },
+        {
+          "name": "llave_nv",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Llave del item dentro del negocio (ej: 'CT8467sc30Item3')."
+        },
+        {
+          "name": "emisor",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Usuario emisor del gasto."
+        },
+        {
+          "name": "version",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Versión del registro (ej: 'V3')."
+        },
+        {
+          "name": "folio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Folio del documento de gasto."
+        },
+        {
+          "name": "tipo",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de gasto (ej: 'DIRECTOS')."
+        },
+        {
+          "name": "doc",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de documento (ej: 'FACTURA ELECTRONICA')."
+        },
+        {
+          "name": "fecha",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha del gasto (origen dd-mm-yyyy)."
+        },
+        {
+          "name": "vencimiento",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de vencimiento."
+        },
+        {
+          "name": "referencia",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Referencia textual del gasto."
+        },
+        {
+          "name": "proveedor",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Razón social del proveedor."
+        },
+        {
+          "name": "rut",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "RUT del proveedor."
+        },
+        {
+          "name": "estado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado del documento de gasto."
+        },
+        {
+          "name": "validado",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "Si el gasto está validado."
+        },
+        {
+          "name": "excluir_gasto",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "Si el gasto está excluido de los reportes."
+        },
+        {
+          "name": "costoempresa_text",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Costo empresa formateado con moneda."
+        },
+        {
+          "name": "costoempresa",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo empresa numérico."
+        },
+        {
+          "name": "item_index",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Index del item dentro del gasto."
+        },
+        {
+          "name": "item_categoria",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Categoría del item."
+        },
+        {
+          "name": "item_codigo",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Código del item (ej: '12.04.003')."
+        },
+        {
+          "name": "item_codigo_origen",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Código origen del item."
+        },
+        {
+          "name": "item_sub_categoria",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Sub-categoría del item."
+        },
+        {
+          "name": "item_nombre",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre del item."
+        },
+        {
+          "name": "item_nombreGasto",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre del item desde la perspectiva de gasto."
+        },
+        {
+          "name": "item_presupuestado",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto presupuestado. FLOAT64: la API a veces devuelve decimales."
+        },
+        {
+          "name": "item_costo_empresa",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo empresa por item."
+        },
+        {
+          "name": "item_costo_real",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo real. FLOAT64: la API devuelve decimales o string numérico."
+        },
+        {
+          "name": "item_costo_total",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo total por item."
+        },
+        {
+          "name": "item_index_negocio",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Index del negocio asociado al item."
+        },
+        {
+          "name": "item_text_negocio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Texto descriptivo del negocio asociado."
+        },
+        {
+          "name": "item_tipo_documento",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de documento del item."
+        },
+        {
+          "name": "item_tipo_des_impuesto",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Descripción del tipo de impuesto (ej: 'IVA (19%)')."
+        },
+        {
+          "name": "item_tipo_impuesto",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de impuesto (ej: 'IVA')."
+        },
+        {
+          "name": "item_impuesto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto del impuesto."
+        },
+        {
+          "name": "item_id_impuesto",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "ID interno del impuesto."
+        },
+        {
+          "name": "item_numero_impuesto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Tasa del impuesto."
+        },
+        {
+          "name": "item_retiva",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Retención IVA. FLOAT64: monto."
+        },
+        {
+          "name": "item_retisr",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Retención ISR. FLOAT64: monto."
+        },
+        {
+          "name": "item_ivamx",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "IVA México (si aplica). FLOAT64: monto."
+        },
+        {
+          "name": "item_costomx",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Costo México. FLOAT64: monto."
+        },
+        {
+          "name": "item_tipo_gasto",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de gasto del item (ej: 'OC')."
+        },
+        {
+          "name": "item_nro_facturas",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Números de factura asociados al item."
+        },
+        {
+          "name": "item_neto_facturas",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Neto total facturado. FLOAT64: monto."
+        },
+        {
+          "name": "item_total_facturas",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total facturado."
+        },
+        {
+          "name": "item_total_ncs",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total notas de crédito. FLOAT64: monto."
+        },
+        {
+          "name": "item_nro_ncs",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Números de notas de crédito asociadas."
+        },
+        {
+          "name": "item_total_facturacion",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total facturación (facturas - ncs)."
+        },
+        {
+          "name": "item_fecha_facturas",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Fechas de las facturas (texto, puede contener varias)."
+        },
+        {
+          "name": "item_justificado",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "Si el item está justificado."
+        },
+        {
+          "name": "item_nro_ops",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Número de operaciones de pago asociadas."
+        },
+        {
+          "name": "item_monto_ops",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto total de operaciones de pago."
+        },
+        {
+          "name": "item_tipo_pago_ops",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de pago de las operaciones."
+        },
+        {
+          "name": "item_nro_pago_ops",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Número de pagos efectuados."
+        },
+        {
+          "name": "item_estado_ops",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "Estado del pago."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga del registro."
+        }
+      ]
+    },
+    {
+      "key": "finanzas.unabase_ventas_por_negocio",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Unabase — ventas atribuibles por negocio",
+      "pipeline": "pipelines/finanzas/unabase/unabase_ingesta.py",
+      "schema": "finanzas_unabase_ventas_por_negocio",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "delete-then-append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [
+        "unabase.estadoNegocio"
+      ],
+      "consumers": [
+        "/cierre-negocio"
+      ],
+      "metrics": [
+        "Ingreso neto atribuible por negocio",
+        "IVA atribuible + alertas de IVA inesperado"
+      ],
+      "endpointLabel": "(derivada de documentos-venta)",
+      "fields": [
+        {
+          "name": "id_negocio",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "Negocio al que se atribuye esta venta. Parte de la clave MERGE."
+        },
+        {
+          "name": "id_documento",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "Documento padre. Parte de la clave MERGE."
+        },
+        {
+          "name": "cantidad_items_atribuibles",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Cantidad de items del documento atribuibles al negocio (es_negocio_consultado=true)."
+        },
+        {
+          "name": "items_ids",
+          "type": "STRING",
+          "mode": "REPEATED",
+          "description": "IDs (det_id) de los items atribuibles, ordenados por correlativo. Ej: ['4482ITEM2']."
+        },
+        {
+          "name": "items_descripciones",
+          "type": "STRING",
+          "mode": "REPEATED",
+          "description": "Descripciones (det_descripcion) de los items atribuibles, en el mismo orden que items_ids."
+        },
+        {
+          "name": "tipo_afectacion",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Afectación tributaria del documento: 'afecto' (neto>0, exento=0), 'exento' (neto=0, exento>0), 'mixto' (ambos>0), 'sin_montos' (ambos=0)."
+        },
+        {
+          "name": "monto_subtotal_atribuible",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "SUM(det_subtotal) de los items atribuibles. Suma cruda sin clasificar entre neto/exento."
+        },
+        {
+          "name": "monto_neto_atribuible",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Parte afecta a IVA del subtotal atribuible. En docs mixtos se prorratea por la proporción del doc."
+        },
+        {
+          "name": "monto_exento_atribuible",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Parte exenta del subtotal atribuible. En docs mixtos se prorratea por la proporción del doc."
+        },
+        {
+          "name": "monto_iva_atribuible",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "ROUND(monto_neto_atribuible * 0.19). Solo sobre la parte afecta."
+        },
+        {
+          "name": "monto_total_atribuible",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "monto_neto_atribuible + monto_exento_atribuible + monto_iva_atribuible."
+        },
+        {
+          "name": "folio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Folio del documento (contexto)."
+        },
+        {
+          "name": "fecha_emision",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "fecha_pago",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "fecha_recepcion",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "fecha_vencimiento",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "fecha_realizacion_negocio",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "fecha_asignacion_negocio",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "periodo_contable",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "estado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado del documento entero (no de la atribución)."
+        },
+        {
+          "name": "tipo_documento",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "tipo_documento_abrev",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "libro_contable",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "usuario_emisor",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "cliente",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "rut_cliente",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "forma_pago",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "esta_contabilizado",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "ejecutivo_negocio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "moneda",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "tasa_cambio",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "monto_neto_documento",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Neto total del documento (afecto a IVA)."
+        },
+        {
+          "name": "monto_exento_documento",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Monto exento total del documento."
+        },
+        {
+          "name": "monto_iva_documento",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "IVA real del documento según el endpoint."
+        },
+        {
+          "name": "monto_total_documento",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Total del documento entero (neto + exento + iva + adicional)."
+        },
+        {
+          "name": "iva_documento_calculado",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "IVA teórico del documento = ROUND(monto_neto_documento * 0.19). Para comparar contra monto_iva_documento."
+        },
+        {
+          "name": "iva_documento_diferencia",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "monto_iva_documento - iva_documento_calculado. Positivo = IVA real mayor al teórico."
+        },
+        {
+          "name": "iva_documento_difiere",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "ALERTA: true si |iva_documento_diferencia| > 1 CLP. Indica que el documento tiene un IVA distinto al 19% del neto (exento, factura mixta, error de carga, etc.)."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la última carga."
+        }
+      ]
+    },
+    {
+      "key": "finanzas.unabase_documentos_venta",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "https://api-v3-new.herokuapp.com/v1/documentos-venta/{id}",
+      "pipeline": "pipelines/finanzas/unabase/unabase_ingesta.py",
+      "schema": "finanzas_unabase_documentos_venta",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "delete-then-append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "replaces": "unabase.docsVenta",
+      "upstream": [
+        "unabase.estadoNegocio"
+      ],
+      "consumers": [],
+      "metrics": [
+        "Documentos de venta por negocio"
+      ],
+      "endpointLabel": "GET /documentos-venta/{id}",
+      "fields": [
+        {
+          "name": "negocio",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "negocio_id usado en la query (clave del delete-then-append)."
+        },
+        {
+          "name": "id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "ID del documento de venta en Unabase."
+        },
+        {
+          "name": "folio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Folio del documento (puede venir 'S/N')."
+        },
+        {
+          "name": "fechaEmision",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de emisión (origen dd-mm-yyyy)."
+        },
+        {
+          "name": "fechaPago",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de pago. NULL si vino vacío o '00-00-00'."
+        },
+        {
+          "name": "fechaRecepcion",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de recepción del documento."
+        },
+        {
+          "name": "fechaVencimiento",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de vencimiento."
+        },
+        {
+          "name": "fechaRealizacionNegocio",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha en que se realizó el negocio."
+        },
+        {
+          "name": "fechaAsignacionNegocio",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de asignación del negocio."
+        },
+        {
+          "name": "fecha_ingreso",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de ingreso del documento al sistema."
+        },
+        {
+          "name": "contable",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Periodo contable. Se deja STRING porque puede venir '00-00-00' como sentinel."
+        },
+        {
+          "name": "estado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado del documento (ej: 'POR EMITIR', 'EMITIDA')."
+        },
+        {
+          "name": "tipoDocumentoVenta",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Descripción larga del tipo de documento."
+        },
+        {
+          "name": "tipoDocumentoVentaAbrev",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Abreviatura del tipo de documento (ej: 'CP', 'FA')."
+        },
+        {
+          "name": "libro",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Libro contable (ej: 'LIBRO_V')."
+        },
+        {
+          "name": "emisor",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Usuario que emite el documento."
+        },
+        {
+          "name": "areaNegocio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Área de negocio asociada."
+        },
+        {
+          "name": "cliente",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Razón social del cliente."
+        },
+        {
+          "name": "rutCliente",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "RUT del cliente con formato."
+        },
+        {
+          "name": "formaPago",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Forma de pago (ej: 'A 30 DIAS')."
+        },
+        {
+          "name": "neto",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Neto formateado con moneda (ej: '$ 406.267.717')."
+        },
+        {
+          "name": "neto_raw",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Neto numérico sin formato."
+        },
+        {
+          "name": "exento",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Exento formateado."
+        },
+        {
+          "name": "exento_raw",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Exento numérico."
+        },
+        {
+          "name": "impuesto",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Impuesto (IVA) formateado."
+        },
+        {
+          "name": "impuesto_raw",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Impuesto numérico."
+        },
+        {
+          "name": "adicional",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Otros impuestos formateados."
+        },
+        {
+          "name": "adicional_raw",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Otros impuestos numérico."
+        },
+        {
+          "name": "total",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Total formateado."
+        },
+        {
+          "name": "total_raw",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Total numérico."
+        },
+        {
+          "name": "total_por_cobrar",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Total por cobrar formateado."
+        },
+        {
+          "name": "total_por_cobrar_raw",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Total por cobrar numérico."
+        },
+        {
+          "name": "abono",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Abono formateado."
+        },
+        {
+          "name": "abono_raw",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Abono numérico."
+        },
+        {
+          "name": "saldo",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Saldo formateado."
+        },
+        {
+          "name": "saldo_raw",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Saldo numérico."
+        },
+        {
+          "name": "contabilizado",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "Documento contabilizado."
+        },
+        {
+          "name": "idnegocio",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "ID interno del negocio referenciado (campo origen del endpoint)."
+        },
+        {
+          "name": "refnegocio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Referencia textual del negocio (código + descripción)."
+        },
+        {
+          "name": "idfactoring",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "ID factoring (puede venir vacío)."
+        },
+        {
+          "name": "reffactoring",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Referencia factoring."
+        },
+        {
+          "name": "idfact",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "ID interno de la factura asociada."
+        },
+        {
+          "name": "idnv",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "ID del negocio asociado (texto). Coincide con `negocio` salvo edge cases."
+        },
+        {
+          "name": "ejecutivo_negocio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Ejecutivo a cargo del negocio."
+        },
+        {
+          "name": "exchangeType",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de moneda (ej: 'CLP', 'USD')."
+        },
+        {
+          "name": "exchangeRate",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Tasa de cambio aplicada."
+        },
+        {
+          "name": "occ_numero",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Número de OCC asociada."
+        },
+        {
+          "name": "occ_fecha",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de OCC."
+        },
+        {
+          "name": "occ_total",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total de OCC."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga del registro."
+        }
+      ]
+    },
+    {
+      "key": "finanzas.unabase_documentos_venta_desagrupado",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Unabase — líneas (items[]) de documentos de venta",
+      "pipeline": "pipelines/finanzas/unabase/unabase_ingesta.py",
+      "schema": "finanzas_unabase_documentos_venta_desagrupado",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "delete-then-append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [
+        "finanzas.unabase_documentos_venta"
+      ],
+      "consumers": [],
+      "metrics": [],
+      "endpointLabel": "items[] de /documentos-venta",
+      "fields": [
+        {
+          "name": "negocio",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "negocio_id usado en la query (clave del delete-then-append)."
+        },
+        {
+          "name": "id_doc",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "ID del documento padre (id de `documentos_venta`). Une vía JOIN."
+        },
+        {
+          "name": "det_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "ID compuesto del item en Unabase (ej: '4510ITEM1')."
+        },
+        {
+          "name": "det_correlativo",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Correlativo del item dentro del documento."
+        },
+        {
+          "name": "det_codigo",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Código del producto/servicio."
+        },
+        {
+          "name": "det_descripcion",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Descripción breve del item."
+        },
+        {
+          "name": "det_descripcion_larga",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Descripción extendida del item."
+        },
+        {
+          "name": "det_exchange_monto_facturado",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto facturado en moneda local."
+        },
+        {
+          "name": "det_cantidad",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Cantidad del item."
+        },
+        {
+          "name": "det_precio",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Precio unitario."
+        },
+        {
+          "name": "det_subtotal",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Subtotal del item (cantidad * precio)."
+        },
+        {
+          "name": "negocio_id",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "ID del negocio asociado al item (puede venir 0)."
+        },
+        {
+          "name": "negocio_folio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Folio del negocio asociado al item."
+        },
+        {
+          "name": "negocio_nombre",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre del negocio asociado al item."
+        },
+        {
+          "name": "es_negocio_consultado",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "True si el item corresponde al negocio que se está consultando."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga del registro."
+        }
+      ]
+    },
+    {
+      "key": "finanzas.unabase_negocio_items",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "https://api-v3-new.herokuapp.com/v1/negocios/items/{negocio_id}",
+      "pipeline": "pipelines/finanzas/unabase/unabase_ingesta.py",
+      "schema": "finanzas_unabase_negocio_items",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "delete-then-append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "replaces": "unabase.negocioItem",
+      "upstream": [
+        "unabase.estadoNegocio"
+      ],
+      "consumers": [],
+      "notes": "Líneas del presupuesto/cotización por negocio (raw fiel). Jerarquía Categoría → Subcategoría → Ítem codificada en las llaves; se rearma en marts.finanzas_negocio_items_arbol. Reemplaza a la legacy unabase.negocioItem (la leen /cierre-negocio y /unabase/cierre-mensual).",
+      "metrics": [],
+      "endpointLabel": "https://api-v3-new.herokuapp.com/v1/negocios/items/{negocio_id}",
+      "fields": [
+        {
+          "name": "negocio",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "negocio_id consultado (path param /negocios/items/{id}); clave de la partición (delete-then-append). Lo inyecta el pipeline."
+        },
+        {
+          "name": "id",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Orden/ID de la línea dentro del presupuesto del negocio (10, 20, 30...). Único por negocio, NO global."
+        },
+        {
+          "name": "llave_item",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Llave única de la línea dentro del negocio (ej: 'CT8454sc10Titulo1117158048'). Clave natural; los hijos la referencian vía llave_titulo/llaveSubCat."
+        },
+        {
+          "name": "cod",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Código contable del ítem (ej: '15.05.003'). Vacío en títulos y subcategorías."
+        },
+        {
+          "name": "isSubCat",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "True si la línea es una subcategoría (nodo agrupador). Junto con tipo_item define el nivel jerárquico."
+        },
+        {
+          "name": "llaveSubCat",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Llave de la subcategoría padre (= llave_item de la subcategoría). Vacío en títulos y subcategorías."
+        },
+        {
+          "name": "llave_titulo",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Llave de la categoría/título padre (= llave_item del TITULO)."
+        },
+        {
+          "name": "tipo_item",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nivel jerárquico crudo: 'TITULO' (categoría) o 'ITEM' (subcategoría si isSubCat, si no ítem hoja)."
+        },
+        {
+          "name": "categoria",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Categoría de gasto, denormalizada en cada fila (SUELDOS, ARTISTICA, VENUE, MARKETING, ...; 13 valores observados)."
+        },
+        {
+          "name": "num_item",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Número/orden del ítem como texto ('10', '20'). Espejo de `id`."
+        },
+        {
+          "name": "nombre",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre de la línea (categoría, subcategoría o ítem según el nivel)."
+        },
+        {
+          "name": "descripcion",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Descripción libre del ítem (suele venir vacía)."
+        },
+        {
+          "name": "cantidad",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Cantidad presupuestada. La API la entrega como string; se castea a número."
+        },
+        {
+          "name": "cantidad2",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Segunda cantidad (semántica por confirmar con Unabase). Se trae igual."
+        },
+        {
+          "name": "cont_sub_cat_items",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Cantidad de ítems hijos bajo este nodo."
+        },
+        {
+          "name": "pu_venta",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Precio unitario de venta. API string → número."
+        },
+        {
+          "name": "sub_venta",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Subtotal de venta (pu_venta x cantidad). API string → número."
+        },
+        {
+          "name": "pu_gasto_pre",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Precio unitario de gasto presupuestado. API string → número."
+        },
+        {
+          "name": "sub_gasto_pre",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Subtotal de gasto presupuestado. API string → número."
+        },
+        {
+          "name": "diferencia",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Diferencia venta - gasto (margen del ítem). API string → número."
+        },
+        {
+          "name": "porc_diferencia",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Porcentaje de diferencia, viene formateado con '%' (ej: '%'). Se deja STRING (semántica por confirmar)."
+        },
+        {
+          "name": "total_gasto_real",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Gasto real acumulado del ítem. API string → número."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga del registro."
+        }
+      ]
+    },
+    {
+      "key": "fever.order_items",
+      "area": "tickets",
+      "source": "fever",
+      "endpoint": "Fever API async (polling) — order_items",
+      "pipeline": "pipelines/tickets/fever/fever_orders.py",
+      "schema": "fever_order_items",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "merge",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "drip.tags"
+      ],
+      "notes": "Sin consumidor dashboard; la usa el reverse-ETL a Drip.",
+      "metrics": [
+        "Tickets vendidos y ticket promedio (Fever)"
+      ],
+      "endpointLabel": "Fever API (async)",
+      "fields": [
+        {
+          "name": "EventoID",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "plan.id en Fever (= ID del evento)"
+        },
+        {
+          "name": "Evento",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "plan.name (nombre del evento)"
+        },
+        {
+          "name": "OrdenID",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "order.id — clave MERGE"
+        },
+        {
+          "name": "FechaOrden",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "order.created_date_utc"
+        },
+        {
+          "name": "updated_date_utc",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "order.updated_date_utc"
+        },
+        {
+          "name": "currency",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Moneda de la orden"
+        },
+        {
+          "name": "SucursalVenta",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "order.purchase_channel"
+        },
+        {
+          "name": "MedioPago",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "order.payment_method"
+        },
+        {
+          "name": "partner_id",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "order.partner.id"
+        },
+        {
+          "name": "partner_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "order.partner.name"
+        },
+        {
+          "name": "buyer_id",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "order.buyer.id"
+        },
+        {
+          "name": "buyer_email",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "order.buyer.email"
+        },
+        {
+          "name": "buyer_first_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "order.buyer.first_name"
+        },
+        {
+          "name": "buyer_last_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "order.buyer.last_name"
+        },
+        {
+          "name": "CodigoPromocion",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "order.coupon.code (NULL si no hay cupón)"
+        },
+        {
+          "name": "utm_campaign",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "utm_content",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "utm_medium",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "utm_source",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "Referido",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm.term (alimenta Drip tagging y atribución embajadores)"
+        },
+        {
+          "name": "utm_referring_domain",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "Email",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "order_item.owner.email"
+        },
+        {
+          "name": "Item",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "order_item.id — clave MERGE"
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "order_item.status"
+        },
+        {
+          "name": "Precio",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "order_item.unitary_price"
+        },
+        {
+          "name": "Descuento",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "order_item.discount"
+        },
+        {
+          "name": "CargoServicio",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "order_item.surcharge"
+        },
+        {
+          "name": "purchase_date_utc",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "order_item.purchase_date_utc"
+        },
+        {
+          "name": "cancellation_date_utc",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "order_item.cancellation_date_utc"
+        },
+        {
+          "name": "session_id",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "session.id"
+        },
+        {
+          "name": "TipoTicket",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "session.name (tipo de entrada)"
+        },
+        {
+          "name": "venue_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "venue_city",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "venue_country",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": ""
+        },
+        {
+          "name": "FechaEvento",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "session.start_date_utc"
+        },
+        {
+          "name": "EsDevuelto",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "order_item.plan_code.is_cancelled"
+        },
+        {
+          "name": "EsQuemado",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "order_item.plan_code.is_validated"
+        },
+        {
+          "name": "EsCortesia",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "order_item.is_invite"
+        },
+        {
+          "name": "AsistenteIndex",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "Index del asistente nominal en booking_questions. -1 si la orden no tiene booking_questions. Clave MERGE."
+        },
+        {
+          "name": "RutNominado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "booking_question 'RUT' (eventos nominales)"
+        },
+        {
+          "name": "EmailNominado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "booking_question 'correo' (eventos nominales)"
+        },
+        {
+          "name": "NombreNominado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "booking_question 'nombre' (eventos nominales)"
+        },
+        {
+          "name": "ApellidoNominado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "booking_question 'apellido' (eventos nominales)"
+        },
+        {
+          "name": "TelefonoNominado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "booking_question 'teléfono / número de teléfono' (eventos nominales)"
+        },
+        {
+          "name": "FechaNacimientoNominado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "booking_question 'nacimiento' (eventos nominales, raw del API)"
+        },
+        {
+          "name": "NacionalidadNominado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "booking_question 'nacionalidad' (eventos nominales)"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga"
+        }
+      ]
+    },
+    {
+      "key": "puntoticket.cortesias",
+      "area": "comunidad",
+      "source": "puntoticket",
+      "endpoint": "Comunidad Glovox API — cortesías por evento",
+      "pipeline": "pipelines/tickets/puntoticket/cortesias.py",
+      "schema": "puntoticket_cortesias",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "delete-then-append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "replaces": "glovox.cortesias",
+      "upstream": [],
+      "consumers": [],
+      "notes": "Reemplazo construido; falta el switch en /frees.",
+      "metrics": [
+        "Cortesías entregadas por evento"
+      ],
+      "endpointLabel": "Comunidad · cortesías",
+      "fields": [
+        {
+          "name": "id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "ID interno de la cortesía (PK natural en la fuente)"
+        },
+        {
+          "name": "externalId",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Código del evento (ej: GLO195). Partition col del delete-then-append"
+        },
+        {
+          "name": "ticketType",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de entrada (VIP MESA, GENERAL, etc.)"
+        },
+        {
+          "name": "sellerLink",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "URL del link de venta en PuntoTicket"
+        },
+        {
+          "name": "voluntaryCode",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Código voluntario (con monto opcional asociado)"
+        },
+        {
+          "name": "mandatoryCode",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Código mandatorio (con monto obligatorio asociado)"
+        },
+        {
+          "name": "recipient",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Destinatario al que se asignó la cortesía"
+        },
+        {
+          "name": "category",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Categoría asignada en Comunidad (ej: Kabir)"
+        },
+        {
+          "name": "linkType",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de link entregado al destinatario (MANDATORY, VOLUNTARY, etc.)"
+        },
+        {
+          "name": "createdById",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "ID del usuario de Comunidad que creó la cortesía"
+        },
+        {
+          "name": "voluntaryPaid",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "True si el código voluntario fue cobrado"
+        },
+        {
+          "name": "voluntaryAmount",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Monto del código voluntario (CLP)"
+        },
+        {
+          "name": "mandatoryPaid",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "True si el código mandatorio fue cobrado"
+        },
+        {
+          "name": "mandatoryAmount",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Monto del código mandatorio (CLP)"
+        },
+        {
+          "name": "assignedAt",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp de asignación al destinatario"
+        },
+        {
+          "name": "sentMethod",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Canal de envío (EMAIL, MANUAL, etc.)"
+        },
+        {
+          "name": "sentToEmail",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Email al que se envió la cortesía"
+        },
+        {
+          "name": "sentAt",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp de envío al destinatario"
+        },
+        {
+          "name": "createdAt",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp de creación de la cortesía"
+        },
+        {
+          "name": "updatedAt",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Última modificación en Comunidad"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga en BQ"
+        }
+      ]
+    },
+    {
+      "key": "ticketing.pricing_plan",
+      "area": "tickets",
+      "source": "app",
+      "endpoint": "glovox-data /ticketing?tab=pricing (builder de planes)",
+      "pipeline": "schemas/bigquery/ticketing_pricing_plan.sql",
+      "schema": null,
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "publish",
+      "frequency": "on-demand",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "/ticketing"
+      ],
+      "notes": "Tabla de publicación del builder de pricing (DDL .sql, no ingesta).",
+      "metrics": [
+        "Plan de pricing por etapa (precio + stock)"
+      ],
+      "endpointLabel": "builder /ticketing (on-demand)",
+      "fields": []
+    },
+    {
+      "key": "marts.finanzas_negocio_items_arbol",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_finanzas_negocio_items.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed_unconsumed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "finanzas.unabase_negocio_items"
+      ],
+      "consumers": [],
+      "notes": "Presupuesto por negocio con jerarquía explícita (nivel + parent_key) para rearmar el árbol Categoría → Subcategoría → Ítem en los dashboards.",
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.finanzas_registros_negocio",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_finanzas_registros_negocio.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "finanzas.unabase_ventas_por_negocio",
+        "finanzas.unabase_detalle_gasto",
+        "finanzas.unabase_negocio_items",
+        "finanzas.unabase_negocios"
+      ],
+      "consumers": [
+        "unabase.estadoNegocio"
+      ],
+      "notes": "Reconciliación/alerta por negocio (venta, costo, items): la consume estadoNegocio para los flags recarga2/recarga3. Reemplaza gobernada a la legacy unabase.NregistrosBQ (scheduled query invisible). Venta vía montos atribuibles (resuelve multi-negocio); items SOLO nivel hoja (tipo_item='ITEM' AND isSubCat=false) para no doble-contar la jerarquía.",
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.ga4_utm",
+      "area": "marketing",
+      "source": "ga4",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_ga4_utm.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed_unconsumed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "google_analytics.utm"
+      ],
+      "consumers": [],
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.ga4_funnel",
+      "area": "marketing",
+      "source": "ga4",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_ga4_funnel.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed_unconsumed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "google_analytics.funnel"
+      ],
+      "consumers": [],
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.ticketing_pricing",
+      "area": "tickets",
+      "source": "app",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_ticketing_pricing.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed_unconsumed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "ticketing.pricing_plan"
+      ],
+      "consumers": [],
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "glovox.tickets",
+      "area": "tickets",
+      "source": "legacy",
+      "endpoint": null,
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/club",
+        "/cierre-trimestral",
+        "/frees",
+        "/marketing/weekly",
+        "/onepager",
+        "/ticketing"
+      ],
+      "notes": "LA tabla más crítica de la plataforma. Productor: DTS horario (info@glovox.cl) que fusiona PuntoTicket+TeleTicket+fever.order_items; aún sin versionar (11 DTS invisibles). Máxima prioridad de gobernar (P1 #7).",
+      "metrics": [
+        "Ventas, cortesías y pases por evento",
+        "Ticket promedio, asistentes, per cápita"
+      ],
+      "endpointLabel": null,
+      "fields": []
+    },
+    {
+      "key": "ticketsAndAABB.cierreEventos",
+      "area": "tickets",
+      "source": "legacy",
+      "endpoint": "Cierre por evento — tickets + FF&BB + extras + paid media",
+      "pipeline": "schemas/bigquery/ticketsAndAABB_cierreEventos.sql",
+      "schema": "ticketsAndAABB_cierreEventos",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "scheduled-query",
+      "frequency": "weekly",
+      "owner": "@maximiliano",
+      "upstream": [
+        "glovox.tickets",
+        "onfire.soldItems",
+        "glovox.categoriaEvento",
+        "paidMedia.generalAds"
+      ],
+      "consumers": [
+        "/cierre-trimestral",
+        "/onepager",
+        "/cierre-negocio",
+        "/club",
+        "/marketing/weekly",
+        "slack-data-agent"
+      ],
+      "notes": "Tabla DERIVADA precomputada que une TICKETS (glovox.tickets) + FF&BB (onfire.soldItems) + EXTRAS (glovoxticketing.extrasOnepager) + Paid Media (paidMedia.generalAds), agregada por evento. La produce el scheduled query semanal 'COR cierreEventos' (lunes 11:00, CREATE OR REPLACE TABLE) — productor antes invisible, ahora versionado en schemas/bigquery/ticketsAndAABB_cierreEventos.sql (22-jun). CAMBIO 22-jun: TotalVentaTICKETS pasó a ser solo el valor cara (Precio - Descuento); el cargo por servicio completo se separó al nuevo campo TotalCargoServicio. La consume también el slack-data-agent.",
+      "metrics": [
+        "Cierre por evento: ventas + AA&BB"
+      ],
+      "endpointLabel": "Cierre por evento — tickets + FF&BB + extras + paid media",
+      "fields": [
+        {
+          "name": "EventoID",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Código del evento (ej. GLO200). Clave lógica; cruza con glovox.categoriaEvento y con los primeros 6 chars de unabase.negocios.referencia."
+        },
+        {
+          "name": "NombreGlovox",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre comercial del evento (desde glovox.categoriaEvento)."
+        },
+        {
+          "name": "NombreID",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Concatenación 'EventoID - NombreGlovox'."
+        },
+        {
+          "name": "CategoriaEvento",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Categoría del evento (dimensión)."
+        },
+        {
+          "name": "CategoriaEvento2",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Categoría secundaria del evento (dimensión)."
+        },
+        {
+          "name": "TotalVentaFFBB",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta total de FF&BB (food & beverage): SUM(SubTotal) desde onfire.soldItems. Monto bruto (IVA incluido)."
+        },
+        {
+          "name": "TotalVentaBB",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta FF&BB de bebida (Categoria <> 'COMIDA')."
+        },
+        {
+          "name": "TotalVentaFF",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta FF&BB de comida (Categoria = 'COMIDA')."
+        },
+        {
+          "name": "TotalVentaFFBBVIP",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta FF&BB en puntos VIP / canje."
+        },
+        {
+          "name": "TotalVentaFFBBGRAL",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta FF&BB en puntos generales (no VIP/canje)."
+        },
+        {
+          "name": "TotalVentaTICKETS",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Ingreso por venta de tickets a valor cara: SUM(Precio - Descuento) de tickets no devueltos. NO incluye cargo por servicio (ver TotalCargoServicio) ni el rebate. Monto bruto (IVA incluido). [Cambio 2026-06-22: antes era Venta + Rebate.]"
+        },
+        {
+          "name": "TotalCargoServicio",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Cargo por servicio COMPLETO cobrado al cliente: SUM(CargoServicio) de tickets no devueltos (columna real glovox.tickets.CargoServicio; ~13,5% efectivo, 15% nominal diluido por tarifas de 10% y exentas). Glovox retiene ~55% de este monto. [Nuevo 2026-06-22.]"
+        },
+        {
+          "name": "TotalVentaTICKETScomunidadsinrebate",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta de tickets de comunidad (VentaComunidad), valor cara sin rebate."
+        },
+        {
+          "name": "TotalVentaTICKETScomunidadconrebate",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta de tickets de comunidad incluyendo el rebate modelado (Venta + Venta*0.15*0.55)."
+        },
+        {
+          "name": "TotalTicketsVendidos",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Cantidad de tickets vendidos (ventaNoventa='VENTA', no devueltos)."
+        },
+        {
+          "name": "TotalTicketsVendidosComunidad",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Cantidad de tickets vendidos vía comunidad (Referido LIKE 'FF%')."
+        },
+        {
+          "name": "PorcentajeTicketsVendidosComunidad",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Proporción de tickets vendidos que vinieron de comunidad."
+        },
+        {
+          "name": "TotalNominados",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Tickets nominados (no devueltos)."
+        },
+        {
+          "name": "TotalAsistentes",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Asistentes (tickets quemados)."
+        },
+        {
+          "name": "TotalNominadosVIP",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Nominados VIP."
+        },
+        {
+          "name": "TotalAsistentesVIP",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Asistentes VIP (quemados)."
+        },
+        {
+          "name": "TotalNominadosGENERAL",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Nominados General."
+        },
+        {
+          "name": "TotalAsistentesGENERAL",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Asistentes General (quemados)."
+        },
+        {
+          "name": "TotalNominadosCOMUNIDAD",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Nominados de comunidad."
+        },
+        {
+          "name": "TotalAsistentesCOMUNIDAD",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Asistentes de comunidad (quemados)."
+        },
+        {
+          "name": "PorcentajeNominadosComunidad",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Proporción de nominados que son de comunidad."
+        },
+        {
+          "name": "PorcentajeAsistentesComunidad",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Proporción de asistentes que son de comunidad."
+        },
+        {
+          "name": "PerCapitaFFyBB",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta FF&BB por asistente (quemado)."
+        },
+        {
+          "name": "PerCapitaFFyBBVIP",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta FF&BB VIP por asistente VIP."
+        },
+        {
+          "name": "PerCapitaFFyBBGRAL",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta FF&BB general por asistente general."
+        },
+        {
+          "name": "PerCapitaTicketsQuemados",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta de tickets (Venta + Rebate) por ticket quemado. Nota: sigue usando Venta+Rebate, no el nuevo TotalVentaTICKETS."
+        },
+        {
+          "name": "PerCapitaTicketsNominados",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta de tickets (Venta + Rebate) por ticket nominado."
+        },
+        {
+          "name": "PerCapitaTicketsVenta",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta de tickets (Venta + Rebate) por ticket de venta efectiva (Venta > 10)."
+        },
+        {
+          "name": "GastoPM",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Gasto en Paid Media del evento (SUM Spend desde paidMedia.generalAds)."
+        },
+        {
+          "name": "GastoPMxTicket",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Gasto en Paid Media por ticket nominado vendido."
+        }
+      ]
+    },
+    {
+      "key": "glovox.categoriaEvento",
+      "area": "tickets",
+      "source": "app",
+      "endpoint": "Sync desde Google Sheets (glovox-data /admin/eventos)",
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/club",
+        "/ticketing",
+        "/onepager",
+        "/marketing/weekly",
+        "/cierre-trimestral"
+      ],
+      "notes": "Dimensión clave. Hoy se materializa desde un Sheet vía la app; falta gobernar el flujo.",
+      "metrics": [],
+      "endpointLabel": "Sync desde Google Sheets (glovox-data /admin/eventos)",
+      "fields": []
+    },
+    {
+      "key": "unabase.estadoNegocio",
+      "area": "finanzas",
+      "source": "legacy",
+      "endpoint": null,
+      "pipeline": "schemas/bigquery/unabase_estadoNegocio.sql",
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "loadPattern": "scheduled-query",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [
+        "finanzas.unabase_negocios",
+        "finanzas.unabase_documentos_venta",
+        "marts.finanzas_registros_negocio",
+        "glovox.categoriaEvento"
+      ],
+      "consumers": [
+        "/unabase/cierre-mensual",
+        "/cierre-negocio"
+      ],
+      "notes": "Tabla DERIVADA precomputada (NO raw): fusiona negocios + dimensión de evento (categoriaEvento) + métricas (ingreso/costo/difIngreso). La produce un scheduled query diario (CREATE OR REPLACE TABLE) — productor ANTES invisible, ahora versionado en schemas/bigquery/unabase_estadoNegocio.sql (19-jun). Migración 22-jun: cortadas las últimas deps legacy → principalClient lee finanzas.unabase_documentos_venta y el join de reconciliación lee marts.finanzas_registros_negocio (reemplazo gobernado de unabase.NregistrosBQ). Solo conserva la dimensión externa cross-project glovoxticketing.categoriaEvento. Sigue viviendo en el dataset legacy `unabase` porque la app la consume con ese path (/cierre-negocio, /unabase/cierre-mensual). unabase_ingesta ya NO la lee (repuntado a finanzas.unabase_negocios).",
+      "metrics": [],
+      "endpointLabel": null,
+      "fields": []
+    },
+    {
+      "key": "unabase.negocioItem",
+      "area": "finanzas",
+      "source": "legacy",
+      "endpoint": null,
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/unabase/cierre-mensual",
+        "/cierre-negocio"
+      ],
+      "notes": "Líneas del presupuesto por negocio (gemela legacy del endpoint /negocios/items/{id}). REEMPLAZADA por finanzas.unabase_negocio_items (gobernada). Al cortar: repuntar /cierre-negocio y /unabase/cierre-mensual a la nueva y deprecar esta.",
+      "metrics": [],
+      "endpointLabel": null,
+      "fields": []
+    },
+    {
+      "key": "unabase.detalleGasto",
+      "area": "finanzas",
+      "source": "legacy",
+      "endpoint": null,
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/unabase/cierre-mensual"
+      ],
+      "metrics": [],
+      "endpointLabel": null,
+      "fields": []
+    },
+    {
+      "key": "paidMedia.ads_performance",
+      "area": "marketing",
+      "source": "legacy",
+      "endpoint": null,
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/paid-media",
+        "/marketing/weekly"
+      ],
+      "notes": "Reemplazada por google_ads/meta_ads/tiktok_ads gobernadas. Pendiente el switch + apagar legacy.",
+      "metrics": [
+        "Spend, CTR, CPC, ROAS unificado (legacy)"
+      ],
+      "endpointLabel": null,
+      "fields": []
+    },
+    {
+      "key": "paidMedia.campaign_event_map",
+      "area": "marketing",
+      "source": "legacy",
+      "endpoint": null,
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/paid-media",
+        "/marketing/weekly"
+      ],
+      "notes": "Se edita A MANO en BigQuery.",
+      "metrics": [],
+      "endpointLabel": null,
+      "fields": []
+    },
+    {
+      "key": "paidMedia.fx_rates",
+      "area": "marketing",
+      "source": "legacy",
+      "endpoint": null,
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/paid-media",
+        "/marketing/weekly"
+      ],
+      "metrics": [],
+      "endpointLabel": null,
+      "fields": []
+    },
+    {
+      "key": "comunidadGlovox.users",
+      "area": "comunidad",
+      "source": "legacy",
+      "endpoint": null,
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/club"
+      ],
+      "notes": "Sin pipeline.",
+      "metrics": [
+        "Usuarios de la comunidad y actividad"
+      ],
+      "endpointLabel": null,
+      "fields": []
+    },
+    {
+      "key": "marketing.rrss_fllws",
+      "area": "marketing",
+      "source": "legacy",
+      "endpoint": null,
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/marketing/weekly",
+        "/cierre-trimestral"
+      ],
+      "notes": "Ya tiene reemplazo gobernado: metricool.followers_daily.",
+      "metrics": [
+        "Seguidores por red (legacy)"
+      ],
+      "endpointLabel": null,
+      "fields": []
+    },
+    {
+      "key": "glovox.cortesias",
+      "area": "tickets",
+      "source": "legacy",
+      "endpoint": null,
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/frees"
+      ],
+      "notes": "Ya tiene reemplazo gobernado: puntoticket.cortesias.",
+      "metrics": [
+        "Cortesías entregadas (legacy)"
+      ],
+      "endpointLabel": null,
+      "fields": []
+    },
+    {
+      "key": "glovox.nombres_genero",
+      "area": "tickets",
+      "source": "app",
+      "endpoint": "glovox-data scripts/seed-nombres-genero.ts",
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "legacy_ungoverned",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/frees"
+      ],
+      "notes": "La escribe la propia app; debería migrar a un pipeline de data-governance.",
+      "metrics": [],
+      "endpointLabel": "glovox-data scripts/seed-nombres-genero.ts",
+      "fields": []
+    },
+    {
+      "key": "onfire.soldItems",
+      "area": "ffbb",
+      "source": "onfire",
+      "endpoint": "OnFire POS — ítems vendidos en evento",
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "pending",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/ffbb",
+        "/onepager"
+      ],
+      "notes": "Dominio FFBB sin migrar (Fase 3 del PLAN).",
+      "metrics": [
+        "Consumo y venta de barra (FF&BB)"
+      ],
+      "endpointLabel": "OnFire POS — ítems vendidos en evento",
+      "fields": []
+    },
+    {
+      "key": "onfire.formulaTragoBQ",
+      "area": "ffbb",
+      "source": "onfire",
+      "endpoint": "OnFire — recetas/fórmulas de tragos",
+      "pipeline": null,
+      "schema": null,
+      "assetType": "table",
+      "status": "pending",
+      "owner": null,
+      "upstream": [],
+      "consumers": [
+        "/ffbb"
+      ],
+      "notes": "Dominio FFBB sin migrar (Fase 3 del PLAN).",
+      "metrics": [],
+      "endpointLabel": "OnFire — recetas/fórmulas de tragos",
+      "fields": []
+    }
+  ]
+}

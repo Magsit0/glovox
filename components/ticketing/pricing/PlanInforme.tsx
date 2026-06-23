@@ -15,6 +15,7 @@ import {
   type PlanDoc,
 } from "@/lib/ticketing-pricing/config";
 import { formatNumber } from "@/lib/unabase/formatting";
+import type { EventInfo } from "@/lib/queries/ticketing";
 import EventoTimeseriesChart from "./EventoTimeseriesChart";
 
 interface Props {
@@ -22,6 +23,8 @@ interface Props {
   country: PgCountry;
   fechaEvento: string;
   doc: PlanDoc;
+  /** Info del evento (de categoriaEvento); para anclar el forecast en su fecha. */
+  eventInfo?: EventInfo | null;
 }
 
 function fmtFecha(v: string, locale = "es-CL"): string {
@@ -36,7 +39,7 @@ function fmtFecha(v: string, locale = "es-CL"): string {
  * matriz tipo×etapa, con totales, capacidad, venta esperada e ingreso neto/bruto.
  * Vista de solo lectura derivada del estado actual del builder.
  */
-export default function PlanInforme({ nombre, country, fechaEvento, doc }: Props) {
+export default function PlanInforme({ nombre, country, fechaEvento, doc, eventInfo }: Props) {
   const fiscal = useMemo(() => fiscalForCountry(country), [country]);
   const money = (v: number) => formatMoney(v, fiscal);
 
@@ -48,7 +51,11 @@ export default function PlanInforme({ nombre, country, fechaEvento, doc }: Props
 
   const precioDe = useMemo(() => {
     const m = new Map<string, { precio: number | null; stock: number | null }>();
-    for (const c of doc.celdas) m.set(`${c.tipo}|${c.etapa}`, { precio: c.precio, stock: c.stock });
+    // Sólo celdas base (general): el precio base p_ij vive ahí; las de sponsor
+    // tienen precio derivado.
+    for (const c of doc.celdas) {
+      if (c.sponsor === "") m.set(`${c.tipo}|${c.etapa}`, { precio: c.precio, stock: c.stock });
+    }
     return m;
   }, [doc.celdas]);
 
@@ -112,6 +119,15 @@ export default function PlanInforme({ nombre, country, fechaEvento, doc }: Props
 
   const monedaLabel = fiscal.currency;
 
+  // Forecast: magnitud = Σ a vender (fallback Σ stock → capacidad del venue); ancla = fecha del evento.
+  const magnitud =
+    totalAVender > 0
+      ? totalAVender
+      : totals.stock > 0
+        ? totals.stock
+        : (eventInfo?.capacidad ?? doc.venueCapacidad ?? 0);
+  const eventDate = eventInfo?.fechaEvento || fechaEvento || undefined;
+
   return (
     <div className="flex flex-col gap-6">
       {/* Datos generales */}
@@ -159,12 +175,14 @@ export default function PlanInforme({ nombre, country, fechaEvento, doc }: Props
         )}
       </section>
 
-      {/* Evolución del evento (tickets · PM · RRSS) */}
+      {/* Evolución del evento: real + forecast (esperado) */}
       {doc.eventoId && (
         <EventoTimeseriesChart
           key={doc.eventoId}
           eventoId={doc.eventoId}
           etapas={doc.etapasConfig}
+          magnitud={magnitud}
+          eventDate={eventDate}
         />
       )}
 

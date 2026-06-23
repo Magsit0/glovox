@@ -1,5 +1,6 @@
 import { query } from "@/lib/bigquery";
 import type { Country } from "@/lib/queries/comunidad";
+import { ETAPA_LABEL, type Etapa } from "@/lib/ticketing-pricing/formulas";
 
 const P        = process.env.BIGQUERY_PROJECT_ID;
 const TICKETS  = `\`${P}.glovox.tickets\``;
@@ -7,6 +8,9 @@ const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
 const ADS      = `\`${P}.paidMedia.ads_performance\``;
 const RRSS     = `\`${P}.marketing.rrss_fllws\``;
 const VENUES   = `\`${P}.glovox.venues\``;
+// Vista canónica tipo×etapa (etapa_norm estandarizada, ya sin devueltos):
+//   venta = Precio - IFNULL(Descuento, 0). Misma fuente que el pricing.
+const DEMAND   = `\`${P}.marts.ticketing_demand_by_stage\``;
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -358,6 +362,20 @@ export async function getTicketingEvolucion(
 
 // ---------- Análisis global ----------
 
+/**
+ * Filtros del tab "Análisis global". País por prefijo de EventoID, más un
+ * acotamiento opcional por una o más categorías de evento
+ * (categoriaEvento.CategoriaEvento) y/o uno o más eventos. Vacíos = sin acotar.
+ */
+export type GlobalMatrizFilters = {
+  country: Country;
+  categoriaEventos?: string[];
+  eventoIds?: string[];
+  /** Familias de producto (producto de marts.ticketing_demand_by_stage) a
+   *  incluir en la matriz. Vacío = todos. Solo aplica a la matriz de precio. */
+  productos?: string[];
+};
+
 export type GlobalEventoRow = {
   eventoId: string;
   /** NombreGlovox de glovox.categoriaEvento (vacío si el evento no está mapeado). */
@@ -382,16 +400,28 @@ function diasEntre(desde: string, hasta: string): number | null {
 /**
  * Vista general de todos los eventos: una fila por EventoID con su fecha de
  * inicio de venta (MIN(FechaOrden) en glovox.tickets). Filtra por país según el
- * prefijo del EventoID (GLO=Chile, GLP=Perú), igual que el resto del ticketing.
+ * prefijo del EventoID (GLO=Chile, GLP=Perú), igual que el resto del ticketing,
+ * y opcionalmente por categoría de evento y/o un único evento.
  */
-export async function getGlobalEventos(country: Country): Promise<GlobalEventoRow[]> {
-  const cond =
-    country === "chile" ? "AND t.EventoID LIKE 'GLO%'"
-    : country === "peru" ? "AND t.EventoID LIKE 'GLP%'"
-    : "";
-  const rows = await query<Record<string, unknown>>(`
+export async function getGlobalEventos(
+  filters: GlobalMatrizFilters,
+): Promise<GlobalEventoRow[]> {
+  const conds: string[] = ["t.EventoID IS NOT NULL", "t.FechaOrden IS NOT NULL"];
+  const params: Record<string, unknown> = {};
+  if (filters.country === "chile") conds.push("t.EventoID LIKE 'GLO%'");
+  if (filters.country === "peru") conds.push("t.EventoID LIKE 'GLP%'");
+  if (filters.categoriaEventos?.length) {
+    conds.push("c.CategoriaEvento IN UNNEST(@categoriaEventos)");
+    params.categoriaEventos = filters.categoriaEventos;
+  }
+  if (filters.eventoIds?.length) {
+    conds.push("t.EventoID IN UNNEST(@eventoIds)");
+    params.eventoIds = filters.eventoIds;
+  }
+  const rows = await query<Record<string, unknown>>(
+    `
     WITH cat AS (
-      SELECT EventoID, NombreGlovox, venue
+      SELECT EventoID, NombreGlovox, venue, CategoriaEvento
       FROM ${CATEGORY}
       QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
     )
@@ -403,10 +433,12 @@ export async function getGlobalEventos(country: Country): Promise<GlobalEventoRo
       FORMAT_TIMESTAMP('%Y-%m-%d', MIN(t.FechaEvento))   AS fecha_evento
     FROM ${TICKETS} t
     LEFT JOIN cat c ON c.EventoID = t.EventoID
-    WHERE t.EventoID IS NOT NULL AND t.FechaOrden IS NOT NULL ${cond}
+    WHERE ${conds.join("\n      AND ")}
     GROUP BY t.EventoID
     ORDER BY fecha_inicio_venta DESC
-  `);
+  `,
+    params,
+  );
   return rows.map((r) => {
     const fechaInicioVenta = s(r.fecha_inicio_venta);
     const fechaEvento = s(r.fecha_evento);
@@ -419,6 +451,191 @@ export async function getGlobalEventos(country: Country): Promise<GlobalEventoRo
       diasCampania: diasEntre(fechaInicioVenta, fechaEvento),
     };
   });
+}
+
+// ---------- Matriz precio medio por etapa × evento ----------
+
+/** Un evento (columna de la matriz). */
+export type GlobalPrecioMatrizEvento = {
+  eventoId: string;
+  nombre: string;
+  /** Fecha del evento (categoriaEvento.Fecha); "" si no está cargada. */
+  fechaEvento: string;
+};
+
+/** Una etapa de venta (fila de la matriz). */
+export type GlobalPrecioMatrizFila = {
+  etapaNorm: string;
+  etapaOrden: number;
+  label: string;
+  /** Precio medio (Precio − Descuento) por evento; clave = eventoId. Ausente si
+   *  el evento no tuvo ventas en esa etapa. */
+  precios: Record<string, number>;
+  /** Promedio simple de los eventos con dato en esta etapa (sin ponderar por
+   *  volumen): "precio promedio total de los eventos" de la fila. */
+  promedio: number;
+  /** Menor precio medio entre los eventos con dato en esta etapa. */
+  minimo: number;
+  /** Mayor precio medio entre los eventos con dato en esta etapa. */
+  maximo: number;
+};
+
+export type GlobalPrecioMatriz = {
+  eventos: GlobalPrecioMatrizEvento[];
+  filas: GlobalPrecioMatrizFila[];
+};
+
+/**
+ * Matriz de precio medio: filas = etapa de venta canónica (etapa_norm de
+ * marts.ticketing_demand_by_stage, el mismo eje del pricing), columnas =
+ * eventos. En cada cruce, el precio medio = SUM(Precio − Descuento) / nº tickets
+ * de esa etapa en ese evento. La última columna ("promedio") es el promedio
+ * simple de los eventos con dato en la fila. Devueltos ya excluidos por la
+ * vista. Acota por país, una o más categorías de evento y/o uno o más eventos.
+ */
+export async function getGlobalPrecioMatriz(
+  filters: GlobalMatrizFilters,
+): Promise<GlobalPrecioMatriz> {
+  const conds: string[] = ["d.etapa_norm IS NOT NULL"];
+  const params: Record<string, unknown> = {};
+  if (filters.country === "chile") conds.push("d.evento_id LIKE 'GLO%'");
+  if (filters.country === "peru") conds.push("d.evento_id LIKE 'GLP%'");
+  if (filters.categoriaEventos?.length) {
+    conds.push("d.categoria_evento IN UNNEST(@categoriaEventos)");
+    params.categoriaEventos = filters.categoriaEventos;
+  }
+  if (filters.eventoIds?.length) {
+    conds.push("d.evento_id IN UNNEST(@eventoIds)");
+    params.eventoIds = filters.eventoIds;
+  }
+  if (filters.productos?.length) {
+    conds.push("d.producto IN UNNEST(@productos)");
+    params.productos = filters.productos;
+  }
+
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH cat AS (
+      SELECT EventoID, Fecha
+      FROM ${CATEGORY}
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
+    )
+    SELECT
+      d.evento_id                                  AS evento_id,
+      ANY_VALUE(d.nombre)                          AS nombre,
+      FORMAT_DATE('%Y-%m-%d', ANY_VALUE(c.Fecha))  AS fecha_evento,
+      d.etapa_norm                                 AS etapa_norm,
+      ANY_VALUE(d.etapa_orden)                     AS etapa_orden,
+      SUM(d.tickets)                               AS tickets,
+      SAFE_DIVIDE(SUM(d.ingreso), SUM(d.tickets))  AS precio_medio
+    FROM ${DEMAND} d
+    LEFT JOIN cat c ON c.EventoID = d.evento_id
+    WHERE ${conds.join("\n      AND ")}
+    GROUP BY d.evento_id, d.etapa_norm
+    HAVING tickets > 0
+  `,
+    params,
+  );
+
+  // Pivote: una columna por evento, una fila por etapa.
+  const eventos = new Map<string, GlobalPrecioMatrizEvento>();
+  const filas = new Map<string, { etapaOrden: number; precios: Map<string, number> }>();
+  for (const r of rows) {
+    const eventoId = s(r.evento_id);
+    if (!eventos.has(eventoId)) {
+      eventos.set(eventoId, {
+        eventoId,
+        nombre: s(r.nombre),
+        fechaEvento: s(r.fecha_evento),
+      });
+    }
+    const etapaNorm = s(r.etapa_norm);
+    let fila = filas.get(etapaNorm);
+    if (!fila) {
+      fila = { etapaOrden: n(r.etapa_orden), precios: new Map() };
+      filas.set(etapaNorm, fila);
+    }
+    fila.precios.set(eventoId, n(r.precio_medio));
+  }
+
+  // Columnas: evento más reciente primero (los sin fecha, al final).
+  const eventosOrden = [...eventos.values()].sort((a, b) => {
+    if (a.fechaEvento && b.fechaEvento && a.fechaEvento !== b.fechaEvento)
+      return b.fechaEvento.localeCompare(a.fechaEvento);
+    if (a.fechaEvento !== b.fechaEvento) return a.fechaEvento ? -1 : 1;
+    return b.eventoId.localeCompare(a.eventoId, "es", { numeric: true });
+  });
+
+  // Filas: orden canónico de etapa; promedio/mín/máx = media simple, menor y
+  // mayor entre los eventos con dato en la fila.
+  const filasOrden = [...filas.entries()]
+    .map(([etapaNorm, f]) => {
+      const vals = [...f.precios.values()];
+      const promedio = vals.length ? vals.reduce((acc, v) => acc + v, 0) / vals.length : 0;
+      const minimo = vals.length ? Math.min(...vals) : 0;
+      const maximo = vals.length ? Math.max(...vals) : 0;
+      return {
+        etapaNorm,
+        etapaOrden: f.etapaOrden,
+        label: ETAPA_LABEL[etapaNorm as Etapa] ?? etapaNorm,
+        precios: Object.fromEntries(f.precios),
+        promedio,
+        minimo,
+        maximo,
+      };
+    })
+    .sort((a, b) => a.etapaOrden - b.etapaOrden);
+
+  return { eventos: eventosOrden, filas: filasOrden };
+}
+
+// ---------- Pace histórico de venta (para el forecast) ----------
+
+export type PacePoint = {
+  diasAlEvento: number; // 0 = día del evento
+  pctAcum: number; // fracción acumulada de la venta (0..1) a ese día
+};
+
+/**
+ * Curva de pace: % acumulado de venta esperado a "d días del evento",
+ * promediando los eventos pasados indicados. Por cada evento se ancla en
+ * MIN(FechaEvento) y se normaliza por su total; luego se promedia. Ventana 0..120
+ * días (la venta anterior a 120d se pliega en d=120). Vacío si no hay eventos.
+ */
+export async function getPaceCurve(eventoIds: string[]): Promise<PacePoint[]> {
+  if (!eventoIds.length) return [];
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH ev AS (
+      SELECT EventoID, DATE(MIN(FechaEvento)) AS event_date, COUNT(*) AS total
+      FROM ${TICKETS}
+      WHERE EventoID IN UNNEST(@ids) AND EsDevuelto IS NOT TRUE
+        AND FechaOrden IS NOT NULL AND FechaEvento IS NOT NULL
+      GROUP BY EventoID
+    ),
+    daily AS (
+      SELECT t.EventoID,
+             GREATEST(DATE_DIFF(e.event_date, DATE(t.FechaOrden), DAY), 0) AS d,
+             COUNT(*) AS tickets
+      FROM ${TICKETS} t JOIN ev e ON e.EventoID = t.EventoID
+      WHERE t.EsDevuelto IS NOT TRUE AND t.FechaOrden IS NOT NULL
+      GROUP BY t.EventoID, d
+    ),
+    days AS (SELECT d FROM UNNEST(GENERATE_ARRAY(0, 120)) AS d),
+    cum AS (
+      SELECT e.EventoID, dd.d,
+             SAFE_DIVIDE(SUM(daily.tickets), ANY_VALUE(e.total)) AS pct
+      FROM ev e
+      CROSS JOIN days dd
+      LEFT JOIN daily ON daily.EventoID = e.EventoID AND daily.d >= dd.d
+      GROUP BY e.EventoID, dd.d
+    )
+    SELECT d AS dias_al_evento, AVG(IFNULL(pct, 0)) AS pct_acum
+    FROM cum GROUP BY d ORDER BY d DESC
+    `,
+    { ids: eventoIds },
+  );
+  return rows.map((r) => ({ diasAlEvento: n(r.dias_al_evento), pctAcum: n(r.pct_acum) }));
 }
 
 // ---------- Eventos de categoriaEvento (para crear planes) ----------

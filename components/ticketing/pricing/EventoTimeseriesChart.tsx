@@ -14,21 +14,27 @@ import {
 } from "recharts";
 import { axisTick, gridProps, seriesColor } from "@/lib/chart-colors";
 import { compactCurrency, formatCurrency, formatNumber } from "@/lib/unabase/formatting";
-import { getEventCampaignsAction, getEventTimeseriesAction } from "@/app/ticketing/actions";
-import type { EventCampaignRow, EventTimeseriesPoint } from "@/lib/queries/ticketing";
+import {
+  getEventCampaignsAction,
+  getEventTimeseriesAction,
+  getForecastAction,
+} from "@/app/ticketing/actions";
+import type { EventCampaignRow, EventTimeseriesPoint, PacePoint } from "@/lib/queries/ticketing";
+import type { ComparableEvent } from "@/lib/queries/pricing";
 
 type Datum = {
   fecha: string;
-  ticketsAcum: number;
-  gastoPm: number;
+  ticketsAcum: number | null;
+  gastoPm: number | null;
   rrssDelta: number | null;
+  esperado?: number | null;
 };
 
 const SERIES = [
-  { key: "ticketsAcum", label: "Tickets (acum.)", axis: "left", color: seriesColor(0), money: false },
-  { key: "gastoPm", label: "PM (gasto/día)", axis: "right", color: seriesColor(1), money: true },
-  // RRSS en su propio eje (oculto) para que no la aplaste la escala del PM.
-  { key: "rrssDelta", label: "RRSS (Δ seguidores/día)", axis: "rrss", color: seriesColor(2), money: false },
+  { key: "ticketsAcum", label: "Tickets (acum.)", axis: "left", color: seriesColor(0), money: false, dashed: false },
+  { key: "esperado", label: "Esperado (tickets)", axis: "left", color: "#C5C1F5", money: false, dashed: true },
+  { key: "gastoPm", label: "PM (gasto/día)", axis: "right", color: seriesColor(1), money: true, dashed: false },
+  { key: "rrssDelta", label: "RRSS (Δ seguidores/día)", axis: "rrss", color: seriesColor(2), money: false, dashed: false },
 ] as const;
 
 type SeriesKey = (typeof SERIES)[number]["key"];
@@ -41,63 +47,126 @@ function fmtTick(f: string): string {
 function fmtVal(v: number, money: boolean): string {
   return money ? compactCurrency(v) : formatNumber(v);
 }
+function daysTo(fecha: string, eventDate: string): number {
+  const ms = new Date(`${eventDate}T00:00:00`).getTime() - new Date(`${fecha}T00:00:00`).getTime();
+  return Math.round(ms / 86_400_000);
+}
+function addDays(date: string, delta: number): string {
+  const d = new Date(`${date}T00:00:00`);
+  d.setDate(d.getDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
 
 interface Props {
   eventoId: string;
   /** Etapas con su fecha de inicio, para dibujar las bandas del eje X. */
   etapas?: { etapa: string; fechaInicio: string }[];
+  /** Magnitud del forecast = tickets objetivo del plan (Σ a vender). */
+  magnitud?: number;
+  /** Fecha del evento (categoriaEvento.Fecha), ancla del forecast. */
+  eventDate?: string;
 }
 
 const BAND_FILL = ["#9F99F8", "#87DACD"]; // tintes alternados muy tenues por etapa
 
-export default function EventoTimeseriesChart({ eventoId, etapas }: Props) {
+export default function EventoTimeseriesChart({ eventoId, etapas, magnitud = 0, eventDate }: Props) {
   const [data, setData] = useState<Datum[] | null>(null);
   const [campaigns, setCampaigns] = useState<EventCampaignRow[]>([]);
+  const [pace, setPace] = useState<PacePoint[]>([]);
+  const [comparables, setComparables] = useState<ComparableEvent[]>([]);
+  const [marca, setMarca] = useState("");
+  const [excluded, setExcluded] = useState<string[]>([]);
+  const [forecastLoading, setForecastLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [visible, setVisible] = useState<Record<SeriesKey, boolean>>({
     ticketsAcum: true,
+    esperado: true,
     gastoPm: true,
     rrssDelta: true,
   });
 
-  // Fetch al montar / cambiar de evento. Todos los setState ocurren dentro del
-  // callback de la promesa (tras el await), no de forma síncrona en el effect.
+  // Fetch al montar / cambiar de evento. setState solo dentro del callback.
   useEffect(() => {
     if (!eventoId) return;
     let cancel = false;
-    Promise.all([getEventTimeseriesAction(eventoId), getEventCampaignsAction(eventoId)]).then(
-      ([tsRes, campRes]) => {
-        if (cancel) return;
-        if (!tsRes.ok) {
-          setError(tsRes.error);
-          setData([]);
-        } else {
-          let acc = 0;
-          const pts: Datum[] = (tsRes.data ?? []).map((p: EventTimeseriesPoint) => {
-            acc += p.tickets;
-            return { fecha: p.fecha, ticketsAcum: acc, gastoPm: p.gastoPm, rrssDelta: p.rrssDelta };
-          });
-          setError(null);
-          setData(pts);
-        }
-        setCampaigns(campRes.ok ? (campRes.data ?? []) : []);
-        setLoading(false);
-      },
-    );
+    Promise.all([
+      getEventTimeseriesAction(eventoId),
+      getEventCampaignsAction(eventoId),
+      getForecastAction(eventoId),
+    ]).then(([tsRes, campRes, fcRes]) => {
+      if (cancel) return;
+      if (!tsRes.ok) {
+        setError(tsRes.error);
+        setData([]);
+      } else {
+        let acc = 0;
+        const pts: Datum[] = (tsRes.data ?? []).map((p: EventTimeseriesPoint) => {
+          acc += p.tickets;
+          return { fecha: p.fecha, ticketsAcum: acc, gastoPm: p.gastoPm, rrssDelta: p.rrssDelta };
+        });
+        setError(null);
+        setData(pts);
+      }
+      setCampaigns(campRes.ok ? (campRes.data ?? []) : []);
+      if (fcRes.ok && fcRes.data) {
+        setPace(fcRes.data.pace);
+        setComparables(fcRes.data.comparables);
+        setMarca(fcRes.data.marca);
+      }
+      setExcluded([]);
+      setLoading(false);
+    });
     return () => {
       cancel = true;
     };
   }, [eventoId]);
 
-  // Bandas por etapa: tramos [inicio_i, inicio_{i+1}) recortados a la ventana
-  // del gráfico (fechas fuera del rango se ajustan al borde; tramos vacíos se
-  // descartan). El último tramo cierra en el día del evento. (useMemo antes de
-  // cualquier return para no romper las reglas de hooks.)
+  // Ajuste manual de comparables: recalcula el pace con los eventos incluidos.
+  function toggleComparable(id: string) {
+    const next = excluded.includes(id) ? excluded.filter((x) => x !== id) : [...excluded, id];
+    setExcluded(next);
+    const refs = comparables.filter((c) => !next.includes(c.eventoId)).map((c) => c.eventoId);
+    if (refs.length === 0) {
+      setPace([]);
+      return;
+    }
+    setForecastLoading(true);
+    getForecastAction(eventoId, refs).then((res) => {
+      if (res.ok && res.data) setPace(res.data.pace);
+      setForecastLoading(false);
+    });
+  }
+
+  // Serie unificada: datos reales + curva esperada (forecast) por fecha.
+  const chartData = useMemo<Datum[]>(() => {
+    const paceMap = new Map(pace.map((p) => [p.diasAlEvento, p.pctAcum]));
+    const expectedAt = (fecha: string): number | null => {
+      if (!eventDate || magnitud <= 0 || pace.length === 0) return null;
+      const d = Math.max(0, Math.min(120, daysTo(fecha, eventDate)));
+      const pct = paceMap.get(d);
+      return pct == null ? null : Math.round(magnitud * pct);
+    };
+    if (data && data.length > 0) {
+      return data.map((pt) => ({ ...pt, esperado: expectedAt(pt.fecha) }));
+    }
+    // Sin ventas: si hay forecast, generar un spine [eventDate−120 … eventDate].
+    if (eventDate && magnitud > 0 && pace.length > 0) {
+      const out: Datum[] = [];
+      for (let dd = 120; dd >= 0; dd--) {
+        const fecha = addDays(eventDate, -dd);
+        out.push({ fecha, ticketsAcum: null, gastoPm: null, rrssDelta: null, esperado: expectedAt(fecha) });
+      }
+      return out;
+    }
+    return data ?? [];
+  }, [data, pace, magnitud, eventDate]);
+
+  // Bandas por etapa (sobre el spine actual, real o de forecast).
   const bands = useMemo(() => {
-    if (!data || data.length === 0 || !etapas?.length) return [];
-    const first = data[0].fecha;
-    const last = data[data.length - 1].fecha;
+    if (chartData.length === 0 || !etapas?.length) return [];
+    const first = chartData[0].fecha;
+    const last = chartData[chartData.length - 1].fecha;
     const clamp = (d: string) => (d < first ? first : d > last ? last : d);
     const sorted = etapas
       .filter((e) => e.fechaInicio)
@@ -111,7 +180,7 @@ export default function EventoTimeseriesChart({ eventoId, etapas }: Props) {
       out.push({ etapa: sorted[i].etapa, x1, x2 });
     }
     return out;
-  }, [data, etapas]);
+  }, [chartData, etapas]);
 
   if (!eventoId) return null;
 
@@ -119,13 +188,12 @@ export default function EventoTimeseriesChart({ eventoId, etapas }: Props) {
   const showLeft = active.some((s) => s.axis === "left");
   const showRight = active.some((s) => s.axis === "right");
   const showRrss = active.some((s) => s.axis === "rrss");
-  // Eje válido para bandas / líneas de referencia (cualquiera activo).
   const refAxis = showLeft ? "left" : showRight ? "right" : "rrss";
-  const tickInterval = data && data.length > 10 ? Math.floor(data.length / 8) : 0;
-  // La serie termina en el día del evento (spine hasta MIN(FechaEvento)).
-  const eventDate = data && data.length > 0 ? data[data.length - 1].fecha : undefined;
+  const tickInterval = chartData.length > 10 ? Math.floor(chartData.length / 8) : 0;
+  const eventMarker = eventDate ?? (chartData.length > 0 ? chartData[chartData.length - 1].fecha : undefined);
+  const sinVentas = !!data && data.length === 0;
+  const usados = comparables.length - excluded.length;
 
-  // Resumen de campañas PM por objetivo (tipo de campaña).
   const gastoTotal = campaigns.reduce((a, c) => a + c.gasto, 0);
   const porObjetivo = Object.entries(
     campaigns.reduce<Record<string, { gasto: number; n: number }>>((acc, c) => {
@@ -143,11 +211,10 @@ export default function EventoTimeseriesChart({ eventoId, etapas }: Props) {
         <div>
           <h3 className="font-display text-lg font-bold text-[#333333]">Evolución del evento</h3>
           <p className="mt-1 font-sans text-sm text-[#666666]">
-            Tickets vendidos (acumulado), gasto de paid media y seguidores de Instagram, desde el
-            inicio de venta hasta el día del evento.
+            Tickets reales (acum.), curva <strong>esperada</strong> (forecast), gasto PM y Δ
+            seguidores, hasta el día del evento.
           </p>
         </div>
-        {/* Toggle de métricas */}
         <div className="flex flex-wrap gap-2">
           {SERIES.map((s) => {
             const on = visible[s.key];
@@ -157,9 +224,7 @@ export default function EventoTimeseriesChart({ eventoId, etapas }: Props) {
                 type="button"
                 onClick={() => setVisible((v) => ({ ...v, [s.key]: !v[s.key] }))}
                 className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 font-sans text-xs transition-colors ${
-                  on
-                    ? "border-[#E5E5E5] text-[#333333]"
-                    : "border-[#E5E5E5] text-[#999999] line-through"
+                  on ? "border-[#E5E5E5] text-[#333333]" : "border-[#E5E5E5] text-[#999999] line-through"
                 }`}
               >
                 <span
@@ -184,19 +249,26 @@ export default function EventoTimeseriesChart({ eventoId, etapas }: Props) {
             {error}
           </div>
         )}
-        {!loading && !error && data && data.length === 0 && (
-          <div className="flex h-full items-center justify-center font-sans text-sm text-[#999999]">
-            No hay datos para este evento.
+        {!loading && !error && chartData.length === 0 && (
+          <div className="flex h-full flex-col items-center justify-center gap-1 text-center font-sans text-sm text-[#999999]">
+            <span>Este evento todavía no registra ventas.</span>
+            <span className="text-xs">
+              {magnitud <= 0
+                ? "Cargá 'a vender' por tipo (o stock) para ver la curva esperada."
+                : pace.length === 0
+                  ? "Sin eventos comparables para proyectar la curva esperada."
+                  : "La curva aparecerá cuando empiecen las órdenes."}
+            </span>
           </div>
         )}
-        {!loading && !error && data && data.length > 0 && active.length === 0 && (
+        {!loading && !error && chartData.length > 0 && active.length === 0 && (
           <div className="flex h-full items-center justify-center font-sans text-sm text-[#999999]">
             Elegí al menos una métrica.
           </div>
         )}
-        {!loading && !error && data && data.length > 0 && active.length > 0 && (
+        {!loading && !error && chartData.length > 0 && active.length > 0 && (
           <ResponsiveContainer width="100%" height="100%">
-            <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
+            <ComposedChart data={chartData} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
               <CartesianGrid {...gridProps} />
               <XAxis
                 dataKey="fecha"
@@ -207,27 +279,11 @@ export default function EventoTimeseriesChart({ eventoId, etapas }: Props) {
                 axisLine={{ stroke: "#E5E5E5" }}
               />
               {showLeft && (
-                <YAxis
-                  yAxisId="left"
-                  tick={axisTick}
-                  tickFormatter={(v) => formatNumber(v)}
-                  tickLine={false}
-                  axisLine={false}
-                  width={56}
-                />
+                <YAxis yAxisId="left" tick={axisTick} tickFormatter={(v) => formatNumber(v)} tickLine={false} axisLine={false} width={56} />
               )}
               {showRight && (
-                <YAxis
-                  yAxisId="right"
-                  orientation="right"
-                  tick={axisTick}
-                  tickFormatter={(v) => compactCurrency(v)}
-                  tickLine={false}
-                  axisLine={false}
-                  width={56}
-                />
+                <YAxis yAxisId="right" orientation="right" tick={axisTick} tickFormatter={(v) => compactCurrency(v)} tickLine={false} axisLine={false} width={56} />
               )}
-              {/* Eje propio de RRSS, oculto: solo escala el delta para que sea visible. */}
               {showRrss && <YAxis yAxisId="rrss" orientation="right" hide />}
               {bands.map((b, i) => (
                 <ReferenceArea
@@ -254,9 +310,9 @@ export default function EventoTimeseriesChart({ eventoId, etapas }: Props) {
                 />
               ))}
               <Tooltip content={<ChartTooltip />} />
-              {eventDate && (
+              {eventMarker && (
                 <ReferenceLine
-                  x={eventDate}
+                  x={eventMarker}
                   yAxisId={refAxis}
                   stroke="#333333"
                   strokeDasharray="4 3"
@@ -272,6 +328,7 @@ export default function EventoTimeseriesChart({ eventoId, etapas }: Props) {
                   name={s.label}
                   stroke={s.color}
                   strokeWidth={2}
+                  strokeDasharray={s.dashed ? "5 4" : undefined}
                   dot={false}
                   connectNulls
                   activeDot={{ r: 4 }}
@@ -282,7 +339,33 @@ export default function EventoTimeseriesChart({ eventoId, etapas }: Props) {
         )}
       </div>
 
-      {/* Detalle de campañas PM (las que alimentan la curva de gasto) */}
+      {/* Forecast: comparables usados (ajustables) */}
+      {!loading && comparables.length > 0 && (
+        <details className="mt-4 border-t border-[#E5E5E5] pt-3">
+          <summary className="cursor-pointer font-sans text-sm text-[#666666]">
+            Curva esperada: marca <strong className="text-[#333333]">{marca || "—"}</strong> ·{" "}
+            {usados}/{comparables.length} eventos de referencia
+            {forecastLoading ? " · recalculando…" : ""}
+            {sinVentas ? " · proyección (sin ventas aún)" : ""}
+          </summary>
+          <div className="mt-2 flex flex-col gap-1">
+            {comparables.map((c) => {
+              const off = excluded.includes(c.eventoId);
+              return (
+                <label key={c.eventoId} className="flex items-center gap-2 font-sans text-xs text-[#666666]">
+                  <input type="checkbox" checked={!off} onChange={() => toggleComparable(c.eventoId)} />
+                  <span className={off ? "text-[#999999] line-through" : "text-[#333333]"}>
+                    {c.eventoId} — {c.nombre} {c.temporada ? `(${c.temporada})` : ""} ·{" "}
+                    {formatNumber(c.tickets)} tickets
+                  </span>
+                </label>
+              );
+            })}
+          </div>
+        </details>
+      )}
+
+      {/* Detalle de campañas PM */}
       {!loading && campaigns.length > 0 && (
         <div className="mt-6 border-t border-[#E5E5E5] pt-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -292,7 +375,6 @@ export default function EventoTimeseriesChart({ eventoId, etapas }: Props) {
                 ({campaigns.length} · {compactCurrency(gastoTotal)})
               </span>
             </h4>
-            {/* Resumen por objetivo / tipo de campaña */}
             <div className="flex flex-wrap gap-1.5">
               {porObjetivo.map(([obj, v]) => (
                 <span

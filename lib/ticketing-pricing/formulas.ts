@@ -55,6 +55,30 @@ export const ETAPA_LABEL: Record<Etapa, string> = {
   OTRO: "Otro",
 };
 
+// Familias de producto (tipo de entrada). DEBE mantenerse en sync con el CASE
+// `producto` de la vista `marts.ticketing_demand_by_stage`. Ortogonal a la etapa.
+export const PRODUCTOS = [
+  "GENERAL",
+  "VIP",
+  "EARLY_ENTRY",
+  "HAPPY",
+  "PACK",
+  "PASE",
+  "NINO",
+] as const;
+
+export type Producto = (typeof PRODUCTOS)[number];
+
+export const PRODUCTO_LABEL: Record<Producto, string> = {
+  GENERAL: "General",
+  VIP: "VIP",
+  EARLY_ENTRY: "Early entry",
+  HAPPY: "Happy Piknic",
+  PACK: "Pack",
+  PASE: "Pase / Abono",
+  NINO: "Niño",
+};
+
 /** Parámetros de fórmula de un plan (default = los del Excel). */
 export type FormulaParams = {
   cpsPct: number;
@@ -161,6 +185,35 @@ export function derivePrecioVariante(precioBase: number | null, pct: number): nu
 }
 
 /**
+ * Precio efectivo de una celda 3D: el precio base si es venta general, o el base
+ * con el descuento del sponsor aplicado. `pctSponsor` = fracción de descuento
+ * (0 = sin descuento / venta general).
+ */
+export function precioCelda3D(precioBase: number | null, pctSponsor: number): number {
+  return pctSponsor > 0 ? derivePrecioVariante(precioBase, pctSponsor) : num(precioBase);
+}
+
+/**
+ * Convierte celdas 3D (tipo × etapa × sponsor) + el catálogo de sponsors en filas
+ * {precio, stock} listas para `computeTotals`/`computeFila`, usando el precio
+ * efectivo de cada celda (base, o base con el descuento del sponsor). Es la forma
+ * correcta de totalizar el ingreso descontando el split por sponsor.
+ *
+ * `precioBaseDe(tipo, etapa)` devuelve el precio base p_ij (de la celda general).
+ */
+export function filasDesdeCeldas3D(
+  celdas: { tipo: string; etapa: string; sponsor: string; stock: number | null }[],
+  sponsors: { nombre: string; pct: number }[],
+  precioBaseDe: (tipo: string, etapa: string) => number | null,
+): FilaInput[] {
+  const pctDe = new Map(sponsors.map((s) => [s.nombre, s.pct]));
+  return celdas.map((c) => ({
+    precio: precioCelda3D(precioBaseDe(c.tipo, c.etapa), c.sponsor ? (pctDe.get(c.sponsor) ?? 0) : 0),
+    stock: c.stock,
+  }));
+}
+
+/**
  * Infiere la etapa canónica desde el nombre del tipo de ticket.
  * Misma prioridad de patrones que la vista `marts.ticketing_etapa_map`: la
  * etiqueta es la señal primaria. Normaliza acentos y mayúsculas antes de
@@ -173,7 +226,7 @@ export function parseEtapaFromNombre(nombre: string | null | undefined): Etapa {
     .toUpperCase();
   if (/CORTESIA|LINK CANJE|CANJE|INVITAC/.test(c)) return "CORTESIA";
   if (/EARLY|BLIND|PRE.?REGISTRO/.test(c)) return "EARLY_BIRD";
-  if (/PREVENTA 3|PRE.?VENTA 3|FASE 3/.test(c)) return "PREVENTA_3";
+  if (/PREVENTA [3-9]|PRE.?VENTA [3-9]|FASE 3/.test(c)) return "PREVENTA_3";
   if (/PREVENTA 2|PRE.?VENTA 2|FASE 2/.test(c)) return "PREVENTA_2";
   if (/PREVENTA 1|PRE.?VENTA 1|PREVENTA|PRE.?VENTA|FASE 1|FASE/.test(c))
     return "PREVENTA_1";

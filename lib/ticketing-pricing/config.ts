@@ -59,10 +59,18 @@ export type Sponsor = {
   cupo: number | null;
 };
 
-/** Una celda de la grilla: el cruce tipo de producto × etapa de venta. */
+/**
+ * Una celda de la grilla 3D: el cruce tipo de producto × etapa × sponsor.
+ * - `sponsor === ""` → celda BASE (venta general / sin sponsor, k=0). `precio` es
+ *   el precio base p_ij; `stock` = cantidad sin descuento.
+ * - `sponsor !== ""` → celda de sponsor. `precio` se ignora (`null`): el precio
+ *   final se deriva del base × (1 − pct_sponsor) vía `derivePrecioVariante`.
+ *   `stock` = cantidad asignada a ese sponsor (acotada por su `cupo`).
+ */
 export type Celda = {
   tipo: string;
   etapa: string;
+  sponsor: string;
   precio: number | null;
   stock: number | null;
 };
@@ -75,6 +83,8 @@ export type TipoConfig = {
   tipo: string;
   aVender: number | null;
   cortesias: number | null;
+  /** Tope fijo de asientos del tipo (zonas no intercambiables). null = sin tope propio. */
+  capacidad: number | null;
 };
 
 /**
@@ -112,7 +122,12 @@ export function emptyDoc(): PlanDoc {
     etapas: [],
     etapasConfig: [],
     tiposProducto: [...DEFAULT_TIPOS],
-    tiposConfig: DEFAULT_TIPOS.map((tipo) => ({ tipo, aVender: null, cortesias: null })),
+    tiposConfig: DEFAULT_TIPOS.map((tipo) => ({
+      tipo,
+      aVender: null,
+      cortesias: null,
+      capacidad: null,
+    })),
     sponsors: [],
     celdas: [],
   };
@@ -169,34 +184,59 @@ export function coerceDoc(raw: unknown): PlanDoc {
     });
   const tiposProducto = tiposRaw.length ? tiposRaw : base.tiposProducto;
 
-  // Celdas reconciliadas contra tipos y etapas válidos: una celda con un tipo o
-  // etapa que ya no existe quedaría huérfana (invisible en la grilla pero
-  // inflando totales). La descartamos.
+  // Celdas reconciliadas contra tipos, etapas y sponsors válidos. Una celda con
+  // un tipo/etapa/sponsor que ya no existe quedaría huérfana (invisible en la
+  // grilla pero inflando totales). La descartamos.
+  //
+  // Back-compat 2D→3D: una celda vieja sin `sponsor` se lee como BASE
+  // (`sponsor=""`, venta general) → un doc 2D queda idéntico, con todo el stock
+  // en el sponsor general. El precio solo se conserva en la base (en celdas de
+  // sponsor el precio es derivado → null), lo que hace a coerceDoc idempotente.
   const tipoSet = new Set(tiposProducto);
   const etapaSet = new Set(etapas);
+  const sponsorSet = new Set(sponsors.map((s) => s.nombre));
+  const seenCelda = new Set<string>();
   const celdas: Celda[] = Array.isArray(d.celdas)
     ? d.celdas
         .map((c) => {
           const o = (c ?? {}) as Record<string, unknown>;
+          const sponsor = typeof o.sponsor === "string" ? o.sponsor : "";
+          const esBase = sponsor === "";
           return {
             tipo: typeof o.tipo === "string" ? o.tipo : "",
             etapa: typeof o.etapa === "string" ? o.etapa : "",
-            precio: numOrNull(o.precio),
+            sponsor,
+            precio: esBase ? numOrNull(o.precio) : null,
             stock: nonNegOrNull(o.stock),
           };
         })
-        .filter((c) => c.tipo && c.etapa && tipoSet.has(c.tipo) && etapaSet.has(c.etapa))
+        .filter((c) => {
+          if (!c.tipo || !c.etapa) return false;
+          if (!tipoSet.has(c.tipo) || !etapaSet.has(c.etapa)) return false;
+          if (c.sponsor !== "" && !sponsorSet.has(c.sponsor)) return false;
+          const k = `${c.tipo}␟${c.etapa}␟${c.sponsor}`;
+          if (seenCelda.has(k)) return false;
+          seenCelda.add(k);
+          return true;
+        })
     : [];
 
   // tiposConfig SIEMPRE alineado a tiposProducto: una entrada por tipo, en el
   // mismo orden; se descartan configs de tipos que ya no existen y se rellenan
   // con null los tipos sin config (planes viejos pre-feature incluidos).
-  const rawConfig = new Map<string, { aVender: number | null; cortesias: number | null }>();
+  const rawConfig = new Map<
+    string,
+    { aVender: number | null; cortesias: number | null; capacidad: number | null }
+  >();
   if (Array.isArray(d.tiposConfig)) {
     for (const c of d.tiposConfig) {
       const o = (c ?? {}) as Record<string, unknown>;
       if (typeof o.tipo === "string") {
-        rawConfig.set(o.tipo, { aVender: nonNegOrNull(o.aVender), cortesias: nonNegOrNull(o.cortesias) });
+        rawConfig.set(o.tipo, {
+          aVender: nonNegOrNull(o.aVender),
+          cortesias: nonNegOrNull(o.cortesias),
+          capacidad: nonNegOrNull(o.capacidad),
+        });
       }
     }
   }
@@ -204,6 +244,7 @@ export function coerceDoc(raw: unknown): PlanDoc {
     tipo,
     aVender: rawConfig.get(tipo)?.aVender ?? null,
     cortesias: rawConfig.get(tipo)?.cortesias ?? null,
+    capacidad: rawConfig.get(tipo)?.capacidad ?? null,
   }));
 
   // etapasConfig SIEMPRE alineado a etapas: una entrada por etapa, con su fecha

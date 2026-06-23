@@ -158,6 +158,7 @@ export interface CierreEventoRow {
   nombreGlovox: string;
   categoriaEvento: string;
   totalVentaTickets: number | null;
+  totalCargoServicio: number | null;
   totalVentaFfbb: number | null;
   totalAsistentes: number | null;
 }

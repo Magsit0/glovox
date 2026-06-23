@@ -16,14 +16,28 @@ import {
   renameSponsor,
   setSponsorActivo,
 } from "@/lib/ticketing-sponsors-service";
-import { coerceDoc, type PlanDoc } from "@/lib/ticketing-pricing/config";
+import { coerceDoc, fiscalForCountry, type PlanDoc } from "@/lib/ticketing-pricing/config";
+import {
+  buildOptimizerInput,
+  optimizeRevenue,
+  type OptimizerResult,
+} from "@/lib/ticketing-pricing/optimizer";
 import {
   getEventTimeseries,
   getEventCampaigns,
   getEventInfo,
+  getPaceCurve,
   type EventTimeseriesPoint,
   type EventCampaignRow,
+  type PacePoint,
 } from "@/lib/queries/ticketing";
+import {
+  getComparableCandidates,
+  getComparableEvents,
+  getDemandAnchorsByStage,
+  getPlan,
+  type ComparableEvent,
+} from "@/lib/queries/pricing";
 
 export type ActionResult<T = void> =
   | { ok: true; data?: T }
@@ -244,6 +258,171 @@ export async function getEventTimeseriesAction(
   if (!clean) return { ok: true, data: [] };
   try {
     return { ok: true, data: await getEventTimeseries(clean) };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+export async function getForecastAction(
+  eventoId: string,
+  refEventoIds?: string[],
+): Promise<ActionResult<{ marca: string; comparables: ComparableEvent[]; pace: PacePoint[] }>> {
+  try {
+    await requireTicketingPricingAccess();
+  } catch (err) {
+    return fail(err);
+  }
+  const clean = trimOrNull(eventoId);
+  if (!clean) return { ok: true, data: { marca: "", comparables: [], pace: [] } };
+  try {
+    const comparables = await getComparableEvents(clean);
+    // refs = los elegidos a mano, o todos los comparables automáticos.
+    const refs = refEventoIds && refEventoIds.length ? refEventoIds : comparables.map((c) => c.eventoId);
+    const pace = await getPaceCurve(refs);
+    return { ok: true, data: { marca: comparables[0]?.marca ?? "", comparables, pace } };
+  } catch (err) {
+    return fail(err);
+  }
+}
+
+/** Vista previa de los parámetros con que corre el modelo (lo que ve la UI). */
+export type OptimizerPreview = {
+  marca: string;
+  magnitudTotal: number;
+  magnitudFuente: "plan" | "comparables" | "capacidad";
+  /** Candidatos de referencia (mismos marca+país); `usado` = entró al cálculo. */
+  candidates: {
+    eventoId: string;
+    nombre: string;
+    categoriaEvento: string;
+    tickets: number;
+    usado: boolean;
+  }[];
+  /** Parámetros por celda (tipo × etapa) que alimentan el modelo — editables. */
+  celdas: {
+    tipo: string;
+    etapa: string;
+    precio: number;
+    demanda: number;
+    sinHistorico: boolean;
+  }[];
+  /** Detalle por evento de TODOS los candidatos; el promedio (la referencia) lo
+   *  calcula el panel según la selección, para actualizar el listado en vivo. */
+  referencia: {
+    filas: {
+      bucket: string;
+      etapaNorm: string;
+      etapaOrden: number;
+      porEvento: { eventoId: string; nombre: string; tickets: number; precio: number }[];
+    }[];
+  };
+};
+
+export type OptimizeResponse = { result: OptimizerResult; preview: OptimizerPreview };
+
+export async function optimizeRevenueAction(
+  planId: string,
+  overrides?: {
+    celdas?: { tipo: string; etapa: string; precio?: number; demanda?: number }[];
+    refEventoIds?: string[];
+  },
+): Promise<ActionResult<OptimizeResponse>> {
+  try {
+    await requireTicketingPricingAccess();
+  } catch (err) {
+    return fail(err);
+  }
+  const clean = trimOrNull(planId);
+  if (!clean) return { ok: false, error: "ID de plan requerido" };
+  try {
+    const plan = await getPlan(clean);
+    if (!plan) return { ok: false, error: "El plan no existe" };
+    const doc = coerceDoc(plan.doc);
+    if (!doc.eventoId) return { ok: false, error: "El plan no está ligado a un evento" };
+
+    const info = await getEventInfo(doc.eventoId);
+    const capacidad = info?.capacidad ?? doc.venueCapacidad ?? null;
+    const ivaPct = fiscalForCountry(info?.country === "PE" ? "PE" : "CL").ivaPct;
+
+    // Candidatos de referencia + preselección por defecto = las 2 temporadas
+    // (categorías) más recientes de la marca. El usuario las ajusta a mano.
+    const { marca, candidates } = await getComparableCandidates(doc.eventoId);
+    const cats = [...new Set(candidates.map((c) => c.categoriaEvento))].sort().reverse();
+    const defaultCats = new Set(cats.slice(0, 2));
+    const preselectedIds = candidates
+      .filter((c) => defaultCats.has(c.categoriaEvento))
+      .map((c) => c.eventoId);
+    const refs = overrides?.refEventoIds ?? preselectedIds;
+    const refSet = new Set(refs);
+
+    // Detalle por evento de TODOS los candidatos (el panel recalcula el promedio
+    // en vivo según la selección, sin volver al servidor). Los promedios sobre
+    // los SELECCIONADOS son los que alimentan el modelo.
+    const allIds = candidates.map((c) => c.eventoId);
+    const detalleAnchors = allIds.length
+      ? (await getDemandAnchorsByStage(doc.eventoId, { refEventoIds: allIds })).anchors
+      : [];
+    const anchorByKey = new Map<string, { p0: number; d0: number }>();
+    for (const a of detalleAnchors) {
+      const sel = a.porEvento.filter((p) => refSet.has(p.eventoId));
+      if (!sel.length) continue;
+      const conPrecio = sel.filter((p) => p.precio > 0);
+      const p0 = conPrecio.length
+        ? Math.round(conPrecio.reduce((s, p) => s + p.precio, 0) / conPrecio.length)
+        : 0;
+      if (p0 <= 0) continue;
+      const d0 = Math.round(sel.reduce((s, p) => s + p.tickets, 0) / sel.length);
+      anchorByKey.set(`${a.bucket}|${a.etapaNorm}`, { p0, d0 });
+    }
+    const magnitudSel = [...anchorByKey.values()].reduce((s, v) => s + v.d0, 0);
+
+    // Overrides del usuario por celda (precio/demanda); si no, usa el histórico.
+    const priceByCell = new Map<string, number>();
+    const demandByCell = new Map<string, number>();
+    for (const c of overrides?.celdas ?? []) {
+      const key = `${c.tipo}|${c.etapa}`;
+      if (c.precio != null) priceByCell.set(key, c.precio);
+      if (c.demanda != null) demandByCell.set(key, c.demanda);
+    }
+
+    const input = buildOptimizerInput(doc, {
+      anchorByKey,
+      capacidadTotal: capacidad,
+      ivaPct,
+      priceByCell,
+      demandByCell,
+    });
+    const result = optimizeRevenue(input);
+
+    const preview: OptimizerPreview = {
+      marca,
+      magnitudTotal: magnitudSel,
+      magnitudFuente: anchorByKey.size ? "comparables" : "capacidad",
+      candidates: candidates.map((c) => ({
+        eventoId: c.eventoId,
+        nombre: c.nombre,
+        categoriaEvento: c.categoriaEvento,
+        tickets: c.tickets,
+        usado: refSet.has(c.eventoId),
+      })),
+      celdas: input.cells.map((c) => ({
+        tipo: c.tipo,
+        etapa: c.etapa,
+        precio: c.precio,
+        demanda: c.demanda,
+        sinHistorico: c.sinHistorico,
+      })),
+      referencia: {
+        filas: detalleAnchors.map((a) => ({
+          bucket: a.bucket,
+          etapaNorm: a.etapaNorm,
+          etapaOrden: a.etapaOrden,
+          porEvento: a.porEvento,
+        })),
+      },
+    };
+
+    return { ok: true, data: { result, preview } };
   } catch (err) {
     return fail(err);
   }

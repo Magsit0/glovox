@@ -13,7 +13,8 @@
     "db:studio": "dotenv -e .env.local -- drizzle-kit studio",
     "db:seed": "dotenv -e .env.local -- tsx db/seed.ts",
     "db:normalize-marcas": "dotenv -e .env.local -- tsx db/scripts/normalize-marca-clientes.ts",
-    "bq:seed-nombres": "dotenv -e .env.local -- tsx scripts/seed-nombres-genero.ts"
+    "bq:seed-nombres": "dotenv -e .env.local -- tsx scripts/seed-nombres-genero.ts",
+    "test:optimizer": "tsx lib/ticketing-pricing/optimizer.checks.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.80",
@@ -24,6 +25,7 @@
     "@googleapis/sheets": "^13.0.2",
     "@neondatabase/serverless": "^1.1.0",
     "@types/chroma-js": "^3.1.2",
+    "@xyflow/react": "^12.11.0",
     "ai": "^6.0.192",
     "chroma-js": "^3.2.0",
     "drizzle-orm": "^0.45.2",
