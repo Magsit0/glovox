@@ -97,6 +97,7 @@ export function formatDate(iso: string): string {
 export const PLATAFORMA_LABEL: Record<string, string> = {
   meta: "Meta",
   google: "Google",
+  tiktok: "TikTok",
 };
 
 export function plataformaLabel(p: string): string {

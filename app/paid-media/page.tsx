@@ -18,8 +18,13 @@ import {
   getKpis,
   getObjectiveOptions,
   getPlatformOptions,
+  getByEvento,
+  getOtrasCampanias,
+  getEventoPrefixes,
   type PaidMediaFilters,
   type Plataforma,
+  type CurrencyOption,
+  type PlataformaOption,
 } from "@/lib/queries/paidMedia";
 import PaidMediaFilters_ from "@/components/paid-media/PaidMediaFilters";
 import KpiRow from "@/components/paid-media/KpiRow";
@@ -27,13 +32,20 @@ import EvolucionChart from "@/components/paid-media/EvolucionChart";
 import BreakdownTable from "@/components/paid-media/BreakdownTable";
 import MixDonut from "@/components/paid-media/MixDonut";
 import ActiveContext from "@/components/paid-media/ActiveContext";
+import PaidMediaTabs, {
+  type PaidMediaTabKey,
+} from "@/components/paid-media/PaidMediaTabs";
+import OverallTable from "@/components/paid-media/OverallTable";
+import { compactMoney, plataformaLabel } from "@/components/paid-media/format";
 
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   searchParams: Promise<{
+    tab?: string;
     currency?: string;
     plataforma?: string;
+    prefix?: string;
     account?: string;
     campaign?: string;
     adset?: string;
@@ -44,7 +56,7 @@ interface PageProps {
 }
 
 function parsePlataforma(v?: string): Plataforma | undefined {
-  return v === "meta" || v === "google" ? v : undefined;
+  return v === "meta" || v === "google" || v === "tiktok" ? v : undefined;
 }
 
 export default async function PaidMediaPage({ searchParams }: PageProps) {
@@ -56,6 +68,7 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
   }
 
   const params = await searchParams;
+  const tab: PaidMediaTabKey = params.tab === "detalle" ? "detalle" : "overall";
 
   // Las monedas viven separadas: el resto del dashboard no tiene sentido sin
   // una elegida. Si no viene en la URL, agarro la de mayor gasto.
@@ -74,13 +87,109 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
       ? params.currency
       : null) ?? currencies[0].currency;
 
+  const from = params.from || undefined;
+  const to = params.to || undefined;
   const plataforma = parsePlataforma(params.plataforma);
+
+  // ── Tab Overall: resumen transversal por evento ──────────────────
+  if (tab === "overall") {
+    let dateRange;
+    let platforms;
+    let prefixes: string[];
+    let prefix: string | undefined;
+    let eventos;
+    let otras;
+    try {
+      [dateRange, platforms, prefixes] = await Promise.all([
+        getDateRange(currency),
+        getPlatformOptions(),
+        getEventoPrefixes({ currency, plataforma, from, to }),
+      ]);
+      // Familia de evento: default GLO (Chile). Si la URL trae una válida, manda;
+      // si GLO no existe en el scope, cae a la de mayor gasto.
+      prefix =
+        params.prefix && prefixes.includes(params.prefix)
+          ? params.prefix
+          : prefixes.includes("GLO")
+            ? "GLO"
+            : prefixes[0];
+      [eventos, otras] = await Promise.all([
+        getByEvento({ currency, plataforma, prefix, from, to }),
+        getOtrasCampanias({ currency, plataforma, from, to }),
+      ]);
+    } catch (err) {
+      return (
+        <Shell>
+          <Heading />
+          <PaidMediaTabs
+            active="overall"
+            currency={currency}
+            plataforma={plataforma}
+            from={from}
+            to={to}
+          />
+          <ErrorView message={errorMessage(err)} />
+        </Shell>
+      );
+    }
+    return (
+      <Shell>
+        <Heading dateRange={dateRange} />
+        <PaidMediaTabs
+          active="overall"
+          currency={currency}
+          plataforma={plataforma}
+          prefix={prefix}
+          from={from}
+          to={to}
+        />
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-col gap-3">
+            <CurrencyPills
+              currencies={currencies}
+              active={currency}
+              plataforma={plataforma}
+              prefix={prefix}
+              from={from}
+              to={to}
+            />
+            <PlatformPills
+              platforms={platforms}
+              active={plataforma}
+              currency={currency}
+              prefix={prefix}
+              from={from}
+              to={to}
+            />
+          </div>
+          <PrefixPills
+            prefixes={prefixes}
+            active={prefix}
+            currency={currency}
+            plataforma={plataforma}
+            from={from}
+            to={to}
+          />
+        </div>
+        <OverallTable rows={eventos} currency={currency} />
+        <BreakdownTable
+          title="Otras campañas"
+          subtitle="Campañas cuyo nombre no arranca con un EventoID reconocible — gasto que no quedó atribuido a un evento. Una fila por campaña. No se ve afectada por el filtro de familia."
+          columnLabel="Campaña"
+          rows={otras}
+          currency={currency}
+          scrollable
+          emptyText="No hay campañas sin evento en este scope."
+        />
+      </Shell>
+    );
+  }
+
+  // ── Tab Detalle: dashboard completo con filtros y drill-down ─────
   const accountId = params.account || undefined;
   const campaignId = params.campaign || undefined;
   const adsetId = params.adset || undefined;
   const objective = params.objective || undefined;
-  const from = params.from || undefined;
-  const to = params.to || undefined;
 
   const filters: PaidMediaFilters = {
     currency,
@@ -173,6 +282,14 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
   return (
     <Shell>
       <Heading dateRange={dateRange} />
+
+      <PaidMediaTabs
+        active="detalle"
+        currency={currency}
+        plataforma={plataforma}
+        from={from}
+        to={to}
+      />
 
       <PaidMediaFilters_
         currencies={currencies}
@@ -310,6 +427,195 @@ function EmptyState({ message }: { message: string }) {
         Sin datos disponibles
       </p>
       <p className="mt-2 font-sans text-sm text-[#666666]">{message}</p>
+    </section>
+  );
+}
+
+/** Construye un href del tab Overall preservando el scope global. */
+function overallHref(next: {
+  currency?: string;
+  plataforma?: string;
+  prefix?: string;
+  from?: string;
+  to?: string;
+}): string {
+  const params = new URLSearchParams();
+  if (next.currency) params.set("currency", next.currency);
+  if (next.plataforma) params.set("plataforma", next.plataforma);
+  if (next.prefix) params.set("prefix", next.prefix);
+  if (next.from) params.set("from", next.from);
+  if (next.to) params.set("to", next.to);
+  const qs = params.toString();
+  return `/paid-media${qs ? `?${qs}` : ""}`;
+}
+
+const PILL_BASE =
+  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-sans text-xs font-medium transition-colors";
+const PILL_ACTIVE = "border-[#9F99F8] bg-[#F0EFFE] text-[#9F99F8]";
+const PILL_IDLE = "border-[#E5E5E5] bg-white text-[#333333] hover:border-[#333333]";
+
+function CurrencyPills({
+  currencies,
+  active,
+  plataforma,
+  prefix,
+  from,
+  to,
+}: {
+  currencies: CurrencyOption[];
+  active: string;
+  plataforma?: string;
+  prefix?: string;
+  from?: string;
+  to?: string;
+}) {
+  if (currencies.length <= 1) return null;
+
+  return (
+    <section className="flex flex-wrap items-center gap-2">
+      <span className="w-16 font-sans text-xs text-[#666666]">Moneda</span>
+      {currencies.map((c) => {
+        const isActive = c.currency === active;
+        return (
+          <Link
+            key={c.currency}
+            // Cambiar de moneda mantiene plataforma/familia/fechas pero la moneda
+            // nueva manda — el scope de evento es por moneda.
+            href={overallHref({ currency: c.currency, plataforma, prefix, from, to })}
+            aria-current={isActive ? "true" : undefined}
+            className={`${PILL_BASE} ${isActive ? PILL_ACTIVE : PILL_IDLE}`}
+          >
+            {c.currency}
+            <span className="text-[#999999]">·</span>
+            <span className={isActive ? "text-[#9F99F8]" : "text-[#666666]"}>
+              {compactMoney(c.gasto, c.currency)}
+            </span>
+          </Link>
+        );
+      })}
+    </section>
+  );
+}
+
+function PlatformPills({
+  platforms,
+  active,
+  currency,
+  prefix,
+  from,
+  to,
+}: {
+  platforms: PlataformaOption[];
+  active?: string;
+  currency: string;
+  prefix?: string;
+  from?: string;
+  to?: string;
+}) {
+  if (platforms.length === 0) return null;
+
+  return (
+    <section className="flex flex-wrap items-center gap-2">
+      <span className="w-16 font-sans text-xs text-[#666666]">Plataforma</span>
+      {/* "Todas" limpia el filtro de plataforma. */}
+      <Link
+        href={overallHref({ currency, prefix, from, to })}
+        aria-current={!active ? "true" : undefined}
+        className={`${PILL_BASE} ${!active ? PILL_ACTIVE : PILL_IDLE}`}
+      >
+        Todas
+      </Link>
+      {platforms.map((p) => {
+        const isActive = p.plataforma === active;
+        return (
+          <Link
+            key={p.plataforma}
+            href={overallHref({ currency, plataforma: p.plataforma, prefix, from, to })}
+            aria-current={isActive ? "true" : undefined}
+            className={`${PILL_BASE} ${isActive ? PILL_ACTIVE : PILL_IDLE}`}
+          >
+            {plataformaLabel(p.plataforma)}
+          </Link>
+        );
+      })}
+    </section>
+  );
+}
+
+/** Bandera sutil de fondo para las familias con país conocido (GLO=Chile,
+ *  GLP=Perú). El resto de familias no llevan bandera. */
+function PrefixFlagBg({ prefix }: { prefix: string }) {
+  if (prefix === "GLO") {
+    return (
+      <svg
+        viewBox="0 0 9 6"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full opacity-20"
+      >
+        <rect width="9" height="3" fill="#FFFFFF" />
+        <rect y="3" width="9" height="3" fill="#D52B1E" />
+        <rect width="3" height="3" fill="#0039A6" />
+        <path
+          d="M1.5 0.95 L1.69 1.51 L2.28 1.51 L1.8 1.86 L1.99 2.42 L1.5 2.07 L1.01 2.42 L1.2 1.86 L0.72 1.51 L1.31 1.51 Z"
+          fill="#FFFFFF"
+        />
+      </svg>
+    );
+  }
+  if (prefix === "GLP") {
+    return (
+      <svg
+        viewBox="0 0 9 6"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full opacity-20"
+      >
+        <rect width="3" height="6" fill="#D91023" />
+        <rect x="3" width="3" height="6" fill="#FFFFFF" />
+        <rect x="6" width="3" height="6" fill="#D91023" />
+      </svg>
+    );
+  }
+  return null;
+}
+
+function PrefixPills({
+  prefixes,
+  active,
+  currency,
+  plataforma,
+  from,
+  to,
+}: {
+  prefixes: string[];
+  active?: string;
+  currency: string;
+  plataforma?: string;
+  from?: string;
+  to?: string;
+}) {
+  if (prefixes.length === 0) return null;
+
+  return (
+    <section className="flex flex-wrap items-center justify-end gap-2">
+      <span className="font-sans text-xs text-[#666666]">Familia</span>
+      {prefixes.map((p) => {
+        const isActive = p === active;
+        return (
+          <Link
+            key={p}
+            href={overallHref({ currency, plataforma, prefix: p, from, to })}
+            aria-current={isActive ? "true" : undefined}
+            className={`relative overflow-hidden ${PILL_BASE} ${
+              isActive ? PILL_ACTIVE : PILL_IDLE
+            }`}
+          >
+            <PrefixFlagBg prefix={p} />
+            <span className="relative">{p}</span>
+          </Link>
+        );
+      })}
     </section>
   );
 }

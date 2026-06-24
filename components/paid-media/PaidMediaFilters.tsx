@@ -276,10 +276,15 @@ export default function PaidMediaFilters({
       {hasActiveFilters && (
         <button
           type="button"
-          onClick={() =>
+          onClick={() => {
             // Limpia todos los filtros menos la moneda — siempre necesitamos una.
-            router.push(`/paid-media?currency=${currency}`)
-          }
+            // Preserva el tab activo para no rebotar de Detalle a Overall.
+            const next = new URLSearchParams();
+            next.set("currency", currency);
+            const tab = searchParams.get("tab");
+            if (tab) next.set("tab", tab);
+            router.push(`/paid-media?${next.toString()}`);
+          }}
           className="flex items-center gap-1 px-2 py-2 font-sans text-sm text-[#666666] transition-colors hover:text-[#333333]"
         >
           <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true">
