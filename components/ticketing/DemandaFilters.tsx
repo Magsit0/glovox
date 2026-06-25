@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
 import { X } from "lucide-react";
-import MultiSelectFilter from "@/components/unabase/filters/MultiSelectFilter";
+import MultiSelectFilter from "@/components/cierre-mensual/filters/MultiSelectFilter";
 import type { TicketingEventOption, DemandaGranularidad, DemandaMetrica } from "@/lib/queries/ticketing";
 import type { ProyeccionMetodo } from "@/lib/ticketing/demanda-forecast";
 import type { Country } from "@/lib/queries/comunidad";

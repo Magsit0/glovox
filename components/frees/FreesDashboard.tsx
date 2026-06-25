@@ -21,7 +21,7 @@ import {
   YAxis,
 } from "recharts";
 
-import { ChartTooltip } from "@/components/unabase/charts/ChartTooltip";
+import { ChartTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
 import {
   axisTick,
   gridProps,

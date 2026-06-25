@@ -3,9 +3,9 @@ import { FINANZAS_GROUP, accessibleMembers } from "@/lib/dashboard-groups";
 import GroupNav from "@/components/groups/GroupNav";
 import GroupContent from "@/components/groups/GroupContent";
 
-// Switcher persistente del grupo UNABASE para CIERRE MENSUAL. El control de
-// acceso lo resuelve el middleware (canAccessPath sobre /cierre-mensual).
-export default async function CierreMensualLayout({
+// Switcher persistente del grupo UNABASE para CIERRE NEGOCIO. El control de
+// acceso lo hace la propia page (canAccessPath en app/cierre-negocio/page.tsx).
+export default async function CierreNegocioLayout({
   children,
 }: {
   children: React.ReactNode;
@@ -16,7 +16,7 @@ export default async function CierreMensualLayout({
 
   return (
     <>
-      <GroupNav group={FINANZAS_GROUP} active="cierre-mensual" members={members} />
+      <GroupNav group={FINANZAS_GROUP} active="cierre-negocio" members={members} />
       <GroupContent group={FINANZAS_GROUP}>
         <main id="main-content" className="min-h-screen bg-[#FAFAFA]">
           {children}

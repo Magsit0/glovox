@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getCierreMensualRows } from "@/lib/queries/unabase";
+import { getCierreMensualRows } from "@/lib/queries/cierreMensual";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,7 @@ export async function GET() {
   } catch (error) {
     const msg = error instanceof Error ? error.message : "Error desconocido";
     const isTimeout = msg.includes("tardó demasiado");
-    console.error("[api/unabase/data]", msg);
+    console.error("[api/cierre-mensual/data]", msg);
     return NextResponse.json({ error: msg }, { status: isTimeout ? 504 : 500 });
   }
 }

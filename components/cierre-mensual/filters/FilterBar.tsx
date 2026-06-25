@@ -2,11 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Calendar, X } from "lucide-react";
-import MultiSelectFilter from "@/components/unabase/filters/MultiSelectFilter";
+import MultiSelectFilter from "@/components/cierre-mensual/filters/MultiSelectFilter";
 import { FILTER_DEFINITIONS } from "@/lib/unabase/constants";
 import { safeText } from "@/lib/unabase/formatting";
 import { parseDateFlexible } from "@/lib/unabase/dates";
-import { useDateFilter } from "@/components/unabase/context/DashboardContext";
+import { useDateFilter } from "@/components/cierre-mensual/context/DashboardContext";
 import type { BusinessRow } from "@/lib/unabase/types";
 
 interface Props {
@@ -96,6 +96,37 @@ export default function FilterBar({ rows, onFilter }: Props) {
     buildInitialSelections(rows, baseOptions),
   );
   const { dateStart, dateEnd, setDateStart, setDateEnd } = useDateFilter();
+
+  // Años presentes en los datos (por fecha de asignación), descendente.
+  const years = useMemo(() => {
+    const set = new Set<number>();
+    rows.forEach((row) => {
+      const ymd = normalizeToYMD(row.fechaAsignacion);
+      if (ymd) {
+        const y = parseInt(ymd.slice(0, 4), 10);
+        if (y >= 2000 && y <= 2100) set.add(y);
+      }
+    });
+    return Array.from(set).sort((a, b) => b - a);
+  }, [rows]);
+
+  // Un año está "seleccionado" si el rango de fecha es exactamente ese año.
+  const selectedYear = useMemo(() => {
+    for (const y of years) {
+      if (dateStart === `${y}-01-01` && dateEnd === `${y}-12-31`) return y;
+    }
+    return null;
+  }, [years, dateStart, dateEnd]);
+
+  const toggleYear = (y: number) => {
+    if (selectedYear === y) {
+      setDateStart("");
+      setDateEnd("");
+    } else {
+      setDateStart(`${y}-01-01`);
+      setDateEnd(`${y}-12-31`);
+    }
+  };
 
   const availableOptions = useMemo(() => {
     const result: Record<string, Set<string>> = {};
@@ -271,6 +302,32 @@ export default function FilterBar({ rows, onFilter }: Props) {
           )}
         </div>
       </div>
+
+      {years.length > 0 && (
+        <div className="flex flex-col gap-1.5">
+          <span className="font-sans text-xs text-[#666666]">Año</span>
+          <div className="flex max-w-[12.5rem] items-center gap-1.5 overflow-x-auto overflow-y-hidden">
+            {years.map((y) => {
+              const active = selectedYear === y;
+              return (
+                <button
+                  key={y}
+                  type="button"
+                  onClick={() => toggleYear(y)}
+                  aria-pressed={active}
+                  className={`shrink-0 rounded-lg px-3 py-1.5 font-sans text-sm font-medium tabular-nums transition-colors ${
+                    active
+                      ? "border border-[#9F99F8] bg-[#9F99F8] text-white"
+                      : "border border-[#E5E5E5] bg-white text-[#666666] hover:border-[#333333] hover:text-[#333333]"
+                  }`}
+                >
+                  {y}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <button
         type="button"

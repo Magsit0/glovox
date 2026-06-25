@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useFilters } from "@/components/unabase/context/DashboardContext";
+import { useFilters } from "@/components/cierre-mensual/context/DashboardContext";
 import { compactCurrency, formatNumber } from "@/lib/unabase/formatting";
 
 type Delta = "neutral" | "positive" | "negative";

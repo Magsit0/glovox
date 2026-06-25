@@ -34,6 +34,7 @@ import {
   useRef,
   useState,
   useTransition,
+  ViewTransition,
   type CSSProperties,
 } from "react";
 import {
@@ -54,6 +55,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { saveDashboardEditsAction } from "@/app/admin/dashboards/actions";
+import { NAV_FORWARD } from "@/lib/dashboard-groups";
 
 const ICON_MAP: Record<string, React.ElementType> = {
   users: Users,
@@ -85,10 +87,27 @@ interface Section {
   accentClass: string;
   accentText: string;
   icon: string;
+  /** Si está, la cabecera (icono+título) hace morph con este nombre. */
+  vtName?: string;
+  /** Tipo de view transition al hacer click (dirección del slide). */
+  transitionType?: string;
+}
+
+interface HomeGroup {
+  key: string;
+  title: string;
+  description: string;
+  href: string;
+  icon: string;
+  accentClass: string;
+  accentText: string;
+  vtName: string;
+  memberKeys: string[];
 }
 
 interface HomeDashboardsProps {
   sections: Section[];
+  groups: HomeGroup[];
   isSuperadmin: boolean;
 }
 
@@ -96,6 +115,7 @@ const MAX_COLS = 4;
 
 export default function HomeDashboards({
   sections,
+  groups,
   isSuperadmin,
 }: HomeDashboardsProps) {
   const searchParams = useSearchParams();
@@ -202,7 +222,43 @@ export default function HomeDashboards({
     });
   };
 
-  const list = mode === "edit" ? draft : sections;
+  // En vista, los dashboards de un grupo se colapsan en una sola card (que
+  // lleva al hub). En edición se muestran individuales para que el superadmin
+  // pueda reordenarlos/editarlos como siempre.
+  const collapsedSections = useMemo(() => {
+    if (groups.length === 0) return sections;
+    const groupByMember = new Map<string, HomeGroup>();
+    for (const g of groups) {
+      for (const k of g.memberKeys) groupByMember.set(k, g);
+    }
+    const out: Section[] = [];
+    const seen = new Set<string>();
+    for (const s of sections) {
+      const g = groupByMember.get(s.key);
+      if (!g) {
+        out.push(s);
+        continue;
+      }
+      // La card del grupo toma la posición del primer miembro visible; el
+      // resto de los miembros se omiten.
+      if (seen.has(g.key)) continue;
+      seen.add(g.key);
+      out.push({
+        key: `group:${g.key}`,
+        title: g.title,
+        description: g.description,
+        href: g.href,
+        icon: g.icon,
+        accentClass: g.accentClass,
+        accentText: g.accentText,
+        vtName: g.vtName,
+        transitionType: NAV_FORWARD,
+      });
+    }
+    return out;
+  }, [sections, groups]);
+
+  const list = mode === "edit" ? draft : collapsedSections;
 
   const numRows = list.length > 0 ? Math.ceil(list.length / MAX_COLS) : 1;
   const cols = list.length > 0 ? Math.ceil(list.length / numRows) : 1;
@@ -498,25 +554,35 @@ interface CardSurfaceProps {
 function CardSurface({ section, mode, dragging, onChange }: CardSurfaceProps) {
   const Icon = ICON_MAP[section.icon] ?? Ticket;
 
+  const headerBlock = (
+    <div className="mb-4 flex items-center gap-4">
+      <div
+        className={`inline-flex shrink-0 items-center justify-center border-2 border-black p-3 ${section.accentClass}`}
+      >
+        <Icon size={24} className={section.accentText} strokeWidth={2.5} />
+      </div>
+      {mode === "edit" ? (
+        <EditableTitle
+          value={section.title}
+          onChange={(v) => onChange({ title: v })}
+        />
+      ) : (
+        <h2 className="min-w-0 font-display text-xl font-black uppercase leading-none tracking-tight text-black">
+          {section.title}
+        </h2>
+      )}
+    </div>
+  );
+
   const inner = (
     <>
-      <div className="mb-4 flex items-center gap-4">
-        <div
-          className={`inline-flex shrink-0 items-center justify-center border-2 border-black p-3 ${section.accentClass}`}
-        >
-          <Icon size={24} className={section.accentText} strokeWidth={2.5} />
-        </div>
-        {mode === "edit" ? (
-          <EditableTitle
-            value={section.title}
-            onChange={(v) => onChange({ title: v })}
-          />
-        ) : (
-          <h2 className="min-w-0 font-display text-xl font-black uppercase leading-none tracking-tight text-black">
-            {section.title}
-          </h2>
-        )}
-      </div>
+      {section.vtName ? (
+        <ViewTransition name={section.vtName} share="morph" default="none">
+          {headerBlock}
+        </ViewTransition>
+      ) : (
+        headerBlock
+      )}
 
       {mode === "edit" ? (
         <EditableDescription
@@ -556,7 +622,13 @@ function CardSurface({ section, mode, dragging, onChange }: CardSurfaceProps) {
   }
 
   return (
-    <Link href={section.href} className={shellClass}>
+    <Link
+      href={section.href}
+      transitionTypes={
+        section.transitionType ? [section.transitionType] : undefined
+      }
+      className={shellClass}
+    >
       {inner}
     </Link>
   );

@@ -3,8 +3,8 @@
 import { useMemo } from "react";
 import { Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Inbox } from "lucide-react";
-import { useFilters } from "@/components/unabase/context/DashboardContext";
-import { BrutalTooltip } from "@/components/unabase/charts/ChartTooltip";
+import { useFilters } from "@/components/cierre-mensual/context/DashboardContext";
+import { BrutalTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
 import { legendProps, seriesColor } from "@/lib/chart-colors";
 import { formatNumber } from "@/lib/unabase/formatting";
 

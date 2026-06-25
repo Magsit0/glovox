@@ -4,8 +4,12 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
-import { getNegocioDetail, getNegocioOptions } from "@/lib/queries/cierreNegocio";
-import { getAllNegociosAdmin } from "@/lib/queries/unabase";
+import {
+  getCategoriaEventoMap,
+  getNegocioDetail,
+  getNegocioOptions,
+} from "@/lib/queries/cierreNegocio";
+import { getAllNegociosAdmin } from "@/lib/queries/cierreMensual";
 import type { NegocioRow } from "@/lib/unabase/types";
 import { aggregateNegocio } from "@/lib/unabase/cierreNegocio";
 import NegocioSelector from "@/components/cierre-negocio/NegocioSelector";
@@ -20,6 +24,7 @@ import EventoResumen from "@/components/cierre-negocio/EventoResumen";
 import VentasSection from "@/components/cierre-negocio/VentasSection";
 import DownloadPdfButton from "@/components/cierre-negocio/DownloadPdfButton";
 import CierreTable from "@/components/cierre-negocio/CierreTable";
+import GrupoNav from "@/components/cierre-negocio/GrupoNav";
 
 export const dynamic = "force-dynamic";
 
@@ -49,8 +54,112 @@ function filterByArea(rows: NegocioRow[], area: AreaKey): NegocioRow[] {
   });
 }
 
+const SIN_RUT = "__sin_rut__";
+const SIN_EJECUTIVO = "__sin_ejecutivo__";
+
+type GroupBy = "cliente" | "ejecutivo";
+
+function isGroupBy(value: string | undefined): value is GroupBy {
+  return value === "cliente" || value === "ejecutivo";
+}
+
+function normalizeRut(rut: string | null | undefined): string {
+  return (rut ?? "").replace(/[^0-9kK]/g, "").toUpperCase();
+}
+
+function clienteKey(rut: string | null | undefined): string {
+  return normalizeRut(rut) || SIN_RUT;
+}
+
+function ejecutivoKey(name: string | null | undefined): string {
+  return (name ?? "").trim().toLowerCase() || SIN_EJECUTIVO;
+}
+
+function formatRut(rut: string | null | undefined): string {
+  const clean = normalizeRut(rut);
+  if (clean.length < 2) return (rut ?? "").trim();
+  const body = clean.slice(0, -1);
+  const dv = clean.slice(-1);
+  return body.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + "-" + dv;
+}
+
+interface GroupCard {
+  key: string;
+  title: string;
+  subtitle: string;
+  count: number;
+}
+
+// Agrupa negocios por cliente (RUT normalizado) o por ejecutivo responsable.
+// El título es cualquiera de los nombres presentes para esa llave.
+function groupRows(rows: NegocioRow[], groupBy: GroupBy): GroupCard[] {
+  const map = new Map<string, { title: string; subtitle: string; count: number }>();
+  for (const r of rows) {
+    let key: string;
+    let title: string;
+    let subtitle: string;
+    if (groupBy === "cliente") {
+      key = clienteKey(r.rut_cliente);
+      title = (r.razon_cliente ?? "").trim();
+      subtitle = key === SIN_RUT ? "Sin RUT" : formatRut(r.rut_cliente);
+    } else {
+      key = ejecutivoKey(r.ejecutivo);
+      title = (r.ejecutivo ?? "").trim();
+      subtitle = "";
+    }
+    let g = map.get(key);
+    if (!g) {
+      g = { title: "", subtitle, count: 0 };
+      map.set(key, g);
+    }
+    g.count += 1;
+    if (!g.title && title) g.title = title;
+    if (!g.subtitle && subtitle) g.subtitle = subtitle;
+  }
+  const fallback = groupBy === "cliente" ? "Sin cliente" : "Sin ejecutivo";
+  return Array.from(map.entries())
+    .map(([key, g]) => ({
+      key,
+      title: g.title || fallback,
+      subtitle: g.subtitle,
+      count: g.count,
+    }))
+    .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
+}
+
+const CATEGORIA_OTRO = "Otro";
+
+// Categoría del negocio = CategoriaEvento2 del EventoID (primeros 6 chars de la
+// referencia) según glovox.categoriaEvento. Sin match → "Otro".
+function categoriaDeNegocio(r: NegocioRow, catMap: Map<string, string>): string {
+  const eid = (r.referencia ?? "").trim().slice(0, 6).toUpperCase();
+  if (eid.length === 6) {
+    const cat = catMap.get(eid);
+    if (cat) return cat;
+  }
+  return CATEGORIA_OTRO;
+}
+
+function groupByCategoria(rows: NegocioRow[], catMap: Map<string, string>): GroupCard[] {
+  const map = new Map<string, number>();
+  for (const r of rows) {
+    const cat = categoriaDeNegocio(r, catMap);
+    map.set(cat, (map.get(cat) ?? 0) + 1);
+  }
+  return Array.from(map.entries())
+    .map(([key, count]) => ({ key, title: key, subtitle: "", count }))
+    .sort((a, b) => b.count - a.count || a.title.localeCompare(b.title));
+}
+
 interface PageProps {
-  searchParams: Promise<{ id?: string; area?: string }>;
+  searchParams: Promise<{
+    id?: string;
+    area?: string;
+    cliente?: string;
+    ejecutivo?: string;
+    group?: string;
+    categoria?: string;
+  }>;
 }
 
 export default async function CierreNegocioPage({ searchParams }: PageProps) {
@@ -61,7 +170,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
     redirect("/?unauthorized=1");
   }
 
-  const { id, area } = await searchParams;
+  const { id, area, cliente, ejecutivo, group, categoria } = await searchParams;
 
   if (!id) {
     if (!isAreaKey(area)) {
@@ -84,10 +193,93 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
         </Shell>
       );
     }
+
+    const rows = filterByArea(negocios, area);
+
+    // BTL: selección de cliente/ejecutivo con transición animada (cards ↔ lista
+    // horizontal) en el cliente, con toggle de agrupamiento.
+    if (area === "btl") {
+      const items = rows.map((row) => ({
+        keys: {
+          cliente: clienteKey(row.rut_cliente),
+          ejecutivo: ejecutivoKey(row.ejecutivo),
+        },
+        row,
+      }));
+      const modes = [
+        {
+          key: "cliente",
+          label: "Por cliente",
+          title: "Escoge cliente",
+          groups: groupRows(rows, "cliente"),
+        },
+        {
+          key: "ejecutivo",
+          label: "Por ejecutivo responsable",
+          title: "Escoge ejecutivo responsable",
+          groups: groupRows(rows, "ejecutivo"),
+        },
+      ];
+      const initialMode = isGroupBy(group) ? group : ejecutivo ? "ejecutivo" : "cliente";
+
+      return (
+        <Shell>
+          <GrupoNav
+            eyebrowBase={`Cierre negocio · ${AREA_LABELS.btl}`}
+            modes={modes}
+            items={items}
+            initialMode={initialMode}
+            initialSelected={ejecutivo ?? cliente ?? null}
+          />
+        </Shell>
+      );
+    }
+
+    // Producción de eventos propios: selección de categoría de evento con
+    // transición animada (cards ↔ lista horizontal) en el cliente.
+    if (area === "produccion") {
+      let catMap: Map<string, string>;
+      try {
+        catMap = await getCategoriaEventoMap();
+      } catch (err) {
+        return (
+          <Shell>
+            <ListHeading area={area} />
+            <ErrorView message={errorMessage(err)} />
+          </Shell>
+        );
+      }
+
+      const items = rows.map((row) => ({
+        keys: { categoria: categoriaDeNegocio(row, catMap) },
+        row,
+      }));
+      const modes = [
+        {
+          key: "categoria",
+          label: "Categoría",
+          title: "Escoge categoría de evento",
+          groups: groupByCategoria(rows, catMap),
+        },
+      ];
+
+      return (
+        <Shell>
+          <GrupoNav
+            eyebrowBase={`Cierre negocio · ${AREA_LABELS.produccion}`}
+            modes={modes}
+            items={items}
+            initialMode="categoria"
+            initialSelected={categoria ?? null}
+          />
+        </Shell>
+      );
+    }
+
     return (
       <Shell>
         <ListHeading area={area} />
-        <CierreTable rows={filterByArea(negocios, area)} />
+        <CierreTable rows={rows} />
       </Shell>
     );
   }

@@ -2501,7 +2501,7 @@
         "unabase.estadoNegocio"
       ],
       "consumers": [],
-      "notes": "Líneas del presupuesto/cotización por negocio (raw fiel). Jerarquía Categoría → Subcategoría → Ítem codificada en las llaves; se rearma en marts.finanzas_negocio_items_arbol. Reemplaza a la legacy unabase.negocioItem (la leen /cierre-negocio y /unabase/cierre-mensual).",
+      "notes": "Líneas del presupuesto/cotización por negocio (raw fiel). Jerarquía Categoría → Subcategoría → Ítem codificada en las llaves; se rearma en marts.finanzas_negocio_items_arbol. Reemplaza a la legacy unabase.negocioItem (la leen /cierre-negocio y /cierre-mensual).",
       "metrics": [],
       "endpointLabel": "https://api-v3-new.herokuapp.com/v1/negocios/items/{negocio_id}",
       "fields": [
@@ -3543,10 +3543,10 @@
         "glovox.categoriaEvento"
       ],
       "consumers": [
-        "/unabase/cierre-mensual",
+        "/cierre-mensual",
         "/cierre-negocio"
       ],
-      "notes": "Tabla DERIVADA precomputada (NO raw): fusiona negocios + dimensión de evento (categoriaEvento) + métricas (ingreso/costo/difIngreso). La produce un scheduled query diario (CREATE OR REPLACE TABLE) — productor ANTES invisible, ahora versionado en schemas/bigquery/unabase_estadoNegocio.sql (19-jun). Migración 22-jun: cortadas las últimas deps legacy → principalClient lee finanzas.unabase_documentos_venta y el join de reconciliación lee marts.finanzas_registros_negocio (reemplazo gobernado de unabase.NregistrosBQ). Solo conserva la dimensión externa cross-project glovoxticketing.categoriaEvento. Sigue viviendo en el dataset legacy `unabase` porque la app la consume con ese path (/cierre-negocio, /unabase/cierre-mensual). unabase_ingesta ya NO la lee (repuntado a finanzas.unabase_negocios).",
+      "notes": "Tabla DERIVADA precomputada (NO raw): fusiona negocios + dimensión de evento (categoriaEvento) + métricas (ingreso/costo/difIngreso). La produce un scheduled query diario (CREATE OR REPLACE TABLE) — productor ANTES invisible, ahora versionado en schemas/bigquery/unabase_estadoNegocio.sql (19-jun). Migración 22-jun: cortadas las últimas deps legacy → principalClient lee finanzas.unabase_documentos_venta y el join de reconciliación lee marts.finanzas_registros_negocio (reemplazo gobernado de unabase.NregistrosBQ). Solo conserva la dimensión externa cross-project glovoxticketing.categoriaEvento. Sigue viviendo en el dataset legacy `unabase` porque la app la consume con ese path (/cierre-negocio, /cierre-mensual). unabase_ingesta ya NO la lee (repuntado a finanzas.unabase_negocios).",
       "metrics": [],
       "endpointLabel": null,
       "fields": []
@@ -3563,10 +3563,10 @@
       "owner": null,
       "upstream": [],
       "consumers": [
-        "/unabase/cierre-mensual",
+        "/cierre-mensual",
         "/cierre-negocio"
       ],
-      "notes": "Líneas del presupuesto por negocio (gemela legacy del endpoint /negocios/items/{id}). REEMPLAZADA por finanzas.unabase_negocio_items (gobernada). Al cortar: repuntar /cierre-negocio y /unabase/cierre-mensual a la nueva y deprecar esta.",
+      "notes": "Líneas del presupuesto por negocio (gemela legacy del endpoint /negocios/items/{id}). REEMPLAZADA por finanzas.unabase_negocio_items (gobernada). Al cortar: repuntar /cierre-negocio y /cierre-mensual a la nueva y deprecar esta.",
       "metrics": [],
       "endpointLabel": null,
       "fields": []
@@ -3583,7 +3583,7 @@
       "owner": null,
       "upstream": [],
       "consumers": [
-        "/unabase/cierre-mensual"
+        "/cierre-mensual"
       ],
       "metrics": [],
       "endpointLabel": null,

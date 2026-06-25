@@ -11,11 +11,12 @@ import type {
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 
-const NEGOCIOS = `\`${P}.unabase.negocios\``;
-const NEGOCIO_ITEM = `\`${P}.unabase.negocioItem\``;
-const DETALLE_GASTO = `\`${P}.unabase.detalleGasto\``;
+const NEGOCIOS = `\`${P}.finanzas.unabase_negocios\``;
+const NEGOCIO_ITEM = `\`${P}.finanzas.unabase_negocio_items\``;
+const DETALLE_GASTO = `\`${P}.finanzas.unabase_detalle_gasto\``;
 const VENTAS_NEGOCIO = `\`${P}.finanzas.unabase_ventas_por_negocio\``;
 const CIERRE_EVENTOS = `\`${P}.ticketsAndAABB.cierreEventos\``;
+const CATEGORIA_EVENTO = `\`${P}.glovox.categoriaEvento\``;
 
 // Filtro común de ventas: documentos vivos del negocio, excluyendo anulados y
 // (por ahora) notas de crédito/débito. tipo_documento es texto descriptivo
@@ -72,13 +73,15 @@ function withTimeout<T>(p: Promise<T>, ms = QUERY_TIMEOUT_MS): Promise<T> {
 
 // --- Selector options (lista global de negocios) ---
 
+// estadocierre ya no existe en la tabla nueva: se deriva de closed_compras
+// (cierre de compras), normalizado a 'true'/'false' para conservar la semántica.
 const NEGOCIO_OPTIONS_SQL = `
   SELECT
     CAST(id AS STRING) AS external_id,
     CAST(referencia AS STRING) AS referencia,
     CAST(area_negocio AS STRING) AS area_negocio,
     CAST(estado AS STRING) AS estado,
-    CAST(estadocierre AS STRING) AS estadocierre
+    LOWER(CAST(closed_compras AS STRING)) AS estadocierre
   FROM ${NEGOCIOS}
   WHERE LOWER(CAST(estado AS STRING)) <> 'cotizacion'
     AND LOWER(CAST(estadonv AS STRING)) <> 'nulo'
@@ -143,17 +146,43 @@ const EMPTY_VENTAS_AGGREGATE: VentasAggregateRaw = {
 
 const detailCache = new Map<string, { data: NegocioDetail; timestamp: number }>();
 
+// La tabla nueva es jerárquica (filas TITULO + subcategorías isSubCat + ítems hoja).
+// Tomamos solo los ítems hoja (tipo_item='ITEM' AND isSubCat=FALSE) — eso reproduce
+// exactamente el set plano de la tabla vieja — y reconstruimos la subcategoría
+// desde el nombre del ítem-subcategoría apuntado por llaveSubCat. Las columnas se
+// alias-an al shape antiguo (NegocioItemRow) para no tocar la agregación.
 const ITEMS_SQL = `
-  SELECT *
-  FROM ${NEGOCIO_ITEM}
-  WHERE CAST(external_id AS STRING) = @id
+  SELECT
+    CAST(i.id AS STRING) AS row_id,
+    CAST(i.negocio AS STRING) AS external_id,
+    CAST(i.categoria AS STRING) AS categoria,
+    IFNULL(CAST(sub.nombre AS STRING), '') AS subcategoria,
+    CAST(i.nombre AS STRING) AS item,
+    CAST(i.descripcion AS STRING) AS descripcion,
+    i.cantidad AS cantidad,
+    i.pu_venta AS pu_venta,
+    i.sub_venta AS subtotal_venta,
+    i.pu_gasto_pre AS pu_gasto_presupuestado,
+    i.sub_gasto_pre AS subtotal_gasto_pre,
+    i.total_gasto_real AS gasto_real,
+    i.diferencia AS diferencia,
+    CAST(i.porc_diferencia AS STRING) AS porc_diferencia,
+    CAST(i.llave_item AS STRING) AS llave_item
+  FROM ${NEGOCIO_ITEM} i
+  LEFT JOIN ${NEGOCIO_ITEM} sub
+    ON sub.negocio = i.negocio
+    AND sub.llave_item = i.llaveSubCat
+    AND sub.isSubCat = TRUE
+  WHERE CAST(i.negocio AS STRING) = @id
+    AND i.tipo_item = 'ITEM'
+    AND i.isSubCat = FALSE
 `;
 
 const GASTOS_SQL = `
   SELECT *
   FROM ${DETALLE_GASTO}
   WHERE CAST(negocio AS STRING) = @id
-    AND LOWER(IFNULL(CAST(excluir_gasto AS STRING), '')) <> 'true'
+    AND IFNULL(excluir_gasto, FALSE) = FALSE
 `;
 
 // Suma en BigQuery sobre montos ya prorrateados al negocio (atribuibles).
@@ -260,6 +289,35 @@ export async function getNegocioDetail(externalId: string): Promise<NegocioDetai
   return detail;
 }
 
+// Mapa EventoID → CategoriaEvento2 (tabla glovox.categoriaEvento). Se usa para
+// agrupar los negocios de Producción por categoría. EventoID = primeros 6
+// caracteres de la referencia del negocio.
+let categoriaEventoCache: { data: Map<string, string>; timestamp: number } | null = null;
+
+const CATEGORIA_EVENTO_SQL = `
+  SELECT
+    CAST(EventoID AS STRING) AS eventoId,
+    CAST(CategoriaEvento2 AS STRING) AS categoria
+  FROM ${CATEGORIA_EVENTO}
+`;
+
+export async function getCategoriaEventoMap(): Promise<Map<string, string>> {
+  const now = Date.now();
+  if (categoriaEventoCache && now - categoriaEventoCache.timestamp < CACHE_TTL_MS) {
+    return categoriaEventoCache.data;
+  }
+  const rows = await withTimeout(query<Record<string, unknown>>(CATEGORIA_EVENTO_SQL));
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    const row = serialize(r) as { eventoId?: string | null; categoria?: string | null };
+    const eid = (row.eventoId ?? "").trim().toUpperCase();
+    const cat = (row.categoria ?? "").trim();
+    if (eid && cat) map.set(eid, cat);
+  }
+  categoriaEventoCache = { data: map, timestamp: now };
+  return map;
+}
+
 export function invalidateCierreNegocioCache(externalId?: string): void {
   if (externalId) {
     detailCache.delete(externalId);
@@ -267,4 +325,5 @@ export function invalidateCierreNegocioCache(externalId?: string): void {
   }
   detailCache.clear();
   optionsCache = null;
+  categoriaEventoCache = null;
 }

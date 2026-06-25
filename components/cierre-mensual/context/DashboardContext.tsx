@@ -8,14 +8,20 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useDashboardData } from "@/components/unabase/hooks/useDashboardData";
-import type { BusinessRow, ExpenseRow } from "@/lib/unabase/types";
+import { useDashboardData } from "@/components/cierre-mensual/hooks/useDashboardData";
+import { useNegociosData } from "@/components/cierre-mensual/hooks/useNegociosData";
+import type { BusinessRow, ExpenseRow, NegocioRow } from "@/lib/unabase/types";
 
 interface DataContextValue {
   businessRows: BusinessRow[];
   expenseRows: ExpenseRow[];
   loading: boolean;
   error: string | null;
+  // Negocios crudos (NEGOCIOS_SQL): se cargan una sola vez acá y se comparten
+  // entre el panel de resultados del mes y la pestaña "Resumen por área".
+  negociosRows: NegocioRow[];
+  negociosLoading: boolean;
+  negociosError: string | null;
 }
 
 interface FiltersContextValue {
@@ -47,6 +53,11 @@ const DateFilterContext = createContext<DateFilterContextValue | null>(null);
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
   const { businessRows, expenseRows, loading, error } = useDashboardData();
+  const {
+    rows: negociosRows,
+    loading: negociosLoading,
+    error: negociosError,
+  } = useNegociosData();
 
   const [userFilteredRows, setUserFilteredRows] = useState<BusinessRow[] | null>(null);
   const [expenseViewMode, setExpenseViewMode] = useState<ExpenseViewMode>("total");
@@ -74,8 +85,24 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
   }, [filteredExpenseRows, selectedExpenseCategory]);
 
   const dataValue = useMemo(
-    () => ({ businessRows, expenseRows, loading, error }),
-    [businessRows, expenseRows, loading, error],
+    () => ({
+      businessRows,
+      expenseRows,
+      loading,
+      error,
+      negociosRows,
+      negociosLoading,
+      negociosError,
+    }),
+    [
+      businessRows,
+      expenseRows,
+      loading,
+      error,
+      negociosRows,
+      negociosLoading,
+      negociosError,
+    ],
   );
 
   const filtersValue = useMemo(

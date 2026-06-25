@@ -293,3 +293,98 @@ body {
     box-shadow: none !important;
   }
 }
+
+/* ───────────────── View transitions — grupo MARKETING ─────────────────
+   Fluidez de ida y vuelta entre la card MARKETING, el hub /marketing y los
+   dashboards (venta diaria · paid media · ticketing). Las animaciones solo
+   aplican a elementos envueltos en <ViewTransition>; el resto de la app no se
+   ve afectada. Sin soporte del navegador, la navegación funciona igual, solo
+   que sin animar. */
+:root {
+  --vt-exit: 150ms;
+  --vt-enter: 220ms;
+}
+
+/* Morph de elemento compartido (hero MARKETING y cards de cada dashboard).
+   El blur a mitad de vuelo oculta los artefactos de interpolación. */
+::view-transition-group(.morph) {
+  animation-duration: 380ms;
+}
+::view-transition-image-pair(.morph) {
+  animation-name: vt-blur;
+}
+@keyframes vt-blur {
+  30% {
+    filter: blur(3px);
+  }
+}
+
+/* Slide direccional: adelante al entrar más profundo, atrás al volver. */
+::view-transition-old(.nav-forward) {
+  --vt-slide: -48px;
+  animation:
+    var(--vt-exit) ease-in both vt-fade reverse,
+    360ms ease-in-out both vt-slide reverse;
+}
+::view-transition-new(.nav-forward) {
+  --vt-slide: 48px;
+  animation:
+    var(--vt-enter) ease-out var(--vt-exit) both vt-fade,
+    360ms ease-in-out both vt-slide;
+}
+::view-transition-old(.nav-back) {
+  --vt-slide: 48px;
+  animation:
+    var(--vt-exit) ease-in both vt-fade reverse,
+    360ms ease-in-out both vt-slide reverse;
+}
+::view-transition-new(.nav-back) {
+  --vt-slide: -48px;
+  animation:
+    var(--vt-enter) ease-out var(--vt-exit) both vt-fade,
+    360ms ease-in-out both vt-slide;
+}
+@keyframes vt-fade {
+  from {
+    opacity: 0;
+    filter: blur(2px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+  }
+}
+@keyframes vt-slide {
+  from {
+    translate: var(--vt-slide);
+  }
+  to {
+    translate: 0;
+  }
+}
+
+/* Ancla la barra del switcher de cada grupo: no se desplaza durante el slide
+   para servir de referencia fija mientras el contenido se mueve. Agregá acá el
+   `navVt` de cada grupo nuevo (ver lib/dashboard-groups.ts). */
+::view-transition-group(marketing-nav),
+::view-transition-group(finanzas-nav) {
+  animation: none;
+  z-index: 100;
+}
+::view-transition-old(marketing-nav),
+::view-transition-old(finanzas-nav) {
+  display: none;
+}
+::view-transition-new(marketing-nav),
+::view-transition-new(finanzas-nav) {
+  animation: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+}

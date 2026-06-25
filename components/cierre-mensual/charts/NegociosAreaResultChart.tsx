@@ -13,7 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import { Inbox } from "lucide-react";
-import { BrutalTooltip } from "@/components/unabase/charts/ChartTooltip";
+import { BrutalTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
 import { axisTick, BRAND, gridProps, legendProps, SURFACE } from "@/lib/chart-colors";
 import { compactCurrency, formatCurrency } from "@/lib/unabase/formatting";
 import type { NegocioRow } from "@/lib/unabase/types";

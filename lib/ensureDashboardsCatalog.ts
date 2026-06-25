@@ -11,7 +11,7 @@
  * vista de admin (para que `listDashboards()` muestre los nuevos como
  * opción de permiso).
  */
-import { sql } from "drizzle-orm";
+import { notInArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { dashboards } from "@/db/schema";
 import { DASHBOARDS_CATALOG } from "@/lib/dashboards-catalog";
@@ -49,6 +49,14 @@ async function runSync(): Promise<void> {
         },
       });
   }
+
+  // Poda: elimina filas cuyo `key` ya no está en el catálogo (ej. tras
+  // renombrar un key, que dejaría la fila vieja huérfana y visible en la home).
+  // El catálogo es la fuente de verdad. Las FK a `dashboards.key`
+  // (userDashboardAccess, superadminPendings, dashboardAccessLog) tienen
+  // onDelete cascade, así que se limpian los grants/pendings/logs huérfanos.
+  const catalogKeys = DASHBOARDS_CATALOG.map((d) => d.key);
+  await db.delete(dashboards).where(notInArray(dashboards.key, catalogKeys));
 }
 
 export async function ensureDashboardsCatalog(): Promise<void> {

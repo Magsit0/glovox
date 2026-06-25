@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useFilters, useExpenseUI } from "@/components/unabase/context/DashboardContext";
+import { useFilters, useExpenseUI } from "@/components/cierre-mensual/context/DashboardContext";
 import { compactCurrency, formatCurrency, formatNumber } from "@/lib/unabase/formatting";
 import { buildMatrix, heatStyle, truncateText } from "@/lib/unabase/heatmap";
 

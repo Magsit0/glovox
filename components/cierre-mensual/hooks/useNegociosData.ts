@@ -10,7 +10,7 @@ interface NegociosDataResult {
 }
 
 async function fetchNegocios(): Promise<NegocioRow[]> {
-  const res = await fetch("/api/unabase/negocios", { cache: "no-store" });
+  const res = await fetch("/api/cierre-mensual/negocios", { cache: "no-store" });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error || `Request failed with ${res.status}`);

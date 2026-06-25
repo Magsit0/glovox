@@ -1,4 +1,3 @@
-import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
@@ -395,13 +394,6 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Heading({ dateRange }: { dateRange?: { min: string; max: string } }) {
   return (
     <header className="flex flex-col gap-2">
-      <Link
-        href="/"
-        aria-label="Volver al menú principal"
-        className="inline-flex w-fit items-center justify-center rounded-full border border-[#E5E5E5] bg-white p-1.5 transition-colors hover:bg-[#FAFAFA]"
-      >
-        <Image src="/glovox_logo_gvx_black.svg" alt="Glovox" width={18} height={18} />
-      </Link>
       <p className="font-sans text-xs text-[#666666]">Paid media</p>
       <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
         Social media ads

@@ -1,6 +1,7 @@
 import { auth } from "@/lib/auth";
 import { canAccessPath, getUserPermissions } from "@/lib/permissions";
 import { matchDashboardKey } from "@/lib/dashboards-catalog";
+import { DASHBOARD_GROUPS, accessibleMembers } from "@/lib/dashboard-groups";
 import { logDashboardAccess } from "@/lib/dashboard-access-service";
 import { NextResponse } from "next/server";
 
@@ -41,7 +42,14 @@ export default auth((req) => {
     const permissions =
       req.auth?.user?.permissions ?? getUserPermissions(email);
 
-    if (!canAccessPath(permissions, pathname)) {
+    // El hub de un grupo (ej. /finanzas, /marketing) no es un dashboard del
+    // catálogo, así que no matchea por prefijo. Se permite si el usuario puede
+    // ver al menos un dashboard miembro del grupo.
+    const isAccessibleGroupHub = DASHBOARD_GROUPS.some(
+      (g) => g.href === pathname && accessibleMembers(g, permissions).length > 0,
+    );
+
+    if (!isAccessibleGroupHub && !canAccessPath(permissions, pathname)) {
       const homeUrl = new URL("/", req.nextUrl.origin);
       homeUrl.searchParams.set("unauthorized", "1");
       return NextResponse.redirect(homeUrl);

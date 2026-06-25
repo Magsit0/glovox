@@ -4,27 +4,27 @@ import { useCallback, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "motion/react";
-import { DashboardProvider, useDashboard, useDateFilter } from "@/components/unabase/context/DashboardContext";
-import FilterBar from "@/components/unabase/filters/FilterBar";
-import MultiSelectFilter from "@/components/unabase/filters/MultiSelectFilter";
-import SummaryCards from "@/components/unabase/panels/SummaryCards";
-import AlertsPanel from "@/components/unabase/panels/AlertsPanel";
-import InsightsPanel from "@/components/unabase/panels/InsightsPanel";
-import SummaryBusinessTable from "@/components/unabase/panels/SummaryBusinessTable";
-import ExpenseTable from "@/components/unabase/panels/ExpenseTable";
-import ExpenseSubcategoryTable from "@/components/unabase/panels/ExpenseSubcategoryTable";
-import NegociosAreaResultChart from "@/components/unabase/charts/NegociosAreaResultChart";
-import NegociosAreaEvolutionChart from "@/components/unabase/charts/NegociosAreaEvolutionChart";
-import NegociosAreaGoalChart from "@/components/unabase/charts/NegociosAreaGoalChart";
-import StatusDonutChart from "@/components/unabase/charts/StatusDonutChart";
-import MonthlyEvolutionChart from "@/components/unabase/charts/MonthlyEvolutionChart";
-import BusinessResultChart from "@/components/unabase/charts/BusinessResultChart";
-import CategoryExpenseChart from "@/components/unabase/charts/CategoryExpenseChart";
-import CategoryEvolutionChart from "@/components/unabase/charts/CategoryEvolutionChart";
-import ExpenseMatrix from "@/components/unabase/charts/ExpenseMatrix";
-import ExpenseSubcategoryMatrix from "@/components/unabase/charts/ExpenseSubcategoryMatrix";
-import DashboardSkeleton from "@/components/unabase/skeleton/DashboardSkeleton";
-import { useNegociosData } from "@/components/unabase/hooks/useNegociosData";
+import { DashboardProvider, useDashboard, useDataset, useDateFilter } from "@/components/cierre-mensual/context/DashboardContext";
+import FilterBar from "@/components/cierre-mensual/filters/FilterBar";
+import MultiSelectFilter from "@/components/cierre-mensual/filters/MultiSelectFilter";
+import SummaryCards from "@/components/cierre-mensual/panels/SummaryCards";
+import AlertsPanel from "@/components/cierre-mensual/panels/AlertsPanel";
+import InsightsPanel from "@/components/cierre-mensual/panels/InsightsPanel";
+import SummaryBusinessTable from "@/components/cierre-mensual/panels/SummaryBusinessTable";
+import ExpenseTable from "@/components/cierre-mensual/panels/ExpenseTable";
+import ExpenseSubcategoryTable from "@/components/cierre-mensual/panels/ExpenseSubcategoryTable";
+import NegociosAreaResultChart from "@/components/cierre-mensual/charts/NegociosAreaResultChart";
+import NegociosAreaEvolutionChart from "@/components/cierre-mensual/charts/NegociosAreaEvolutionChart";
+import NegociosAreaGoalChart from "@/components/cierre-mensual/charts/NegociosAreaGoalChart";
+import StatusDonutChart from "@/components/cierre-mensual/charts/StatusDonutChart";
+import MonthlyEvolutionChart from "@/components/cierre-mensual/charts/MonthlyEvolutionChart";
+import BusinessResultChart from "@/components/cierre-mensual/charts/BusinessResultChart";
+import CategoryExpenseChart from "@/components/cierre-mensual/charts/CategoryExpenseChart";
+import CategoryEvolutionChart from "@/components/cierre-mensual/charts/CategoryEvolutionChart";
+import ExpenseMatrix from "@/components/cierre-mensual/charts/ExpenseMatrix";
+import ExpenseSubcategoryMatrix from "@/components/cierre-mensual/charts/ExpenseSubcategoryMatrix";
+import DashboardSkeleton from "@/components/cierre-mensual/skeleton/DashboardSkeleton";
+import MonthlyResultsPanel from "@/components/cierre-mensual/panels/MonthlyResultsPanel";
 import type { BusinessRow, NegocioRow } from "@/lib/unabase/types";
 import { formatNumber } from "@/lib/unabase/formatting";
 
@@ -75,7 +75,7 @@ function DashboardBody() {
 
   if (error) {
     return (
-      <main className="mx-auto flex max-w-3xl flex-col items-center gap-4 px-6 py-24">
+      <div className="mx-auto flex max-w-3xl flex-col items-center gap-4 px-6 py-24">
         <h1 className="font-display text-4xl font-extrabold tracking-tight text-[#333333]">
           Algo salió mal
         </h1>
@@ -90,7 +90,7 @@ function DashboardBody() {
         >
           Reintentar
         </button>
-      </main>
+      </div>
     );
   }
 
@@ -118,20 +118,23 @@ function DashboardBody() {
                 height={18}
               />
             </Link>
-            <p className="font-sans text-xs text-[#666666]">Unabase</p>
             <h1 className="font-display text-3xl font-extrabold leading-tight tracking-tight text-[#333333]">
               Cierre mensual
             </h1>
           </div>
+        </div>
+      </motion.header>
+
+      <MonthlyResultsPanel />
+
+      <section className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="font-sans text-xs text-[#666666]">Filtros</p>
           <span className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-white px-2.5 py-1 font-sans text-xs font-medium text-[#333333]">
             <span className="h-1.5 w-1.5 rounded-full bg-[#9F99F8]" />
             {badgeLabel}
           </span>
         </div>
-      </motion.header>
-
-      <section className="flex flex-col gap-3">
-        <p className="font-sans text-xs text-[#666666]">Filtros</p>
         {!loading && businessRows.length > 0 && (
           <FilterBar rows={businessRows} onFilter={handleFilter} />
         )}
@@ -286,7 +289,7 @@ function applyDateFilter(rows: NegocioRow[], dateStart: string, dateEnd: string)
 }
 
 function NegociosTab() {
-  const { rows, loading, error } = useNegociosData();
+  const { negociosRows: rows, negociosLoading: loading, negociosError: error } = useDataset();
   const { dateStart, dateEnd } = useDateFilter();
   const [selectedAreas, setSelectedAreas] = useState<Set<string>>(new Set());
   const [evolutionGroupBy, setEvolutionGroupBy] = useState<"month" | "year">("month");

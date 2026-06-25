@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, type ReactNode } from "react";
-import { useFilters } from "@/components/unabase/context/DashboardContext";
+import { useFilters } from "@/components/cierre-mensual/context/DashboardContext";
 import { formatCurrency } from "@/lib/unabase/formatting";
 import type { BusinessRow } from "@/lib/unabase/types";
 

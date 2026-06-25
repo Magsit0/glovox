@@ -17,7 +17,7 @@ const SUPERADMIN_EMAIL = "maximiliano@glovox.cl";
 const LEGACY_TEAM_KEYS = [
   "club",
   "marketing.weekly",
-  "unabase.cierre-mensual",
+  "cierre-mensual",
   "donations",
   "onepager",
   "frees",

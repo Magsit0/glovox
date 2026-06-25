@@ -1,6 +1,4 @@
 import { Suspense } from "react";
-import Image from "next/image";
-import Link from "next/link";
 import { auth } from "@/lib/auth";
 import {
   getEventList,
@@ -150,20 +148,7 @@ export default async function MarketingWeeklyPage({
       />
 
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-between gap-4">
-          <Link
-            href="/"
-            aria-label="Volver al menú principal"
-            className="inline-flex items-center justify-center border-4 border-black bg-white p-1.5 shadow-[4px_4px_0px_#000] transition-colors hover:bg-[#FFFF00]"
-          >
-            <Image
-              src="/glovox_logo_gvx_black.svg"
-              alt="Glovox"
-              width={24}
-              height={24}
-              priority
-            />
-          </Link>
+        <div className="flex items-center justify-end gap-4">
           <Suspense
             key={`countdown-${selectedId}`}
             fallback={

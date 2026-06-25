@@ -1,4 +1,4 @@
-import { CierreMensualDashboard } from "@/components/unabase/CierreMensualDashboard";
+import { CierreMensualDashboard } from "@/components/cierre-mensual/CierreMensualDashboard";
 
 export const dynamic = "force-dynamic";
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useFilters } from "@/components/unabase/context/DashboardContext";
+import { useFilters } from "@/components/cierre-mensual/context/DashboardContext";
 import { compactCurrency } from "@/lib/unabase/formatting";
 import { sortRowsByFechaAsc } from "@/lib/unabase/dates";
 import type { BusinessRow } from "@/lib/unabase/types";

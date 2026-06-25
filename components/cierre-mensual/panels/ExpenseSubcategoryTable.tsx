@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { useExpenseUI, useFilters } from "@/components/unabase/context/DashboardContext";
+import { useExpenseUI, useFilters } from "@/components/cierre-mensual/context/DashboardContext";
 import { formatCurrency, formatNumber } from "@/lib/unabase/formatting";
 
 const HEADERS = [
