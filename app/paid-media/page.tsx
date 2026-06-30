@@ -43,12 +43,12 @@ interface PageProps {
   searchParams: Promise<{
     tab?: string;
     currency?: string;
-    plataforma?: string;
+    plataforma?: string | string[];
     prefix?: string;
-    account?: string;
-    campaign?: string;
-    adset?: string;
-    objective?: string;
+    account?: string | string[];
+    campaign?: string | string[];
+    adset?: string | string[];
+    objective?: string | string[];
     from?: string;
     to?: string;
   }>;
@@ -56,6 +56,18 @@ interface PageProps {
 
 function parsePlataforma(v?: string): Plataforma | undefined {
   return v === "meta" || v === "google" || v === "tiktok" ? v : undefined;
+}
+
+function parseStringList(v: string | string[] | undefined): string[] {
+  const values = Array.isArray(v) ? v : v ? [v] : [];
+  return Array.from(new Set(values.map((item) => item.trim()).filter(Boolean)));
+}
+
+function parsePlataformaList(v: string | string[] | undefined): Plataforma[] {
+  return parseStringList(v).flatMap((item) => {
+    const plataforma = parsePlataforma(item);
+    return plataforma ? [plataforma] : [];
+  });
 }
 
 export default async function PaidMediaPage({ searchParams }: PageProps) {
@@ -88,10 +100,25 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
 
   const from = params.from || undefined;
   const to = params.to || undefined;
-  const plataforma = parsePlataforma(params.plataforma);
+  const plataformas = parsePlataformaList(params.plataforma);
+  const plataforma = plataformas[0];
 
   // ── Tab Overall: resumen transversal por evento ──────────────────
   if (tab === "overall") {
+    // El tab Overall es mono-plataforma (se elige con las PlatformPills) y sus
+    // queries usan `plataforma` escalar. Si la URL llega con varias plataformas
+    // (p. ej. al volver desde el Detalle multi-select), canonicalizamos a la
+    // primera para que URL, datos y pill resaltada queden consistentes.
+    if (plataformas.length > 1) {
+      const qs = new URLSearchParams();
+      qs.set("tab", "overall");
+      qs.set("currency", currency);
+      qs.set("plataforma", plataformas[0]);
+      if (params.prefix) qs.set("prefix", params.prefix);
+      if (from) qs.set("from", from);
+      if (to) qs.set("to", to);
+      redirect(`/paid-media?${qs.toString()}`);
+    }
     let dateRange;
     let platforms;
     let prefixes: string[];
@@ -185,18 +212,18 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
   }
 
   // ── Tab Detalle: dashboard completo con filtros y drill-down ─────
-  const accountId = params.account || undefined;
-  const campaignId = params.campaign || undefined;
-  const adsetId = params.adset || undefined;
-  const objective = params.objective || undefined;
+  const accountIds = parseStringList(params.account);
+  const campaignIds = parseStringList(params.campaign);
+  const adsetIds = parseStringList(params.adset);
+  const objectives = parseStringList(params.objective);
 
   const filters: PaidMediaFilters = {
     currency,
-    plataforma,
-    accountId,
-    campaignId,
-    adsetId,
-    objective,
+    plataformas,
+    accountIds,
+    campaignIds,
+    adsetIds,
+    objectives,
     from,
     to,
   };
@@ -231,16 +258,16 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
       byAdset,
     ] = await Promise.all([
       getPlatformOptions(),
-      getAccountOptions(currency, plataforma),
-      getCampaignOptions(currency, accountId),
-      getAdsetOptions(currency, campaignId),
-      getObjectiveOptions(currency, plataforma),
+      getAccountOptions(currency, plataformas),
+      getCampaignOptions(currency, accountIds),
+      getAdsetOptions(currency, campaignIds),
+      getObjectiveOptions(currency, plataformas),
       getDateRange(currency),
       getKpis(filters),
       getDaily(filters),
-      // Solo nos sirve el donut de plataformas si NO hay filtro activo: si ya
-      // se eligió Meta o Google, queda un único slice y no aporta nada.
-      plataforma ? Promise.resolve([]) : getByPlatform(filters),
+      // El donut de plataformas solo aporta si hay 0 o 2+ plataformas: con
+      // exactamente UNA seleccionada queda un único slice y no aporta nada.
+      plataformas.length === 1 ? Promise.resolve([]) : getByPlatform(filters),
       getByObjective(filters),
       getByAccount(filters),
       getByCampaign(filters),
@@ -255,25 +282,29 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
     );
   }
 
-  const selectedAccount = accountId
-    ? accounts.find((a) => a.accountId === accountId)
-    : undefined;
-  const selectedCampaign = campaignId
-    ? campaignOptions.find((c) => c.campaignId === campaignId)
-    : undefined;
-  const selectedAdset = adsetId
-    ? adsetOptions.find((a) => a.adsetId === adsetId)
-    : undefined;
+  // Resolvemos cada id seleccionado a su nombre; si el id no está en la lista
+  // de opciones (en cascada) caemos al id crudo para no perder filtros que sí
+  // están aplicados en baseCte — así el contador de ActiveContext nunca miente.
+  const selectedAccounts = accountIds.map(
+    (id) => accounts.find((a) => a.accountId === id)?.accountName || id,
+  );
+  const selectedCampaigns = campaignIds.map(
+    (id) =>
+      campaignOptions.find((c) => c.campaignId === id)?.campaignName || id,
+  );
+  const selectedAdsets = adsetIds.map(
+    (id) => adsetOptions.find((a) => a.adsetId === id)?.adsetName || id,
+  );
 
   // searchParams que se pasan a los links de drill-down — no incluyen el
   // valor que el link mismo va a setear (lo agrega BreakdownTable).
-  const baseQuery: Record<string, string | undefined> = {
+  const baseQuery: Record<string, string | string[] | undefined> = {
     currency,
-    plataforma: plataforma ?? undefined,
-    account: accountId,
-    campaign: campaignId,
-    adset: adsetId,
-    objective,
+    plataforma: plataformas,
+    account: accountIds,
+    campaign: campaignIds,
+    adset: adsetIds,
+    objective: objectives,
     from,
     to,
   };
@@ -285,7 +316,7 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
       <PaidMediaTabs
         active="detalle"
         currency={currency}
-        plataforma={plataforma}
+        plataforma={plataformas}
         from={from}
         to={to}
       />
@@ -298,22 +329,22 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
         adsets={adsetOptions}
         objectives={objectiveOptions}
         currency={currency}
-        plataforma={plataforma ?? ""}
-        accountId={accountId ?? ""}
-        campaignId={campaignId ?? ""}
-        adsetId={adsetId ?? ""}
-        objective={objective ?? ""}
+        plataformas={plataformas}
+        accountIds={accountIds}
+        campaignIds={campaignIds}
+        adsetIds={adsetIds}
+        selectedObjectives={objectives}
         from={from ?? ""}
         to={to ?? ""}
       />
 
       <ActiveContext
         currency={currency}
-        plataforma={plataforma ?? ""}
-        account={selectedAccount}
-        campaign={selectedCampaign}
-        adset={selectedAdset}
-        objective={objective ?? ""}
+        plataformas={plataformas.map(plataformaLabel)}
+        accounts={selectedAccounts}
+        campaigns={selectedCampaigns}
+        adsets={selectedAdsets}
+        objectives={objectives}
         from={from ?? ""}
         to={to ?? ""}
       />

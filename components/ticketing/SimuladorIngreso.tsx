@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { RotateCcw } from "lucide-react";
 import { seriesColor } from "@/lib/chart-colors";
 import { formatCurrency, formatNumber } from "@/lib/unabase/formatting";
@@ -57,10 +57,15 @@ export default function SimuladorIngreso({ rows, proyeccion }: Props) {
   const [ovPrecio, setOvPrecio] = useState<Record<string, string>>({});
 
   // Al cambiar los datos (filtros / proyección) se reinicia la simulación.
-  useEffect(() => {
+  // Ajustamos el estado durante el render (patrón recomendado por React) en vez
+  // de un useEffect, que dispara renders en cascada. `defaults` está memoizado
+  // sobre [rows, proyeccion], así que solo cambia de identidad con datos nuevos.
+  const [prevDefaults, setPrevDefaults] = useState(defaults);
+  if (defaults !== prevDefaults) {
+    setPrevDefaults(defaults);
     setOvCant({});
     setOvPrecio({});
-  }, [defaults]);
+  }
 
   function changePrecioBase(b: PrecioBase) {
     setPrecioBase(b);

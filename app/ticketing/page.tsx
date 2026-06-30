@@ -32,11 +32,11 @@ export const dynamic = "force-dynamic";
 interface PageProps {
   searchParams: Promise<{
     event?: string;
-    categoria?: string;
+    categoria?: string | string[];
     country?: string;
     from?: string;
     to?: string;
-    clase?: string;
+    clase?: string | string[];
     devueltos?: string;
     tab?: string;
     plan?: string;
@@ -56,6 +56,13 @@ interface PageProps {
 
 function parseClase(v?: string): ClaseVenta | undefined {
   return v === "VENTA" || v === "CORTESIA" || v === "OTRO" ? v : undefined;
+}
+
+function parseClases(v: string | string[] | undefined): ClaseVenta[] {
+  return toArray(v).flatMap((item) => {
+    const clase = parseClase(item);
+    return clase ? [clase] : [];
+  });
 }
 
 /** Normaliza un searchParam repetible a string[] (descarta vacíos). */
@@ -177,11 +184,11 @@ export default async function TicketingPage({ searchParams }: PageProps) {
   }
 
   const baseFilters: Omit<TicketingFilters, "eventoId"> = {
-    categoriaEvento: params.categoria || undefined,
+    categoriaEventos: toArray(params.categoria),
     country,
     from: params.from || undefined,
     to: params.to || undefined,
-    clase: parseClase(params.clase),
+    clases: parseClases(params.clase),
     incluirDevueltos: params.devueltos === "1",
   };
 
@@ -200,8 +207,9 @@ export default async function TicketingPage({ searchParams }: PageProps) {
 
     // Default = último evento ocurrido (la fecha más reciente que ya pasó),
     // dentro de la categoría seleccionada si la hay.
-    const scopedEvents = baseFilters.categoriaEvento
-      ? events.filter((e) => e.categoriaEvento === baseFilters.categoriaEvento)
+    const selectedCategorias = new Set(baseFilters.categoriaEventos ?? []);
+    const scopedEvents = selectedCategorias.size
+      ? events.filter((e) => selectedCategorias.has(e.categoriaEvento))
       : events;
     const today = new Date().toISOString().slice(0, 10);
     const pastEvents = scopedEvents.filter(
@@ -278,12 +286,12 @@ export default async function TicketingPage({ searchParams }: PageProps) {
         events={events}
         eventoId={isAll ? "all" : (selectedEventId ?? "")}
         defaultEventId={defaultEventId ?? ""}
-        categoriaEvento={baseFilters.categoriaEvento ?? ""}
+        categoriaEventos={baseFilters.categoriaEventos ?? []}
         country={country}
         countryLocked={countryLocked}
         from={baseFilters.from ?? ""}
         to={baseFilters.to ?? ""}
-        clase={baseFilters.clase ?? ""}
+        clases={baseFilters.clases ?? []}
         incluirDevueltos={baseFilters.incluirDevueltos}
       />
 

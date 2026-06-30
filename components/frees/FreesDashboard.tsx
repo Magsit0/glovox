@@ -1,9 +1,9 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { Check, ChevronDown, ChevronRight, Inbox, Search } from "lucide-react";
+import { ChevronRight, Inbox } from "lucide-react";
 import { motion } from "motion/react";
 import {
   Area,
@@ -36,12 +36,12 @@ import type {
   FreesGeneroCategory,
   FreesGeneroData,
   FreesGeneroKpis,
-  FreesGeneroRow,
   FreesGroupRow,
   FreesIngresoRow,
   FreesKpis,
 } from "@/lib/queries/frees";
 import { FreesEventSelect } from "./FreesEventSelect";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 
 const numberFormatter = new Intl.NumberFormat("es-CL");
 const percentFormatter = new Intl.NumberFormat("es-CL", {
@@ -722,7 +722,9 @@ function CategoryTable({ nodes }: { nodes: FreesCategoryNode[] }) {
   );
 }
 
-type GeneroOpcion = "" | "Hombre" | "Mujer" | "Sin clasificar";
+function matchesSelection(selection: Set<string>, value: string): boolean {
+  return selection.size === 0 || selection.has(value);
+}
 
 function GeneroSection({
   data,
@@ -733,9 +735,9 @@ function GeneroSection({
   ingresoRows: FreesIngresoRow[];
   hasEventoFilter: boolean;
 }) {
-  const [categoryFilter, setCategoryFilter] = useState<string>("");
-  const [recipientFilter, setRecipientFilter] = useState<string>("");
-  const [generoFilter, setGeneroFilter] = useState<GeneroOpcion>("");
+  const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
+  const [recipientFilter, setRecipientFilter] = useState<Set<string>>(new Set());
+  const [generoFilter, setGeneroFilter] = useState<Set<string>>(new Set());
 
   const categoryOptions = useMemo(
     () =>
@@ -746,34 +748,35 @@ function GeneroSection({
   );
 
   const recipientOptions = useMemo(() => {
-    const cats = categoryFilter
-      ? data.byCategory.filter((c) => c.label === categoryFilter)
-      : data.byCategory;
+    const cats =
+      categoryFilter.size > 0
+        ? data.byCategory.filter((c) => categoryFilter.has(c.label))
+        : data.byCategory;
     const set = new Set<string>();
     for (const c of cats) for (const r of c.recipients) set.add(r.label);
     return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
   }, [data.byCategory, categoryFilter]);
 
-  // Si cambian las opciones de recipient y el filtro actual ya no aplica, lo limpia.
-  useEffect(() => {
-    if (recipientFilter && !recipientOptions.includes(recipientFilter)) {
-      setRecipientFilter("");
-    }
+  const effectiveRecipientFilter = useMemo(() => {
+    if (recipientFilter.size === 0) return recipientFilter;
+    const available = new Set(recipientOptions);
+    return new Set([...recipientFilter].filter((r) => available.has(r)));
   }, [recipientOptions, recipientFilter]);
 
-  const hasNonGenderFilter = categoryFilter !== "" || recipientFilter !== "";
+  const hasNonGenderFilter =
+    categoryFilter.size > 0 || effectiveRecipientFilter.size > 0;
 
   const filteredCategories = useMemo<FreesGeneroCategory[]>(() => {
     let cats = data.byCategory;
-    if (categoryFilter) {
-      cats = cats.filter((c) => c.label === categoryFilter);
+    if (categoryFilter.size > 0) {
+      cats = cats.filter((c) => categoryFilter.has(c.label));
     }
-    if (!recipientFilter) return cats;
+    if (effectiveRecipientFilter.size === 0) return cats;
 
     return cats
       .map((cat) => {
         const recipients = cat.recipients.filter(
-          (r) => r.label === recipientFilter,
+          (r) => effectiveRecipientFilter.has(r.label),
         );
         if (!recipients.length) return null;
         const totals = recipients.reduce(
@@ -798,7 +801,7 @@ function GeneroSection({
         } satisfies FreesGeneroCategory;
       })
       .filter((c): c is FreesGeneroCategory => c !== null);
-  }, [data.byCategory, categoryFilter, recipientFilter]);
+  }, [data.byCategory, categoryFilter, effectiveRecipientFilter]);
 
   const filteredDonutTotals = useMemo(() => {
     let h = 0;
@@ -814,12 +817,12 @@ function GeneroSection({
 
   const filteredIngresoRows = useMemo<FreesIngresoRow[]>(() => {
     return ingresoRows.filter((r) => {
-      if (categoryFilter && r.category !== categoryFilter) return false;
-      if (recipientFilter && r.recipient !== recipientFilter) return false;
-      if (generoFilter && r.genero !== generoFilter) return false;
+      if (!matchesSelection(categoryFilter, r.category)) return false;
+      if (!matchesSelection(effectiveRecipientFilter, r.recipient)) return false;
+      if (!matchesSelection(generoFilter, r.genero)) return false;
       return true;
     });
-  }, [ingresoRows, categoryFilter, recipientFilter, generoFilter]);
+  }, [ingresoRows, categoryFilter, effectiveRecipientFilter, generoFilter]);
 
   const horaMediaLabel = useMemo(() => {
     if (filteredIngresoRows.length === 0) return "—";
@@ -854,7 +857,7 @@ function GeneroSection({
           categoryFilter={categoryFilter}
           onCategoryChange={setCategoryFilter}
           recipients={recipientOptions}
-          recipientFilter={recipientFilter}
+          recipientFilter={effectiveRecipientFilter}
           onRecipientChange={setRecipientFilter}
           generoFilter={generoFilter}
           onGeneroChange={setGeneroFilter}
@@ -987,172 +990,64 @@ function GeneroFilters({
   onGeneroChange,
 }: {
   categories: string[];
-  categoryFilter: string;
-  onCategoryChange: (v: string) => void;
+  categoryFilter: Set<string>;
+  onCategoryChange: (v: Set<string>) => void;
   recipients: string[];
-  recipientFilter: string;
-  onRecipientChange: (v: string) => void;
-  generoFilter: GeneroOpcion;
-  onGeneroChange: (v: GeneroOpcion) => void;
+  recipientFilter: Set<string>;
+  onRecipientChange: (v: Set<string>) => void;
+  generoFilter: Set<string>;
+  onGeneroChange: (v: Set<string>) => void;
 }) {
   const hasFilter =
-    categoryFilter !== "" || recipientFilter !== "" || generoFilter !== "";
+    categoryFilter.size > 0 || recipientFilter.size > 0 || generoFilter.size > 0;
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-      <div className="flex flex-1 flex-col gap-1.5">
-        <span className="font-sans text-xs text-[#666666]">Categoría</span>
-        <CustomSelect
-          value={categoryFilter}
-          onChange={onCategoryChange}
-          options={[
-            { value: "", label: "Todas las categorías" },
-            ...categories.map((c) => ({ value: c, label: c })),
-          ]}
-          searchable
-          searchPlaceholder="Buscar categoría…"
-        />
-      </div>
+      <StandardMultiFilter
+        className="flex-1"
+        label="Categoría"
+        selected={categoryFilter}
+        onChange={onCategoryChange}
+        options={categories.map((c) => ({ value: c, label: c }))}
+        allLabel="Todas las categorías"
+        searchPlaceholder="Buscar categoría..."
+      />
 
-      <div className="flex flex-1 flex-col gap-1.5">
-        <span className="font-sans text-xs text-[#666666]">Recipient</span>
-        <CustomSelect
-          value={recipientFilter}
-          onChange={onRecipientChange}
-          options={[
-            { value: "", label: "Todos los recipients" },
-            ...recipients.map((r) => ({ value: r, label: r })),
-          ]}
-          searchable
-          searchPlaceholder="Buscar recipient…"
-        />
-      </div>
+      <StandardMultiFilter
+        className="flex-1"
+        label="Recipient"
+        selected={recipientFilter}
+        onChange={onRecipientChange}
+        options={recipients.map((r) => ({ value: r, label: r }))}
+        allLabel="Todos los recipients"
+        searchPlaceholder="Buscar recipient..."
+      />
 
-      <div className="flex flex-1 flex-col gap-1.5">
-        <span className="font-sans text-xs text-[#666666]">Género</span>
-        <CustomSelect
-          value={generoFilter}
-          onChange={(v) => onGeneroChange(v as GeneroOpcion)}
-          options={[
-            { value: "", label: "Todos" },
-            { value: "Hombre", label: "Hombre" },
-            { value: "Mujer", label: "Mujer" },
-            { value: "Sin clasificar", label: "Sin clasificar" },
-          ]}
-        />
-      </div>
+      <StandardMultiFilter
+        className="flex-1"
+        label="Género"
+        selected={generoFilter}
+        onChange={onGeneroChange}
+        options={[
+          { value: "Hombre", label: "Hombre" },
+          { value: "Mujer", label: "Mujer" },
+          { value: "Sin clasificar", label: "Sin clasificar" },
+        ]}
+        allLabel="Todos"
+        searchPlaceholder="Buscar género..."
+      />
 
       {hasFilter && (
         <button
           type="button"
           onClick={() => {
-            onCategoryChange("");
-            onRecipientChange("");
-            onGeneroChange("");
+            onCategoryChange(new Set());
+            onRecipientChange(new Set());
+            onGeneroChange(new Set());
           }}
           className="rounded-lg px-3 py-2 font-sans text-sm text-[#666666] transition-colors hover:bg-[#FAFAFA] hover:text-[#333333]"
         >
           Limpiar
         </button>
-      )}
-    </div>
-  );
-}
-
-type SelectOption = { value: string; label: string };
-
-function CustomSelect({
-  value,
-  onChange,
-  options,
-  searchable = false,
-  searchPlaceholder = "Buscar…",
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  options: SelectOption[];
-  searchable?: boolean;
-  searchPlaceholder?: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    function handleClick(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    }
-    document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) setSearch("");
-  }, [open]);
-
-  const selected = options.find((o) => o.value === value);
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) => o.label.toLowerCase().includes(q));
-  }, [options, search]);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between gap-2 rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 text-left font-sans text-sm text-[#333333] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
-      >
-        <span className="truncate">{selected?.label ?? options[0]?.label}</span>
-        <ChevronDown className="h-4 w-4 shrink-0 text-[#999999]" />
-      </button>
-
-      {open && (
-        <div className="absolute left-0 top-[calc(100%+4px)] z-30 flex w-full min-w-[220px] flex-col gap-2 rounded-lg border border-[#E5E5E5] bg-white p-2 shadow-md">
-          {searchable && (
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#999999]" />
-              <input
-                type="search"
-                placeholder={searchPlaceholder}
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full rounded-lg border border-[#E5E5E5] bg-white py-1.5 pl-8 pr-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
-              />
-            </div>
-          )}
-          <div className="max-h-[280px] overflow-auto">
-            {filtered.length === 0 && (
-              <div className="px-3 py-2 font-sans text-sm text-[#999999]">
-                Sin resultados
-              </div>
-            )}
-            {filtered.map((opt) => {
-              const isChecked = opt.value === value;
-              return (
-                <button
-                  key={opt.value || "__all__"}
-                  type="button"
-                  onClick={() => {
-                    onChange(opt.value);
-                    setOpen(false);
-                  }}
-                  className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left font-sans text-sm transition-colors ${
-                    isChecked
-                      ? "bg-[#F0EFFE] font-medium text-[#9F99F8]"
-                      : "text-[#333333] hover:bg-[#FAFAFA]"
-                  }`}
-                >
-                  <span className="flex-1 truncate">{opt.label}</span>
-                  {isChecked && (
-                    <Check className="h-3.5 w-3.5 shrink-0 text-[#9F99F8]" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-        </div>
       )}
     </div>
   );

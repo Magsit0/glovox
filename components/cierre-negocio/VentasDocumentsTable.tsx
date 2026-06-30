@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 import type { VentaNegocioRow } from "@/lib/unabase/types";
 import { formatCurrency, formatNumber } from "@/lib/unabase/formatting";
 
@@ -17,12 +18,10 @@ function formatFecha(fecha: string | null | undefined): string {
   return `${m[3]}-${m[2]}-${m[1]}`;
 }
 
-const ALL = "__all__";
-
 export default function VentasDocumentsTable({ ventas }: Props) {
   const [showAll, setShowAll] = useState(false);
-  const [clienteFilter, setClienteFilter] = useState(ALL);
-  const [descFilter, setDescFilter] = useState(ALL);
+  const [clienteFilter, setClienteFilter] = useState<Set<string>>(new Set());
+  const [descFilter, setDescFilter] = useState<Set<string>>(new Set());
 
   const sorted = useMemo(() => {
     return [...ventas].sort((a, b) => {
@@ -56,14 +55,14 @@ export default function VentasDocumentsTable({ ventas }: Props) {
 
   const filtered = useMemo(() => {
     return sorted.filter((v) => {
-      if (clienteFilter !== ALL && (v.cliente ?? "").trim() !== clienteFilter) {
+      if (clienteFilter.size > 0 && !clienteFilter.has((v.cliente ?? "").trim())) {
         return false;
       }
-      if (descFilter !== ALL) {
+      if (descFilter.size > 0) {
         const ds = Array.isArray(v.items_descripciones)
           ? v.items_descripciones.map((d) => String(d).trim())
           : [];
-        if (!ds.includes(descFilter)) return false;
+        if (!ds.some((d) => descFilter.has(d))) return false;
       }
       return true;
     });
@@ -83,7 +82,7 @@ export default function VentasDocumentsTable({ ventas }: Props) {
   }
 
   const hiddenCount = showAll ? 0 : Math.max(0, filtered.length - INITIAL_LIMIT);
-  const isFiltered = clienteFilter !== ALL || descFilter !== ALL;
+  const isFiltered = clienteFilter.size > 0 || descFilter.size > 0;
 
   return (
     <article className="flex flex-col gap-3 rounded-lg border border-[#E5E5E5] bg-white p-6">
@@ -99,42 +98,28 @@ export default function VentasDocumentsTable({ ventas }: Props) {
       </header>
 
       <div className="flex flex-wrap items-center gap-4" data-no-print="true">
-        <div className="flex items-center gap-2">
-          <label className="font-sans text-sm text-[#666666]">Cliente</label>
-          <select
-            value={clienteFilter}
-            onChange={(e) => setClienteFilter(e.target.value)}
-            className="max-w-[260px] rounded border border-[#E5E5E5] bg-white px-3 py-1.5 font-sans text-sm text-[#333333] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
-          >
-            <option value={ALL}>Todos</option>
-            {clientes.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="font-sans text-sm text-[#666666]">Ítem</label>
-          <select
-            value={descFilter}
-            onChange={(e) => setDescFilter(e.target.value)}
-            className="max-w-[260px] rounded border border-[#E5E5E5] bg-white px-3 py-1.5 font-sans text-sm text-[#333333] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
-          >
-            <option value={ALL}>Todos</option>
-            {descripciones.map((d) => (
-              <option key={d} value={d}>
-                {d}
-              </option>
-            ))}
-          </select>
-        </div>
+        <StandardMultiFilter
+          label="Cliente"
+          selected={clienteFilter}
+          onChange={setClienteFilter}
+          options={clientes.map((c) => ({ value: c, label: c }))}
+          allLabel="Todos"
+          searchPlaceholder="Buscar cliente..."
+        />
+        <StandardMultiFilter
+          label="Ítem"
+          selected={descFilter}
+          onChange={setDescFilter}
+          options={descripciones.map((d) => ({ value: d, label: d }))}
+          allLabel="Todos"
+          searchPlaceholder="Buscar ítem..."
+        />
         {isFiltered && (
           <button
             type="button"
             onClick={() => {
-              setClienteFilter(ALL);
-              setDescFilter(ALL);
+              setClienteFilter(new Set());
+              setDescFilter(new Set());
             }}
             className="font-sans text-xs text-[#666666] transition-colors hover:text-[#333333]"
           >

@@ -17,6 +17,10 @@ import MarcaMatrixSheet, {
   type MatrixEvento,
 } from "./MarcaMatrixSheet";
 import type { MarcaClienteRow, MarcaMatrixCell } from "@/lib/queries/marca";
+import {
+  currentSeasonLabel,
+  isCurrentSeasonCategory,
+} from "@/lib/utils/season";
 
 export type OnepagerListadoTableRow = {
   eventoId: string;
@@ -152,6 +156,7 @@ export default function OnepagerListadoTable({
   marcaMatrix: MarcaMatrixCell[];
 }) {
   const router = useRouter();
+  const temporadaActual = useMemo(() => currentSeasonLabel(), []);
   const [mode, setMode] = useState<Mode>("eventos");
   // Multi-select: Set vacío = "todas/todos" (sin filtro).
   const [categorias, setCategorias] = useState<Set<string>>(new Set());
@@ -381,15 +386,26 @@ export default function OnepagerListadoTable({
                 </button>
                 {categoriasOpts.map((c) => {
                   const active = categorias.has(c);
+                  const currentSeason = isCurrentSeasonCategory(
+                    c,
+                    temporadaActual,
+                  );
                   return (
                     <button
                       key={c}
                       type="button"
                       aria-pressed={active}
+                      title={
+                        currentSeason
+                          ? `Temporada actual ${temporadaActual}`
+                          : undefined
+                      }
                       onClick={() => toggleCategoria(c)}
                       className={`font-mono-data uppercase text-xs leading-none px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 ${
                         active
                           ? "bg-black text-[#FFFF00]"
+                          : currentSeason
+                            ? "bg-[#FFF7A8] text-black font-bold hover:bg-[#FFFF00]"
                           : "bg-white text-black hover:bg-[#FFFF00]"
                       }`}
                     >

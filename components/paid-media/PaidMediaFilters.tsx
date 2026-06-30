@@ -8,6 +8,7 @@ import type {
   CurrencyOption,
   PlataformaOption,
 } from "@/lib/queries/paidMedia";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 import { compactMoney, formatInt, plataformaLabel } from "@/components/paid-media/format";
 
 interface Props {
@@ -19,11 +20,11 @@ interface Props {
   objectives: string[];
 
   currency: string;
-  plataforma: string;
-  accountId: string;
-  campaignId: string;
-  adsetId: string;
-  objective: string;
+  plataformas: string[];
+  accountIds: string[];
+  campaignIds: string[];
+  adsetIds: string[];
+  selectedObjectives: string[];
   from: string;
   to: string;
 }
@@ -59,40 +60,61 @@ export default function PaidMediaFilters({
   adsets,
   objectives,
   currency,
-  plataforma,
-  accountId,
-  campaignId,
-  adsetId,
-  objective,
+  plataformas,
+  accountIds,
+  campaignIds,
+  adsetIds,
+  selectedObjectives,
   from,
   to,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  function update(patch: Record<string, string | null>) {
+  function update(patch: Record<string, string | string[] | null>) {
     const params = new URLSearchParams(searchParams.toString());
     for (const [key, value] of Object.entries(patch)) {
-      if (value === null || value === "") params.delete(key);
-      else params.set(key, value);
+      if (value === null || value === "" || (Array.isArray(value) && value.length === 0)) {
+        params.delete(key);
+      } else if (Array.isArray(value)) {
+        params.delete(key);
+        for (const item of value) params.append(key, item);
+      } else {
+        params.set(key, value);
+      }
     }
     const qs = params.toString();
     router.push(`/paid-media${qs ? `?${qs}` : ""}`);
   }
 
   const hasActiveFilters =
-    Boolean(plataforma) ||
-    Boolean(accountId) ||
-    Boolean(campaignId) ||
-    Boolean(adsetId) ||
-    Boolean(objective) ||
+    plataformas.length > 0 ||
+    accountIds.length > 0 ||
+    campaignIds.length > 0 ||
+    adsetIds.length > 0 ||
+    selectedObjectives.length > 0 ||
     Boolean(from) ||
     Boolean(to);
 
-  // Cuentas filtradas por la plataforma seleccionada (si hay).
-  const filteredAccounts = plataforma
-    ? accounts.filter((a) => a.plataforma === plataforma)
-    : accounts;
+  const platformOptions = platforms.map((p) => ({
+    value: p.plataforma,
+    label: `${plataformaLabel(p.plataforma)} · ${formatInt(p.rows)}`,
+  }));
+  const accountOptions = accounts.map((a) => ({
+    value: a.accountId,
+    label: a.accountName || a.accountId,
+    meta: plataformaLabel(a.plataforma),
+  }));
+  const campaignOptions = campaigns.map((c) => ({
+    value: c.campaignId,
+    label: c.campaignName || c.campaignId,
+    meta: c.objective,
+  }));
+  const adsetOptions = adsets.map((a) => ({
+    value: a.adsetId,
+    label: a.adsetName || a.adsetId,
+  }));
+  const objectiveOptions = objectives.map((o) => ({ value: o, label: o }));
 
   return (
     <section className="flex flex-wrap items-end gap-3">
@@ -127,129 +149,66 @@ export default function PaidMediaFilters({
       </label>
 
       {/* Plataforma */}
-      <label className="flex flex-col gap-1">
-        <span className="font-sans text-xs text-[#666666]">Plataforma</span>
-        <div className="relative inline-flex items-center">
-          <select
-            className={SELECT_CLS}
-            value={plataforma}
-            onChange={(e) =>
-              update({
-                plataforma: e.target.value || null,
-                account: null,
-                campaign: null,
-                adset: null,
-                objective: null,
-              })
-            }
-            aria-label="Plataforma"
-          >
-            <option value="">Todas</option>
-            {platforms.map((p) => (
-              <option key={p.plataforma} value={p.plataforma}>
-                {plataformaLabel(p.plataforma)} · {formatInt(p.rows)}
-              </option>
-            ))}
-          </select>
-          <SelectCaret />
-        </div>
-      </label>
+      <StandardMultiFilter
+        label="Plataforma"
+        options={platformOptions}
+        selected={new Set(plataformas)}
+        onChange={(next) =>
+          update({
+            plataforma: Array.from(next),
+            account: null,
+            campaign: null,
+            adset: null,
+            objective: null,
+          })
+        }
+        allLabel="Todas"
+        searchPlaceholder="Buscar plataforma..."
+      />
 
       {/* Cuenta */}
-      <label className="flex flex-col gap-1">
-        <span className="font-sans text-xs text-[#666666]">Cuenta</span>
-        <div className="relative inline-flex items-center">
-          <select
-            className={`${SELECT_CLS} max-w-[280px]`}
-            value={accountId}
-            onChange={(e) =>
-              update({ account: e.target.value || null, campaign: null, adset: null })
-            }
-            aria-label="Cuenta"
-          >
-            <option value="">Todas las cuentas</option>
-            {filteredAccounts.map((a) => (
-              <option key={a.accountId} value={a.accountId}>
-                {a.accountName || a.accountId}
-              </option>
-            ))}
-          </select>
-          <SelectCaret />
-        </div>
-      </label>
+      <StandardMultiFilter
+        label="Cuenta"
+        options={accountOptions}
+        selected={new Set(accountIds)}
+        onChange={(next) =>
+          update({ account: Array.from(next), campaign: null, adset: null })
+        }
+        allLabel="Todas las cuentas"
+        searchPlaceholder="Buscar cuenta..."
+      />
 
       {/* Campaña */}
-      <label className="flex flex-col gap-1">
-        <span className="font-sans text-xs text-[#666666]">Campaña</span>
-        <div className="relative inline-flex items-center">
-          <select
-            className={`${SELECT_CLS} max-w-[280px]`}
-            value={campaignId}
-            onChange={(e) =>
-              update({ campaign: e.target.value || null, adset: null })
-            }
-            aria-label="Campaña"
-            disabled={campaigns.length === 0}
-          >
-            <option value="">
-              {campaigns.length === 0
-                ? "Sin campañas"
-                : "Todas las campañas"}
-            </option>
-            {campaigns.map((c) => (
-              <option key={c.campaignId} value={c.campaignId}>
-                {c.campaignName || c.campaignId}
-              </option>
-            ))}
-          </select>
-          <SelectCaret />
-        </div>
-      </label>
+      <StandardMultiFilter
+        label="Campaña"
+        options={campaignOptions}
+        selected={new Set(campaignIds)}
+        onChange={(next) => update({ campaign: Array.from(next), adset: null })}
+        allLabel={campaigns.length === 0 ? "Sin campañas" : "Todas las campañas"}
+        searchPlaceholder="Buscar campaña..."
+        disabled={campaigns.length === 0}
+      />
 
       {/* Adset */}
-      <label className="flex flex-col gap-1">
-        <span className="font-sans text-xs text-[#666666]">Adset</span>
-        <div className="relative inline-flex items-center">
-          <select
-            className={`${SELECT_CLS} max-w-[260px]`}
-            value={adsetId}
-            onChange={(e) => update({ adset: e.target.value || null })}
-            aria-label="Adset"
-            disabled={adsets.length === 0}
-          >
-            <option value="">
-              {adsets.length === 0 ? "Sin adsets" : "Todos los adsets"}
-            </option>
-            {adsets.map((a) => (
-              <option key={a.adsetId} value={a.adsetId}>
-                {a.adsetName || a.adsetId}
-              </option>
-            ))}
-          </select>
-          <SelectCaret />
-        </div>
-      </label>
+      <StandardMultiFilter
+        label="Adset"
+        options={adsetOptions}
+        selected={new Set(adsetIds)}
+        onChange={(next) => update({ adset: Array.from(next) })}
+        allLabel={adsets.length === 0 ? "Sin adsets" : "Todos los adsets"}
+        searchPlaceholder="Buscar adset..."
+        disabled={adsets.length === 0}
+      />
 
       {/* Objetivo */}
-      <label className="flex flex-col gap-1">
-        <span className="font-sans text-xs text-[#666666]">Objetivo</span>
-        <div className="relative inline-flex items-center">
-          <select
-            className={SELECT_CLS}
-            value={objective}
-            onChange={(e) => update({ objective: e.target.value || null })}
-            aria-label="Objetivo"
-          >
-            <option value="">Todos</option>
-            {objectives.map((o) => (
-              <option key={o} value={o}>
-                {o}
-              </option>
-            ))}
-          </select>
-          <SelectCaret />
-        </div>
-      </label>
+      <StandardMultiFilter
+        label="Objetivo"
+        options={objectiveOptions}
+        selected={new Set(selectedObjectives)}
+        onChange={(next) => update({ objective: Array.from(next) })}
+        allLabel="Todos"
+        searchPlaceholder="Buscar objetivo..."
+      />
 
       {/* Rango de fechas */}
       <label className="flex flex-col gap-1">

@@ -24,12 +24,17 @@ function parseInteger(v: string | undefined, fallback: number): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
+function parseStringList(v: string | string[] | undefined): string[] {
+  const values = Array.isArray(v) ? v : v ? [v] : [];
+  return Array.from(new Set(values.map((item) => item.trim()).filter(Boolean)));
+}
+
 export default async function AdminAccesosPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    userId?: string;
-    dashboardKey?: string;
+    userId?: string | string[];
+    dashboardKey?: string | string[];
     from?: string;
     to?: string;
     page?: string;
@@ -38,8 +43,8 @@ export default async function AdminAccesosPage({
   await requireSuperadmin();
 
   const sp = await searchParams;
-  const userId = sp.userId || null;
-  const dashboardKey = sp.dashboardKey || null;
+  const userIds = parseStringList(sp.userId);
+  const dashboardKeys = parseStringList(sp.dashboardKey);
   const from = parseDate(sp.from);
   const to = parseDate(sp.to);
   if (to) to.setHours(23, 59, 59, 999);
@@ -48,8 +53,8 @@ export default async function AdminAccesosPage({
   const [summaryRows, logsRes, users, catalog] = await Promise.all([
     getDashboardAccessSummary(),
     getAccessLogs({
-      userId,
-      dashboardKey,
+      userIds,
+      dashboardKeys,
       from,
       to,
       limit: PAGE_SIZE,
@@ -124,8 +129,8 @@ export default async function AdminAccesosPage({
         userOptions={userOptions}
         dashboardOptions={dashboardOptions}
         filters={{
-          userId,
-          dashboardKey,
+          userIds,
+          dashboardKeys,
           from: sp.from ?? "",
           to: sp.to ?? "",
         }}

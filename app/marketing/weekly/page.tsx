@@ -286,10 +286,9 @@ async function EventCountdownBanner({
 }
 
 async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
-  const [kpis, followers, pm, community] = await Promise.all([
+  const [kpis, followers, community] = await Promise.all([
     getEventKpis(eventoId, scope),
     getFollowersDelta(eventoId, scope),
-    getPaidMediaSummary(eventoId, scope),
     getCommunityTicketsCount(eventoId, scope),
   ]);
   const soldPct = kpis.goalTickets > 0 ? Math.round((kpis.totalTickets / kpis.goalTickets) * 100) : 0;

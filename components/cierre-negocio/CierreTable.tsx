@@ -2,6 +2,7 @@
 
 import { useMemo, useState, type KeyboardEvent } from "react";
 import { useRouter } from "next/navigation";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 import type { NegocioRow } from "@/lib/unabase/types";
 
 function parseDateStr(dateStr: string): Date | null {
@@ -50,31 +51,38 @@ const COLUMNS: { key: keyof NegocioRow; label: string }[] = [
 
 export default function CierreTable({ rows }: { rows: NegocioRow[] }) {
   const router = useRouter();
-  const [area, setArea] = useState("__all__");
-  const [cliente, setCliente] = useState("__all__");
+  const [area, setArea] = useState<Set<string>>(new Set());
+  const [cliente, setCliente] = useState<Set<string>>(new Set());
   const [estado, setEstado] = useState("NOTA DE VENTA");
   const [estadonv, setEstadonv] = useState("EN PROCESO");
   const [estadocierre, setEstaodocierre] = useState("false");
 
+  const inSelection = (selection: Set<string>, value: string | null | undefined) =>
+    selection.size === 0 || selection.has(value ?? "");
+
   const applyExcept = (exclude: "area" | "cliente" | "estado" | "estadonv" | "estadocierre") =>
     rows
-      .filter((r) => exclude === "area"       || area       === "__all__" || r.area_negocio === area)
-      .filter((r) => exclude === "cliente"    || cliente    === "__all__" || r.razon_cliente === cliente)
+      .filter((r) => exclude === "area"       || inSelection(area, r.area_negocio))
+      .filter((r) => exclude === "cliente"    || inSelection(cliente, r.razon_cliente))
       .filter((r) => exclude === "estado"     || estado     === "__all__" || r.estado === estado)
       .filter((r) => exclude === "estadonv"   || estadonv   === "__all__" || r.estadonv === estadonv)
       .filter((r) => exclude === "estadocierre" || estadocierre === "__all__" || String(r.estadocierre) === estadocierre);
 
   const areas = useMemo(() => {
     const set = new Set(applyExcept("area").map((r) => r.area_negocio).filter(Boolean));
+    // Mantené visibles las áreas ya elegidas aunque el cascadeo (cliente, etc.)
+    // las excluya, para poder destildarlas en vez de quedar en un dead-end.
+    for (const a of area) set.add(a);
     return Array.from(set).sort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, cliente, estado, estadonv, estadocierre]);
+  }, [rows, area, cliente, estado, estadonv, estadocierre]);
 
   const clientes = useMemo(() => {
     const set = new Set(applyExcept("cliente").map((r) => r.razon_cliente).filter(Boolean));
+    for (const c of cliente) set.add(c);
     return Array.from(set).sort();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, area, estado, estadonv, estadocierre]);
+  }, [rows, area, cliente, estado, estadonv, estadocierre]);
 
   const estados = useMemo(() => {
     const set = new Set(applyExcept("estado").map((r) => r.estado).filter(Boolean));
@@ -100,8 +108,8 @@ export default function CierreTable({ rows }: { rows: NegocioRow[] }) {
   }, [rows, area, cliente, estado, estadonv]);
 
   const filtered = rows
-    .filter((r) => area === "__all__" || r.area_negocio === area)
-    .filter((r) => cliente === "__all__" || r.razon_cliente === cliente)
+    .filter((r) => inSelection(area, r.area_negocio))
+    .filter((r) => inSelection(cliente, r.razon_cliente))
     .filter((r) => estado === "__all__" || r.estado === estado)
     .filter((r) => estadonv === "__all__" || r.estadonv === estadonv)
     .filter((r) => estadocierre === "__all__" || String(r.estadocierre) === estadocierre);
@@ -176,45 +184,34 @@ export default function CierreTable({ rows }: { rows: NegocioRow[] }) {
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-4">
-        <div className="flex items-center gap-2">
-          <label className="font-sans text-sm text-[#666666]">Área de negocio</label>
-          <select
-            value={area}
-            onChange={(e) => setArea(e.target.value)}
-            className="rounded border border-[#E5E5E5] bg-white px-3 py-1.5 font-sans text-sm text-[#333333] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
-          >
-            <option value="__all__">Todas</option>
-            {areas.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="flex items-center gap-2">
-          <label className="font-sans text-sm text-[#666666]">Cliente</label>
-          <select
-            value={cliente}
-            onChange={(e) => setCliente(e.target.value)}
-            className="rounded border border-[#E5E5E5] bg-white px-3 py-1.5 font-sans text-sm text-[#333333] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
-          >
-            <option value="__all__">Todos</option>
-            {clientes.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          {cliente !== "__all__" && (() => {
-            const rut = rows.find((r) => r.razon_cliente === cliente)?.rut_cliente;
+        <StandardMultiFilter
+          label="Área de negocio"
+          selected={area}
+          onChange={setArea}
+          options={areas.map((a) => ({ value: a, label: a }))}
+          allLabel="Todas"
+          searchPlaceholder="Buscar área..."
+        />
+        <div className="flex items-end gap-2">
+          <StandardMultiFilter
+            label="Cliente"
+            selected={cliente}
+            onChange={setCliente}
+            options={clientes.map((c) => ({ value: c, label: c }))}
+            allLabel="Todos"
+            searchPlaceholder="Buscar cliente..."
+          />
+          {cliente.size === 1 && (() => {
+            const selectedCliente = Array.from(cliente)[0];
+            const rut = rows.find((r) => r.razon_cliente === selectedCliente)?.rut_cliente;
             return rut ? (
-              <span className="font-sans text-sm text-[#666666]">
+              <span className="pb-2 font-sans text-sm text-[#666666]">
                 Rut del cliente: <span className="text-[#333333]">{formatRut(rut)}</span>
               </span>
             ) : null;
           })()}
         </div>
-        {(area !== "__all__" || cliente !== "__all__") && (
+        {(area.size > 0 || cliente.size > 0) && (
           <span className="font-sans text-xs text-[#666666]">
             {filtered.length} resultado{filtered.length !== 1 ? "s" : ""}
           </span>

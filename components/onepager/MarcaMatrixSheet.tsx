@@ -17,6 +17,10 @@ import {
 } from "@/app/onepager/marca-actions";
 import { netoToBruto } from "@/lib/constants/tax";
 import { formatRut, isValidRut, normalizeRut } from "@/lib/utils/rut";
+import {
+  currentSeasonLabel,
+  isCurrentSeasonCategory,
+} from "@/lib/utils/season";
 
 export type MatrixEvento = {
   eventoId: string;
@@ -65,6 +69,7 @@ export default function MarcaMatrixSheet({
   clientes,
   matrix,
 }: Props) {
+  const temporadaActual = useMemo(() => currentSeasonLabel(), []);
   // Filtros de categoría (multi-select de chips brutalistas).
   const [categorias, setCategorias] = useState<Set<string>>(new Set());
   // Colapsa la lista de chips para liberar espacio vertical para la matriz.
@@ -203,7 +208,7 @@ export default function MarcaMatrixSheet({
     const key = cellKey(clienteId, eventoId);
     if (key in draft) return draft[key];
     const v = saved[key];
-    return v ? String(Math.round(v)) : "";
+    return v ? fmtClp(v) : "";
   }
 
   function commitCell(clienteId: string, eventoId: string) {
@@ -520,15 +525,26 @@ export default function MarcaMatrixSheet({
                       >
                         {categoriasOpts.map((c) => {
                           const active = categorias.has(c);
+                          const currentSeason = isCurrentSeasonCategory(
+                            c,
+                            temporadaActual,
+                          );
                           return (
                             <button
                               key={c}
                               type="button"
                               aria-pressed={active}
+                              title={
+                                currentSeason
+                                  ? `Temporada actual ${temporadaActual}`
+                                  : undefined
+                              }
                               onClick={() => toggleCategoria(c)}
                               className={`font-mono-data uppercase text-xs leading-none px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 ${
                                 active
                                   ? "bg-black text-[#FFFF00]"
+                                  : currentSeason
+                                    ? "bg-[#FFF7A8] text-black font-bold hover:bg-[#FFFF00]"
                                   : "bg-white text-black hover:bg-[#FFFF00]"
                               }`}
                             >
@@ -924,7 +940,7 @@ function MatrixGrid({
                     onKeyDown={(ev) => handleCellKeyDown(ev, c.id, e.eventoId)}
                     aria-label={`Monto neto ${c.nombre} en ${e.nombre}`}
                     title={neto > 0 ? `Bruto: ${fmtClp(bruto)}` : "Vacío"}
-                    placeholder="0"
+                    placeholder="$0"
                     className={`w-full font-mono-data text-xs text-right px-2 py-1.5 outline-none tabular-nums focus:bg-[#FFFF00]/30 ${
                       isSaving
                         ? "bg-[#FFFF00]/40"

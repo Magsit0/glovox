@@ -1,13 +1,10 @@
-import type { AccountOption, CampaignOption, AdsetOption } from "@/lib/queries/paidMedia";
-import { plataformaLabel } from "@/components/paid-media/format";
-
 interface Props {
   currency: string;
-  plataforma: string;
-  account?: AccountOption;
-  campaign?: CampaignOption;
-  adset?: AdsetOption;
-  objective: string;
+  plataformas?: string[];
+  accounts?: string[];
+  campaigns?: string[];
+  adsets?: string[];
+  objectives?: string[];
   from: string;
   to: string;
 }
@@ -19,21 +16,21 @@ interface Props {
  */
 export default function ActiveContext({
   currency,
-  plataforma,
-  account,
-  campaign,
-  adset,
-  objective,
+  plataformas = [],
+  accounts = [],
+  campaigns = [],
+  adsets = [],
+  objectives = [],
   from,
   to,
 }: Props) {
   const items: { label: string; value: string }[] = [];
   items.push({ label: "Moneda", value: currency });
-  if (plataforma) items.push({ label: "Plataforma", value: plataformaLabel(plataforma) });
-  if (account) items.push({ label: "Cuenta", value: account.accountName || account.accountId });
-  if (campaign) items.push({ label: "Campaña", value: campaign.campaignName || campaign.campaignId });
-  if (adset) items.push({ label: "Adset", value: adset.adsetName || adset.adsetId });
-  if (objective) items.push({ label: "Objetivo", value: objective });
+  addSelection(items, "Plataforma", plataformas);
+  addSelection(items, "Cuenta", accounts);
+  addSelection(items, "Campaña", campaigns);
+  addSelection(items, "Adset", adsets);
+  addSelection(items, "Objetivo", objectives);
   if (from || to) {
     items.push({
       label: "Rango",
@@ -57,4 +54,16 @@ export default function ActiveContext({
       ))}
     </section>
   );
+}
+
+function addSelection(
+  items: { label: string; value: string }[],
+  label: string,
+  values: string[],
+) {
+  if (values.length === 0) return;
+  items.push({
+    label,
+    value: values.length === 1 ? values[0] : `${values.length} seleccionados`,
+  });
 }

@@ -52,14 +52,18 @@ export type ClaseVenta = "VENTA" | "CORTESIA" | "OTRO";
 
 export type TicketingFilters = {
   eventoId?: string;
-  categoriaEvento?: string;
+  categoriaEventos?: string[]; // vacío = todas
   country: Country;
   from?: string; // YYYY-MM-DD
   to?: string;   // YYYY-MM-DD
-  clase?: ClaseVenta; // undefined = todas
+  clases?: ClaseVenta[]; // vacío = todas
   /** Por default los devueltos quedan fuera. */
   incluirDevueltos: boolean;
 };
+
+function filterList<T extends string>(values?: T[]): T[] {
+  return Array.from(new Set((values ?? []).filter(Boolean)));
+}
 
 /**
  * Clasificación de cada ticket en VENTA / CORTESIA / OTRO.
@@ -99,9 +103,10 @@ function baseCte(filters: TicketingFilters): {
     conds.push("a.EventoID = @eventoId");
     params.eventoId = filters.eventoId;
   }
-  if (filters.categoriaEvento) {
-    conds.push("b.CategoriaEvento = @categoriaEvento");
-    params.categoriaEvento = filters.categoriaEvento;
+  const categorias = filterList(filters.categoriaEventos);
+  if (categorias.length) {
+    conds.push("b.CategoriaEvento IN UNNEST(@categoriaEventos)");
+    params.categoriaEventos = categorias;
   }
   // El país se deriva del prefijo de EventoID (GLO=Chile, GLP=Perú). Es un
   // literal fijo, no entrada de usuario → seguro de interpolar.
@@ -121,8 +126,9 @@ function baseCte(filters: TicketingFilters): {
   }
 
   // El filtro de clase se aplica afuera porque depende del CASE calculado.
-  const claseFilter = filters.clase ? "WHERE claseVenta = @clase" : "";
-  if (filters.clase) params.clase = filters.clase;
+  const clases = filterList(filters.clases);
+  const claseFilter = clases.length ? "WHERE claseVenta IN UNNEST(@clases)" : "";
+  if (clases.length) params.clases = clases;
 
   const cte = `
   WITH t AS (

@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useMemo } from "react";
 import type { ClaseVenta, TicketingEventOption } from "@/lib/queries/ticketing";
 import type { Country } from "@/lib/queries/comunidad";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 
 interface Props {
   events: TicketingEventOption[];
@@ -11,12 +12,12 @@ interface Props {
   eventoId: string;
   /** Id del evento por default (último ocurrido); no cuenta como filtro activo. */
   defaultEventId: string;
-  categoriaEvento: string;
+  categoriaEventos: string[];
   country: Country;
   countryLocked: boolean;
   from: string;
   to: string;
-  clase: ClaseVenta | "";
+  clases: ClaseVenta[];
   incluirDevueltos: boolean;
 }
 
@@ -47,12 +48,12 @@ export default function TicketingFilters({
   events,
   eventoId,
   defaultEventId,
-  categoriaEvento,
+  categoriaEventos,
   country,
   countryLocked,
   from,
   to,
-  clase,
+  clases,
   incluirDevueltos,
 }: Props) {
   const router = useRouter();
@@ -66,17 +67,23 @@ export default function TicketingFilters({
 
   const filteredEvents = useMemo(
     () =>
-      categoriaEvento
-        ? events.filter((e) => e.categoriaEvento === categoriaEvento)
+      categoriaEventos.length > 0
+        ? events.filter((e) => categoriaEventos.includes(e.categoriaEvento))
         : events,
-    [events, categoriaEvento],
+    [events, categoriaEventos],
   );
 
-  function update(patch: Record<string, string | null>) {
+  function update(patch: Record<string, string | string[] | null>) {
     const params = new URLSearchParams(searchParams.toString());
     for (const [key, value] of Object.entries(patch)) {
-      if (value === null || value === "") params.delete(key);
-      else params.set(key, value);
+      if (value === null || value === "" || (Array.isArray(value) && value.length === 0)) {
+        params.delete(key);
+      } else if (Array.isArray(value)) {
+        params.delete(key);
+        for (const item of value) params.append(key, item);
+      } else {
+        params.set(key, value);
+      }
     }
     const qs = params.toString();
     router.push(`/ticketing${qs ? `?${qs}` : ""}`);
@@ -84,11 +91,11 @@ export default function TicketingFilters({
 
   const hasActiveFilters =
     (eventoId !== "" && eventoId !== defaultEventId) ||
-    Boolean(categoriaEvento) ||
+    categoriaEventos.length > 0 ||
     country !== "all" ||
     Boolean(from) ||
     Boolean(to) ||
-    Boolean(clase) ||
+    clases.length > 0 ||
     incluirDevueltos;
 
   const countryButtons: { id: Country; label: string }[] = [
@@ -96,31 +103,23 @@ export default function TicketingFilters({
     { id: "chile", label: "Chile" },
     { id: "peru", label: "Perú" },
   ];
+  const claseOptions: { value: ClaseVenta; label: string }[] = [
+    { value: "VENTA", label: "Venta" },
+    { value: "CORTESIA", label: "Cortesía" },
+    { value: "OTRO", label: "Otro" },
+  ];
 
   return (
     <section className="flex flex-wrap items-end gap-3">
       {/* Categoría de evento */}
-      <label className="flex flex-col gap-1">
-        <span className="font-sans text-xs text-[#666666]">Categoría de evento</span>
-        <div className="relative inline-flex items-center">
-          <select
-            className={SELECT_CLS}
-            value={categoriaEvento}
-            onChange={(e) =>
-              update({ categoria: e.target.value || null, event: null })
-            }
-            aria-label="Categoría de evento"
-          >
-            <option value="">Todas</option>
-            {categorias.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <SelectCaret />
-        </div>
-      </label>
+      <StandardMultiFilter
+        label="Categoría de evento"
+        options={categorias.map((c) => ({ value: c, label: c }))}
+        selected={new Set(categoriaEventos)}
+        onChange={(next) => update({ categoria: Array.from(next), event: null })}
+        allLabel="Todas"
+        searchPlaceholder="Buscar categoría..."
+      />
 
       {/* Evento */}
       <label className="flex flex-col gap-1">
@@ -144,23 +143,14 @@ export default function TicketingFilters({
       </label>
 
       {/* Clase de venta */}
-      <label className="flex flex-col gap-1">
-        <span className="font-sans text-xs text-[#666666]">Clase</span>
-        <div className="relative inline-flex items-center">
-          <select
-            className={SELECT_CLS}
-            value={clase}
-            onChange={(e) => update({ clase: e.target.value || null })}
-            aria-label="Clase de venta"
-          >
-            <option value="">Todas</option>
-            <option value="VENTA">Venta</option>
-            <option value="CORTESIA">Cortesía</option>
-            <option value="OTRO">Otro</option>
-          </select>
-          <SelectCaret />
-        </div>
-      </label>
+      <StandardMultiFilter
+        label="Clase"
+        options={claseOptions}
+        selected={new Set(clases)}
+        onChange={(next) => update({ clase: Array.from(next) })}
+        allLabel="Todas"
+        searchPlaceholder="Buscar clase..."
+      />
 
       {/* Rango de fechas */}
       <label className="flex flex-col gap-1">

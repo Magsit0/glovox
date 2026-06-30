@@ -8,7 +8,7 @@
  * Las funciones de lectura son consumidas exclusivamente por el panel admin
  * (`/admin/accesos`), que asegura el guard de superadmin antes de llamarlas.
  */
-import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { dashboardAccessLog, dashboards, users } from "@/db/schema";
 import { ensureDashboardsCatalog } from "@/lib/ensureDashboardsCatalog";
@@ -53,8 +53,8 @@ export async function logDashboardAccess(
 }
 
 export type AccessLogFilters = {
-  userId?: string | null;
-  dashboardKey?: string | null;
+  userIds?: string[] | null;
+  dashboardKeys?: string[] | null;
   from?: Date | null;
   to?: Date | null;
   limit: number;
@@ -74,10 +74,18 @@ export type AccessLogRow = {
 export async function getAccessLogs(
   filters: AccessLogFilters,
 ): Promise<{ rows: AccessLogRow[]; total: number }> {
+  const userIds = filters.userIds?.filter(Boolean) ?? [];
+  const dashboardKeys = filters.dashboardKeys?.filter(Boolean) ?? [];
   const where = and(
-    filters.userId ? eq(dashboardAccessLog.userId, filters.userId) : undefined,
-    filters.dashboardKey
-      ? eq(dashboardAccessLog.dashboardKey, filters.dashboardKey)
+    userIds.length === 1
+      ? eq(dashboardAccessLog.userId, userIds[0])
+      : userIds.length > 1
+        ? inArray(dashboardAccessLog.userId, userIds)
+        : undefined,
+    dashboardKeys.length === 1
+      ? eq(dashboardAccessLog.dashboardKey, dashboardKeys[0])
+      : dashboardKeys.length > 1
+        ? inArray(dashboardAccessLog.dashboardKey, dashboardKeys)
       : undefined,
     filters.from ? gte(dashboardAccessLog.accessedAt, filters.from) : undefined,
     filters.to ? lte(dashboardAccessLog.accessedAt, filters.to) : undefined,

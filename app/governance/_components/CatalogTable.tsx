@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Eye, Search, Table2 } from "lucide-react";
 import type { AssetRow, AssetStatus } from "@/lib/governance/types";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 import {
   ALL_AREAS,
   ALL_STATUSES,
@@ -39,12 +40,9 @@ function sortValue(row: AssetRow, key: SortKey): string | number {
   }
 }
 
-const selectClass =
-  "rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8] transition-colors";
-
 export default function CatalogTable({ rows }: { rows: AssetRow[] }) {
-  const [area, setArea] = useState<string>("all");
-  const [status, setStatus] = useState<string>("all");
+  const [area, setArea] = useState<Set<string>>(new Set());
+  const [status, setStatus] = useState<Set<string>>(new Set());
   const [q, setQ] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("status");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -61,8 +59,8 @@ export default function CatalogTable({ rows }: { rows: AssetRow[] }) {
   const filtered = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const out = rows.filter((r) => {
-      if (area !== "all" && r.area !== area) return false;
-      if (status !== "all" && r.status !== status) return false;
+      if (area.size > 0 && !area.has(r.area)) return false;
+      if (status.size > 0 && !status.has(r.status)) return false;
       if (needle) {
         const hay = `${r.key} ${r.source} ${r.endpoint ?? ""} ${r.consumers.join(" ")} ${r.owner ?? ""}`.toLowerCase();
         if (!hay.includes(needle)) return false;
@@ -112,23 +110,23 @@ export default function CatalogTable({ rows }: { rows: AssetRow[] }) {
           />
         </div>
 
-        <select value={area} onChange={(e) => setArea(e.target.value)} className={selectClass}>
-          <option value="all">Todas las áreas</option>
-          {ALL_AREAS.map((a) => (
-            <option key={a} value={a}>
-              {AREA_LABEL[a]}
-            </option>
-          ))}
-        </select>
+        <StandardMultiFilter
+          label="Área"
+          selected={area}
+          onChange={setArea}
+          options={ALL_AREAS.map((a) => ({ value: a, label: AREA_LABEL[a] }))}
+          allLabel="Todas las áreas"
+          searchPlaceholder="Buscar área..."
+        />
 
-        <select value={status} onChange={(e) => setStatus(e.target.value)} className={selectClass}>
-          <option value="all">Todos los estados</option>
-          {ALL_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_META[s].label}
-            </option>
-          ))}
-        </select>
+        <StandardMultiFilter
+          label="Estado"
+          selected={status}
+          onChange={setStatus}
+          options={ALL_STATUSES.map((s) => ({ value: s, label: STATUS_META[s].label }))}
+          allLabel="Todos los estados"
+          searchPlaceholder="Buscar estado..."
+        />
 
         <span className="ml-auto font-sans text-sm text-[#666666]">
           {filtered.length} de {rows.length} activos

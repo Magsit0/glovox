@@ -120,11 +120,16 @@ export default function HomeDashboards({
 }: HomeDashboardsProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [showBanner, setShowBanner] = useState(false);
+  // El banner se deriva del query param en el primer render (la home es
+  // dinámica, así que el SSR ya ve el param → sin mismatch de hidratación).
+  const [showBanner, setShowBanner] = useState(
+    () => searchParams.get("unauthorized") === "1",
+  );
 
+  // Limpiamos el ?unauthorized=1 de la URL. Es un efecto externo (navegación),
+  // no un setState, así que no dispara renders en cascada.
   useEffect(() => {
     if (searchParams.get("unauthorized") === "1") {
-      setShowBanner(true);
       router.replace("/", { scroll: false });
     }
   }, [searchParams, router]);

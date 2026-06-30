@@ -29,15 +29,38 @@ export type Plataforma = "meta" | "google" | "tiktok";
  */
 export type PaidMediaFilters = {
   currency: string;
+  /** Plataforma única — solo la usa el tab Overall (eventoScope mono-plataforma). */
   plataforma?: Plataforma;
-  accountId?: string;
-  campaignId?: string;
-  adsetId?: string;
-  objective?: string;
+  plataformas?: Plataforma[]; // vacío = todas (tab Detalle, multi-select)
+  accountIds?: string[];
+  campaignIds?: string[];
+  adsetIds?: string[];
+  objectives?: string[];
   prefix?: string; // familia de EventoID (3 chars: GLO, GLP, …) — solo tab Overall
   from?: string; // YYYY-MM-DD
   to?: string;   // YYYY-MM-DD
 };
+
+function filterList<T extends string>(values?: T[]): T[] {
+  return Array.from(new Set((values ?? []).filter(Boolean)));
+}
+
+function effectiveList<T extends string>(multi?: T[], single?: T): T[] {
+  const values = filterList(multi);
+  return values.length > 0 ? values : single ? [single] : [];
+}
+
+function addListFilter(
+  conds: string[],
+  params: Record<string, unknown>,
+  column: string,
+  param: string,
+  values: string[],
+) {
+  if (values.length === 0) return;
+  conds.push(`${column} IN UNNEST(@${param})`);
+  params[param] = values;
+}
 
 /**
  * Construye un CTE base `t` filtrado y los params correspondientes. Cada query
@@ -49,27 +72,17 @@ function baseCte(filters: PaidMediaFilters): {
 } {
   const conds: string[] = ["currency = @currency"];
   const params: Record<string, unknown> = { currency: filters.currency };
+  const plataformas = effectiveList(filters.plataformas, filters.plataforma);
+  const accountIds = filterList(filters.accountIds);
+  const campaignIds = filterList(filters.campaignIds);
+  const adsetIds = filterList(filters.adsetIds);
+  const objectives = filterList(filters.objectives);
 
-  if (filters.plataforma) {
-    conds.push("plataforma = @plataforma");
-    params.plataforma = filters.plataforma;
-  }
-  if (filters.accountId) {
-    conds.push("account_id = @accountId");
-    params.accountId = filters.accountId;
-  }
-  if (filters.campaignId) {
-    conds.push("campaign_id = @campaignId");
-    params.campaignId = filters.campaignId;
-  }
-  if (filters.adsetId) {
-    conds.push("adset_id = @adsetId");
-    params.adsetId = filters.adsetId;
-  }
-  if (filters.objective) {
-    conds.push("objective = @objective");
-    params.objective = filters.objective;
-  }
+  addListFilter(conds, params, "plataforma", "plataformas", plataformas);
+  addListFilter(conds, params, "account_id", "accountIds", accountIds);
+  addListFilter(conds, params, "campaign_id", "campaignIds", campaignIds);
+  addListFilter(conds, params, "adset_id", "adsetIds", adsetIds);
+  addListFilter(conds, params, "objective", "objectives", objectives);
   if (filters.from) {
     conds.push("fecha >= DATE(@from)");
     params.from = filters.from;
@@ -231,14 +244,17 @@ export async function getPlatformOptions(): Promise<PlataformaOption[]> {
  */
 export async function getAccountOptions(
   currency: string,
-  plataforma?: Plataforma,
+  plataforma?: Plataforma | Plataforma[],
 ): Promise<AccountOption[]> {
   const conds: string[] = ["currency = @currency"];
   const params: Record<string, unknown> = { currency };
-  if (plataforma) {
-    conds.push("plataforma = @plataforma");
-    params.plataforma = plataforma;
-  }
+  addListFilter(
+    conds,
+    params,
+    "plataforma",
+    "plataformas",
+    Array.isArray(plataforma) ? filterList(plataforma) : plataforma ? [plataforma] : [],
+  );
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -263,14 +279,17 @@ export async function getAccountOptions(
 /** Campañas — opcionalmente acotadas a una cuenta. */
 export async function getCampaignOptions(
   currency: string,
-  accountId?: string,
+  accountId?: string | string[],
 ): Promise<CampaignOption[]> {
   const conds: string[] = ["currency = @currency"];
   const params: Record<string, unknown> = { currency };
-  if (accountId) {
-    conds.push("account_id = @accountId");
-    params.accountId = accountId;
-  }
+  addListFilter(
+    conds,
+    params,
+    "account_id",
+    "accountIds",
+    Array.isArray(accountId) ? filterList(accountId) : accountId ? [accountId] : [],
+  );
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -298,14 +317,17 @@ export async function getCampaignOptions(
 /** Adsets — opcionalmente acotados a una campaña. */
 export async function getAdsetOptions(
   currency: string,
-  campaignId?: string,
+  campaignId?: string | string[],
 ): Promise<AdsetOption[]> {
   const conds: string[] = ["currency = @currency"];
   const params: Record<string, unknown> = { currency };
-  if (campaignId) {
-    conds.push("campaign_id = @campaignId");
-    params.campaignId = campaignId;
-  }
+  addListFilter(
+    conds,
+    params,
+    "campaign_id",
+    "campaignIds",
+    Array.isArray(campaignId) ? filterList(campaignId) : campaignId ? [campaignId] : [],
+  );
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -331,14 +353,17 @@ export async function getAdsetOptions(
 /** Objetivos disponibles en la combinación moneda/plataforma. */
 export async function getObjectiveOptions(
   currency: string,
-  plataforma?: Plataforma,
+  plataforma?: Plataforma | Plataforma[],
 ): Promise<string[]> {
   const conds: string[] = ["currency = @currency", "objective IS NOT NULL"];
   const params: Record<string, unknown> = { currency };
-  if (plataforma) {
-    conds.push("plataforma = @plataforma");
-    params.plataforma = plataforma;
-  }
+  addListFilter(
+    conds,
+    params,
+    "plataforma",
+    "plataformas",
+    Array.isArray(plataforma) ? filterList(plataforma) : plataforma ? [plataforma] : [],
+  );
   const rows = await query<Record<string, unknown>>(
     `
     SELECT objective AS objective

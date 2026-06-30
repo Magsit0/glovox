@@ -24,7 +24,7 @@ export interface BreakdownTableProps {
   /** Filtro al que apunta cada fila — convierte la primera columna en link. */
   drillParam?: "account" | "campaign" | "adset" | "plataforma" | "objective";
   /** searchParams base que cada link arrastra. */
-  baseSearchParams?: Record<string, string | undefined>;
+  baseSearchParams?: Record<string, string | string[] | undefined>;
   /** Si el valor `extra` es una plataforma, lo formatea bonito. */
   extraIsPlataforma?: boolean;
   emptyText?: string;
@@ -134,8 +134,15 @@ export default function BreakdownTable({
     if (!drillParam) return null;
     const params = new URLSearchParams();
     for (const [k, v] of Object.entries(baseSearchParams ?? {})) {
-      if (v) params.set(k, v);
+      if (Array.isArray(v)) {
+        for (const item of v) {
+          if (item) params.append(k, item);
+        }
+      } else if (v) {
+        params.set(k, v);
+      }
     }
+    params.delete(drillParam);
     params.set(drillParam, row.key);
     return `/paid-media?${params.toString()}`;
   }

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 
 type Row = {
   id: number;
@@ -14,8 +15,6 @@ type Row = {
   path: string;
 };
 
-type Option = { value: string; label: string };
-
 type Props = {
   rows: Row[];
   total: number;
@@ -24,8 +23,8 @@ type Props = {
   userOptions: { id: string; email: string }[];
   dashboardOptions: { key: string; label: string }[];
   filters: {
-    userId: string | null;
-    dashboardKey: string | null;
+    userIds: string[];
+    dashboardKeys: string[];
     from: string;
     to: string;
   };
@@ -56,32 +55,36 @@ export default function AccessLogTable({
   const searchParams = useSearchParams();
   const [pending, startTransition] = useTransition();
 
-  const userSelect: Option[] = [
-    { value: "", label: "Todos los usuarios" },
-    ...userOptions.map((u) => ({ value: u.id, label: u.email })),
-  ];
-  const dashboardSelect: Option[] = [
-    { value: "", label: "Todos los dashboards" },
-    ...dashboardOptions.map((d) => ({ value: d.key, label: d.label })),
-  ];
+  const userSelect = userOptions.map((u) => ({ value: u.id, label: u.email }));
+  const dashboardSelect = dashboardOptions.map((d) => ({
+    value: d.key,
+    label: d.label,
+  }));
 
-  function updateParams(updates: Record<string, string | null>) {
+  function updateParams(updates: Record<string, string | string[] | null>) {
     const params = new URLSearchParams(searchParams.toString());
     for (const [k, v] of Object.entries(updates)) {
-      if (v === null || v === "") params.delete(k);
-      else params.set(k, v);
+      if (v === null || v === "" || (Array.isArray(v) && v.length === 0)) {
+        params.delete(k);
+      } else if (Array.isArray(v)) {
+        params.delete(k);
+        for (const item of v) params.append(k, item);
+      } else {
+        params.set(k, v);
+      }
     }
     // Resetea paginación cuando cambia un filtro.
     if (!("page" in updates)) params.delete("page");
     startTransition(() => {
-      router.push(`${pathname}?${params.toString()}`);
+      const query = params.toString();
+      router.push(query ? `${pathname}?${query}` : pathname);
     });
   }
 
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const hasActiveFilters =
-    !!filters.userId ||
-    !!filters.dashboardKey ||
+    filters.userIds.length > 0 ||
+    filters.dashboardKeys.length > 0 ||
     !!filters.from ||
     !!filters.to;
 
@@ -92,39 +95,25 @@ export default function AccessLogTable({
       </h2>
 
       <div className="flex flex-wrap items-end gap-3 rounded-lg border border-[#E5E5E5] bg-white p-4">
-        <Field label="Usuario">
-          <select
-            className="rounded-md border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333]"
-            value={filters.userId ?? ""}
-            onChange={(e) =>
-              updateParams({ userId: e.target.value || null })
-            }
-            disabled={pending}
-          >
-            {userSelect.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <StandardMultiFilter
+          label="Usuario"
+          options={userSelect}
+          selected={new Set(filters.userIds)}
+          onChange={(next) => updateParams({ userId: Array.from(next) })}
+          allLabel="Todos los usuarios"
+          searchPlaceholder="Buscar usuario..."
+          disabled={pending}
+        />
 
-        <Field label="Dashboard">
-          <select
-            className="rounded-md border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333]"
-            value={filters.dashboardKey ?? ""}
-            onChange={(e) =>
-              updateParams({ dashboardKey: e.target.value || null })
-            }
-            disabled={pending}
-          >
-            {dashboardSelect.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </Field>
+        <StandardMultiFilter
+          label="Dashboard"
+          options={dashboardSelect}
+          selected={new Set(filters.dashboardKeys)}
+          onChange={(next) => updateParams({ dashboardKey: Array.from(next) })}
+          allLabel="Todos los dashboards"
+          searchPlaceholder="Buscar dashboard..."
+          disabled={pending}
+        />
 
         <Field label="Desde">
           <input

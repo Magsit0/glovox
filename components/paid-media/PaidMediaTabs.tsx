@@ -7,7 +7,7 @@ interface Props {
   /** Params globales que se arrastran al cambiar de pestaña (moneda, plataforma,
    *  familia de evento y rango de fechas son transversales a ambas vistas). */
   currency: string;
-  plataforma?: string;
+  plataforma?: string | string[];
   prefix?: string;
   from?: string;
   to?: string;
@@ -29,7 +29,12 @@ export default function PaidMediaTabs({
   function hrefFor(key: PaidMediaTabKey): string {
     const params = new URLSearchParams();
     if (currency) params.set("currency", currency);
-    if (plataforma) params.set("plataforma", plataforma);
+    const plataformas = Array.isArray(plataforma)
+      ? plataforma.filter(Boolean)
+      : plataforma
+        ? [plataforma]
+        : [];
+    for (const item of plataformas) params.append("plataforma", item);
     // La familia solo aplica al tab Overall.
     if (prefix && key === "overall") params.set("prefix", prefix);
     if (from) params.set("from", from);
