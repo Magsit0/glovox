@@ -2,6 +2,15 @@
 
 Proyecto interno de dashboards, reportes y herramientas operativas de GLOVOX.
 
+## Relación con data-governance (leer primero)
+
+Este repo **CONSUME** datos; el repo hermano `../data-governance` los **PRODUCE**. La app es **solo-lectura contra BigQuery** (proyecto `root-emissary-313321`): lee tablas del lake y las muestra. Toda ingesta (APIs → BigQuery) vive en `data-governance`, no aquí.
+
+- **No escribas a BigQuery desde esta app.** Si un flujo necesita una tabla nueva o un cambio de schema en el lake, eso se hace en `data-governance` (ver [`../PLAYBOOK-GOBERNANZA-DATOS.md`](../PLAYBOOK-GOBERNANZA-DATOS.md)).
+- Los dashboards leen una **mezcla** de tablas gobernadas (producidas por data-governance) y tablas legacy vivas (infra vieja). No rompas una tabla legacy sin confirmar quién la produce.
+- El catálogo de gobernanza (`data/governance-catalog.json`) lo genera `data-governance`; la UI `/governance` (solo superadmin) lo refleja junto con la frescura viva de BigQuery. No edites ese JSON a mano.
+- Escritura sí permitida a **Neon Postgres**: auth/permisos y datos operativos tipeados a mano (compras FFBB, proveedores, marcas). Ese es el rol de `db/` (Drizzle).
+
 ## Antes de editar
 
 - Trabaja siempre sobre este proyecto principal; no uses worktrees ni archivos fuera del repo.

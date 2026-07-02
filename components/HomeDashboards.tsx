@@ -16,6 +16,7 @@ import {
   X,
   BottleWine,
   Briefcase,
+  Calculator,
   CalendarRange,
   FileText,
   UtensilsCrossed,
@@ -23,6 +24,7 @@ import {
   Zap,
   Target,
   Truck,
+  Sandwich,
   Pencil,
   GripVertical,
   Check,
@@ -68,12 +70,14 @@ const ICON_MAP: Record<string, React.ElementType> = {
   BottleWine: BottleWine,
   "utensils-crossed": UtensilsCrossed,
   briefcase: Briefcase,
+  calculator: Calculator,
   wallet: Wallet,
   "calendar-range": CalendarRange,
   "file-text": FileText,
   zap: Zap,
   target: Target,
   truck: Truck,
+  sandwich: Sandwich,
 };
 
 const TITLE_MAX = 80;

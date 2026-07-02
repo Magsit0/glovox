@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-06-22T21:52:01.734444+00:00",
+  "generatedAt": "2026-07-02T15:33:20.331743+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -112,7 +112,7 @@
         "PUNTOTICKET_EVENT_IDS",
         "BEARER_TOKEN_INVITATIONS"
       ],
-      "notes": "El dataset se llama `puntoticket` pero la fuente es la API de Comunidad."
+      "notes": "Alimenta glovox.cortesias (tabla legacy adoptada, no un dataset 'puntoticket')."
     },
     {
       "id": "drip",
@@ -2501,7 +2501,7 @@
         "unabase.estadoNegocio"
       ],
       "consumers": [],
-      "notes": "Líneas del presupuesto/cotización por negocio (raw fiel). Jerarquía Categoría → Subcategoría → Ítem codificada en las llaves; se rearma en marts.finanzas_negocio_items_arbol. Reemplaza a la legacy unabase.negocioItem (la leen /cierre-negocio y /cierre-mensual).",
+      "notes": "Líneas del presupuesto/cotización por negocio (raw fiel). Jerarquía Categoría → Subcategoría → Ítem codificada en las llaves; se rearma en marts.finanzas_negocio_items_arbol. Reemplaza a la legacy unabase.negocioItem (la leen /cierre-negocio y /unabase/cierre-mensual).",
       "metrics": [],
       "endpointLabel": "https://api-v3-new.herokuapp.com/v1/negocios/items/{negocio_id}",
       "fields": [
@@ -2642,6 +2642,74 @@
           "type": "TIMESTAMP",
           "mode": "NULLABLE",
           "description": "Timestamp UTC de la carga del registro."
+        }
+      ]
+    },
+    {
+      "key": "finanzas.unabase_catalogo",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "CSV manual — data/finanzas/unabase_catalogo.csv",
+      "pipeline": "pipelines/finanzas/unabase/catalogo.py",
+      "schema": "finanzas_unabase_catalogo",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "truncate-load",
+      "frequency": "on-demand",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [],
+      "notes": "Catálogo contable de Unabase (Categoría → Sub-categoría → Ítem, con código y cuenta contable). No viene de la API: es un CSV maestro que se reemplaza a mano en data/finanzas/ y se recarga con `uv run python pipelines/finanzas/unabase/catalogo.py` (TRUNCATE+LOAD). El código no es único.",
+      "metrics": [],
+      "endpointLabel": "CSV manual — data/finanzas/unabase_catalogo.csv",
+      "fields": [
+        {
+          "name": "categoria",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Categoría del ítem, nivel 1 (ej. ADMINISTRACION)"
+        },
+        {
+          "name": "sub_categoria",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Sub-categoría del ítem, nivel 2 (ej. BENEFICIOS, CUENTAS)"
+        },
+        {
+          "name": "item",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Ítem del catálogo, nivel 3 (ej. SEGURO COMPLEMENTARIO)"
+        },
+        {
+          "name": "codigo",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Código jerárquico del ítem (ej. 01.01.001). No es único: hay ítems que comparten código."
+        },
+        {
+          "name": "cuenta_contable",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Cuenta contable asociada (ej. 2.01.03.008)"
+        },
+        {
+          "name": "nombre",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre descriptivo / cuenta (ej. SEGURO COMPLEMENTARIO ZURICH)"
+        },
+        {
+          "name": "comentarios",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Comentarios libres (opcional; mayormente vacío)"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga (frescura)"
         }
       ]
     },
@@ -2952,21 +3020,22 @@
       ]
     },
     {
-      "key": "puntoticket.cortesias",
+      "key": "glovox.cortesias",
       "area": "comunidad",
       "source": "puntoticket",
       "endpoint": "Comunidad Glovox API — cortesías por evento",
       "pipeline": "pipelines/tickets/puntoticket/cortesias.py",
-      "schema": "puntoticket_cortesias",
+      "schema": "glovox_cortesias",
       "assetType": "table",
-      "status": "governed_unconsumed",
+      "status": "governed",
       "loadPattern": "delete-then-append",
       "frequency": "daily",
       "owner": "@maximiliano",
-      "replaces": "glovox.cortesias",
       "upstream": [],
-      "consumers": [],
-      "notes": "Reemplazo construido; falta el switch en /frees.",
+      "consumers": [
+        "/frees"
+      ],
+      "notes": "Tabla legacy (creada a mano 20-may-2026) adoptada como destino directo del pipeline — no se construyó una tabla de reemplazo aparte. Tipos angostos (createdById/timestamps STRING, montos FLOAT64) fijados por la carga manual original; el pipeline los replica exacto (ver schemas/bigquery/glovox_cortesias.json).",
       "metrics": [
         "Cortesías entregadas por evento"
       ],
@@ -2975,13 +3044,13 @@
         {
           "name": "id",
           "type": "INT64",
-          "mode": "REQUIRED",
-          "description": "ID interno de la cortesía (PK natural en la fuente)"
+          "mode": "NULLABLE",
+          "description": "ID interno de la cortesía en Comunidad"
         },
         {
           "name": "externalId",
           "type": "STRING",
-          "mode": "REQUIRED",
+          "mode": "NULLABLE",
           "description": "Código del evento (ej: GLO195). Partition col del delete-then-append"
         },
         {
@@ -3028,9 +3097,9 @@
         },
         {
           "name": "createdById",
-          "type": "INT64",
+          "type": "STRING",
           "mode": "NULLABLE",
-          "description": "ID del usuario de Comunidad que creó la cortesía"
+          "description": "ID del usuario de Comunidad que creó la cortesía. STRING (no INT64): así está tipado en la tabla legacy real, cargada manualmente en mayo/2026 — no se puede angostar el tipo de una columna existente sin recrear la tabla."
         },
         {
           "name": "voluntaryPaid",
@@ -3040,9 +3109,9 @@
         },
         {
           "name": "voluntaryAmount",
-          "type": "INT64",
+          "type": "FLOAT64",
           "mode": "NULLABLE",
-          "description": "Monto del código voluntario (CLP)"
+          "description": "Monto del código voluntario (CLP). FLOAT64 (no INT64): tipo real de la tabla legacy."
         },
         {
           "name": "mandatoryPaid",
@@ -3052,15 +3121,15 @@
         },
         {
           "name": "mandatoryAmount",
-          "type": "INT64",
+          "type": "FLOAT64",
           "mode": "NULLABLE",
-          "description": "Monto del código mandatorio (CLP)"
+          "description": "Monto del código mandatorio (CLP). FLOAT64 (no INT64): tipo real de la tabla legacy."
         },
         {
           "name": "assignedAt",
-          "type": "TIMESTAMP",
+          "type": "STRING",
           "mode": "NULLABLE",
-          "description": "Timestamp de asignación al destinatario"
+          "description": "Timestamp ISO8601 de asignación al destinatario, crudo. STRING (no TIMESTAMP): tipo real de la tabla legacy — no se parsea para no romper el load contra la columna existente."
         },
         {
           "name": "sentMethod",
@@ -3076,27 +3145,27 @@
         },
         {
           "name": "sentAt",
-          "type": "TIMESTAMP",
+          "type": "STRING",
           "mode": "NULLABLE",
-          "description": "Timestamp de envío al destinatario"
+          "description": "Timestamp ISO8601 de envío al destinatario, crudo (STRING, ver assignedAt)"
         },
         {
           "name": "createdAt",
-          "type": "TIMESTAMP",
+          "type": "STRING",
           "mode": "NULLABLE",
-          "description": "Timestamp de creación de la cortesía"
+          "description": "Timestamp ISO8601 de creación de la cortesía, crudo (STRING, ver assignedAt)"
         },
         {
           "name": "updatedAt",
-          "type": "TIMESTAMP",
+          "type": "STRING",
           "mode": "NULLABLE",
-          "description": "Última modificación en Comunidad"
+          "description": "Timestamp ISO8601 de última modificación en Comunidad, crudo (STRING, ver assignedAt)"
         },
         {
           "name": "loaded_at",
           "type": "TIMESTAMP",
           "mode": "NULLABLE",
-          "description": "Timestamp UTC de la carga en BQ"
+          "description": "UTC de la carga por este pipeline. Columna nueva (additive); NULL en las filas cargadas manualmente antes de este pipeline (GLO194/195/198, mayo 2026)."
         }
       ]
     },
@@ -3543,10 +3612,10 @@
         "glovox.categoriaEvento"
       ],
       "consumers": [
-        "/cierre-mensual",
+        "/unabase/cierre-mensual",
         "/cierre-negocio"
       ],
-      "notes": "Tabla DERIVADA precomputada (NO raw): fusiona negocios + dimensión de evento (categoriaEvento) + métricas (ingreso/costo/difIngreso). La produce un scheduled query diario (CREATE OR REPLACE TABLE) — productor ANTES invisible, ahora versionado en schemas/bigquery/unabase_estadoNegocio.sql (19-jun). Migración 22-jun: cortadas las últimas deps legacy → principalClient lee finanzas.unabase_documentos_venta y el join de reconciliación lee marts.finanzas_registros_negocio (reemplazo gobernado de unabase.NregistrosBQ). Solo conserva la dimensión externa cross-project glovoxticketing.categoriaEvento. Sigue viviendo en el dataset legacy `unabase` porque la app la consume con ese path (/cierre-negocio, /cierre-mensual). unabase_ingesta ya NO la lee (repuntado a finanzas.unabase_negocios).",
+      "notes": "Tabla DERIVADA precomputada (NO raw): fusiona negocios + dimensión de evento (categoriaEvento) + métricas (ingreso/costo/difIngreso). La produce un scheduled query diario (CREATE OR REPLACE TABLE) — productor ANTES invisible, ahora versionado en schemas/bigquery/unabase_estadoNegocio.sql (19-jun). Migración 22-jun: cortadas las últimas deps legacy → principalClient lee finanzas.unabase_documentos_venta y el join de reconciliación lee marts.finanzas_registros_negocio (reemplazo gobernado de unabase.NregistrosBQ). Solo conserva la dimensión externa cross-project glovoxticketing.categoriaEvento. Sigue viviendo en el dataset legacy `unabase` porque la app la consume con ese path (/cierre-negocio, /unabase/cierre-mensual). unabase_ingesta ya NO la lee (repuntado a finanzas.unabase_negocios).",
       "metrics": [],
       "endpointLabel": null,
       "fields": []
@@ -3563,10 +3632,10 @@
       "owner": null,
       "upstream": [],
       "consumers": [
-        "/cierre-mensual",
+        "/unabase/cierre-mensual",
         "/cierre-negocio"
       ],
-      "notes": "Líneas del presupuesto por negocio (gemela legacy del endpoint /negocios/items/{id}). REEMPLAZADA por finanzas.unabase_negocio_items (gobernada). Al cortar: repuntar /cierre-negocio y /cierre-mensual a la nueva y deprecar esta.",
+      "notes": "Líneas del presupuesto por negocio (gemela legacy del endpoint /negocios/items/{id}). REEMPLAZADA por finanzas.unabase_negocio_items (gobernada). Al cortar: repuntar /cierre-negocio y /unabase/cierre-mensual a la nueva y deprecar esta.",
       "metrics": [],
       "endpointLabel": null,
       "fields": []
@@ -3583,7 +3652,7 @@
       "owner": null,
       "upstream": [],
       "consumers": [
-        "/cierre-mensual"
+        "/unabase/cierre-mensual"
       ],
       "metrics": [],
       "endpointLabel": null,
@@ -3689,27 +3758,6 @@
       "notes": "Ya tiene reemplazo gobernado: metricool.followers_daily.",
       "metrics": [
         "Seguidores por red (legacy)"
-      ],
-      "endpointLabel": null,
-      "fields": []
-    },
-    {
-      "key": "glovox.cortesias",
-      "area": "tickets",
-      "source": "legacy",
-      "endpoint": null,
-      "pipeline": null,
-      "schema": null,
-      "assetType": "table",
-      "status": "legacy_ungoverned",
-      "owner": null,
-      "upstream": [],
-      "consumers": [
-        "/frees"
-      ],
-      "notes": "Ya tiene reemplazo gobernado: puntoticket.cortesias.",
-      "metrics": [
-        "Cortesías entregadas (legacy)"
       ],
       "endpointLabel": null,
       "fields": []

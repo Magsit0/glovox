@@ -204,6 +204,32 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentClass: "bg-[#6D4C41]",
     accentText: "text-white",
   },
+  {
+    key: "presupuesto",
+    pathPrefix: "/presupuesto",
+    label: "Presupuesto",
+    appliesCountryScope: true,
+    sortOrder: 95,
+    title: "PRESUPUESTO",
+    description:
+      "Constructor de presupuesto de evento: proyección de ingresos por asistentes, techo por margen objetivo y cascada de costos por categoría.",
+    icon: "calculator",
+    accentClass: "bg-[#2FA37C]",
+    accentText: "text-white",
+  },
+  {
+    key: "fds",
+    pathPrefix: "/fds",
+    label: "Feria del Sanguche",
+    appliesCountryScope: false,
+    sortOrder: 75,
+    title: "FERIA DEL SANGUCHE",
+    description:
+      "Resumen integral por edición de FDS: tickets, alimentos y bebidas, finanzas y admin, con histórico entre ediciones. Todo conectado por EventoID.",
+    icon: "sandwich",
+    accentClass: "bg-[#C1440E]",
+    accentText: "text-white",
+  },
 ] as const;
 
 /**

@@ -344,6 +344,36 @@ export type TicketingPlan = typeof ticketingPlanes.$inferSelect;
 export type NewTicketingPlan = typeof ticketingPlanes.$inferInsert;
 export type TicketingSponsor = typeof ticketingSponsors.$inferSelect;
 export type NewTicketingSponsor = typeof ticketingSponsors.$inferInsert;
+
+// PRESUPUESTO — Constructor de presupuesto de evento (/presupuesto). Gemelo de
+// ticketingPlanes: modelo DOCUMENTO — el presupuesto completo (asistentes,
+// per-cápitas de ingreso, margen objetivo y la cascada de costos por categoría)
+// vive en el jsonb `doc` (shape PresupuestoDoc en lib/budget-forecast/config.ts).
+// Las fórmulas (ingreso proyectado, techo, cascada) se derivan en cliente y
+// servidor con lib/budget-forecast/formulas.ts, no se persisten. Las columnas de
+// cabecera son para listar/filtrar.
+export const presupuestosEvento = pgTable(
+  "presupuestos_evento",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    nombre: text("nombre").notNull(),
+    country: countryEnum("country").notNull(),
+    fechaEvento: date("fecha_evento"),
+    doc: jsonb("doc").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedBy: uuid("updated_by"),
+  },
+  (t) => [index("presupuestos_evento_country_idx").on(t.country)],
+);
+
+export type PresupuestoEvento = typeof presupuestosEvento.$inferSelect;
+export type NewPresupuestoEvento = typeof presupuestosEvento.$inferInsert;
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Country = (typeof countryEnum.enumValues)[number];
 export type PendingStatus = (typeof pendingStatusEnum.enumValues)[number];
