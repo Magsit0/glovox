@@ -8,8 +8,10 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { useSearchParams } from "next/navigation";
 import { useDashboardData } from "@/components/cierre-mensual/hooks/useDashboardData";
 import { useNegociosData } from "@/components/cierre-mensual/hooks/useNegociosData";
+import { montoModeFrom } from "@/components/montoMode";
 import type { BusinessRow, ExpenseRow, NegocioRow } from "@/lib/unabase/types";
 
 interface DataContextValue {
@@ -52,7 +54,9 @@ const ExpenseUIContext = createContext<ExpenseUIContextValue | null>(null);
 const DateFilterContext = createContext<DateFilterContextValue | null>(null);
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
-  const { businessRows, expenseRows, loading, error } = useDashboardData();
+  // Switch neto/bruto: se lee de la URL (?monto=bruto) y refetchea los datos.
+  const monto = montoModeFrom(useSearchParams().get("monto"));
+  const { businessRows, expenseRows, loading, error } = useDashboardData(monto);
   const {
     rows: negociosRows,
     loading: negociosLoading,

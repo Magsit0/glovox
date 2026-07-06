@@ -25,6 +25,8 @@ import VentasSection from "@/components/cierre-negocio/VentasSection";
 import DownloadPdfButton from "@/components/cierre-negocio/DownloadPdfButton";
 import CierreTable from "@/components/cierre-negocio/CierreTable";
 import GrupoNav from "@/components/cierre-negocio/GrupoNav";
+import MontoModeToggle from "@/components/MontoModeToggle";
+import { montoModeFrom } from "@/components/montoMode";
 
 export const dynamic = "force-dynamic";
 
@@ -159,6 +161,7 @@ interface PageProps {
     ejecutivo?: string;
     group?: string;
     categoria?: string;
+    monto?: string;
   }>;
 }
 
@@ -170,7 +173,9 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
     redirect("/?unauthorized=1");
   }
 
-  const { id, area, cliente, ejecutivo, group, categoria } = await searchParams;
+  const { id, area, cliente, ejecutivo, group, categoria, monto: montoParam } =
+    await searchParams;
+  const monto = montoModeFrom(montoParam);
 
   if (!id) {
     if (!isAreaKey(area)) {
@@ -298,7 +303,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
 
   let detail;
   try {
-    detail = await getNegocioDetail(id);
+    detail = await getNegocioDetail(id, monto);
   } catch (err) {
     return (
       <Shell>
@@ -362,13 +367,19 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
         <VentasSection agg={agg} ventas={detail.ventas} />
       </section>
       <section data-pdf-section data-pdf-break-before="true" className="flex flex-col gap-6">
-        <header className="flex flex-wrap items-baseline gap-3">
-          <h2 className="font-display text-xl font-bold tracking-tight text-[#333333]">
-            Gastos
-          </h2>
-          <span className="font-sans text-xs text-[#666666]">
-            Presupuesto vs gasto real, desglose por categoría y proveedores
-          </span>
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <div className="flex flex-wrap items-baseline gap-3">
+            <h2 className="font-display text-xl font-bold tracking-tight text-[#333333]">
+              Gastos
+            </h2>
+            <span className="font-sans text-xs text-[#666666]">
+              Presupuesto vs gasto real, desglose por categoría y proveedores
+              {monto === "bruto" ? " · gasto bruto (con IVA)" : ""}
+            </span>
+          </div>
+          {/* El switch aplica al GASTO documentado; las ventas ya muestran
+              neto, IVA y bruto a la vez y el presupuesto es neto por diseño. */}
+          <MontoModeToggle value={monto} />
         </header>
         <KpiRow agg={agg} />
         <CategoriaBreakdown

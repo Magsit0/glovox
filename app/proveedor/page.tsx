@@ -21,6 +21,7 @@ import {
   type ProveedorFilters,
 } from "@/lib/queries/proveedor";
 import ProveedorFilters_ from "@/components/proveedor/ProveedorFilters";
+import { montoModeFrom } from "@/components/montoMode";
 import KpiRow from "@/components/proveedor/KpiRow";
 import EvolucionChart from "@/components/proveedor/EvolucionChart";
 import PorNegocioChart from "@/components/proveedor/PorNegocioChart";
@@ -36,7 +37,12 @@ import { dateLabel } from "@/components/proveedor/format";
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ proveedor?: string; from?: string; to?: string }>;
+  searchParams: Promise<{
+    proveedor?: string;
+    from?: string;
+    to?: string;
+    monto?: string;
+  }>;
 }
 
 export default async function ProveedorPage({ searchParams }: PageProps) {
@@ -51,7 +57,9 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
   const proveedor = params.proveedor?.trim() || undefined;
   const from = params.from || undefined;
   const to = params.to || undefined;
-  const filters: ProveedorFilters = { proveedor, from, to };
+  const monto = montoModeFrom(params.monto);
+  const filters: ProveedorFilters = { proveedor, from, to, monto };
+  const montoLabel = monto === "bruto" ? " · montos brutos (con IVA)" : "";
 
   let options;
   let dateRange;
@@ -69,7 +77,11 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
     );
   }
 
-  const baseQuery: Record<string, string | undefined> = { from, to };
+  const baseQuery: Record<string, string | undefined> = {
+    from,
+    to,
+    monto: monto === "bruto" ? "bruto" : undefined,
+  };
 
   // ---- Vista sin proveedor: resumen + ranking ----
   if (!proveedor) {
@@ -97,7 +109,7 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
       return (
         <Shell>
           <Heading dateRange={dateRange} />
-          <ProveedorFilters_ options={options} proveedor="" from={from ?? ""} to={to ?? ""} />
+          <ProveedorFilters_ options={options} proveedor="" from={from ?? ""} to={to ?? ""} monto={monto} />
           <ErrorView message={errorMessage(err)} />
         </Shell>
       );
@@ -134,8 +146,8 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
     return (
       <Shell>
         <Heading dateRange={dateRange} />
-        <ProveedorFilters_ options={options} proveedor="" from={from ?? ""} to={to ?? ""} />
-        <KpiRow kpis={kpis} scopeLabel="Gasto total · todos los proveedores" />
+        <ProveedorFilters_ options={options} proveedor="" from={from ?? ""} to={to ?? ""} monto={monto} />
+        <KpiRow kpis={kpis} scopeLabel={`Gasto total · todos los proveedores${montoLabel}`} />
         <EvolucionChart rows={mensual} />
         <MatrizProveedorAnio
           years={matriz.years}
@@ -208,7 +220,7 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
     return (
       <Shell>
         <Heading dateRange={dateRange} />
-        <ProveedorFilters_ options={options} proveedor={proveedor} from={from ?? ""} to={to ?? ""} />
+        <ProveedorFilters_ options={options} proveedor={proveedor} from={from ?? ""} to={to ?? ""} monto={monto} />
         <ErrorView message={errorMessage(err)} />
       </Shell>
     );
@@ -241,7 +253,7 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
   return (
     <Shell>
       <Heading dateRange={dateRange} />
-      <ProveedorFilters_ options={options} proveedor={proveedor} from={from ?? ""} to={to ?? ""} />
+      <ProveedorFilters_ options={options} proveedor={proveedor} from={from ?? ""} to={to ?? ""} monto={monto} />
 
       <section className="flex flex-wrap items-center gap-3">
         <span className="inline-flex items-center gap-2 rounded-full border border-[#E5E5E5] bg-white px-3 py-1.5 font-sans text-sm font-medium text-[#333333]">
@@ -253,7 +265,7 @@ export default async function ProveedorPage({ searchParams }: PageProps) {
         )}
       </section>
 
-      <KpiRow kpis={kpis} scopeLabel={`Gasto total · ${proveedor}`} />
+      <KpiRow kpis={kpis} scopeLabel={`Gasto total · ${proveedor}${montoLabel}`} />
       <EvolucionChart rows={mensual} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">

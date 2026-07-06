@@ -3,38 +3,27 @@ import type { NegocioRow, RawRow } from "@/lib/unabase/types";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 
-const NEGOCIO_ITEM = `\`${P}.finanzas.unabase_negocio_items\``;
-const NEGOCIOS = `\`${P}.finanzas.unabase_negocios\``;
+// Migrado 3-jul-2026 a las vistas curadas marts.finanzas_* (antes: tablas raw
+// finanzas.unabase_*). Las columnas se alias-an a los nombres antiguos que
+// consume lib/unabase/normalization.ts.
+const PRESUPUESTO_ITEMS = `\`${P}.marts.finanzas_presupuesto_items\``;
+const NEGOCIOS = `\`${P}.marts.finanzas_negocios\``;
 const CATEGORIA_EVENTO = `\`${P}.glovox.categoriaEvento\``;
 const CIERRE_EVENTOS = `\`${P}.ticketsAndAABB.cierreEventos\``;
 
-// Migrado de unabase.* a finanzas.unabase_*. La antigua tabla estadoNegocio
-// (negocio + metadata de evento + ingresos) se reemplaza por:
-//   - finanzas.unabase_negocios: negocio + financieros (id, estado, área, fechas, totales)
-//   - glovox.categoriaEvento: metadata del evento (EventoID = primeros 6 chars de
-//     referencia, en mayúscula; CategoriaEvento/2, NombreGlovox)
-//   - ticketsAndAABB.cierreEventos: NombreID + totalAsistentes
-// negocioItem nuevo es jerárquico: se toman solo ítems hoja y se reconstruye la
-// subcategoría vía llaveSubCat. Las columnas se alias-an a los nombres antiguos
-// que consume lib/unabase/normalization.ts.
-export const CIERRE_MENSUAL_SQL = `
-  WITH items AS (
-    SELECT
-      CAST(i.negocio AS STRING) AS external_id,
-      CAST(i.categoria AS STRING) AS categoria,
-      IFNULL(CAST(sub.nombre AS STRING), '') AS subcategoria,
-      CAST(i.nombre AS STRING) AS item,
-      CAST(i.descripcion AS STRING) AS descripcion,
-      i.sub_gasto_pre AS subtotal_gasto_pre,
-      i.total_gasto_real AS gasto_real
-    FROM ${NEGOCIO_ITEM} i
-    LEFT JOIN ${NEGOCIO_ITEM} sub
-      ON sub.negocio = i.negocio
-      AND sub.llave_item = i.llaveSubCat
-      AND sub.isSubCat = TRUE
-    WHERE i.tipo_item = 'ITEM' AND i.isSubCat = FALSE
-  ),
-  cat AS (
+export type MontoMode = "neto" | "bruto";
+
+/** Columna de ingreso neto/bruto (switch de montos). Mapa fijo: NUNCA interpolar
+ *  input del usuario. Solo afecta ingreso_total_neto: `ingreso` (facturado) es
+ *  una etapa del ciclo sin par bruto en el maestro, y el gasto del presupuesto
+ *  es neto por diseño. */
+const INGRESO_COL: Record<MontoMode, string> = {
+  neto: "venta_neta",
+  bruto: "venta_bruta",
+};
+
+export const cierreMensualSql = (monto: MontoMode) => `
+  WITH cat AS (
     SELECT
       EventoID,
       ANY_VALUE(CategoriaEvento) AS CategoriaEvento,
@@ -52,21 +41,21 @@ export const CIERRE_MENSUAL_SQL = `
     GROUP BY EventoID
   )
   SELECT
-    items.external_id,
-    items.categoria,
-    items.subcategoria,
-    items.item,
-    items.descripcion,
-    items.subtotal_gasto_pre,
-    items.gasto_real,
-    CAST(n.referencia AS STRING) AS nombre_negocio,
-    CAST(n.area_negocio AS STRING) AS area_negocio,
-    CAST(n.estado AS STRING) AS estado,
-    CAST(n.estadonv AS STRING) AS estadonv,
-    CAST(n.razon_cliente AS STRING) AS clientePrincipal,
-    n.total_neto AS ingreso_total_neto,
-    n.total_facturado AS ingreso,
-    n.total_facturado AS ingresoAPI,
+    CAST(i.negocio_id AS STRING) AS external_id,
+    i.categoria,
+    IFNULL(i.subcategoria, '') AS subcategoria,
+    i.item,
+    i.descripcion,
+    i.gasto_presupuestado AS subtotal_gasto_pre,
+    i.gasto_real_item AS gasto_real,
+    n.referencia AS nombre_negocio,
+    n.area_negocio,
+    n.estado,
+    n.estadonv,
+    n.cliente AS clientePrincipal,
+    n.${INGRESO_COL[monto]} AS ingreso_total_neto,
+    n.venta_facturada AS ingreso,
+    n.venta_facturada AS ingresoAPI,
     n.fecha_realizacion AS fechaNegocio,
     n.fecha_asignacion AS fechaAsignacion,
     cat.EventoID AS EventoID,
@@ -75,19 +64,19 @@ export const CIERRE_MENSUAL_SQL = `
     cat.NombreGlovox AS NombreGlovox,
     ev.NombreID AS NombreID,
     ev.totalAsistentes AS totalAsistentes
-  FROM items
+  FROM ${PRESUPUESTO_ITEMS} i
   JOIN ${NEGOCIOS} n
-    ON items.external_id = CAST(n.id AS STRING)
+    ON i.negocio_id = n.negocio_id
   LEFT JOIN cat
-    ON cat.EventoID = UPPER(SUBSTR(CAST(n.referencia AS STRING), 1, 6))
+    ON cat.EventoID = n.evento_id
   LEFT JOIN ev
-    ON ev.EventoID = UPPER(SUBSTR(CAST(n.referencia AS STRING), 1, 6))
-  WHERE LOWER(CAST(n.estadonv AS STRING)) <> 'nulo'
-    AND LOWER(CAST(n.estado AS STRING)) <> 'cotizacion'
+    ON ev.EventoID = n.evento_id
+  WHERE LOWER(n.estadonv) <> 'nulo'
+    AND LOWER(n.estado) <> 'cotizacion'
 `;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-let cache: { data: RawRow[]; timestamp: number } | null = null;
+const cache = new Map<MontoMode, { data: RawRow[]; timestamp: number }>();
 
 function serializeRow(row: Record<string, unknown>): RawRow {
   const obj: RawRow = {};
@@ -117,18 +106,19 @@ export interface CierreMensualResult {
 }
 
 export async function getCierreMensualRows(
-  { timeoutMs = 22_000 }: { timeoutMs?: number } = {},
+  { timeoutMs = 22_000, monto = "neto" }: { timeoutMs?: number; monto?: MontoMode } = {},
 ): Promise<CierreMensualResult> {
   const now = Date.now();
-  if (cache && now - cache.timestamp < CACHE_TTL_MS) {
+  const cached = cache.get(monto);
+  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
     return {
-      rows: cache.data,
+      rows: cached.data,
       cached: true,
-      cacheAgeSeconds: Math.floor((now - cache.timestamp) / 1000),
+      cacheAgeSeconds: Math.floor((now - cached.timestamp) / 1000),
     };
   }
 
-  const queryPromise = query<Record<string, unknown>>(CIERRE_MENSUAL_SQL);
+  const queryPromise = query<Record<string, unknown>>(cierreMensualSql(monto));
   const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(
       () => reject(new Error(`BigQuery tardó demasiado (>${Math.floor(timeoutMs / 1000)}s). Intentá de nuevo.`)),
@@ -139,21 +129,53 @@ export async function getCierreMensualRows(
   const rawRows = await Promise.race([queryPromise, timeoutPromise]);
   const clean = rawRows.map(serializeRow);
 
-  cache = { data: clean, timestamp: Date.now() };
+  cache.set(monto, { data: clean, timestamp: Date.now() });
   return { rows: clean, cached: false, cacheAgeSeconds: 0 };
 }
 
 export function invalidateCierreMensualCache(): void {
-  cache = null;
+  cache.clear();
 }
 
-// estadocierre se deriva de closed_compras (la tabla nueva no lo trae).
+// Columnas de la vista alias-adas al shape legacy NegocioRow (nombres del
+// maestro crudo). estadocierre se deriva de compras_cerradas.
+const NEGOCIOS_SELECT = `
+  SELECT
+    CAST(negocio_id AS STRING) AS id,
+    folio,
+    referencia,
+    area_negocio,
+    ejecutivo,
+    user_name,
+    estado,
+    estadonv,
+    LOWER(compras_cerradas) AS estadocierre,
+    cliente AS razon_cliente,
+    cliente_rut AS rut_cliente,
+    nro_oc_cliente,
+    total_oc_cliente,
+    CAST(fecha_emision_oc_cliente AS STRING) AS fecha_emision_oc_cliente,
+    CAST(fecha_asignacion AS STRING) AS fecha_asignacion,
+    CAST(fecha_realizacion AS STRING) AS fecha_realizacion,
+    CAST(fecha_cierre_negocio AS STRING) AS fecha_cierre_negocio,
+    CAST(updated_at AS STRING) AS updated_at,
+    venta_contratada AS total_venta,
+    venta_neta AS total_neto,
+    venta_bruta AS total_nv,
+    venta_facturada AS total_facturado,
+    venta_por_facturar AS total_por_facturar,
+    venta_cobrada AS total_cobrado,
+    venta_por_cobrar AS total_por_cobrar,
+    gasto_presupuestado AS costo_presupuestado,
+    gasto_real AS costo_real,
+    gasto_justificado AS costo_total_justificado
+  FROM ${NEGOCIOS}`;
+
 export const NEGOCIOS_SQL = `
-  SELECT *, LOWER(CAST(closed_compras AS STRING)) AS estadocierre
-  FROM ${NEGOCIOS}
-  WHERE LOWER(CAST(estado AS STRING)) <> 'cotizacion'
-    AND LOWER(CAST(estadonv AS STRING)) <> 'nulo'
-    AND LOWER(CAST(area_negocio AS STRING)) <> 'glovox'
+  ${NEGOCIOS_SELECT}
+  WHERE LOWER(estado) <> 'cotizacion'
+    AND LOWER(estadonv) <> 'nulo'
+    AND LOWER(area_negocio) <> 'glovox'
 `;
 
 const NEGOCIOS_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -195,9 +217,7 @@ export async function getNegociosRows(
 export async function getAllNegociosAdmin(
   { timeoutMs = 30_000 }: { timeoutMs?: number } = {},
 ): Promise<NegocioRow[]> {
-  // estadocierre ya no existe en la tabla nueva: se deriva de closed_compras
-  // (normalizado a 'true'/'false') para que el listado/filtros sigan funcionando.
-  const sql = `SELECT *, LOWER(CAST(closed_compras AS STRING)) AS estadocierre FROM \`${P}.finanzas.unabase_negocios\` ORDER BY CAST(id AS INT64) DESC`;
+  const sql = `${NEGOCIOS_SELECT} ORDER BY negocio_id DESC`;
   const queryPromise = query<Record<string, unknown>>(sql);
   const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(

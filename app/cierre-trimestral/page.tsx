@@ -17,6 +17,7 @@ import {
 } from "@/lib/queries/cierreTrimestral";
 import { aggregateTrimestre, aggregateVentas } from "@/lib/unabase/cierreTrimestral";
 import TrimestreSelector from "@/components/cierre-trimestral/TrimestreSelector";
+import { montoModeFrom } from "@/components/montoMode";
 import KpiRow from "@/components/cierre-trimestral/KpiRow";
 import CategoriaBreakdown from "@/components/cierre-trimestral/CategoriaBreakdown";
 import EventosTable from "@/components/cierre-trimestral/EventosTable";
@@ -26,7 +27,7 @@ import RrssSection from "@/components/cierre-trimestral/RrssSection";
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ trimestre?: string; network?: string }>;
+  searchParams: Promise<{ trimestre?: string; network?: string; monto?: string }>;
 }
 
 const DEFAULT_NETWORK = "instagram";
@@ -39,7 +40,8 @@ export default async function CierreTrimestralPage({ searchParams }: PageProps) 
     redirect("/?unauthorized=1");
   }
 
-  const { trimestre, network } = await searchParams;
+  const { trimestre, network, monto: montoParam } = await searchParams;
+  const monto = montoModeFrom(montoParam);
 
   let rows;
   let negociosRows;
@@ -47,7 +49,7 @@ export default async function CierreTrimestralPage({ searchParams }: PageProps) 
   try {
     [rows, negociosRows, rrssRows] = await Promise.all([
       getCierreTrimestralRows(),
-      getNegociosVentas(),
+      getNegociosVentas(monto),
       getRrssFollowers(),
     ]);
   } catch (err) {
@@ -118,7 +120,7 @@ export default async function CierreTrimestralPage({ searchParams }: PageProps) 
         </h2>
       </section>
       <KpiRow agg={agg} />
-      <VentasPorArea agg={ventasAgg} />
+      <VentasPorArea agg={ventasAgg} monto={monto} />
       <CategoriaBreakdown rows={agg.porCategoria} />
       <EventosTable rows={agg.eventos} />
       <RrssSection

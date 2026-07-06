@@ -4,12 +4,15 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { X } from "lucide-react";
 import type { ProveedorOption } from "@/lib/queries/proveedor";
 import ProveedorCombobox from "@/components/proveedor/ProveedorCombobox";
+import MontoModeToggle from "@/components/MontoModeToggle";
+import type { MontoMode } from "@/components/montoMode";
 
 interface Props {
   options: ProveedorOption[];
   proveedor: string;
   from: string;
   to: string;
+  monto: MontoMode;
 }
 
 const INPUT_CLS =
@@ -20,6 +23,7 @@ export default function ProveedorFilters({
   proveedor,
   from,
   to,
+  monto,
 }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -75,10 +79,15 @@ export default function ProveedorFilters({
         />
       </label>
 
+      {/* Switch neto/bruto: modo de visualización, no filtro (Limpiar lo preserva) */}
+      <MontoModeToggle value={monto} />
+
       {hasActiveFilters && (
         <button
           type="button"
-          onClick={() => router.push("/proveedor")}
+          onClick={() =>
+            router.push(`/proveedor${monto === "bruto" ? "?monto=bruto" : ""}`)
+          }
           className="flex items-center gap-1 px-2 py-2 font-sans text-sm text-[#666666] transition-colors hover:text-[#333333]"
         >
           <X className="h-4 w-4" />

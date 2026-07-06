@@ -4,7 +4,10 @@ const P = process.env.BIGQUERY_PROJECT_ID;
 
 const CIERRE = `\`${P}.ticketsAndAABB.cierreEventos\``;
 const TICKETS = `\`${P}.glovox.tickets\``;
-const NEGOCIOS = `\`${P}.unabase.negocios\``;
+// Migrado 3-jul-2026: antes leía la tabla LEGACY `unabase.negocios` (sin
+// pipeline, desactualizada desde el 12-jun). La vista curada expone las etapas
+// del ciclo con nombres claros (venta_neta / venta_bruta).
+const NEGOCIOS = `\`${P}.marts.finanzas_negocios\``;
 const RRSS = `\`${P}.marketing.rrss_fllws\``;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -186,34 +189,51 @@ export function getTrimestresDisponibles(
 export interface NegocioVentaRow {
   id: string | null;
   areaNegocio: string | null;
-  fechaAsignacion: string | null; // DD-MM-YYYY tal como viene
+  fechaAsignacion: string | null; // DD-MM-YYYY (formateada desde la DATE de la vista)
   totalNeto: number;
 }
 
-const NEGOCIOS_SQL = `
+export type MontoMode = "neto" | "bruto";
+
+/** Columna de venta por modo. Mapa fijo: NUNCA interpolar input del usuario. */
+const VENTA_COL: Record<MontoMode, string> = {
+  neto: "venta_neta",
+  bruto: "venta_bruta",
+};
+
+// `fecha_asignacion` se re-formatea a DD-MM-YYYY para conservar el shape que
+// parsea quarterFromDmy (la legacy la traía como string en ese formato; los
+// sentinels '00-00-00' de la legacy hoy son NULL → quedan fuera igual).
+const negociosSql = (monto: MontoMode) => `
   SELECT
-    CAST(id AS STRING)              AS id,
-    CAST(area_negocio AS STRING)    AS area_negocio,
-    CAST(fecha_asignacion AS STRING) AS fecha_asignacion,
-    SAFE_CAST(total_neto AS FLOAT64) AS total_neto
+    CAST(negocio_id AS STRING)                    AS id,
+    area_negocio,
+    FORMAT_DATE('%d-%m-%Y', fecha_asignacion)     AS fecha_asignacion,
+    SAFE_CAST(${VENTA_COL[monto]} AS FLOAT64)     AS total_neto
   FROM ${NEGOCIOS}
 `;
 
-let negociosCache: { data: NegocioVentaRow[]; timestamp: number } | null = null;
+const negociosCache = new Map<
+  MontoMode,
+  { data: NegocioVentaRow[]; timestamp: number }
+>();
 
-export async function getNegociosVentas(): Promise<NegocioVentaRow[]> {
+export async function getNegociosVentas(
+  monto: MontoMode = "neto",
+): Promise<NegocioVentaRow[]> {
   const now = Date.now();
-  if (negociosCache && now - negociosCache.timestamp < CACHE_TTL_MS) {
-    return negociosCache.data;
+  const cached = negociosCache.get(monto);
+  if (cached && now - cached.timestamp < CACHE_TTL_MS) {
+    return cached.data;
   }
-  const rows = await withTimeout(query<Record<string, unknown>>(NEGOCIOS_SQL));
+  const rows = await withTimeout(query<Record<string, unknown>>(negociosSql(monto)));
   const data: NegocioVentaRow[] = rows.map((r) => ({
     id: s(r.id),
     areaNegocio: s(r.area_negocio),
     fechaAsignacion: s(r.fecha_asignacion),
     totalNeto: n(r.total_neto) ?? 0,
   }));
-  negociosCache = { data, timestamp: now };
+  negociosCache.set(monto, { data, timestamp: now });
   return data;
 }
 

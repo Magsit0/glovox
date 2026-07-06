@@ -14,8 +14,9 @@ interface DashboardDataResult {
   error: string | null;
 }
 
-async function fetchRaw(): Promise<RawRow[]> {
-  const res = await fetch("/api/cierre-mensual/data", { cache: "no-store" });
+async function fetchRaw(monto: "neto" | "bruto"): Promise<RawRow[]> {
+  const qs = monto === "bruto" ? "?monto=bruto" : "";
+  const res = await fetch(`/api/cierre-mensual/data${qs}`, { cache: "no-store" });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
     throw new Error(body.error || `Request failed with ${res.status}`);
@@ -23,7 +24,9 @@ async function fetchRaw(): Promise<RawRow[]> {
   return (await res.json()) as RawRow[];
 }
 
-export function useDashboardData(): DashboardDataResult {
+export function useDashboardData(
+  monto: "neto" | "bruto" = "neto",
+): DashboardDataResult {
   const [businessRows, setBusinessRows] = useState<BusinessRow[]>([]);
   const [expenseRows, setExpenseRows] = useState<ExpenseRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -36,7 +39,7 @@ export function useDashboardData(): DashboardDataResult {
       try {
         setLoading(true);
         setError(null);
-        const raw = await fetchRaw();
+        const raw = await fetchRaw(monto);
         if (cancelled) return;
         setBusinessRows(aggregateBusinesses(raw));
         setExpenseRows(normalizeExpenseRows(raw));
@@ -52,7 +55,7 @@ export function useDashboardData(): DashboardDataResult {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [monto]);
 
   return { businessRows, expenseRows, loading, error };
 }

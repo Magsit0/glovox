@@ -1,8 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Calendar, X } from "lucide-react";
 import MultiSelectFilter from "@/components/cierre-mensual/filters/MultiSelectFilter";
+import MontoModeToggle from "@/components/MontoModeToggle";
+import { montoModeFrom } from "@/components/montoMode";
 import { FILTER_DEFINITIONS } from "@/lib/unabase/constants";
 import { safeText } from "@/lib/unabase/formatting";
 import { parseDateFlexible } from "@/lib/unabase/dates";
@@ -91,6 +94,7 @@ function buildInitialSelections(
 }
 
 export default function FilterBar({ rows, onFilter }: Props) {
+  const searchParams = useSearchParams();
   const baseOptions = useMemo(() => buildBaseOptions(rows), [rows]);
   const [selections, setSelections] = useState<Record<string, Set<string>>>(() =>
     buildInitialSelections(rows, baseOptions),
@@ -254,6 +258,7 @@ export default function FilterBar({ rows, onFilter }: Props) {
   if (!rows.length) return null;
 
   const hasDateFilter = Boolean(dateStart || dateEnd);
+  const montoMode = montoModeFrom(searchParams.get("monto"));
 
   return (
     <div className="flex flex-wrap items-end gap-3">
@@ -328,6 +333,10 @@ export default function FilterBar({ rows, onFilter }: Props) {
           </div>
         </div>
       )}
+
+      {/* Switch neto/bruto: afecta el ingreso (venta_neta / venta_bruta de la
+          vista); el gasto del presupuesto es neto por diseño. */}
+      <MontoModeToggle value={montoMode} />
 
       <button
         type="button"

@@ -60,50 +60,12 @@ export function labelForCategoria(key: string): string {
 }
 
 /**
- * Clasificación FIJA en código (decisión v1) de la `item_categoria` cruda de
- * Unabase → bucket. Las categorías reales son ~40, con muchas variantes de
- * ortografía y acento (PRODUCCIÓN SITE / PROD SITE / PRODUCCION SITE, OPERACIONES,
- * LINE UP & ARTISTS…), así que se clasifica por PATRÓN sobre el texto normalizado
- * (sin acentos, mayúsculas). La primera regla que matchea gana. Lo que no matchea
- * cae en "otras" y se reporta como "sin mapear" (ver lib/queries/presupuesto.ts)
- * para revisarlo. Derivado de la query diagnóstica de item_categoria.
+ * La clasificación item_categoria → bucket ya NO vive acá: desde el 3-jul-2026
+ * la resuelve el lake en `marts.finanzas_gastos.bucket_presupuesto`, alimentada
+ * por el seed editable `finanzas.unabase_categoria_map` (data-governance;
+ * corregir un mapeo = editar el CSV y recargarlo, sin deploy de la app). Las
+ * regex CATEGORIA_RULES que vivían acá fueron materializadas en ese seed.
  */
-function normalizeCat(v: string | null | undefined): string {
-  return (v ?? "")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toUpperCase()
-    .trim()
-    .replace(/\s+/g, " ");
-}
-
-// Orden importante: ARTIST antes que SITE/TECNIC para que "PRODUCCIÓN ARTISTICA"
-// caiga en line up y "PRODUCCIÓN SITE/TÉCNICA" en producción.
-const CATEGORIA_RULES: { re: RegExp; bucket: CategoriaKey }[] = [
-  { re: /VENUE/, bucket: "venue" },
-  { re: /MARKETING|DIFUSION|PAPELERIA|PRENSA|PUBLICIDAD/, bucket: "marketing" },
-  { re: /SUELDO|RRHH|RECURSOS HUMANOS|HONORARIO|PLANILLA|REMUNERAC/, bucket: "sueldos" },
-  { re: /ARTIST|LINE ?UP|CONTENIDO ARTISTIC/, bucket: "lineup" },
-  { re: /SITE|TECNIC|FICHA|RENTAL|IMPLEMENTAC/, bucket: "produccion" },
-  { re: /OPERACION|SEGURIDAD|LOGISTICA|\bOPS\b/, bucket: "ops" },
-];
-
-/** Clasifica una categoría cruda de Unabase. `matched=false` ⇒ cayó en "otras". */
-export function classifyCategoria(itemCategoria: string | null | undefined): {
-  bucket: CategoriaKey;
-  matched: boolean;
-} {
-  const c = normalizeCat(itemCategoria);
-  for (const r of CATEGORIA_RULES) {
-    if (r.re.test(c)) return { bucket: r.bucket, matched: true };
-  }
-  return { bucket: "otras", matched: false };
-}
-
-/** Bucket de una categoría cruda de Unabase; "otras" si no matchea ninguna regla. */
-export function bucketForCategoria(itemCategoria: string | null | undefined): CategoriaKey {
-  return classifyCategoria(itemCategoria).bucket;
-}
 
 /** Una categoría del presupuesto con su asignación del techo. */
 export type CategoriaPresupuesto = {

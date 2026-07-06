@@ -225,7 +225,7 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     sortOrder: 75,
     title: "FERIA DEL SANGUCHE",
     description:
-      "Resumen integral por edición de FDS: tickets, alimentos y bebidas, finanzas y admin, con histórico entre ediciones. Todo conectado por EventoID.",
+      "Comparación histórica entre ediciones de FDS: ingresos, asistentes y gasto real por categoría del catálogo oficial. Baseline para presupuestar la próxima edición.",
     icon: "sandwich",
     accentClass: "bg-[#C1440E]",
     accentText: "text-white",

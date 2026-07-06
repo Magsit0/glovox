@@ -241,7 +241,7 @@ export default function FdsGastosCategoria({ data }: Props) {
         <ul className="flex flex-col gap-1 font-sans text-xs text-[#666666]">
           <li>
             Categorías = estructura oficial de <span className="text-[#333333]">finanzas.unabase_catalogo</span>.
-            Promedio equiponderado por edición sobre montos de gasto real (item_costo_real, sin excluidos).
+            Promedio equiponderado por edición sobre el gasto real (item_costo_empresa, sin excluidos).
           </li>
           <li>
             El promedio es <span className="text-[#333333]">present-only</span>: una categoría promedia solo

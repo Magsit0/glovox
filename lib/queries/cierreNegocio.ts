@@ -11,26 +11,32 @@ import type {
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 
-const NEGOCIOS = `\`${P}.finanzas.unabase_negocios\``;
-const NEGOCIO_ITEM = `\`${P}.finanzas.unabase_negocio_items\``;
-const DETALLE_GASTO = `\`${P}.finanzas.unabase_detalle_gasto\``;
-const VENTAS_NEGOCIO = `\`${P}.finanzas.unabase_ventas_por_negocio\``;
+// Migrado 3-jul-2026 a las vistas curadas marts.finanzas_* (antes leía las
+// tablas raw finanzas.unabase_*). Las columnas se alias-an al shape antiguo
+// (NegocioItemRow / DetalleGastoRow / VentaNegocioRow) para no tocar la UI.
+const NEGOCIOS = `\`${P}.marts.finanzas_negocios\``;
+const PRESUPUESTO_ITEMS = `\`${P}.marts.finanzas_presupuesto_items\``;
+const GASTOS = `\`${P}.marts.finanzas_gastos\``;
+const VENTAS = `\`${P}.marts.finanzas_ventas\``;
 const CIERRE_EVENTOS = `\`${P}.ticketsAndAABB.cierreEventos\``;
 const CATEGORIA_EVENTO = `\`${P}.glovox.categoriaEvento\``;
 
-// Filtro común de ventas: documentos vivos del negocio, excluyendo anulados y
-// (por ahora) notas de crédito/débito. tipo_documento es texto descriptivo
-// ("FACTURA ELECTRONICA", "NOTA DE CREDITO ELECTRONICA"), así que filtramos por
-// substring cubriendo variantes con y sin acento.
+export type MontoMode = "neto" | "bruto";
+
+/** Columna de gasto por modo (switch neto/bruto). Mapa fijo: NUNCA interpolar
+ *  input del usuario. Las ventas no necesitan modo: la UI ya muestra neto, IVA
+ *  y bruto a la vez (ventaBrutaNeta / ivaTotal / ventaBrutaTotal). */
+const GASTO_COL: Record<MontoMode, string> = {
+  neto: "IFNULL(gasto_neto, 0)",
+  bruto: "gasto_bruto",
+};
+
+// Filtro común de ventas: documentos vivos del negocio. `incluir_en_venta`
+// (= NOT anulado AND NOT nota de crédito/débito) es el mismo predicado que
+// antes se replicaba acá con LIKEs sobre tipo_documento.
 const VENTAS_WHERE = `
-  WHERE CAST(id_negocio AS STRING) = @id
-    AND LOWER(IFNULL(CAST(estado AS STRING), '')) NOT IN ('anulado', 'anulada')
-    AND NOT (
-      LOWER(IFNULL(CAST(tipo_documento AS STRING), '')) LIKE '%credito%'
-      OR LOWER(IFNULL(CAST(tipo_documento AS STRING), '')) LIKE '%crédito%'
-      OR LOWER(IFNULL(CAST(tipo_documento AS STRING), '')) LIKE '%debito%'
-      OR LOWER(IFNULL(CAST(tipo_documento AS STRING), '')) LIKE '%débito%'
-    )
+  WHERE CAST(negocio_id AS STRING) = @id
+    AND incluir_en_venta
 `;
 
 const AREA_PRODUCCION = "produccion de eventos propios";
@@ -73,20 +79,20 @@ function withTimeout<T>(p: Promise<T>, ms = QUERY_TIMEOUT_MS): Promise<T> {
 
 // --- Selector options (lista global de negocios) ---
 
-// estadocierre ya no existe en la tabla nueva: se deriva de closed_compras
-// (cierre de compras), normalizado a 'true'/'false' para conservar la semántica.
+// estadocierre se deriva de compras_cerradas (cierre de compras), normalizado
+// a 'true'/'false' para conservar la semántica histórica.
 const NEGOCIO_OPTIONS_SQL = `
   SELECT
-    CAST(id AS STRING) AS external_id,
-    CAST(referencia AS STRING) AS referencia,
-    CAST(area_negocio AS STRING) AS area_negocio,
-    CAST(estado AS STRING) AS estado,
-    LOWER(CAST(closed_compras AS STRING)) AS estadocierre
+    CAST(negocio_id AS STRING) AS external_id,
+    referencia,
+    area_negocio,
+    estado,
+    LOWER(compras_cerradas) AS estadocierre
   FROM ${NEGOCIOS}
-  WHERE LOWER(CAST(estado AS STRING)) <> 'cotizacion'
-    AND LOWER(CAST(estadonv AS STRING)) <> 'nulo'
-    AND LOWER(CAST(area_negocio AS STRING)) <> 'glovox'
-  ORDER BY SAFE_CAST(id AS INT64) DESC
+  WHERE LOWER(estado) <> 'cotizacion'
+    AND LOWER(estadonv) <> 'nulo'
+    AND LOWER(area_negocio) <> 'glovox'
+  ORDER BY negocio_id DESC
 `;
 
 let optionsCache: { data: NegocioOption[]; timestamp: number } | null = null;
@@ -146,96 +152,117 @@ const EMPTY_VENTAS_AGGREGATE: VentasAggregateRaw = {
 
 const detailCache = new Map<string, { data: NegocioDetail; timestamp: number }>();
 
-// La tabla nueva es jerárquica (filas TITULO + subcategorías isSubCat + ítems hoja).
-// Tomamos solo los ítems hoja (tipo_item='ITEM' AND isSubCat=FALSE) — eso reproduce
-// exactamente el set plano de la tabla vieja — y reconstruimos la subcategoría
-// desde el nombre del ítem-subcategoría apuntado por llaveSubCat. Las columnas se
-// alias-an al shape antiguo (NegocioItemRow) para no tocar la agregación.
+// Líneas HOJA del presupuesto, ya planas y con la subcategoría resuelta por la
+// vista (el self-join por llaveSubCat que antes vivía acá). Columnas alias-adas
+// al shape antiguo (NegocioItemRow) para no tocar la agregación.
 const ITEMS_SQL = `
   SELECT
-    CAST(i.id AS STRING) AS row_id,
-    CAST(i.negocio AS STRING) AS external_id,
-    CAST(i.categoria AS STRING) AS categoria,
-    IFNULL(CAST(sub.nombre AS STRING), '') AS subcategoria,
-    CAST(i.nombre AS STRING) AS item,
-    CAST(i.descripcion AS STRING) AS descripcion,
-    i.cantidad AS cantidad,
-    i.pu_venta AS pu_venta,
-    i.sub_venta AS subtotal_venta,
-    i.pu_gasto_pre AS pu_gasto_presupuestado,
-    i.sub_gasto_pre AS subtotal_gasto_pre,
-    i.total_gasto_real AS gasto_real,
-    i.diferencia AS diferencia,
-    CAST(i.porc_diferencia AS STRING) AS porc_diferencia,
-    CAST(i.llave_item AS STRING) AS llave_item
-  FROM ${NEGOCIO_ITEM} i
-  LEFT JOIN ${NEGOCIO_ITEM} sub
-    ON sub.negocio = i.negocio
-    AND sub.llave_item = i.llaveSubCat
-    AND sub.isSubCat = TRUE
-  WHERE CAST(i.negocio AS STRING) = @id
-    AND i.tipo_item = 'ITEM'
-    AND i.isSubCat = FALSE
+    CAST(num_item AS STRING) AS row_id,
+    CAST(negocio_id AS STRING) AS external_id,
+    categoria,
+    IFNULL(subcategoria, '') AS subcategoria,
+    item,
+    descripcion,
+    cantidad,
+    precio_unitario_venta AS pu_venta,
+    venta_presupuestada AS subtotal_venta,
+    precio_unitario_gasto AS pu_gasto_presupuestado,
+    gasto_presupuestado AS subtotal_gasto_pre,
+    gasto_real_item AS gasto_real,
+    diferencia,
+    CAST(porc_diferencia AS STRING) AS porc_diferencia,
+    llave_item
+  FROM ${PRESUPUESTO_ITEMS}
+  WHERE CAST(negocio_id AS STRING) = @id
 `;
 
-const GASTOS_SQL = `
-  SELECT *
-  FROM ${DETALLE_GASTO}
-  WHERE CAST(negocio AS STRING) = @id
-    AND IFNULL(excluir_gasto, FALSE) = FALSE
+// Gastos documentados del negocio. `costoempresa` conserva el nombre histórico
+// pero su valor depende del switch neto/bruto (gasto_neto | gasto_bruto).
+const gastosSql = (monto: MontoMode) => `
+  SELECT
+    CAST(negocio_id AS STRING) AS negocio,
+    CAST(gasto_id AS STRING) AS id,
+    llave_item AS llave_nv,
+    proveedor,
+    proveedor_rut AS rut,
+    tipo_documento AS doc,
+    folio,
+    CAST(fecha AS STRING) AS fecha,
+    CAST(vencimiento AS STRING) AS vencimiento,
+    descripcion_gasto AS referencia,
+    estado_documento AS estado,
+    CAST(validado AS STRING) AS validado,
+    CAST(NOT incluir_en_totales AS STRING) AS excluir_gasto,
+    ${GASTO_COL[monto]} AS costoempresa,
+    categoria_raw AS item_categoria,
+    subcategoria_raw AS item_sub_categoria,
+    item_nombre,
+    item_nombre_gasto AS item_nombreGasto,
+    negocio_nombre AS item_text_negocio,
+    tipo_documento_item AS item_tipo_documento,
+    tipo_gasto_item AS item_tipo_gasto,
+    CAST(pago_realizado AS STRING) AS item_estado_ops,
+    CAST(justificado AS STRING) AS item_justificado
+  FROM ${GASTOS}
+  WHERE CAST(negocio_id AS STRING) = @id
+    AND incluir_en_totales
 `;
 
 // Suma en BigQuery sobre montos ya prorrateados al negocio (atribuibles).
-// NC/ND se excluyen vía VENTAS_WHERE, por eso ncNeta/ndNeta/docsNC/docsND van en 0.
+// NC/ND se excluyen vía incluir_en_venta, por eso ncNeta/ndNeta/docsNC/docsND van en 0.
 const VENTAS_AGGREGATE_SQL = `
   SELECT
-    IFNULL(SUM(IFNULL(SAFE_CAST(monto_neto_atribuible AS FLOAT64), 0) + IFNULL(SAFE_CAST(monto_exento_atribuible AS FLOAT64), 0)), 0) AS ventaBrutaNeta,
+    IFNULL(SUM(SAFE_CAST(venta_neta AS FLOAT64)), 0) AS ventaBrutaNeta,
     0 AS ncNeta,
     0 AS ndNeta,
-    IFNULL(SUM(IFNULL(SAFE_CAST(monto_total_atribuible AS FLOAT64), 0)), 0) AS ventaBrutaTotal,
-    IFNULL(SUM(IFNULL(SAFE_CAST(monto_iva_atribuible AS FLOAT64), 0)), 0) AS ivaTotal,
+    IFNULL(SUM(SAFE_CAST(venta_bruta AS FLOAT64)), 0) AS ventaBrutaTotal,
+    IFNULL(SUM(SAFE_CAST(venta_iva AS FLOAT64)), 0) AS ivaTotal,
     0 AS cobrado,
     0 AS porCobrar,
     COUNT(*) AS docsVenta,
     0 AS docsNC,
     0 AS docsND
-  FROM ${VENTAS_NEGOCIO}
+  FROM ${VENTAS}
   ${VENTAS_WHERE}
 `;
 
 const VENTAS_SQL = `
   SELECT
-    CAST(id_negocio AS STRING) AS id_negocio,
-    CAST(id_documento AS STRING) AS id_documento,
-    CAST(folio AS STRING) AS folio,
+    CAST(negocio_id AS STRING) AS id_negocio,
+    CAST(documento_id AS STRING) AS id_documento,
+    folio,
     CAST(fecha_emision AS STRING) AS fecha_emision,
     CAST(fecha_vencimiento AS STRING) AS fecha_vencimiento,
-    estado,
+    estado_documento AS estado,
     tipo_documento,
     tipo_documento_abrev,
     cliente,
-    rut_cliente,
+    cliente_rut AS rut_cliente,
     IFNULL(SAFE_CAST(cantidad_items_atribuibles AS INT64), 0) AS cantidad_items_atribuibles,
-    IFNULL(SAFE_CAST(monto_neto_atribuible AS FLOAT64), 0) AS monto_neto_atribuible,
-    IFNULL(SAFE_CAST(monto_exento_atribuible AS FLOAT64), 0) AS monto_exento_atribuible,
-    IFNULL(SAFE_CAST(monto_iva_atribuible AS FLOAT64), 0) AS monto_iva_atribuible,
-    IFNULL(SAFE_CAST(monto_total_atribuible AS FLOAT64), 0) AS monto_total_atribuible,
+    SAFE_CAST(venta_neta_afecta AS FLOAT64) AS monto_neto_atribuible,
+    SAFE_CAST(venta_exenta AS FLOAT64) AS monto_exento_atribuible,
+    SAFE_CAST(venta_iva AS FLOAT64) AS monto_iva_atribuible,
+    SAFE_CAST(venta_bruta AS FLOAT64) AS monto_total_atribuible,
     items_descripciones
-  FROM ${VENTAS_NEGOCIO}
+  FROM ${VENTAS}
   ${VENTAS_WHERE}
   ORDER BY fecha_emision DESC, folio DESC
 `;
 
-export async function getNegocioDetail(externalId: string): Promise<NegocioDetail> {
+export async function getNegocioDetail(
+  externalId: string,
+  monto: MontoMode = "neto",
+): Promise<NegocioDetail> {
   const now = Date.now();
-  const cached = detailCache.get(externalId);
+  const cacheKey = `${externalId}|${monto}`;
+  const cached = detailCache.get(cacheKey);
   if (cached && now - cached.timestamp < CACHE_TTL_MS) {
     return cached.data;
   }
 
   const [itemsRaw, gastosRaw, ventasRaw, ventasAggRaw, options] = await Promise.all([
     withTimeout(query<Record<string, unknown>>(ITEMS_SQL, { id: externalId })),
-    withTimeout(query<Record<string, unknown>>(GASTOS_SQL, { id: externalId })),
+    withTimeout(query<Record<string, unknown>>(gastosSql(monto), { id: externalId })),
     withTimeout(query<Record<string, unknown>>(VENTAS_SQL, { id: externalId })),
     withTimeout(query<Record<string, unknown>>(VENTAS_AGGREGATE_SQL, { id: externalId })),
     getNegocioOptions(),
@@ -285,7 +312,7 @@ export async function getNegocioDetail(externalId: string): Promise<NegocioDetai
     marcaIngresoNeto,
     marcaIngresoBruto,
   };
-  detailCache.set(externalId, { data: detail, timestamp: now });
+  detailCache.set(cacheKey, { data: detail, timestamp: now });
   return detail;
 }
 
@@ -320,7 +347,8 @@ export async function getCategoriaEventoMap(): Promise<Map<string, string>> {
 
 export function invalidateCierreNegocioCache(externalId?: string): void {
   if (externalId) {
-    detailCache.delete(externalId);
+    detailCache.delete(`${externalId}|neto`);
+    detailCache.delete(`${externalId}|bruto`);
     return;
   }
   detailCache.clear();

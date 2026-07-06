@@ -1,11 +1,14 @@
-import { NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { getCierreMensualRows } from "@/lib/queries/cierreMensual";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const { rows, cached, cacheAgeSeconds } = await getCierreMensualRows();
+    // Switch neto/bruto del dashboard: valor validado (mapa fijo en la query).
+    const monto =
+      request.nextUrl.searchParams.get("monto") === "bruto" ? "bruto" : "neto";
+    const { rows, cached, cacheAgeSeconds } = await getCierreMensualRows({ monto });
     return NextResponse.json(rows, {
       headers: {
         "X-Cache": cached ? "HIT" : "MISS",

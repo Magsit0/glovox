@@ -3,23 +3,28 @@ import { query } from "@/lib/bigquery";
 /**
  * Dashboard PROVEEDOR — gasto por proveedor.
  *
- * Fuente: `finanzas.unabase_detalle_gasto` (una fila por ítem de gasto) unida a
- * `finanzas.unabase_negocios` por `gasto.negocio = negocio.id`.
+ * Fuente: `marts.finanzas_gastos` (vista curada, 1 fila por ítem de gasto, con
+ * el contexto del negocio ya joineado). Migrado 3-jul-2026 desde el par
+ * detalle_gasto+negocios crudo — diff verificado 0 exacto en 5.803 proveedores.
  *
  * Reglas de scope (aplican a TODAS las queries):
- *  - Se EXCLUYEN los negocios de `area_negocio = 'GLOVOX'` (internos/no-cliente),
- *    igual que el resto de los dashboards del repo (`area_negocio <> 'glovox'`).
- *  - Se EXCLUYEN los gastos marcados `excluir_gasto = 'true'`.
- *  - El JOIN es INNER: un gasto cuyo `negocio` no exista en la tabla de negocios
- *    queda fuera (no podemos evaluar su área).
+ *  - `NOT es_interno_glovox` (negocios internos area 'GLOVOX' fuera).
+ *  - `incluir_en_totales` (= NOT excluir_gasto).
  *
- * Métrica de gasto: `item_costo_empresa` (sumable a nivel de fila).
+ * Métrica de gasto: `gasto_neto` (= item_costo_empresa, canónica; reconcilia
+ * con el costo_real del maestro) o `gasto_bruto` (= neto + IVA) según el
+ * switch neto/bruto del dashboard (?monto=bruto).
  */
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 
-const DETALLE_GASTO = `\`${P}.finanzas.unabase_detalle_gasto\``;
-const NEGOCIOS = `\`${P}.finanzas.unabase_negocios\``;
+const GASTOS = `\`${P}.marts.finanzas_gastos\``;
+
+/** Columna de monto por modo. Mapa fijo: NUNCA interpolar input del usuario. */
+const MONTO_COL: Record<"neto" | "bruto", string> = {
+  neto: "IFNULL(gasto_neto, 0)",
+  bruto: "gasto_bruto",
+};
 
 // Tope de filas para el detalle descargable de un proveedor. Más que suficiente
 // para un único proveedor; evita traer toda la tabla si algo se filtra mal.
@@ -67,6 +72,8 @@ export type ProveedorFilters = {
   proveedor?: string;
   from?: string; // YYYY-MM-DD
   to?: string; // YYYY-MM-DD
+  /** Switch neto/bruto del dashboard (default: neto). */
+  monto?: "neto" | "bruto";
 };
 
 export type ProveedorOption = {
@@ -160,25 +167,22 @@ export type MatrizProveedorAnio = {
 
 /**
  * Construye el CTE `g` con el scope ya filtrado (área + excluir_gasto + proveedor
- * + rango de fechas). Cada query consume `FROM g`.
+ * + rango de fechas) sobre `marts.finanzas_gastos`. Cada query consume `FROM g`.
  *
- * `fecha` se parsea con SUBSTR(...,1,10) para tolerar tanto fechas 'YYYY-MM-DD'
- * como timestamps. El filtro de fechas vive en el subquery externo porque
- * BigQuery no permite referenciar el alias `fecha` en el mismo WHERE.
+ * El filtro de fechas vive en el subquery externo para conservar la estructura
+ * histórica (la vista ya entrega `fecha` como DATE saneada).
  */
 function baseCte(filters: ProveedorFilters): {
   cte: string;
   params: Record<string, unknown>;
 } {
-  const inner: string[] = [
-    "LOWER(IFNULL(CAST(n.area_negocio AS STRING), '')) <> 'glovox'",
-    "LOWER(IFNULL(CAST(d.excluir_gasto AS STRING), '')) <> 'true'",
-  ];
+  const inner: string[] = ["NOT es_interno_glovox", "incluir_en_totales"];
   const outer: string[] = ["TRUE"];
   const params: Record<string, unknown> = {};
+  const montoCol = MONTO_COL[filters.monto === "bruto" ? "bruto" : "neto"];
 
   if (filters.proveedor) {
-    inner.push("CAST(d.proveedor AS STRING) = @proveedor");
+    inner.push("proveedor = @proveedor");
     params.proveedor = filters.proveedor;
   }
   if (filters.from) {
@@ -194,24 +198,22 @@ function baseCte(filters: ProveedorFilters): {
   WITH g AS (
     SELECT * FROM (
       SELECT
-        CAST(d.proveedor AS STRING)                                       AS proveedor,
-        CAST(d.rut AS STRING)                                             AS rut,
-        CAST(d.negocio AS STRING)                                         AS negocio_id,
-        CAST(d.item_text_negocio AS STRING)                              AS negocio_nombre,
-        SAFE.PARSE_DATE('%Y-%m-%d', SUBSTR(CAST(d.fecha AS STRING), 1, 10)) AS fecha,
-        CAST(d.folio AS STRING)                                          AS folio,
-        CAST(d.doc AS STRING)                                            AS doc,
-        CAST(d.tipo AS STRING)                                           AS tipo,
-        CAST(d.estado AS STRING)                                         AS estado,
-        CAST(d.validado AS STRING)                                       AS validado,
-        CAST(d.item_categoria AS STRING)                                AS item_categoria,
-        CAST(d.item_sub_categoria AS STRING)                           AS item_sub_categoria,
-        CAST(d.item_nombre AS STRING)                                   AS item_nombre,
-        IFNULL(SAFE_CAST(d.item_costo_empresa AS FLOAT64), 0)           AS costo,
-        CONCAT(IFNULL(CAST(d.rut AS STRING), ''), '|', IFNULL(CAST(d.folio AS STRING), '')) AS doc_key
-      FROM ${DETALLE_GASTO} d
-      JOIN ${NEGOCIOS} n
-        ON CAST(d.negocio AS STRING) = CAST(n.id AS STRING)
+        proveedor,
+        proveedor_rut                                                    AS rut,
+        CAST(negocio_id AS STRING)                                       AS negocio_id,
+        negocio_nombre,
+        fecha,
+        folio,
+        tipo_documento                                                   AS doc,
+        tipo_gasto                                                       AS tipo,
+        estado_documento                                                 AS estado,
+        CAST(validado AS STRING)                                         AS validado,
+        categoria_raw                                                    AS item_categoria,
+        subcategoria_raw                                                 AS item_sub_categoria,
+        item_nombre,
+        ${montoCol}                                                      AS costo,
+        CONCAT(IFNULL(proveedor_rut, ''), '|', IFNULL(folio, ''))        AS doc_key
+      FROM ${GASTOS}
       WHERE ${inner.join("\n        AND ")}
     )
     WHERE ${outer.join("\n      AND ")}
@@ -271,7 +273,11 @@ export async function getDateRange(): Promise<DateRange> {
 export async function getByProveedor(
   filters: ProveedorFilters,
 ): Promise<ProveedorOption[]> {
-  const { cte, params } = baseCte({ from: filters.from, to: filters.to });
+  const { cte, params } = baseCte({
+    from: filters.from,
+    to: filters.to,
+    monto: filters.monto,
+  });
   const rows = await withTimeout(
     query<Record<string, unknown>>(
       `
@@ -426,7 +432,11 @@ export async function getByCategoria(
 export async function getMatrizProveedorAnio(
   filters: ProveedorFilters,
 ): Promise<MatrizProveedorAnio> {
-  const { cte, params } = baseCte({ from: filters.from, to: filters.to });
+  const { cte, params } = baseCte({
+    from: filters.from,
+    to: filters.to,
+    monto: filters.monto,
+  });
   const rows = await withTimeout(
     query<Record<string, unknown>>(
       `

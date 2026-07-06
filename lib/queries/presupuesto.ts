@@ -3,13 +3,17 @@
  *
  *  - BigQuery (defaults históricos): per-cápitas de ingreso desde
  *    ticketsAndAABB.cierreEventos y % de costo por categoría desde
- *    finanzas.unabase_detalle_gasto. Son SUGERENCIAS: se siembran en el doc al
- *    crear y quedan editables.
+ *    marts.finanzas_gastos (vista curada). Son SUGERENCIAS: se siembran en el
+ *    doc al crear y quedan editables.
  *  - Postgres (presupuestos): lista y carga los presupuestos editables.
  *
- * Reutiliza el join canónico evento↔negocio (UPPER(SUBSTR(referencia,1,6)) =
- * EventoID + área "produccion de eventos propios") y la selección de eventos
- * comparables de lib/queries/pricing.ts.
+ * Migrado 3-jul-2026: antes sumaba `item_costo_real` del raw — campo CORRUPTO
+ * en 2.436 documentos (la API de Unabase replica el mismo valor en todas las
+ * líneas del doc, error "# 53"; infla sumas hasta 8x por negocio). La vista
+ * expone solo `gasto_neto` (= item_costo_empresa, reconcilia con el maestro),
+ * y el mapeo categoría→bucket ya no es regex en TS: viene resuelto en
+ * `bucket_presupuesto` desde el seed finanzas.unabase_categoria_map.
+ * ⚠ Los % sembrados CAMBIAN respecto al cálculo anterior (fix intencional).
  */
 import { desc, eq } from "drizzle-orm";
 import { db } from "@/db";
@@ -21,17 +25,12 @@ import {
 import { query } from "@/lib/bigquery";
 import { withNeonRetry } from "@/lib/neon-retry";
 import { getComparableEvents } from "@/lib/queries/pricing";
-import {
-  classifyCategoria,
-  CATEGORIA_KEYS,
-  type CategoriaKey,
-} from "@/lib/budget-forecast/config";
+import { CATEGORIA_KEYS, type CategoriaKey } from "@/lib/budget-forecast/config";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 
 const CIERRE_EVENTOS = `\`${P}.ticketsAndAABB.cierreEventos\``;
-const NEGOCIOS = `\`${P}.finanzas.unabase_negocios\``;
-const DETALLE_GASTO = `\`${P}.finanzas.unabase_detalle_gasto\``;
+const GASTOS = `\`${P}.marts.finanzas_gastos\``;
 
 const AREA_PRODUCCION = "produccion de eventos propios";
 
@@ -251,10 +250,13 @@ export type CostShareDefaults = {
 
 /**
  * % histórico de costo por bucket, promediado sobre eventos comparables.
- * Toma `item_costo_real` (gasto real), filtra `excluir_gasto`, normaliza el
- * share DENTRO de cada evento y promedia esos shares entre eventos (así un
- * festival grande no domina la mezcla). El mapeo categoría→bucket es en TS;
- * lo no mapeado cae en "otras" y se reporta en `sinMapear`.
+ * Toma `gasto_neto` de marts.finanzas_gastos (= item_costo_empresa, la métrica
+ * canónica; el viejo `item_costo_real` está corrupto en el origen), filtra con
+ * `incluir_en_totales`, normaliza el share DENTRO de cada evento y promedia
+ * esos shares entre eventos (así un festival grande no domina la mezcla).
+ * El bucket viene resuelto por la vista (`bucket_presupuesto`, seed
+ * finanzas.unabase_categoria_map); lo no mapeado cae en "otras" con
+ * `flag_categoria_sin_mapear` y se reporta en `sinMapear`.
  */
 export async function getCostShareDefaults(opts?: {
   refEventoIds?: string[];
@@ -272,30 +274,27 @@ export async function getCostShareDefaults(opts?: {
 
   const rows = await query<Record<string, unknown>>(
     `
-    WITH neg AS (
+    WITH gasto AS (
       SELECT
-        CAST(id AS INT64) AS negocio_id,
-        UPPER(SUBSTR(CAST(referencia AS STRING), 1, 6)) AS evento_id
-      FROM ${NEGOCIOS}
-      WHERE LOWER(CAST(area_negocio AS STRING)) = @area
-        AND LOWER(IFNULL(CAST(estadonv AS STRING), '')) <> 'nulo'
-        AND LOWER(IFNULL(CAST(estado AS STRING), '')) <> 'cotizacion'
-    ),
-    gasto AS (
-      SELECT
-        neg.evento_id,
-        UPPER(TRIM(CAST(g.item_categoria AS STRING))) AS item_categoria,
-        SUM(IFNULL(SAFE_CAST(g.item_costo_real AS FLOAT64), 0)) AS monto
-      FROM ${DETALLE_GASTO} g
-      JOIN neg ON neg.negocio_id = g.negocio
-      WHERE IFNULL(g.excluir_gasto, FALSE) = FALSE
-        AND neg.evento_id IN UNNEST(@ids)
-      GROUP BY neg.evento_id, item_categoria
+        evento_id,
+        UPPER(TRIM(IFNULL(categoria_raw, ''))) AS item_categoria,
+        ANY_VALUE(bucket_presupuesto)          AS bucket,
+        LOGICAL_OR(flag_categoria_sin_mapear)  AS sin_mapear,
+        SUM(IFNULL(gasto_neto, 0))             AS monto
+      FROM ${GASTOS}
+      WHERE incluir_en_totales
+        AND LOWER(IFNULL(area_negocio, '')) = @area
+        AND LOWER(IFNULL(negocio_estadonv, '')) <> 'nulo'
+        AND LOWER(IFNULL(negocio_estado, '')) <> 'cotizacion'
+        AND evento_id IN UNNEST(@ids)
+      GROUP BY evento_id, item_categoria
     ),
     por_evento AS (
       SELECT
         evento_id,
         item_categoria,
+        bucket,
+        sin_mapear,
         monto,
         SAFE_DIVIDE(monto, SUM(monto) OVER (PARTITION BY evento_id)) AS pct_evento
       FROM gasto
@@ -303,8 +302,10 @@ export async function getCostShareDefaults(opts?: {
     )
     SELECT
       item_categoria,
-      AVG(pct_evento)          AS pct_promedio,
-      SUM(monto)               AS monto_total,
+      ANY_VALUE(bucket)         AS bucket,
+      LOGICAL_OR(sin_mapear)    AS sin_mapear,
+      AVG(pct_evento)           AS pct_promedio,
+      SUM(monto)                AS monto_total,
       COUNT(DISTINCT evento_id) AS n_eventos
     FROM por_evento
     GROUP BY item_categoria
@@ -315,6 +316,7 @@ export async function getCostShareDefaults(opts?: {
   if (!rows.length) return empty;
 
   // Agregar los shares por bucket + recolectar categorías sin mapear.
+  const bucketSet = new Set<string>(CATEGORIA_KEYS);
   const pctByBucket = new Map<CategoriaKey, number>();
   const sinMapear: { categoria: string; monto: number }[] = [];
   let maxN = 0;
@@ -323,10 +325,11 @@ export async function getCostShareDefaults(opts?: {
     const pct = n(r.pct_promedio);
     const monto = n(r.monto_total);
     maxN = Math.max(maxN, n(r.n_eventos));
-    const { bucket, matched } = classifyCategoria(categoria);
+    const rawBucket = s(r.bucket);
+    const bucket = (bucketSet.has(rawBucket) ? rawBucket : "otras") as CategoriaKey;
     pctByBucket.set(bucket, (pctByBucket.get(bucket) ?? 0) + pct);
-    // "sin mapear" = ninguna regla matcheó (cayó en "otras" por el else).
-    if (!matched && categoria) {
+    // "sin mapear" = el seed no tiene fila para este texto (revisar y agregar al CSV).
+    if (Boolean(r.sin_mapear) && categoria) {
       sinMapear.push({ categoria, monto });
     }
   }

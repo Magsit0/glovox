@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-02T15:33:20.331743+00:00",
+  "generatedAt": "2026-07-03T20:06:07.548973+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -1177,9 +1177,14 @@
       "owner": "@maximiliano",
       "upstream": [],
       "consumers": [
-        "/proveedor",
-        "/cierre-negocio"
+        "marts.finanzas_gastos",
+        "marts.finanzas_ventas",
+        "marts.finanzas_negocios",
+        "marts.finanzas_presupuesto_items",
+        "marts.finanzas_registros_negocio",
+        "unabase.estadoNegocio"
       ],
+      "notes": "Desde el 3-jul los dashboards ya NO la leen directo: consumen marts.finanzas_negocios. Regla north-star: los consumidores leen marts, no raw.",
       "metrics": [
         "Maestro de negocios activos"
       ],
@@ -1437,8 +1442,10 @@
         "unabase.estadoNegocio"
       ],
       "consumers": [
-        "/proveedor"
+        "marts.finanzas_gastos",
+        "marts.finanzas_registros_negocio"
       ],
+      "notes": "Desde el 3-jul los dashboards ya NO la leen directo: consumen marts.finanzas_gastos (gasto_neto = item_costo_empresa; item_costo_real NO se expone por corrupción upstream, error '# 53').",
       "metrics": [
         "Gasto por negocio y proveedor",
         "Presupuesto vs real"
@@ -1799,8 +1806,10 @@
         "unabase.estadoNegocio"
       ],
       "consumers": [
-        "/cierre-negocio"
+        "marts.finanzas_ventas",
+        "marts.finanzas_registros_negocio"
       ],
+      "notes": "Desde el 3-jul los dashboards ya NO la leen directo: consumen marts.finanzas_ventas (venta_neta/venta_iva/venta_bruta atribuibles).",
       "metrics": [
         "Ingreso neto atribuible por negocio",
         "IVA atribuible + alertas de IVA inesperado"
@@ -2051,7 +2060,7 @@
       "pipeline": "pipelines/finanzas/unabase/unabase_ingesta.py",
       "schema": "finanzas_unabase_documentos_venta",
       "assetType": "table",
-      "status": "governed_unconsumed",
+      "status": "governed",
       "loadPattern": "delete-then-append",
       "frequency": "daily",
       "owner": "@maximiliano",
@@ -2059,7 +2068,10 @@
       "upstream": [
         "unabase.estadoNegocio"
       ],
-      "consumers": [],
+      "consumers": [
+        "unabase.estadoNegocio",
+        "slack-data-agent"
+      ],
       "metrics": [
         "Documentos de venta por negocio"
       ],
@@ -2375,14 +2387,17 @@
       "pipeline": "pipelines/finanzas/unabase/unabase_ingesta.py",
       "schema": "finanzas_unabase_documentos_venta_desagrupado",
       "assetType": "table",
-      "status": "governed_unconsumed",
+      "status": "governed",
       "loadPattern": "delete-then-append",
       "frequency": "daily",
       "owner": "@maximiliano",
       "upstream": [
         "finanzas.unabase_documentos_venta"
       ],
-      "consumers": [],
+      "consumers": [
+        "marts.finanzas_ventas"
+      ],
+      "notes": "HOY 100% líneas sintéticas (STOPGAP jun-2026: el endpoint no entrega items[]). marts.finanzas_ventas la usa solo para derivar flag_atribucion_stopgap.",
       "metrics": [],
       "endpointLabel": "items[] de /documentos-venta",
       "fields": [
@@ -2492,7 +2507,7 @@
       "pipeline": "pipelines/finanzas/unabase/unabase_ingesta.py",
       "schema": "finanzas_unabase_negocio_items",
       "assetType": "table",
-      "status": "governed_unconsumed",
+      "status": "governed",
       "loadPattern": "delete-then-append",
       "frequency": "daily",
       "owner": "@maximiliano",
@@ -2500,8 +2515,11 @@
       "upstream": [
         "unabase.estadoNegocio"
       ],
-      "consumers": [],
-      "notes": "Líneas del presupuesto/cotización por negocio (raw fiel). Jerarquía Categoría → Subcategoría → Ítem codificada en las llaves; se rearma en marts.finanzas_negocio_items_arbol. Reemplaza a la legacy unabase.negocioItem (la leen /cierre-negocio y /unabase/cierre-mensual).",
+      "consumers": [
+        "marts.finanzas_negocio_items_arbol",
+        "marts.finanzas_registros_negocio"
+      ],
+      "notes": "Líneas del presupuesto/cotización por negocio (raw fiel). Jerarquía Categoría → Subcategoría → Ítem codificada en las llaves; se rearma en marts.finanzas_negocio_items_arbol (y plana solo-hojas en marts.finanzas_presupuesto_items, que desde el 3-jul leen /cierre-negocio y /unabase/cierre-mensual).",
       "metrics": [],
       "endpointLabel": "https://api-v3-new.herokuapp.com/v1/negocios/items/{negocio_id}",
       "fields": [
@@ -2710,6 +2728,68 @@
           "type": "TIMESTAMP",
           "mode": "NULLABLE",
           "description": "Timestamp UTC de la carga (frescura)"
+        }
+      ]
+    },
+    {
+      "key": "finanzas.unabase_categoria_map",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "CSV manual — data/finanzas/unabase_categoria_map.csv",
+      "pipeline": "pipelines/finanzas/unabase/categoria_map.py",
+      "schema": "finanzas_unabase_categoria_map",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "truncate-load",
+      "frequency": "on-demand",
+      "owner": "@maximiliano",
+      "upstream": [
+        "finanzas.unabase_catalogo"
+      ],
+      "consumers": [
+        "marts.finanzas_gastos"
+      ],
+      "notes": "Seed: traduce el texto libre de categoría de los gastos (item_categoria/item_sub_categoria, ~815 variantes reales) a la categoría OFICIAL del catálogo (17) y su bucket de presupuesto (rollup fijo 17→7). Reemplaza los 3 mapeos divergentes que vivían en TypeScript (FDS_ALIAS_RAW de fds.ts, CATEGORIA_RULES de budget-forecast, nada en proveedor). Corregir un mapeo = editar la fila del CSV + `uv run python pipelines/finanzas/unabase/categoria_map.py`. alias_normalizado viene PRE-normalizado (normCat: sin acentos, MAYÚSCULAS, '&'→' Y ', solo alfanumérico).",
+      "metrics": [
+        "Traducción categoría cruda → oficial (17) → bucket presupuesto (7)"
+      ],
+      "endpointLabel": "CSV manual — data/finanzas/unabase_categoria_map.csv",
+      "fields": [
+        {
+          "name": "alias_normalizado",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Clave lógica: texto de categoría normalizado (sin acentos, MAYÚSCULAS, '&'→' Y ', solo alfanumérico con espacios colapsados — misma normalización normCat() que aplican las vistas marts.finanzas_*)."
+        },
+        {
+          "name": "categoria_oficial",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Una de las 17 categorías top-level de finanzas.unabase_catalogo (ej: PRODUCCION SITE, OPERACIONES, SUELDOS)."
+        },
+        {
+          "name": "bucket_presupuesto",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Rollup fijo 17→7 para el constructor /presupuesto: lineup | produccion | venue | ops | marketing | sueldos | otras."
+        },
+        {
+          "name": "origen",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "De dónde salió la fila: catalogo (volcado de unabase_catalogo) | alias_fds (crosswalk curado de fds.ts) | regla_presupuesto (regex de budget-forecast materializada) | manual (agregada a mano)."
+        },
+        {
+          "name": "notas",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Comentario libre (regla que la generó, ambigüedades, etc.)."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga."
         }
       ]
     },
@@ -3200,15 +3280,17 @@
       "pipeline": "schemas/bigquery/views/marts_finanzas_negocio_items.sql",
       "schema": null,
       "assetType": "view",
-      "status": "governed_unconsumed",
+      "status": "governed",
       "loadPattern": "view",
       "frequency": "realtime",
       "owner": "@maximiliano",
       "upstream": [
         "finanzas.unabase_negocio_items"
       ],
-      "consumers": [],
-      "notes": "Presupuesto por negocio con jerarquía explícita (nivel + parent_key) para rearmar el árbol Categoría → Subcategoría → Ítem en los dashboards.",
+      "consumers": [
+        "marts.finanzas_presupuesto_items"
+      ],
+      "notes": "Presupuesto por negocio con jerarquía explícita (nivel + parent_key) para rearmar el árbol Categoría → Subcategoría → Ítem en los dashboards. Base de marts.finanzas_presupuesto_items (versión plana solo-hojas para sumar).",
       "metrics": [],
       "endpointLabel": "Vista BQ",
       "fields": []
@@ -3234,8 +3316,132 @@
       "consumers": [
         "unabase.estadoNegocio"
       ],
-      "notes": "Reconciliación/alerta por negocio (venta, costo, items): la consume estadoNegocio para los flags recarga2/recarga3. Reemplaza gobernada a la legacy unabase.NregistrosBQ (scheduled query invisible). Venta vía montos atribuibles (resuelve multi-negocio); items SOLO nivel hoja (tipo_item='ITEM' AND isSubCat=false) para no doble-contar la jerarquía.",
+      "notes": "Reconciliación/alerta por negocio (venta, costo, items): la consume estadoNegocio para los flags recarga2/recarga3. Reemplaza gobernada a la legacy unabase.NregistrosBQ (scheduled query invisible). Venta vía montos atribuibles (resuelve multi-negocio); items SOLO nivel hoja (tipo_item='ITEM' AND isSubCat=false) para no doble-contar la jerarquía. CONTRATO CONGELADO (nombres legacy negocio/venta/costo/...): para consumo humano/dashboard nuevo usar marts.finanzas_negocios.",
       "metrics": [],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.finanzas_gastos",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_finanzas_gastos.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "finanzas.unabase_detalle_gasto",
+        "finanzas.unabase_negocios",
+        "finanzas.unabase_categoria_map"
+      ],
+      "consumers": [
+        "/proveedor",
+        "/fds",
+        "/presupuesto",
+        "/cierre-negocio",
+        "slack-data-agent"
+      ],
+      "notes": "LA fuente canónica del GASTO a nivel línea. gasto_neto = item_costo_empresa (reconcilia exacto con costo_real del maestro); item_costo_real NO se expone (corrupto en 2.436 docs por bug de la API, error '# 53'). Modelo neto/impuesto/bruto: gasto_iva (aditivo), gasto_retencion_honorarios (contenida en el neto), gasto_bruto = neto + IVA. Categoría oficial (17) + bucket (7) resueltos vía el seed unabase_categoria_map. No elimina filas: universo por predicados (incluir_en_totales, es_produccion_propia...).",
+      "metrics": [
+        "Gasto canónico por línea: gasto_neto / gasto_iva / gasto_bruto",
+        "Retención de boletas de honorarios por línea",
+        "Gasto por categoría oficial y bucket de presupuesto",
+        "% de gasto sin clasificar (flag_categoria_sin_mapear)"
+      ],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.finanzas_ventas",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_finanzas_ventas.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "finanzas.unabase_ventas_por_negocio",
+        "finanzas.unabase_negocios",
+        "finanzas.unabase_documentos_venta_desagrupado"
+      ],
+      "consumers": [
+        "/cierre-negocio",
+        "slack-data-agent"
+      ],
+      "notes": "LA fuente canónica de la VENTA documentada (grano negocio × documento, montos ATRIBUIBLES que resuelven facturas multi-negocio). venta_neta (sin IVA) / venta_iva / venta_bruta (con IVA). Predicado incluir_en_venta = NOT anulado AND NOT nota crédito/débito. flag_atribucion_stopgap: hoy 100% de los docs (endpoint sin líneas desde jun-2026, atribución degradada al negocio primario) — se apaga solo cuando Unabase reexponga items.",
+      "metrics": [
+        "Venta documentada atribuible: venta_neta / venta_iva / venta_bruta",
+        "Docs anulados / notas de crédito excluibles (incluir_en_venta)"
+      ],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.finanzas_negocios",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_finanzas_negocios.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "finanzas.unabase_negocios",
+        "marts.finanzas_gastos",
+        "marts.finanzas_ventas",
+        "marts.finanzas_negocio_items_arbol"
+      ],
+      "consumers": [
+        "/cierre-trimestral",
+        "/unabase/cierre-mensual",
+        "/fds",
+        "/cierre-negocio",
+        "slack-data-agent"
+      ],
+      "notes": "LA tabla ejecutiva por negocio: etapas del ciclo con nombres legibles (venta_contratada/neta/bruta/facturada/cobrada; gasto_presupuestado/real/justificado/pagado), agregados del detalle (sufijo _documentado/a, par neto/bruto para el switch de dashboards), presupuesto nivel hoja (sufijo _items) y flags de reconciliación BQ-vs-API. venta_bruta = total_nv (= total_neto × 1,19 verificado). ⚠ venta_contratada (total_venta) tiene semántica irregular en el origen: solo referencia.",
+      "metrics": [
+        "Ciclo de venta por negocio: contratada → neta → facturada → cobrada",
+        "Ciclo de gasto: presupuestado → real → justificado → pagado",
+        "Reconciliación BQ vs API (flag_gasto/venta_no_reconcilia)"
+      ],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.finanzas_presupuesto_items",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_finanzas_presupuesto_items.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "marts.finanzas_negocio_items_arbol",
+        "finanzas.unabase_negocios"
+      ],
+      "consumers": [
+        "/cierre-negocio",
+        "/unabase/cierre-mensual"
+      ],
+      "notes": "Líneas HOJA del presupuesto, planas y listas para sumar (SUM ingenuo = correcto; los nodos TITULO/subcategoría duplican 2-3x). Resuelve el nombre de la subcategoría padre (self-join que cierreNegocio.ts y cierreMensual.ts re-implementaban). ⚠ gasto_real_item = imputación de Unabase por línea de presupuesto, NO reconcilia con el gasto documentado: para totales usar marts.finanzas_gastos.gasto_neto. Montos netos (sin IVA).",
+      "metrics": [
+        "Presupuesto vs ejecución línea a línea (venta_presupuestada, gasto_presupuestado, gasto_real_item)"
+      ],
       "endpointLabel": "Vista BQ",
       "fields": []
     },
@@ -3631,11 +3837,8 @@
       "status": "legacy_ungoverned",
       "owner": null,
       "upstream": [],
-      "consumers": [
-        "/unabase/cierre-mensual",
-        "/cierre-negocio"
-      ],
-      "notes": "Líneas del presupuesto por negocio (gemela legacy del endpoint /negocios/items/{id}). REEMPLAZADA por finanzas.unabase_negocio_items (gobernada). Al cortar: repuntar /cierre-negocio y /unabase/cierre-mensual a la nueva y deprecar esta.",
+      "consumers": [],
+      "notes": "Líneas del presupuesto por negocio (gemela legacy del endpoint /negocios/items/{id}). REEMPLAZADA por finanzas.unabase_negocio_items. DEPRECABLE desde el 3-jul: /cierre-negocio y /unabase/cierre-mensual ya leen marts.finanzas_presupuesto_items; sin consumidores → se puede borrar.",
       "metrics": [],
       "endpointLabel": null,
       "fields": []
@@ -3651,9 +3854,8 @@
       "status": "legacy_ungoverned",
       "owner": null,
       "upstream": [],
-      "consumers": [
-        "/unabase/cierre-mensual"
-      ],
+      "consumers": [],
+      "notes": "DEPRECABLE desde el 3-jul: /unabase/cierre-mensual ya lee marts.finanzas_gastos/finanzas_negocios; sin consumidores → se puede borrar.",
       "metrics": [],
       "endpointLabel": null,
       "fields": []
