@@ -48,3 +48,4 @@ ENTEL_THE_GRID_SYSTEM.html
 
 #docs
 /docs
+.env*.local

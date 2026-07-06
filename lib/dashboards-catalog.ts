@@ -179,6 +179,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentText: "text-black",
   },
   {
+    key: "reportes.grid-kiki-jw",
+    pathPrefix: "/reportes/grid-kiki-jw",
+    label: "JW · The Grid KI/KI",
+    appliesCountryScope: false,
+    sortOrder: 101,
+    title: "JOHNNIE WALKER · THE GRID KI/KI",
+    description:
+      "Experimento de promo flash por WhatsApp: efecto en el consumo de Johnnie Walker — The Grid System · KI/KI, 9 mayo 2026.",
+    icon: "megaphone",
+    accentClass: "bg-[#B1D750]",
+    accentText: "text-black",
+  },
+  {
     key: "paid-media",
     pathPrefix: "/paid-media",
     label: "Paid media",
@@ -244,7 +257,7 @@ if (process.env.NODE_ENV !== "production") {
     if (prev) {
       throw new Error(
         `[dashboards-catalog] color repetido "${d.accentClass}" en "${prev}" y "${d.key}". ` +
-          "Cada dashboard debe tener un color de icono único — elegí uno distinto a los existentes.",
+          "Cada dashboard debe tener un color de icono único — elige uno distinto a los existentes.",
       );
     }
     seenColor.set(d.accentClass, d.key);

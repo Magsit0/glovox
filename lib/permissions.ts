@@ -63,6 +63,16 @@ export function getUserPermissions(email: string): DashboardPermissions {
 }
 
 /**
+ * Dashboards públicos: accesibles para cualquier usuario logueado, sin grant
+ * explícito (ni en DASHBOARD_PERMISSIONS ni en user_dashboard_access). El
+ * middleware, el check de cada page y el filtro de tiles de la home pasan
+ * todos por canAccessPath, así que basta con listarlos acá.
+ */
+export const PUBLIC_DASHBOARD_PATHS: readonly string[] = [
+  "/reportes/grid-kiki-jw",
+];
+
+/**
  * Returns true if the given permissions grant access to a pathname.
  * Matches by prefix so "/club" covers "/club/sellers" etc.
  */
@@ -70,6 +80,9 @@ export function canAccessPath(
   permissions: DashboardPermissions,
   pathname: string,
 ): boolean {
+  if (PUBLIC_DASHBOARD_PATHS.some((prefix) => pathname.startsWith(prefix))) {
+    return true;
+  }
   if (permissions === "all") return true;
   if (isScoped(permissions)) {
     return canAccessPath(permissions.dashboards, pathname);
