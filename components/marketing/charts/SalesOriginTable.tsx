@@ -100,20 +100,21 @@ export default function SalesOriginTable({ data }: Props) {
   }
 
   return (
-    <div className="border-4 border-black rounded-none w-full overflow-x-auto">
+    <div className="border-4 border-black rounded-none w-full overflow-auto max-h-[420px]">
       <table className="w-full">
         <thead>
+          {/* Sticky header so column titles stay visible while the body scrolls. */}
           <tr className="bg-black text-white">
-            <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Origen</th>
-            <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">Tickets</th>
-            <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">%</th>
+            <th className="font-mono-data uppercase text-xs px-4 py-3 text-left sticky top-0 z-10 bg-black">Origen</th>
+            <th className="font-mono-data uppercase text-xs px-4 py-3 text-right sticky top-0 z-10 bg-black">Tickets</th>
+            <th className="font-mono-data uppercase text-xs px-4 py-3 text-right sticky top-0 z-10 bg-black">%</th>
           </tr>
         </thead>
         <tbody>
-          {entries.map((entry) =>
+          {entries.map((entry, i) =>
             entry.type === "single" ? (
               <tr
-                key={entry.origin}
+                key={`single-${entry.origin}-${i}`}
                 className="border-b-2 border-black hover:bg-[#FFFF00] transition-colors duration-150"
               >
                 <td className="font-mono-data text-sm px-4 py-3">{entry.origin || "(directo)"}</td>
@@ -124,7 +125,7 @@ export default function SalesOriginTable({ data }: Props) {
               </tr>
             ) : (
               <GroupRow
-                key={entry.prefix}
+                key={`group-${entry.prefix}`}
                 group={entry}
                 isExpanded={expanded.has(entry.prefix)}
                 onToggle={() => toggle(entry.prefix)}
@@ -162,9 +163,9 @@ function GroupRow({
         <td className="font-mono-data text-sm px-4 py-3 text-right font-bold">{group.pct}%</td>
       </tr>
       {isExpanded &&
-        group.children.map((child) => (
+        group.children.map((child, i) => (
           <tr
-            key={child.origin}
+            key={`${group.prefix}-child-${child.origin}-${i}`}
             className="border-b border-black/30 bg-black/5 transition-colors duration-150"
           >
             <td className="font-mono-data text-xs px-4 py-2 pl-10 text-black/60">{child.origin}</td>

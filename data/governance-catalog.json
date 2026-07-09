@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-03T20:06:07.548973+00:00",
+  "generatedAt": "2026-07-07T19:45:59.301812+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -2794,6 +2794,215 @@
       ]
     },
     {
+      "key": "finanzas.reconciliacion_venta_aceptados",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "CSV manual — data/finanzas/reconciliacion_venta_aceptados.csv",
+      "pipeline": "pipelines/finanzas/unabase/reconciliacion_venta_aceptados.py",
+      "schema": "finanzas_reconciliacion_venta_aceptados",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "truncate-load",
+      "frequency": "on-demand",
+      "owner": "@maximiliano",
+      "upstream": [
+        "marts.finanzas_negocios"
+      ],
+      "consumers": [
+        "finanzas.reconciliacion_venta_log"
+      ],
+      "notes": "Allowlist de descuadres venta-doc-vs-maestro REVISADOS y aceptados (quirks del maestro de Unabase que omite/duplica documentos), para que NO disparen la alerta. Seed inicial: negocios 50 y 8178. Aceptar uno nuevo = agregar fila al CSV + recargar. Lo consume el chequeo reconciliacion_venta.py (pegado a la ingesta diaria).",
+      "metrics": [
+        "Allowlist de descuadres venta doc-vs-maestro aceptados (no alertan)"
+      ],
+      "endpointLabel": "CSV manual — data/finanzas/reconciliacion_venta_aceptados.csv",
+      "fields": [
+        {
+          "name": "negocio_id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "Negocio cuya divergencia venta documentada vs maestro está ACEPTADA (no dispara alerta). Clave lógica."
+        },
+        {
+          "name": "motivo",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Por qué se acepta el descuadre (ej: quirk del maestro que omite/duplica un documento)."
+        },
+        {
+          "name": "aceptado_por",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Quién lo revisó y aceptó."
+        },
+        {
+          "name": "fecha",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha en que se aceptó (dd-mm-yyyy en el CSV)."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga del seed."
+        }
+      ]
+    },
+    {
+      "key": "finanzas.reconciliacion_venta_log",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Derivada — chequeo pipelines/finanzas/unabase/reconciliacion_venta.py",
+      "pipeline": "pipelines/finanzas/unabase/reconciliacion_venta.py",
+      "schema": "finanzas_reconciliacion_venta_log",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [
+        "marts.finanzas_negocios",
+        "finanzas.reconciliacion_venta_aceptados"
+      ],
+      "consumers": [],
+      "notes": "Auditoría append-only del chequeo diario de reconciliación de venta (documentado vs total_facturado del maestro). Corre pegado al final de unabase_ingesta.run(); appendea las filas descuadradas/stopgap de cada corrida y postea a Slack (Incoming Webhook, secret slack-alerts-webhook) SOLO ante divergencias nuevas no aceptadas o regresión STOPGAP. Best-effort: no rompe la ingesta si falla.",
+      "metrics": [
+        "Historial diario de negocios con venta documentada ≠ maestro",
+        "Tripwire de regresión STOPGAP (endpoint sin items[])"
+      ],
+      "endpointLabel": "Derivada — chequeo pipelines/finanzas/unabase/reconciliacion_venta.py",
+      "fields": [
+        {
+          "name": "check_ts",
+          "type": "TIMESTAMP",
+          "mode": "REQUIRED",
+          "description": "Timestamp UTC de la corrida del chequeo de reconciliación."
+        },
+        {
+          "name": "negocio_id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "Negocio con divergencia detectada (venta documentada vs maestro) o marca de STOPGAP."
+        },
+        {
+          "name": "referencia",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Referencia del negocio (contexto)."
+        },
+        {
+          "name": "area_negocio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Área del negocio."
+        },
+        {
+          "name": "maestro_facturado",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "total_facturado del maestro (venta real del endpoint maestro)."
+        },
+        {
+          "name": "venta_documentada",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta neta documentada (filtrada: excluye anulados/NC/ND) sumada del detalle."
+        },
+        {
+          "name": "diff",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "maestro_facturado - venta_documentada. Positivo = el maestro dice más que lo documentado."
+        },
+        {
+          "name": "es_aceptado",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "TRUE si el negocio está en la allowlist reconciliacion_venta_aceptados (no dispara alerta)."
+        },
+        {
+          "name": "es_stopgap",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "TRUE si la fila corresponde al tripwire de regresión (flag_atribucion_stopgap: el endpoint dejó de entregar items[])."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga (= check_ts; redundante para consistencia con el resto de tablas)."
+        }
+      ]
+    },
+    {
+      "key": "finanzas.reconciliacion_gasto_log",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Derivada — chequeo pipelines/finanzas/unabase/reconciliacion_gasto.py",
+      "pipeline": "pipelines/finanzas/unabase/reconciliacion_gasto.py",
+      "schema": "finanzas_reconciliacion_gasto_log",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [
+        "marts.finanzas_gastos"
+      ],
+      "consumers": [],
+      "notes": "Snapshot diario por negocio del gasto documentado (item_costo_empresa) + líneas Error#53. NO reconcilia contra costo_real (referencia no confiable: difiere en ~195 negocios sin causa única). Son TRIPWIRES de regresión comparando cada corrida vs la anterior: canary si el conteo de líneas Error#53 salta, y saltos anómalos del gasto documentado por negocio (duplicación/bug de ingesta). Postea a Slack (secret slack-alerts-webhook) solo al disparar. Best-effort.",
+      "metrics": [
+        "Snapshot diario del gasto documentado por negocio",
+        "Canary de corrupción Error#53 + saltos anómalos de gasto"
+      ],
+      "endpointLabel": "Derivada — chequeo pipelines/finanzas/unabase/reconciliacion_gasto.py",
+      "fields": [
+        {
+          "name": "check_ts",
+          "type": "TIMESTAMP",
+          "mode": "REQUIRED",
+          "description": "Timestamp UTC de la corrida del chequeo de gasto. Cada corrida es un snapshot."
+        },
+        {
+          "name": "negocio_id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "Negocio vigente con gasto documentado (incluir_en_totales)."
+        },
+        {
+          "name": "referencia",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Referencia del negocio (contexto)."
+        },
+        {
+          "name": "gasto_neto_documentado",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "SUM(item_costo_empresa) filtrado (incluir_en_totales) del negocio en esta corrida. Serie para detectar saltos anómalos."
+        },
+        {
+          "name": "lineas_gasto",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Cantidad de líneas de gasto incluidas."
+        },
+        {
+          "name": "lineas_error53",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Líneas con flag_doc_error53 (bug 'Error # 53' de la API que corrompe item_costo_real). Canary de corrupción."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga (= check_ts)."
+        }
+      ]
+    },
+    {
       "key": "fever.order_items",
       "area": "tickets",
       "source": "fever",
@@ -3343,7 +3552,8 @@
         "/fds",
         "/presupuesto",
         "/cierre-negocio",
-        "slack-data-agent"
+        "slack-data-agent",
+        "finanzas.reconciliacion_gasto_log"
       ],
       "notes": "LA fuente canónica del GASTO a nivel línea. gasto_neto = item_costo_empresa (reconcilia exacto con costo_real del maestro); item_costo_real NO se expone (corrupto en 2.436 docs por bug de la API, error '# 53'). Modelo neto/impuesto/bruto: gasto_iva (aditivo), gasto_retencion_honorarios (contenida en el neto), gasto_bruto = neto + IVA. Categoría oficial (17) + bucket (7) resueltos vía el seed unabase_categoria_map. No elimina filas: universo por predicados (incluir_en_totales, es_produccion_propia...).",
       "metrics": [
@@ -3407,7 +3617,8 @@
         "/unabase/cierre-mensual",
         "/fds",
         "/cierre-negocio",
-        "slack-data-agent"
+        "slack-data-agent",
+        "finanzas.reconciliacion_venta_log"
       ],
       "notes": "LA tabla ejecutiva por negocio: etapas del ciclo con nombres legibles (venta_contratada/neta/bruta/facturada/cobrada; gasto_presupuestado/real/justificado/pagado), agregados del detalle (sufijo _documentado/a, par neto/bruto para el switch de dashboards), presupuesto nivel hoja (sufijo _items) y flags de reconciliación BQ-vs-API. venta_bruta = total_nv (= total_neto × 1,19 verificado). ⚠ venta_contratada (total_venta) tiene semántica irregular en el origen: solo referencia.",
       "metrics": [

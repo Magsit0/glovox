@@ -706,7 +706,11 @@ export async function getSalesOrigin(
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
-      CASE WHEN Referido LIKE 'FF%' THEN 'Club Glovox' ELSE Referido END AS origin,
+      -- Normalize empty / whitespace-only Referido to NULL so they don't become
+      -- separate "directo" buckets (they all render as origin "" client-side,
+      -- which collided as duplicate React keys). TRIM also folds accidental
+      -- whitespace-only referrals into the single NULL "(directo)" group.
+      CASE WHEN Referido LIKE 'FF%' THEN 'Club Glovox' ELSE NULLIF(TRIM(Referido), '') END AS origin,
       COUNT(*) AS tickets,
       SUM(PrecioFinal) AS revenue
     FROM ${TICKETS}

@@ -12,6 +12,7 @@ import {
   getOnepagerEventList,
   getOnepagerRecentEvents,
   getOnepagerListadoKpis,
+  getOnepagerFfbbConsumo,
 } from "@/lib/queries/onepager";
 import { getCierreEventos, getTotalAsistentes } from "@/lib/queries/cierreEventos";
 import {
@@ -21,6 +22,16 @@ import {
   getMarcaIngresosAggMap,
   getMarcaIngresosMatrix,
 } from "@/lib/queries/marca";
+import {
+  getMesasVipClientes,
+  getMesasVipMatrix,
+  getMesasVipAggByEvento,
+} from "@/lib/queries/mesasVip";
+import {
+  getMarcaClientesConTag,
+  getMediosMatrix,
+  getMediosAggByEvento,
+} from "@/lib/queries/medios";
 import EventSelector from "@/components/onepager/EventSelector";
 import BrutalKpiCard from "@/components/onepager/BrutalKpiCard";
 import BrutalChartPanel from "@/components/onepager/BrutalChartPanel";
@@ -148,14 +159,29 @@ export default async function OnepagerPage({
 // ---------- Listado section ----------
 
 async function ListadoSection() {
-  const [listado, cierres, marcaMap, marcaClientes, marcaMatrix] =
-    await Promise.all([
-      getOnepagerListadoKpis(),
-      getCierreEventos(),
-      getMarcaIngresosAggMap(),
-      getMarcaClientes(),
-      getMarcaIngresosMatrix(),
-    ]);
+  const [
+    listado,
+    cierres,
+    marcaMap,
+    marcaClientes,
+    marcaMatrix,
+    ffbbConsumo,
+    mesasVipClientes,
+    mesasVipMatrix,
+    mediosMarcas,
+    mediosMatrix,
+  ] = await Promise.all([
+    getOnepagerListadoKpis(),
+    getCierreEventos(),
+    getMarcaIngresosAggMap(),
+    getMarcaClientes(),
+    getMarcaIngresosMatrix(),
+    getOnepagerFfbbConsumo(),
+    getMesasVipClientes(),
+    getMesasVipMatrix(),
+    getMarcaClientesConTag(),
+    getMediosMatrix(),
+  ]);
 
   const asistMap = new Map<string, number | null>();
   const cat2Map = new Map<string, string>();
@@ -182,6 +208,11 @@ async function ListadoSection() {
       rows={rows}
       marcaClientes={marcaClientes}
       marcaMatrix={marcaMatrix}
+      ffbbConsumo={ffbbConsumo}
+      mesasVipClientes={mesasVipClientes}
+      mesasVipMatrix={mesasVipMatrix}
+      mediosMarcas={mediosMarcas}
+      mediosMatrix={mediosMatrix}
     />
   );
 }
@@ -333,22 +364,38 @@ function labelIngreso(ingreso: string): string {
 }
 
 async function IngresoSection({ eventoId }: { eventoId: string }) {
-  const [bqData, totalAsistentes, marcaAgg] = await Promise.all([
-    getOnepagerByIngreso(eventoId),
-    getTotalAsistentes(eventoId),
-    getMarcaIngresosAggByEvento(eventoId),
-  ]);
+  const [bqData, totalAsistentes, marcaAgg, mesasVipAgg, mediosAgg] =
+    await Promise.all([
+      getOnepagerByIngreso(eventoId),
+      getTotalAsistentes(eventoId),
+      getMarcaIngresosAggByEvento(eventoId),
+      getMesasVipAggByEvento(eventoId),
+      getMediosAggByEvento(eventoId),
+    ]);
   const hasAttendees = totalAsistentes != null && totalAsistentes > 0;
 
-  // Append Marcas como tercera fila usando el monto neto (Postgres) — no viene
-  // de BigQuery porque son imputaciones manuales. Re-ordenamos por venta desc
-  // para que ocupe la posición correcta tanto en la tabla como en el donut.
+  // Append Marcas y Mesas VIP como filas extra usando el monto neto (Postgres)
+  // — no vienen de BigQuery porque son imputaciones manuales. Re-ordenamos por
+  // venta desc para que ocupen la posición correcta tanto en la tabla como en
+  // el donut.
   const data = [
     ...bqData,
     {
       ingreso: "MARCAS",
       venta: marcaAgg.ventaNeto,
       qtty: marcaAgg.qtty,
+      rebate: 0,
+    },
+    {
+      ingreso: "MESAS VIP",
+      venta: mesasVipAgg.ventaNeto,
+      qtty: mesasVipAgg.qtty,
+      rebate: 0,
+    },
+    {
+      ingreso: "MEDIOS",
+      venta: mediosAgg.ventaNeto,
+      qtty: mediosAgg.qtty,
       rebate: 0,
     },
   ].sort((a, b) => b.venta - a.venta);

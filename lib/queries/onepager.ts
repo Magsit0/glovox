@@ -39,6 +39,17 @@ export type OnepagerListadoRow = {
   ventaFfBb: number;
 };
 
+// Desglose FF&BB (venta + cantidad) por evento × categoría × producto, a través
+// de TODOS los eventos. Alimenta el gráfico de consumo comparado de la vista
+// global; el cliente filtra por categoría/producto y agrupa por evento.
+export type OnepagerFfbbConsumoRow = {
+  eventoId: string;
+  categoria: string;
+  producto: string;
+  venta: number;
+  qtty: number;
+};
+
 export type OnepagerIngresoRow = {
   ingreso: string;
   venta: number;
@@ -183,6 +194,32 @@ export async function getOnepagerListadoKpis(): Promise<OnepagerListadoRow[]> {
     ventaTickets:     n(r.venta_tickets),
     ticketsComprados: n(r.tickets_comprados),
     ventaFfBb:        n(r.venta_ff_bb),
+  }));
+}
+
+/**
+ * Desglose FF&BB por evento × categoría × producto, para TODOS los eventos.
+ * El caller (vista global) lo cruza con los eventos en pantalla y lo filtra
+ * por categoría/producto en el cliente. Una sola pasada a soldItems.
+ */
+export async function getOnepagerFfbbConsumo(): Promise<OnepagerFfbbConsumoRow[]> {
+  const rows = await query<Record<string, unknown>>(`
+    SELECT
+      EventoID                              AS evento_id,
+      IFNULL(Categoria, 'Sin categoría')    AS categoria,
+      IFNULL(Producto,  'Sin producto')     AS producto,
+      SUM(IFNULL(SubTotal, 0))              AS venta,
+      SUM(IFNULL(Cantidad, 0))              AS qtty
+    FROM ${SOLD_ITEMS}
+    WHERE EventoID IS NOT NULL
+    GROUP BY 1, 2, 3
+  `);
+  return rows.map((r) => ({
+    eventoId:  s(r.evento_id),
+    categoria: s(r.categoria),
+    producto:  s(r.producto),
+    venta:     n(r.venta),
+    qtty:      n(r.qtty),
   }));
 }
 

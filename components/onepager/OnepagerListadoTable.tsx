@@ -16,7 +16,19 @@ import BrutalChartPanel from "./BrutalChartPanel";
 import MarcaMatrixSheet, {
   type MatrixEvento,
 } from "./MarcaMatrixSheet";
+import FfbbConsumoChart, {
+  type FfbbConsumoEvento,
+} from "./FfbbConsumoChart";
+import MarcaEvolucionChart from "./MarcaEvolucionChart";
+import MesasVipCard from "./MesasVipCard";
+import MediosMatrixSheet from "./MediosMatrixSheet";
 import type { MarcaClienteRow, MarcaMatrixCell } from "@/lib/queries/marca";
+import type { MarcaClienteTagRow } from "@/lib/queries/medios";
+import type {
+  MesasVipClienteRow,
+  MesasVipMatrixCell,
+} from "@/lib/queries/mesasVip";
+import type { OnepagerFfbbConsumoRow } from "@/lib/queries/onepager";
 import {
   currentSeasonLabel,
   isCurrentSeasonCategory,
@@ -150,10 +162,20 @@ export default function OnepagerListadoTable({
   rows,
   marcaClientes,
   marcaMatrix,
+  ffbbConsumo,
+  mesasVipClientes,
+  mesasVipMatrix,
+  mediosMarcas,
+  mediosMatrix,
 }: {
   rows: OnepagerListadoTableRow[];
   marcaClientes: MarcaClienteRow[];
   marcaMatrix: MarcaMatrixCell[];
+  ffbbConsumo: OnepagerFfbbConsumoRow[];
+  mesasVipClientes: MesasVipClienteRow[];
+  mesasVipMatrix: MesasVipMatrixCell[];
+  mediosMarcas: MarcaClienteTagRow[];
+  mediosMatrix: MarcaMatrixCell[];
 }) {
   const router = useRouter();
   const temporadaActual = useMemo(() => currentSeasonLabel(), []);
@@ -166,6 +188,13 @@ export default function OnepagerListadoTable({
   const [sortMode, setSortMode] = useState<SortMode>("fecha-asc");
   // Sheet global para imputar marcas (matriz cliente × evento).
   const [marcaSheetOpen, setMarcaSheetOpen] = useState(false);
+  // Sheet global para imputar medios (plan de medios por marca × evento).
+  const [mediosSheetOpen, setMediosSheetOpen] = useState(false);
+  // Marcas con plan de medios activo (filas del gráfico evolutivo de medios).
+  const mediosClientes = useMemo<MarcaClienteRow[]>(
+    () => mediosMarcas.filter((m) => m.tienePlanMedios),
+    [mediosMarcas],
+  );
 
   // Eventos que recibe el sheet — usa el dataset completo, no el filtrado de
   // la tabla, así el sheet puede aplicar su propio filtro de categoría.
@@ -304,6 +333,19 @@ export default function OnepagerListadoTable({
     if (!Number.isFinite(max)) max = 0;
     return { min, max };
   }, [chartData]);
+
+  // Eventos en scope (mismos que alimentan "Comparar eventos") para el
+  // gráfico de consumo FF&BB, con asistentes para el modo per cápita.
+  const consumoEventos = useMemo<FfbbConsumoEvento[]>(
+    () =>
+      chartEvents.map((r) => ({
+        eventoId: r.eventoId,
+        nombre: r.nombre || r.eventoId,
+        fecha: r.fechaEvento,
+        asistentes: r.asistentes,
+      })),
+    [chartEvents],
+  );
 
   if (rows.length === 0) {
     return (
@@ -467,18 +509,11 @@ export default function OnepagerListadoTable({
             )}
             <button
               type="button"
-              onClick={() => setMarcaSheetOpen(true)}
-              className="ml-auto font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-[#FFFF00] text-black hover:bg-black hover:text-[#FFFF00] cursor-pointer transition-colors duration-150"
-            >
-              + Imputar marcas
-            </button>
-            <button
-              type="button"
               onClick={() =>
                 setMode(compareActive ? "eventos" : "categorias")
               }
               aria-pressed={compareActive}
-              className={`font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] cursor-pointer transition-colors duration-150 ${
+              className={`ml-auto font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] cursor-pointer transition-colors duration-150 ${
                 compareActive
                   ? "bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black"
                   : "bg-white text-black hover:bg-[#FFFF00]"
@@ -715,12 +750,68 @@ export default function OnepagerListadoTable({
         />
       </BrutalChartPanel>
 
+      <BrutalChartPanel title="FF&BB — Consumo por evento">
+        <FfbbConsumoChart events={consumoEventos} consumo={ffbbConsumo} />
+      </BrutalChartPanel>
+
+      <BrutalChartPanel title="Marcas — Ingresos por evento">
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setMarcaSheetOpen(true)}
+            className="font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-[#FFFF00] text-black hover:bg-black hover:text-[#FFFF00] cursor-pointer transition-colors duration-150"
+          >
+            + Imputar marcas
+          </button>
+        </div>
+        <MarcaEvolucionChart
+          events={consumoEventos}
+          clientes={marcaClientes}
+          matrix={marcaMatrix}
+        />
+      </BrutalChartPanel>
+
+      <BrutalChartPanel title="MEDIOS — Ingresos por evento">
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setMediosSheetOpen(true)}
+            className="font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-[#FFFF00] text-black hover:bg-black hover:text-[#FFFF00] cursor-pointer transition-colors duration-150"
+          >
+            + Imputar medios
+          </button>
+        </div>
+        <MarcaEvolucionChart
+          events={consumoEventos}
+          clientes={mediosClientes}
+          matrix={mediosMatrix}
+          aggLabel="Medios (todos)"
+          filterLabel="Marca (medios)"
+          emptyLabel="Sin ingresos de medios para los filtros seleccionados."
+        />
+      </BrutalChartPanel>
+
+      <MesasVipCard
+        eventos={matrixEventos}
+        scopedEvents={consumoEventos}
+        clientes={mesasVipClientes}
+        matrix={mesasVipMatrix}
+      />
+
       <MarcaMatrixSheet
         open={marcaSheetOpen}
         onClose={() => setMarcaSheetOpen(false)}
         eventos={matrixEventos}
         clientes={marcaClientes}
         matrix={marcaMatrix}
+      />
+
+      <MediosMatrixSheet
+        open={mediosSheetOpen}
+        onClose={() => setMediosSheetOpen(false)}
+        eventos={matrixEventos}
+        marcas={mediosMarcas}
+        matrix={mediosMatrix}
       />
     </div>
   );

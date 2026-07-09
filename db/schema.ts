@@ -232,6 +232,11 @@ export const marcaClientes = pgTable("marca_clientes", {
   facturadorId: uuid("facturador_id")
     .notNull()
     .references(() => marcaFacturadores.id),
+  // MEDIOS — marca que además tiene "plan de medios" (ingreso que pasa por la
+  // marca pero NO es un fee de auspicio; hoy sólo Heineken y Diageo). Sólo las
+  // marcas con este flag aparecen en la matriz del card MEDIOS para imputar
+  // ese ingreso aparte. El catálogo de marcas es uno solo (reusa este mismo).
+  tienePlanMedios: boolean("tiene_plan_medios").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -266,6 +271,83 @@ export const marcaIngresos = pgTable(
       .notNull(),
   },
   (t) => [index("marca_ingresos_evento_idx").on(t.eventoId)],
+);
+
+// MEDIOS — Ingreso de "plan de medios" por marca imputado manualmente al
+// evento (caso Heineken/Diageo). Gemelo de `marca_ingresos` pero en tabla
+// aparte porque es un concepto distinto al fee de auspicio. Reusa el catálogo
+// `marca_clientes` (sólo las marcas con `tiene_plan_medios = true`). El bruto
+// se calcula desde el neto + IVA (19%); snapshot de rut/cliente igual que marcas.
+export const mediosIngresos = pgTable(
+  "medios_ingresos",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventoId: text("evento_id").notNull(),
+    clienteId: uuid("cliente_id")
+      .notNull()
+      .references(() => marcaClientes.id),
+    rutCliente: text("rut_cliente").notNull(),
+    cliente: text("cliente").notNull(),
+    montoNeto: doublePrecision("monto_neto").notNull(),
+    montoBruto: doublePrecision("monto_bruto").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("medios_ingresos_evento_idx").on(t.eventoId)],
+);
+
+// MESAS VIP — Cliente que reserva/compra mesas VIP (fila de la matriz). El
+// dato viene de un canal informal (planilla en Drive), por eso `rut` y
+// `razon_social` son OPCIONALES: muchos clientes son personas sin RUT
+// capturado. El identificador de la fila es `nombre` (UNIQUE, normalizado).
+// `tipo_cliente` (empresa|natural) sólo afecta el label del formulario.
+export const mesasVipClientes = pgTable("mesas_vip_clientes", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  nombre: text("nombre").notNull().unique(),
+  rut: text("rut"),
+  razonSocial: text("razon_social"),
+  tipoCliente: text("tipo_cliente").notNull().default("empresa"),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  createdBy: uuid("created_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+
+// MESAS VIP — Venta de mesa(s) por cliente imputada manualmente al evento
+// (celda de la matriz). `precio` es el monto BRUTO (IVA incluido) que imputa el
+// usuario; neto/IVA se derivan en cliente/servidor (lib/constants/tax.ts) y el
+// consumo asociado = 25% del precio (lib/constants/mesasVip.ts) — ninguno se
+// persiste. `estado_pago` (pendiente|abono|pagado) es el control de si el
+// cliente está al día. Snapshot de rut/cliente para estabilidad histórica.
+export const mesasVipIngresos = pgTable(
+  "mesas_vip_ingresos",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventoId: text("evento_id").notNull(),
+    clienteId: uuid("cliente_id")
+      .notNull()
+      .references(() => mesasVipClientes.id),
+    rutCliente: text("rut_cliente"),
+    cliente: text("cliente").notNull(),
+    precio: doublePrecision("precio").notNull(),
+    estadoPago: text("estado_pago").notNull().default("pendiente"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("mesas_vip_ingresos_evento_idx").on(t.eventoId)],
 );
 
 // TICKETING — Planes de pricing (constructor del tab `/ticketing?tab=pricing`).
@@ -315,6 +397,12 @@ export type MarcaCliente = typeof marcaClientes.$inferSelect;
 export type NewMarcaCliente = typeof marcaClientes.$inferInsert;
 export type MarcaIngreso = typeof marcaIngresos.$inferSelect;
 export type NewMarcaIngreso = typeof marcaIngresos.$inferInsert;
+export type MediosIngreso = typeof mediosIngresos.$inferSelect;
+export type NewMediosIngreso = typeof mediosIngresos.$inferInsert;
+export type MesasVipCliente = typeof mesasVipClientes.$inferSelect;
+export type NewMesasVipCliente = typeof mesasVipClientes.$inferInsert;
+export type MesasVipIngreso = typeof mesasVipIngresos.$inferSelect;
+export type NewMesasVipIngreso = typeof mesasVipIngresos.$inferInsert;
 // TICKETING — Catálogo de sponsors/marcas para el constructor de pricing.
 // Estandariza el NOMBRE de la marca (evita "ENTEL + BANCO" vs "Entel+Banco"):
 // el builder lo elige de acá en vez de tipearlo libre. El % de descuento y el

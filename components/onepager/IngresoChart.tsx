@@ -7,6 +7,8 @@ const COLORS: Record<string, string> = {
   TICKETS: "#0000FF",
   FFBB: "#000000",
   MARCAS: "#FFFF00",
+  "MESAS VIP": "#00A0A0",
+  MEDIOS: "#C800C8",
 };
 
 function getColor(ingreso: string) {
@@ -16,6 +18,8 @@ function getColor(ingreso: string) {
 function displayLabel(ingreso: string) {
   if (ingreso === "FFBB") return "FF&BB";
   if (ingreso === "MARCAS") return "Marcas";
+  if (ingreso === "MESAS VIP") return "Mesas VIP";
+  if (ingreso === "MEDIOS") return "Medios";
   return ingreso;
 }
 
