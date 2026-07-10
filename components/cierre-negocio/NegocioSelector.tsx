@@ -8,6 +8,8 @@ import type { NegocioOption } from "@/lib/unabase/types";
 interface Props {
   options: NegocioOption[];
   selectedId?: string;
+  /** URL del listado de origen — se preserva al cambiar de negocio. */
+  from?: string;
 }
 
 function asStr(value: unknown): string {
@@ -25,7 +27,7 @@ function matches(option: NegocioOption, query: string): boolean {
   );
 }
 
-export default function NegocioSelector({ options, selectedId }: Props) {
+export default function NegocioSelector({ options, selectedId, from }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -67,7 +69,10 @@ export default function NegocioSelector({ options, selectedId }: Props) {
   function handleSelect(id: string) {
     setOpen(false);
     setQuery("");
-    router.push(`/cierre-negocio?id=${encodeURIComponent(id)}`);
+    const params = new URLSearchParams();
+    params.set("id", id);
+    if (from) params.set("from", from);
+    router.push(`/cierre-negocio?${params.toString()}`);
   }
 
   return (

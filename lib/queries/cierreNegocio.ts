@@ -1,10 +1,20 @@
 import { query } from "@/lib/bigquery";
-import { getMarcaIngresosAggByEvento } from "@/lib/queries/marca";
+import {
+  getMarcaIngresosAggByEvento,
+  getMarcaIngresosDetalleByEvento,
+} from "@/lib/queries/marca";
+import {
+  getMesasVipAggByEvento,
+  getMesasVipDetalleByEvento,
+} from "@/lib/queries/mesasVip";
+import { getMediosAggByEvento, getMediosDetalleByEvento } from "@/lib/queries/medios";
 import type {
   CierreEventoRow,
   DetalleGastoRow,
+  IngresoDetalleRow,
   NegocioItemRow,
   NegocioOption,
+  NegocioResumenRow,
   VentaNegocioRow,
   VentasAggregateRaw,
 } from "@/lib/unabase/types";
@@ -116,11 +126,29 @@ export interface NegocioDetail {
   gastos: DetalleGastoRow[];
   ventas: VentaNegocioRow[];
   ventasAggregate: VentasAggregateRaw;
+  // Resumen del negocio (marts.finanzas_negocios): cifras maestro + documentado
+  // + flags de reconciliación. null si el negocio no aparece en la vista.
+  resumen: NegocioResumenRow | null;
   evento: CierreEventoRow | null;
-  // Ingresos de marcas imputados en el ONEPAGER (Neon). Neto y bruto agregados por
-  // evento. null cuando el negocio no es de producción de eventos propios.
+  // EventoID (primeros 6 chars de la referencia) cuando el negocio es de
+  // producción de eventos propios; null en el resto.
+  eventoId: string | null;
+  // Ingresos imputados en el ONEPAGER (Neon), agregados por evento. Neto y
+  // bruto. null cuando el negocio no es de producción de eventos propios.
   marcaIngresoNeto: number | null;
   marcaIngresoBruto: number | null;
+  mesasVipNeto: number | null;
+  mesasVipBruto: number | null;
+  mediosNeto: number | null;
+  mediosBruto: number | null;
+  // Detalle por cliente (neto) para el tooltip de cada card. [] si no aplica.
+  marcaDetalle: IngresoDetalleRow[];
+  mesasVipDetalle: IngresoDetalleRow[];
+  mediosDetalle: IngresoDetalleRow[];
+  // NOTA: el % de rebate NO vive acá a propósito — el detalle se cachea 5 min
+  // por proceso y el % es editable en la propia página; se lee fresco en cada
+  // render desde page.tsx (getRebatePorcentaje) para que el guardado se vea
+  // de inmediato en cualquier instancia.
 }
 
 const EVENTO_SQL = `
@@ -226,6 +254,34 @@ const VENTAS_AGGREGATE_SQL = `
   ${VENTAS_WHERE}
 `;
 
+// Resumen del negocio (marts.finanzas_negocios): cifras maestro (API Unabase)
+// + su contraparte documentada en BQ + flags de reconciliación entre ambas.
+// Reemplaza a agg.ventas/agg.margenRealFacturado como fuente de ResumenKpis.
+const RESUMEN_SQL = `
+  SELECT
+    SAFE_CAST(venta_neta AS FLOAT64) AS ventaNeta,
+    SAFE_CAST(venta_bruta AS FLOAT64) AS ventaBruta,
+    SAFE_CAST(venta_facturada AS FLOAT64) AS ventaFacturada,
+    SAFE_CAST(venta_neta_documentada AS FLOAT64) AS ventaNetaDocumentada,
+    SAFE_CAST(venta_bruta_documentada AS FLOAT64) AS ventaBrutaDocumentada,
+    SAFE_CAST(venta_iva_documentada AS FLOAT64) AS ventaIvaDocumentada,
+    SAFE_CAST(docs_venta AS FLOAT64) AS docsVentaResumen,
+    SAFE_CAST(gasto_real AS FLOAT64) AS gastoReal,
+    SAFE_CAST(gasto_neto_documentado AS FLOAT64) AS gastoNetoDocumentado,
+    SAFE_CAST(gasto_bruto_documentado AS FLOAT64) AS gastoBrutoDocumentado,
+    SAFE_CAST(gasto_iva_documentado AS FLOAT64) AS gastoIvaDocumentado,
+    SAFE_CAST(gasto_otros_impuestos_documentado AS FLOAT64) AS gastoOtrosImpuestosDocumentado,
+    SAFE_CAST(gasto_retencion_honorarios_documentado AS FLOAT64) AS gastoRetencionHonorariosDocumentado,
+    SAFE_CAST(lineas_gasto AS FLOAT64) AS lineasGasto,
+    SAFE_CAST(utilidad_real AS FLOAT64) AS utilidadReal,
+    SAFE_CAST(utilidad_final AS FLOAT64) AS utilidadFinal,
+    flag_venta_no_reconcilia AS flagVentaNoReconcilia,
+    flag_gasto_no_reconcilia AS flagGastoNoReconcilia
+  FROM ${NEGOCIOS}
+  WHERE CAST(negocio_id AS STRING) = @id
+  LIMIT 1
+`;
+
 const VENTAS_SQL = `
   SELECT
     CAST(negocio_id AS STRING) AS id_negocio,
@@ -260,11 +316,12 @@ export async function getNegocioDetail(
     return cached.data;
   }
 
-  const [itemsRaw, gastosRaw, ventasRaw, ventasAggRaw, options] = await Promise.all([
+  const [itemsRaw, gastosRaw, ventasRaw, ventasAggRaw, resumenRaw, options] = await Promise.all([
     withTimeout(query<Record<string, unknown>>(ITEMS_SQL, { id: externalId })),
     withTimeout(query<Record<string, unknown>>(gastosSql(monto), { id: externalId })),
     withTimeout(query<Record<string, unknown>>(VENTAS_SQL, { id: externalId })),
     withTimeout(query<Record<string, unknown>>(VENTAS_AGGREGATE_SQL, { id: externalId })),
+    withTimeout(query<Record<string, unknown>>(RESUMEN_SQL, { id: externalId })),
     getNegocioOptions(),
   ]);
 
@@ -281,24 +338,56 @@ export async function getNegocioDetail(
   const ventasAggregate: VentasAggregateRaw = ventasAggRaw[0]
     ? (serialize(ventasAggRaw[0]) as unknown as VentasAggregateRaw)
     : EMPTY_VENTAS_AGGREGATE;
+  const resumen: NegocioResumenRow | null = resumenRaw[0]
+    ? (serialize(resumenRaw[0]) as unknown as NegocioResumenRow)
+    : null;
   const negocio = options.find((o) => o.external_id === externalId) ?? null;
 
   let evento: CierreEventoRow | null = null;
+  let eventoIdDetail: string | null = null;
   let marcaIngresoNeto: number | null = null;
   let marcaIngresoBruto: number | null = null;
+  let mesasVipNeto: number | null = null;
+  let mesasVipBruto: number | null = null;
+  let mediosNeto: number | null = null;
+  let mediosBruto: number | null = null;
+  let marcaDetalle: IngresoDetalleRow[] = [];
+  let mesasVipDetalle: IngresoDetalleRow[] = [];
+  let mediosDetalle: IngresoDetalleRow[] = [];
   if (negocio) {
     const area = (negocio.area_negocio ?? "").trim().toLowerCase();
-    const eventoId = (negocio.referencia ?? "").trim().slice(0, 6);
+    const eventoId = (negocio.referencia ?? "").trim().slice(0, 6).toUpperCase();
     if (area === AREA_PRODUCCION && eventoId.length === 6) {
-      const [eventoRaw, marcaAgg] = await Promise.all([
+      const [
+        eventoRaw,
+        marcaAgg,
+        mesasVipAgg,
+        mediosAgg,
+        marcaDet,
+        mesasVipDet,
+        mediosDet,
+      ] = await Promise.all([
         withTimeout(query<Record<string, unknown>>(EVENTO_SQL, { eventoId })),
         getMarcaIngresosAggByEvento(eventoId),
+        getMesasVipAggByEvento(eventoId),
+        getMediosAggByEvento(eventoId),
+        getMarcaIngresosDetalleByEvento(eventoId),
+        getMesasVipDetalleByEvento(eventoId),
+        getMediosDetalleByEvento(eventoId),
       ]);
       evento = eventoRaw[0]
         ? (serialize(eventoRaw[0]) as unknown as CierreEventoRow)
         : null;
+      eventoIdDetail = eventoId;
       marcaIngresoNeto = marcaAgg.ventaNeto;
       marcaIngresoBruto = marcaAgg.ventaBruto;
+      mesasVipNeto = mesasVipAgg.ventaNeto;
+      mesasVipBruto = mesasVipAgg.ventaBruto;
+      mediosNeto = mediosAgg.ventaNeto;
+      mediosBruto = mediosAgg.ventaBruto;
+      marcaDetalle = marcaDet;
+      mesasVipDetalle = mesasVipDet;
+      mediosDetalle = mediosDet;
     }
   }
 
@@ -308,9 +397,18 @@ export async function getNegocioDetail(
     gastos,
     ventas,
     ventasAggregate,
+    resumen,
     evento,
+    eventoId: eventoIdDetail,
     marcaIngresoNeto,
     marcaIngresoBruto,
+    mesasVipNeto,
+    mesasVipBruto,
+    mediosNeto,
+    mediosBruto,
+    marcaDetalle,
+    mesasVipDetalle,
+    mediosDetalle,
   };
   detailCache.set(cacheKey, { data: detail, timestamp: now });
   return detail;

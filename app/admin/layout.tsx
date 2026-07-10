@@ -20,6 +20,12 @@ export default async function AdminLayout({
             </Link>
             <nav className="flex items-center gap-4 font-sans text-sm text-[#666666]">
               <Link
+                href="/admin/agenda"
+                className="hover:text-[#333333]"
+              >
+                Agenda
+              </Link>
+              <Link
                 href="/admin/users"
                 className="hover:text-[#333333]"
               >
@@ -42,6 +48,12 @@ export default async function AdminLayout({
                 className="hover:text-[#333333]"
               >
                 Eventos
+              </Link>
+              <Link
+                href="/admin/cloud"
+                className="hover:text-[#333333]"
+              >
+                Cloud
               </Link>
               <Link
                 href="/governance"

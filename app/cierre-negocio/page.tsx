@@ -9,14 +9,17 @@ import {
   getNegocioDetail,
   getNegocioOptions,
 } from "@/lib/queries/cierreNegocio";
+import { getRebatePorcentaje } from "@/lib/queries/rebate";
 import { getAllNegociosAdmin } from "@/lib/queries/cierreMensual";
-import type { NegocioRow } from "@/lib/unabase/types";
+import type { NegocioOption, NegocioRow } from "@/lib/unabase/types";
+import { seriesColor } from "@/lib/chart-colors";
 import { aggregateNegocio } from "@/lib/unabase/cierreNegocio";
 import NegocioSelector from "@/components/cierre-negocio/NegocioSelector";
 import NegocioHeader from "@/components/cierre-negocio/NegocioHeader";
 import KpiRow from "@/components/cierre-negocio/KpiRow";
 import CategoriaBreakdown from "@/components/cierre-negocio/CategoriaBreakdown";
 import CategoriaTree from "@/components/cierre-negocio/CategoriaTree";
+import GastosDocumentsTable from "@/components/cierre-negocio/GastosDocumentsTable";
 import TopProveedoresChart from "@/components/cierre-negocio/TopProveedoresChart";
 import OcStatusPanel from "@/components/cierre-negocio/OcStatusPanel";
 import ResumenKpis from "@/components/cierre-negocio/ResumenKpis";
@@ -30,30 +33,35 @@ import { montoModeFrom } from "@/components/montoMode";
 
 export const dynamic = "force-dynamic";
 
-type AreaKey = "produccion" | "btl" | "otros";
+type AreaKey = "produccion" | "btl" | "corporativos" | "otros";
 
 const AREA_LABELS: Record<AreaKey, string> = {
   produccion: "Producción de eventos propios",
   btl: "BTL",
+  corporativos: "Corporativos",
   otros: "Otros",
 };
 
 function isAreaKey(value: string | undefined): value is AreaKey {
-  return value === "produccion" || value === "btl" || value === "otros";
+  return (
+    value === "produccion" ||
+    value === "btl" ||
+    value === "corporativos" ||
+    value === "otros"
+  );
+}
+
+// Clasifica el area_negocio crudo en uno de los 3 buckets del dashboard.
+function areaBucketOf(areaNegocio: string | null | undefined): AreaKey {
+  const a = (areaNegocio ?? "").trim().toLowerCase();
+  if (a === "produccion de eventos propios") return "produccion";
+  if (a === "btl") return "btl";
+  if (a === "corporativos") return "corporativos";
+  return "otros";
 }
 
 function filterByArea(rows: NegocioRow[], area: AreaKey): NegocioRow[] {
-  const norm = (value: string | null | undefined) => (value ?? "").trim().toLowerCase();
-  if (area === "produccion") {
-    return rows.filter((r) => norm(r.area_negocio) === "produccion de eventos propios");
-  }
-  if (area === "btl") {
-    return rows.filter((r) => norm(r.area_negocio) === "btl");
-  }
-  return rows.filter((r) => {
-    const a = norm(r.area_negocio);
-    return a !== "produccion de eventos propios" && a !== "btl";
-  });
+  return rows.filter((r) => areaBucketOf(r.area_negocio) === area);
 }
 
 const SIN_RUT = "__sin_rut__";
@@ -162,7 +170,35 @@ interface PageProps {
     group?: string;
     categoria?: string;
     monto?: string;
+    from?: string;
   }>;
+}
+
+// URL de retorno al listado. Solo se acepta un path interno del propio
+// dashboard (evita redirects raros); si no, cae al selector de áreas.
+function listadoHref(from: string | undefined): string {
+  if (from && /^\/cierre-negocio(\?|$)/.test(from)) return from;
+  return "/cierre-negocio";
+}
+
+// Bucket de área (produccion|btl|otros) leído del ?area= de la URL del listado
+// de origen. null si no viene o no es válido.
+function areaFromUrl(from: string | undefined): AreaKey | null {
+  if (!from) return null;
+  const q = from.indexOf("?");
+  if (q < 0) return null;
+  const a = new URLSearchParams(from.slice(q + 1)).get("area") ?? undefined;
+  return isAreaKey(a) ? a : null;
+}
+
+// Opciones del selector acotadas al bucket de área (para que dentro de un
+// cierre solo aparezcan los negocios de esa misma área). Sin bucket → todas.
+function optionsForArea(
+  options: NegocioOption[],
+  bucket: AreaKey | null,
+): NegocioOption[] {
+  if (!bucket) return options;
+  return options.filter((o) => areaBucketOf(o.area_negocio) === bucket);
 }
 
 export default async function CierreNegocioPage({ searchParams }: PageProps) {
@@ -173,9 +209,10 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
     redirect("/?unauthorized=1");
   }
 
-  const { id, area, cliente, ejecutivo, group, categoria, monto: montoParam } =
+  const { id, area, cliente, ejecutivo, group, categoria, monto: montoParam, from } =
     await searchParams;
   const monto = montoModeFrom(montoParam);
+  const backToListado = listadoHref(from);
 
   if (!id) {
     if (!isAreaKey(area)) {
@@ -201,9 +238,9 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
 
     const rows = filterByArea(negocios, area);
 
-    // BTL: selección de cliente/ejecutivo con transición animada (cards ↔ lista
-    // horizontal) en el cliente, con toggle de agrupamiento.
-    if (area === "btl") {
+    // BTL y Corporativos (negocio por cliente): selección de cliente/ejecutivo
+    // con transición animada (cards ↔ lista horizontal) y toggle de agrupamiento.
+    if (area === "btl" || area === "corporativos") {
       const items = rows.map((row) => ({
         keys: {
           cliente: clienteKey(row.rut_cliente),
@@ -230,7 +267,8 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
       return (
         <Shell>
           <GrupoNav
-            eyebrowBase={`Cierre negocio · ${AREA_LABELS.btl}`}
+            area={area}
+            eyebrowBase={`Cierre negocio · ${AREA_LABELS[area]}`}
             modes={modes}
             items={items}
             initialMode={initialMode}
@@ -271,6 +309,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
       return (
         <Shell>
           <GrupoNav
+            area="produccion"
             eyebrowBase={`Cierre negocio · ${AREA_LABELS.produccion}`}
             modes={modes}
             items={items}
@@ -295,7 +334,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
   } catch (err) {
     return (
       <Shell>
-        <DetailHeading />
+        <DetailHeading backHref={backToListado} />
         <ErrorView message={errorMessage(err)} />
       </Shell>
     );
@@ -307,12 +346,23 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
   } catch (err) {
     return (
       <Shell>
-        <DetailHeading />
-        <SelectorRow options={options} selectedId={id} />
+        <DetailHeading backHref={backToListado} />
+        <SelectorRow
+          options={optionsForArea(options, areaFromUrl(from))}
+          selectedId={id}
+          from={from}
+        />
         <ErrorView message={errorMessage(err)} />
       </Shell>
     );
   }
+
+  // El selector dentro del cierre solo muestra negocios de la MISMA área: bucket
+  // del ?area= de origen, o —si no viene— el del propio negocio.
+  const selectorBucket =
+    areaFromUrl(from) ??
+    (detail.negocio ? areaBucketOf(detail.negocio.area_negocio) : null);
+  const selectorOptions = optionsForArea(options, selectorBucket);
 
   if (
     detail.items.length === 0 &&
@@ -321,8 +371,8 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
   ) {
     return (
       <Shell>
-        <DetailHeading />
-        <SelectorRow options={options} selectedId={id} />
+        <DetailHeading backHref={backToListado} />
+        <SelectorRow options={selectorOptions} selectedId={id} from={from} />
         <section className="rounded-lg border border-[#E5E5E5] bg-white p-8 text-center">
           <p className="font-display text-lg font-bold text-[#333333]">
             Sin información disponible
@@ -346,10 +396,16 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
   const referencia = detail.negocio?.referencia?.trim() || `Negocio ${id}`;
   const pdfFilename = `Cierre ${id} - ${referencia}`;
 
+  // % de rebate leído fresco en cada render (fuera del detailCache de 5 min):
+  // es editable en la propia página y así el guardado se refleja de inmediato.
+  const rebatePorcentaje = detail.eventoId
+    ? await getRebatePorcentaje(detail.eventoId)
+    : null;
+
   return (
     <Shell>
-      <DetailHeading />
-      <SelectorRow options={options} selectedId={id} />
+      <DetailHeading backHref={backToListado} />
+      <SelectorRow options={selectorOptions} selectedId={id} from={from} />
       <div className="flex justify-end" data-no-print="true">
         <DownloadPdfButton filename={pdfFilename} />
       </div>
@@ -358,11 +414,21 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
       {detail.evento && (
         <EventoResumen
           evento={detail.evento}
+          eventoId={detail.eventoId}
           marcaIngresoNeto={detail.marcaIngresoNeto}
           marcaIngresoBruto={detail.marcaIngresoBruto}
+          mesasVipNeto={detail.mesasVipNeto}
+          mesasVipBruto={detail.mesasVipBruto}
+          mediosNeto={detail.mediosNeto}
+          mediosBruto={detail.mediosBruto}
+          rebatePorcentaje={rebatePorcentaje}
+          marcaDetalle={detail.marcaDetalle}
+          mesasVipDetalle={detail.mesasVipDetalle}
+          mediosDetalle={detail.mediosDetalle}
         />
       )}
-      <ResumenKpis agg={agg} />
+      <UnabaseHeading />
+      <ResumenKpis resumen={detail.resumen} />
       <section data-pdf-section data-pdf-break-before="true" className="flex flex-col gap-6">
         <VentasSection agg={agg} ventas={detail.ventas} />
       </section>
@@ -387,6 +453,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
           itemsConOcByCategoria={agg.itemsConOcByCategoria}
         />
         <CategoriaTree arbol={agg.arbol} />
+        <GastosDocumentsTable gastos={detail.gastos} />
         <div
           data-pdf-grid="side-by-side"
           className="grid grid-cols-1 gap-6 lg:grid-cols-2"
@@ -461,31 +528,54 @@ function ChooserHeading() {
       >
         <Image src="/glovox_logo_gvx_black.svg" alt="Glovox" width={18} height={18} />
       </Link>
-      <p className="font-sans text-xs text-[#666666]">Cierre negocio</p>
-      <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
-        Escoge área de negocio
-      </h1>
+      <div className="text-center">
+        <p className="font-sans text-xs text-[#666666]">Cierre negocio</p>
+        <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
+          Escoge área de negocio
+        </h1>
+      </div>
     </header>
   );
 }
 
 function AreaChooser() {
-  const areas: AreaKey[] = ["produccion", "btl", "otros"];
+  const areas: AreaKey[] = ["produccion", "btl", "corporativos", "otros"];
   return (
-    <section className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-      {areas.map((key) => (
+    // ESQUEMA: 4 columnas verticales lado a lado (estilo glovox.io). El diseño
+    // (imágenes de fondo por área, colores, hover) viene después.
+    <section className="flex gap-2 sm:gap-3">
+      {areas.map((key, i) => (
         <Link
           key={key}
           href={`/cierre-negocio?area=${key}`}
-          className="flex min-h-[120px] flex-col justify-between rounded-lg border border-[#E5E5E5] bg-white p-6 transition-colors hover:border-[#9F99F8] hover:bg-[#FAFAFA] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+          className="group relative flex h-[70vh] flex-1 flex-col items-center justify-center gap-6 overflow-hidden rounded-lg bg-[#333333] py-8 transition-colors duration-200 hover:bg-[#2A2A2A] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
         >
-          <span className="inline-block h-2 w-2 rounded-full bg-[#9F99F8]" />
-          <span className="font-display text-lg font-bold leading-tight tracking-tight text-[#333333]">
+          {/* Línea de acento vertical (arriba del título). */}
+          <span
+            className="h-14 w-px shrink-0"
+            style={{ backgroundColor: seriesColor(i) }}
+          />
+          {/* Título en vertical, leyendo de abajo hacia arriba. */}
+          <span className="flex max-h-[72%] items-center rotate-180 font-display text-2xl font-bold leading-tight tracking-tight text-white [writing-mode:vertical-rl]">
             {AREA_LABELS[key]}
           </span>
         </Link>
       ))}
     </section>
+  );
+}
+
+// Divisor de sección: abre el bloque de datos de Unabase (KPIs de resumen,
+// Ventas y Gastos). Píldora centrada, gemela de la de "Inputs externos" en
+// EventoResumen, para que las dos fuentes se lean como secciones hermanas.
+function UnabaseHeading() {
+  return (
+    <div className="flex justify-center" data-pdf-section>
+      <span className="inline-flex items-center gap-2 rounded-full bg-[#9F99F8] px-4 py-1.5 font-sans text-sm font-semibold uppercase tracking-wide text-white">
+        <span className="inline-block h-2 w-2 rounded-full bg-white" />
+        Admin y Finanzas: Unabase
+      </span>
+    </div>
   );
 }
 
@@ -519,7 +609,7 @@ function ListHeading({ area }: { area: AreaKey }) {
   );
 }
 
-function DetailHeading() {
+function DetailHeading({ backHref }: { backHref: string }) {
   return (
     <header className="flex flex-col gap-3" data-no-print="true">
       <div className="flex flex-wrap items-center gap-3">
@@ -531,7 +621,7 @@ function DetailHeading() {
           <Image src="/glovox_logo_gvx_black.svg" alt="Glovox" width={18} height={18} />
         </Link>
         <Link
-          href="/cierre-negocio"
+          href={backHref}
           className="inline-flex items-center gap-1.5 rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans text-sm font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA]"
         >
           <ArrowLeft className="h-4 w-4" />
@@ -551,15 +641,17 @@ function DetailHeading() {
 function SelectorRow({
   options,
   selectedId,
+  from,
 }: {
   options: Awaited<ReturnType<typeof getNegocioOptions>>;
   selectedId: string;
+  from?: string;
 }) {
   return (
     <section className="flex flex-col gap-3" data-no-print="true">
       <p className="font-sans text-xs text-[#666666]">Negocio</p>
       <div className="max-w-xl">
-        <NegocioSelector options={options} selectedId={selectedId} />
+        <NegocioSelector options={options} selectedId={selectedId} from={from} />
       </div>
     </section>
   );

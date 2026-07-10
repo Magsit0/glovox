@@ -153,6 +153,13 @@ export interface NegocioOption {
 
 // Cierre de eventos (ticketsAndAABB.cierreEventos) — solo para "produccion de eventos propios".
 // EventoID se conecta con los primeros 6 caracteres de unabase.negocios.referencia.
+// Detalle por cliente de un ingreso imputado (marcas, mesas VIP, medios) —
+// alimenta el tooltip de las cards en el cierre. `monto` es NETO.
+export interface IngresoDetalleRow {
+  cliente: string;
+  monto: number;
+}
+
 export interface CierreEventoRow {
   EventoID: string;
   nombreGlovox: string;
@@ -196,6 +203,32 @@ export interface VentaNegocioRow {
   monto_iva_atribuible: number;
   monto_total_atribuible: number;
   items_descripciones: string[];
+}
+
+// Resumen a nivel negocio (marts.finanzas_negocios) — cifras "maestro" que
+// vienen directo de la API de Unabase (finanzas.unabase_negocios), más su
+// contraparte documentada en BigQuery (rollup de líneas) y flags de
+// reconciliación entre ambas. Usado por ResumenKpis; distinto de
+// NegocioAggregate (que agrega línea por línea desde items/gastos/ventas).
+export interface NegocioResumenRow {
+  ventaNeta: number | null;
+  ventaBruta: number | null;
+  ventaFacturada: number | null;
+  ventaNetaDocumentada: number | null;
+  ventaBrutaDocumentada: number | null;
+  ventaIvaDocumentada: number | null;
+  docsVentaResumen: number | null;
+  gastoReal: number | null;
+  gastoNetoDocumentado: number | null;
+  gastoBrutoDocumentado: number | null;
+  gastoIvaDocumentado: number | null;
+  gastoOtrosImpuestosDocumentado: number | null;
+  gastoRetencionHonorariosDocumentado: number | null;
+  lineasGasto: number | null;
+  utilidadReal: number | null;
+  utilidadFinal: number | null;
+  flagVentaNoReconcilia: boolean | null;
+  flagGastoNoReconcilia: boolean | null;
 }
 
 export interface DocVentaRow {

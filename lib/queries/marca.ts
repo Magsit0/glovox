@@ -1,6 +1,7 @@
 import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { marcaClientes, marcaFacturadores, marcaIngresos } from "@/db/schema";
+import type { IngresoDetalleRow } from "@/lib/unabase/types";
 
 /**
  * Vista plana de un cliente-marca con los datos de su facturador.
@@ -92,6 +93,25 @@ export async function getMarcaIngresosByEvento(
     .where(eq(marcaIngresos.eventoId, eventoId))
     .orderBy(desc(marcaIngresos.createdAt));
   return rows;
+}
+
+/**
+ * Detalle NETO por cliente para un evento (tooltip de la card "Ingresos marcas"
+ * del cierre). Agrega por cliente y ordena de mayor a menor.
+ */
+export async function getMarcaIngresosDetalleByEvento(
+  eventoId: string,
+): Promise<IngresoDetalleRow[]> {
+  const rows = await db
+    .select({
+      cliente: marcaIngresos.cliente,
+      monto: sql<number>`COALESCE(SUM(${marcaIngresos.montoNeto}), 0)`.as("monto"),
+    })
+    .from(marcaIngresos)
+    .where(eq(marcaIngresos.eventoId, eventoId))
+    .groupBy(marcaIngresos.cliente)
+    .orderBy(desc(sql`COALESCE(SUM(${marcaIngresos.montoNeto}), 0)`));
+  return rows.map((r) => ({ cliente: r.cliente, monto: Number(r.monto) || 0 }));
 }
 
 export type MarcaIngresoAgg = {

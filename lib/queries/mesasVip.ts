@@ -1,8 +1,9 @@
-import { eq, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { mesasVipClientes, mesasVipIngresos } from "@/db/schema";
 import { brutoToNeto } from "@/lib/constants/tax";
 import { normalizeEstadoPago, type EstadoPago } from "@/lib/constants/mesasVip";
+import type { IngresoDetalleRow } from "@/lib/unabase/types";
 
 /**
  * Vista plana de un cliente VIP. RUT y razón social son opcionales (el dato
@@ -64,6 +65,29 @@ export async function getMesasVipMatrix(): Promise<MesasVipMatrixCell[]> {
     eventoId: r.eventoId,
     precio: Number(r.precio) || 0,
     estadoPago: normalizeEstadoPago(r.estadoPago),
+  }));
+}
+
+/**
+ * Detalle NETO por cliente para un evento (tooltip de la card "Mesas VIP" del
+ * cierre). `precio` es bruto → el neto se deriva (÷1,19) para cuadrar con la
+ * card. Agrega por cliente y ordena de mayor a menor.
+ */
+export async function getMesasVipDetalleByEvento(
+  eventoId: string,
+): Promise<IngresoDetalleRow[]> {
+  const rows = await db
+    .select({
+      cliente: mesasVipIngresos.cliente,
+      bruto: sql<number>`COALESCE(SUM(${mesasVipIngresos.precio}), 0)`.as("bruto"),
+    })
+    .from(mesasVipIngresos)
+    .where(eq(mesasVipIngresos.eventoId, eventoId))
+    .groupBy(mesasVipIngresos.cliente)
+    .orderBy(desc(sql`COALESCE(SUM(${mesasVipIngresos.precio}), 0)`));
+  return rows.map((r) => ({
+    cliente: r.cliente,
+    monto: brutoToNeto(Number(r.bruto) || 0),
   }));
 }
 

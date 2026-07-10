@@ -2,6 +2,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { marcaClientes, marcaFacturadores, mediosIngresos } from "@/db/schema";
 import type { MarcaClienteRow, MarcaMatrixCell } from "@/lib/queries/marca";
+import type { IngresoDetalleRow } from "@/lib/unabase/types";
 
 /**
  * MEDIOS reusa el catálogo de marcas (`marca_clientes`). Sólo las marcas con
@@ -139,6 +140,32 @@ export async function getMediosAggByEvento(
     ventaBruto: Number(r?.ventaBruto ?? 0),
     qtty: Number(r?.qtty ?? 0),
   };
+}
+
+/**
+ * Detalle NETO por cliente para un evento (tooltip de la card "Medios" del
+ * cierre). Filtra por `tiene_plan_medios = true` para cuadrar con el agregado
+ * de la card. Agrega por cliente y ordena de mayor a menor.
+ */
+export async function getMediosDetalleByEvento(
+  eventoId: string,
+): Promise<IngresoDetalleRow[]> {
+  const rows = await db
+    .select({
+      cliente: mediosIngresos.cliente,
+      monto: sql<number>`COALESCE(SUM(${mediosIngresos.montoNeto}), 0)`.as("monto"),
+    })
+    .from(mediosIngresos)
+    .innerJoin(marcaClientes, eq(mediosIngresos.clienteId, marcaClientes.id))
+    .where(
+      and(
+        eq(mediosIngresos.eventoId, eventoId),
+        eq(marcaClientes.tienePlanMedios, true),
+      ),
+    )
+    .groupBy(mediosIngresos.cliente)
+    .orderBy(desc(sql`COALESCE(SUM(${mediosIngresos.montoNeto}), 0)`));
+  return rows.map((r) => ({ cliente: r.cliente, monto: Number(r.monto) || 0 }));
 }
 
 /** Mapa eventoId → suma de montos netos de medios (para el listado). */

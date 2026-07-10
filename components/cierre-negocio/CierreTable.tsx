@@ -115,7 +115,14 @@ export default function CierreTable({ rows }: { rows: NegocioRow[] }) {
     .filter((r) => estadocierre === "__all__" || String(r.estadocierre) === estadocierre);
 
   function goToInforme(id: string) {
-    router.push(`/cierre-negocio?id=${encodeURIComponent(id)}`);
+    const params = new URLSearchParams();
+    params.set("id", id);
+    // Guarda la URL del listado actual (incluye area + categoría/cliente/ejecutivo,
+    // ya que GrupoNav la sincroniza) para que "Volver al listado" regrese acá.
+    if (typeof window !== "undefined") {
+      params.set("from", window.location.pathname + window.location.search);
+    }
+    router.push(`/cierre-negocio?${params.toString()}`);
   }
 
   function rowKeyDown(e: KeyboardEvent<HTMLTableRowElement>, id: string) {

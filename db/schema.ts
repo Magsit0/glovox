@@ -167,10 +167,22 @@ export const comprasInsumo = pgTable(
       .defaultNow()
       .notNull(),
     updatedBy: uuid("updated_by"),
+    // Estandarización de insumos: liga la fila a un insumo del catálogo
+    // (`insumo_id`), conserva el nombre crudo del origen (`insumo_raw`), y guarda
+    // las cantidades canónicas (convertidas por `factor_aplicado` según la
+    // `unidad_factura`). `estandarizado` marca si la fila ya fue normalizada.
+    insumoId: uuid("insumo_id").references(() => insumosCatalogo.id),
+    insumoRaw: text("insumo_raw"),
+    recibidoCanonico: doublePrecision("recibido_canonico"),
+    pedidoCanonico: doublePrecision("pedido_canonico"),
+    unidadFactura: text("unidad_factura"),
+    factorAplicado: doublePrecision("factor_aplicado"),
+    estandarizado: boolean("estandarizado").notNull().default(false),
   },
   (t) => [
     index("compras_insumo_evento_idx").on(t.eventoId),
     index("compras_insumo_insumo_idx").on(t.insumo),
+    index("compras_insumo_estandarizado_idx").on(t.estandarizado),
   ],
 );
 
@@ -350,6 +362,24 @@ export const mesasVipIngresos = pgTable(
   (t) => [index("mesas_vip_ingresos_evento_idx").on(t.eventoId)],
 );
 
+// CIERRE NEGOCIO — % del cargo por servicio (Punto Ticket) que constituye
+// ingreso Glovox ("rebate"), editable por evento desde el cierre de negocio.
+// Default 55% cuando no hay fila (lib/constants/rebate.ts). `porcentaje` se
+// guarda en puntos porcentuales (55 = 55%). Keyed por EventoID (los primeros
+// 6 caracteres de la referencia del negocio, ej. "GLO194").
+export const rebateConfig = pgTable("rebate_config", {
+  eventoId: text("evento_id").primaryKey(),
+  porcentaje: doublePrecision("porcentaje").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  createdBy: uuid("created_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedBy: uuid("updated_by"),
+});
+
 // TICKETING — Planes de pricing (constructor del tab `/ticketing?tab=pricing`).
 // Reemplaza el armado manual en Excel ("Plan Ticketing Piknic"). MVP: modelo
 // DOCUMENTO — el plan completo (etapas, tipos de producto, sponsors+%, y la
@@ -403,6 +433,8 @@ export type MesasVipCliente = typeof mesasVipClientes.$inferSelect;
 export type NewMesasVipCliente = typeof mesasVipClientes.$inferInsert;
 export type MesasVipIngreso = typeof mesasVipIngresos.$inferSelect;
 export type NewMesasVipIngreso = typeof mesasVipIngresos.$inferInsert;
+export type RebateConfig = typeof rebateConfig.$inferSelect;
+export type NewRebateConfig = typeof rebateConfig.$inferInsert;
 // TICKETING — Catálogo de sponsors/marcas para el constructor de pricing.
 // Estandariza el NOMBRE de la marca (evita "ENTEL + BANCO" vs "Entel+Banco"):
 // el builder lo elige de acá en vez de tipearlo libre. El % de descuento y el
@@ -462,6 +494,27 @@ export const presupuestosEvento = pgTable(
 
 export type PresupuestoEvento = typeof presupuestosEvento.$inferSelect;
 export type NewPresupuestoEvento = typeof presupuestosEvento.$inferInsert;
+
+// AGENDA ADMIN — Tablero compartido de tareas por día (/admin/agenda). Herramienta
+// operativa interna del panel admin: una nota de texto libre por día calendario,
+// visible y editable por todos los superadmins (no hay scope por usuario). `fecha`
+// es la PK (YYYY-MM-DD) → upsert directo por día; `updatedBy` deja rastro de quién
+// editó al final. No alimenta ningún dashboard ni BigQuery.
+export const adminAgendaNotas = pgTable("admin_agenda_notas", {
+  fecha: date("fecha").primaryKey(),
+  contenido: text("contenido").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedBy: uuid("updated_by"),
+});
+
+export type AdminAgendaNota = typeof adminAgendaNotas.$inferSelect;
+export type NewAdminAgendaNota = typeof adminAgendaNotas.$inferInsert;
+
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Country = (typeof countryEnum.enumValues)[number];
 export type PendingStatus = (typeof pendingStatusEnum.enumValues)[number];

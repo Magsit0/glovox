@@ -29,6 +29,8 @@ export interface GrupoItem {
 }
 
 interface Props {
+  /** Área (produccion | btl) — para reflejar la selección en la URL. */
+  area: string;
   eyebrowBase: string;
   modes: GrupoMode[];
   items: GrupoItem[];
@@ -39,6 +41,7 @@ interface Props {
 const LAYOUT_TRANSITION = { layout: { duration: 0.35, ease: [0.4, 0, 0.2, 1] as const } };
 
 export default function GrupoNav({
+  area,
   eyebrowBase,
   modes,
   items,
@@ -63,9 +66,34 @@ export default function GrupoNav({
     ? items.filter((it) => it.keys[mode] === selected).map((it) => it.row)
     : [];
 
+  // Refleja el estado del selector en la URL SIN re-render (history.replaceState):
+  // conserva la animación y hace que el listado sea direccionable, para que
+  // "volver al listado" desde el detalle (vía ?from=…) y el refresh/atrás del
+  // browser aterricen en el mismo lugar donde estabas.
+  function syncUrl(nextMode: string, nextSelected: string | null) {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams();
+    params.set("area", area);
+    if (modes.length > 1) params.set("group", nextMode);
+    if (nextSelected) params.set(nextMode, nextSelected);
+    window.history.replaceState(null, "", `/cierre-negocio?${params.toString()}`);
+  }
+
+  function chooseGroup(key: string) {
+    const next = selected === key ? null : key;
+    setSelected(next);
+    syncUrl(mode, next);
+  }
+
+  function clearSelected() {
+    setSelected(null);
+    syncUrl(mode, null);
+  }
+
   function switchMode(next: string) {
     setMode(next);
     setSelected(null);
+    syncUrl(next, null);
   }
 
   return (
@@ -140,7 +168,7 @@ export default function GrupoNav({
               initial={{ opacity: 0, width: 0 }}
               animate={{ opacity: 1, width: "auto" }}
               exit={{ opacity: 0, width: 0 }}
-              onClick={() => setSelected(null)}
+              onClick={clearSelected}
               className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#333333] bg-white px-4 py-2 font-sans text-xs font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA]"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
@@ -158,7 +186,7 @@ export default function GrupoNav({
               type="button"
               layout
               transition={LAYOUT_TRANSITION}
-              onClick={() => setSelected(active ? null : g.key)}
+              onClick={() => chooseGroup(g.key)}
               style={
                 isOpen && active ? { backgroundColor: color, borderColor: color } : { borderColor: color }
               }

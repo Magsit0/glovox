@@ -38,6 +38,7 @@ export const AREA_COLOR: Record<Area, string> = {
   comunidad: "#87DACD",
   ffbb: "#EF8C34",
   email: "#F6C544",
+  ops: "#666666",
 };
 
 export const AREA_LABEL: Record<Area, string> = {
@@ -47,6 +48,7 @@ export const AREA_LABEL: Record<Area, string> = {
   comunidad: "Comunidad",
   ffbb: "FF&BB",
   email: "Email",
+  ops: "Infraestructura",
 };
 
 export const ALL_STATUSES: AssetStatus[] = [
@@ -63,6 +65,7 @@ export const ALL_AREAS: Area[] = [
   "comunidad",
   "ffbb",
   "email",
+  "ops",
 ];
 
 // Para tablas de frecuencia diaria: >48h sin cargar = desactualizada.

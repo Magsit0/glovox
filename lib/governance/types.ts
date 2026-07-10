@@ -12,7 +12,8 @@ export type Area =
   | "tickets"
   | "comunidad"
   | "ffbb"
-  | "email";
+  | "email"
+  | "ops";
 
 /**
  *  governed            pipeline versionado + tabla destino, EN USO por ≥1 dashboard.

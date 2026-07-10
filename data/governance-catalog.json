@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-07T19:45:59.301812+00:00",
+  "generatedAt": "2026-07-10T16:56:49.881681+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -161,6 +161,17 @@
         "Escrituras desde la app (sync de Sheets, seeds, builder de pricing)"
       ],
       "envVars": []
+    },
+    {
+      "id": "gcp_billing",
+      "label": "Google Cloud Billing",
+      "type": "gcp",
+      "area": "ops",
+      "endpoints": [
+        "Cloud Billing → export a BigQuery (Standard usage cost) + CSV histórico de Informes"
+      ],
+      "envVars": [],
+      "notes": "Cuenta 018FD7-287807-31AC34. El export nativo lo escribe GCP a diario (no hay pipeline Python); el histórico previo a encender el export entra por backfill CSV (no es retroactivo)."
     }
   ],
   "assets": [
@@ -4233,6 +4244,81 @@
       "notes": "Dominio FFBB sin migrar (Fase 3 del PLAN).",
       "metrics": [],
       "endpointLabel": "OnFire — recetas/fórmulas de tragos",
+      "fields": []
+    },
+    {
+      "key": "billing.gasto_mensual_seed",
+      "area": "ops",
+      "source": "gcp_billing",
+      "endpoint": "CSV de Facturación → Informes (backfill one-off)",
+      "pipeline": "backfills/billing/gcp_gasto_backfill.py",
+      "schema": "billing_gasto_mensual_seed",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "full_replace",
+      "frequency": "manual",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "marts.gcp_gasto_mensual"
+      ],
+      "notes": "Histórico de gasto GCP por (mes, servicio). El export nativo no es retroactivo, así que los meses previos a encenderlo viven solo acá (carga manual desde CSV). El export vivo entra directo a billing.gcp_billing_export_v1_* (lo escribe GCP).",
+      "metrics": [],
+      "endpointLabel": "CSV de Facturación → Informes (backfill one-off)",
+      "fields": [
+        {
+          "name": "mes",
+          "type": "DATE",
+          "mode": "REQUIRED",
+          "description": "Primer día del mes al que corresponde el gasto (clave de agregación)"
+        },
+        {
+          "name": "servicio",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Servicio de Google Cloud (ej: Compute Engine, BigQuery, Cloud Run)"
+        },
+        {
+          "name": "costo",
+          "type": "NUMERIC",
+          "mode": "NULLABLE",
+          "description": "Costo neto del mes para ese servicio, en la moneda de `moneda` (incluye créditos/descuentos)"
+        },
+        {
+          "name": "moneda",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Código ISO de la moneda de facturación (ej: CLP, USD)"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga del registro (backfill CSV)"
+        }
+      ]
+    },
+    {
+      "key": "marts.gcp_gasto_mensual",
+      "area": "ops",
+      "source": "gcp_billing",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_gcp_gasto_mensual.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "billing.gasto_mensual_seed"
+      ],
+      "consumers": [
+        "/admin/cloud"
+      ],
+      "notes": "Contrato estable del gasto de Google Cloud por (mes, servicio) que consume /admin/cloud. v1 lee solo el seed histórico; cutover a UNION con el export vivo (gcp_billing_export_v1_*) documentado en el .sql cuando el export acumule ≥1 mes completo.",
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
       "fields": []
     }
   ]
