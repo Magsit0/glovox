@@ -28,8 +28,9 @@ import VentasSection from "@/components/cierre-negocio/VentasSection";
 import DownloadPdfButton from "@/components/cierre-negocio/DownloadPdfButton";
 import CierreTable from "@/components/cierre-negocio/CierreTable";
 import GrupoNav from "@/components/cierre-negocio/GrupoNav";
+import CierreEdgeNav, { type EdgeNeighbor } from "@/components/cierre-negocio/CierreEdgeNav";
 import MontoModeToggle from "@/components/MontoModeToggle";
-import { montoModeFrom } from "@/components/montoMode";
+import { montoModeFrom, type MontoMode } from "@/components/montoMode";
 
 export const dynamic = "force-dynamic";
 
@@ -201,6 +202,108 @@ function optionsForArea(
   return options.filter((o) => areaBucketOf(o.area_negocio) === bucket);
 }
 
+// Modo de agrupación (cliente | ejecutivo) para BTL/Corporativos, resuelto
+// IGUAL que el listado (ver initialMode): ?group= si es válido; si no, la sola
+// presencia de ?ejecutivo= fuerza "ejecutivo"; por defecto "cliente".
+function groupModeFromUrl(from: string | undefined): GroupBy {
+  if (!from) return "cliente";
+  const q = from.indexOf("?");
+  const params = q >= 0 ? new URLSearchParams(from.slice(q + 1)) : null;
+  const g = params?.get("group") ?? undefined;
+  if (isGroupBy(g)) return g;
+  if (params?.get("ejecutivo")) return "ejecutivo";
+  return "cliente";
+}
+
+// Universo navegable = el mismo que el selector (getNegocioOptions): excluye
+// cotizaciones, NV nulas y el área interna glovox. Sin esto, prev/next podría
+// aterrizar en un negocio inválido que renderiza un detalle degradado sin
+// cabecera (getNegocioDetail deja negocio=null para esos).
+// Mirror EXACTO del WHERE de getNegocioOptions: `LOWER(col) <> 'x'`. En SQL eso
+// excluye NULL (LOWER(NULL) es NULL → falsy) pero MANTIENE '' y valores con
+// espacios (no trimea). Replicarlo al pie evita que el edge-nav y el selector
+// discrepen (ni de más ni de menos).
+function excluidoPor(value: string | null | undefined, excl: string): boolean {
+  if (value == null) return true; // NULL → fuera, como en SQL
+  return value.toLowerCase() === excl;
+}
+
+function esNegocioSeleccionable(r: NegocioRow): boolean {
+  return (
+    !excluidoPor(r.estado, "cotizacion") &&
+    !excluidoPor(r.estadonv, "nulo") &&
+    !excluidoPor(r.area_negocio, "glovox")
+  );
+}
+
+// URL de un negocio vecino, preservando el modo de montos y el `from` (para que
+// el vecino conserve el mismo contexto de área/categoría y sus propios vecinos).
+function neighborHref(neighborId: string, monto: MontoMode, from: string | undefined): string {
+  const params = new URLSearchParams();
+  params.set("id", neighborId);
+  if (monto === "bruto") params.set("monto", monto);
+  if (from) params.set("from", from);
+  return `/cierre-negocio?${params.toString()}`;
+}
+
+// Negocio anterior/siguiente DENTRO de la misma categoría (el mismo agrupamiento
+// que usó el listado), ordenado por id ascendente. La categoría se recalcula del
+// negocio actual (no del `from`) para ser robusta; sólo el modo cliente/ejecutivo
+// de BTL se toma del `from`. Falla-suave: si algo no está, devuelve sin vecinos.
+async function computeNeighbors(args: {
+  id: string;
+  from: string | undefined;
+  monto: MontoMode;
+  areaBucket: AreaKey | null;
+}): Promise<{ prev: EdgeNeighbor | null; next: EdgeNeighbor | null }> {
+  const { id, from, monto, areaBucket } = args;
+  const none = { prev: null, next: null };
+  if (!areaBucket) return none;
+
+  const all = await getAllNegociosAdmin();
+  const current = all.find((r) => String(r.id) === String(id));
+  if (!current) return none;
+
+  const areaRows = all
+    .filter((r) => areaBucketOf(r.area_negocio) === areaBucket)
+    .filter(esNegocioSeleccionable);
+
+  let peers: NegocioRow[];
+  if (areaBucket === "produccion") {
+    const catMap = await getCategoriaEventoMap();
+    const cat = categoriaDeNegocio(current, catMap);
+    peers = areaRows.filter((r) => categoriaDeNegocio(r, catMap) === cat);
+  } else if (areaBucket === "btl" || areaBucket === "corporativos") {
+    const mode = groupModeFromUrl(from);
+    const keyOf =
+      mode === "ejecutivo"
+        ? (r: NegocioRow) => ejecutivoKey(r.ejecutivo)
+        : (r: NegocioRow) => clienteKey(r.rut_cliente);
+    const key = keyOf(current);
+    peers = areaRows.filter((r) => keyOf(r) === key);
+  } else {
+    peers = areaRows; // "otros": sin subcategoría, toda el área.
+  }
+
+  // DESC (id mayor primero) para calzar con el listado y el selector, que
+  // ordenan `ORDER BY negocio_id DESC`. Así "anterior" (idx-1) es la fila de
+  // ARRIBA (id mayor) y "siguiente" (idx+1) la de ABAJO, como se ve en la tabla.
+  peers.sort((a, b) => Number(b.id) - Number(a.id));
+  const idx = peers.findIndex((r) => String(r.id) === String(id));
+  if (idx < 0) return none;
+
+  const toNeighbor = (r: NegocioRow): EdgeNeighbor => ({
+    id: String(r.id),
+    nombre: (r.referencia ?? "").trim() || `Negocio ${r.id}`,
+    href: neighborHref(String(r.id), monto, from),
+  });
+
+  return {
+    prev: idx > 0 ? toNeighbor(peers[idx - 1]) : null,
+    next: idx < peers.length - 1 ? toNeighbor(peers[idx + 1]) : null,
+  };
+}
+
 export default async function CierreNegocioPage({ searchParams }: PageProps) {
   const session = await auth();
   if (!session?.user?.email) redirect("/login");
@@ -351,6 +454,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
           options={optionsForArea(options, areaFromUrl(from))}
           selectedId={id}
           from={from}
+          monto={monto}
         />
         <ErrorView message={errorMessage(err)} />
       </Shell>
@@ -364,6 +468,17 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
     (detail.negocio ? areaBucketOf(detail.negocio.area_negocio) : null);
   const selectorOptions = optionsForArea(options, selectorBucket);
 
+  // Navegación anterior/siguiente por los bordes (falla-suave: sin flechas).
+  let neighbors: { prev: EdgeNeighbor | null; next: EdgeNeighbor | null } = {
+    prev: null,
+    next: null,
+  };
+  try {
+    neighbors = await computeNeighbors({ id, from, monto, areaBucket: selectorBucket });
+  } catch {
+    // Sin vecinos si el universo de negocios no está disponible.
+  }
+
   if (
     detail.items.length === 0 &&
     detail.gastos.length === 0 &&
@@ -371,8 +486,9 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
   ) {
     return (
       <Shell>
+        <CierreEdgeNav prev={neighbors.prev} next={neighbors.next} />
         <DetailHeading backHref={backToListado} />
-        <SelectorRow options={selectorOptions} selectedId={id} from={from} />
+        <SelectorRow options={selectorOptions} selectedId={id} from={from} monto={monto} />
         <section className="rounded-lg border border-[#E5E5E5] bg-white p-8 text-center">
           <p className="font-display text-lg font-bold text-[#333333]">
             Sin información disponible
@@ -404,8 +520,9 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
 
   return (
     <Shell>
+      <CierreEdgeNav prev={neighbors.prev} next={neighbors.next} />
       <DetailHeading backHref={backToListado} />
-      <SelectorRow options={selectorOptions} selectedId={id} from={from} />
+      <SelectorRow options={selectorOptions} selectedId={id} from={from} monto={monto} />
       <div className="flex justify-end" data-no-print="true">
         <DownloadPdfButton filename={pdfFilename} />
       </div>
@@ -428,7 +545,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
         />
       )}
       <UnabaseHeading />
-      <ResumenKpis resumen={detail.resumen} />
+      <ResumenKpis resumen={detail.resumen} tieneInputsExternos={!!detail.evento} />
       <section data-pdf-section data-pdf-break-before="true" className="flex flex-col gap-6">
         <VentasSection agg={agg} ventas={detail.ventas} />
       </section>
@@ -642,16 +759,18 @@ function SelectorRow({
   options,
   selectedId,
   from,
+  monto,
 }: {
   options: Awaited<ReturnType<typeof getNegocioOptions>>;
   selectedId: string;
   from?: string;
+  monto: MontoMode;
 }) {
   return (
     <section className="flex flex-col gap-3" data-no-print="true">
       <p className="font-sans text-xs text-[#666666]">Negocio</p>
       <div className="max-w-xl">
-        <NegocioSelector options={options} selectedId={selectedId} from={from} />
+        <NegocioSelector options={options} selectedId={selectedId} from={from} monto={monto} />
       </div>
     </section>
   );

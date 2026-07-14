@@ -495,13 +495,29 @@ export const presupuestosEvento = pgTable(
 export type PresupuestoEvento = typeof presupuestosEvento.$inferSelect;
 export type NewPresupuestoEvento = typeof presupuestosEvento.$inferInsert;
 
+// Un ítem de la agenda: texto + id estable (para reordenar con drag & drop) +
+// `done` (marcado como listo/ok). El ORDEN en el array `items` ES la prioridad
+// del día.
+export interface AgendaItem {
+  id: string;
+  texto: string;
+  done?: boolean;
+}
+
 // AGENDA ADMIN — Tablero compartido de tareas por día (/admin/agenda). Herramienta
-// operativa interna del panel admin: una nota de texto libre por día calendario,
-// visible y editable por todos los superadmins (no hay scope por usuario). `fecha`
-// es la PK (YYYY-MM-DD) → upsert directo por día; `updatedBy` deja rastro de quién
-// editó al final. No alimenta ningún dashboard ni BigQuery.
+// operativa interna del panel admin: cada día tiene una lista ordenada de ítems
+// (`items` jsonb), reordenables por prioridad. Visible y editable por todos los
+// superadmins (no hay scope por usuario). `fecha` es la PK (YYYY-MM-DD) → upsert
+// directo por día; `updatedBy` deja rastro de quién editó al final. No alimenta
+// ningún dashboard ni BigQuery.
 export const adminAgendaNotas = pgTable("admin_agenda_notas", {
   fecha: date("fecha").primaryKey(),
+  items: jsonb("items").$type<AgendaItem[]>().notNull().default([]),
+  // DEPRECATED (agenda v1, texto libre). El código ya NO la lee ni escribe: se
+  // migró a `items` en la migración de backfill. Se mantiene UNA release más
+  // (expand/contract) para no romper instancias v1 en vuelo durante el rollout,
+  // que sí la consultan. Se elimina con un `DROP COLUMN` en un release POSTERIOR,
+  // una vez que el refactor esté 100% desplegado. Ver db/migrations/AGENDA_*_NOTES.md.
   contenido: text("contenido").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()

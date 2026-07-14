@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
-import { adminAgendaNotas } from "@/db/schema";
+import { adminAgendaNotas, type AgendaItem } from "@/db/schema";
+import { withNeonRetry } from "@/lib/neon-retry";
 
 export type ActionResult<T = void> =
   | { ok: true; data?: T }
@@ -30,15 +31,40 @@ async function requireAgendaAccess(): Promise<ActorCtx> {
 }
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
-const MAX_LEN = 10_000;
+const MAX_ITEMS = 200;
+const MAX_TEXTO = 2000;
 
 /**
- * Upsert de la nota de un día. Tablero compartido: 1 fila por `fecha` (la PK),
- * last-write-wins. Deja rastro del último editor en `updatedBy`.
+ * Saneo defensivo de la lista (viene del cliente, invocable por POST directo):
+ * fuerza el shape {id, texto}, recorta largos, descarta ids duplicados y
+ * preserva el ORDEN recibido (= prioridad).
  */
-export async function saveAgendaNotaAction(
+function sanitizeItems(raw: unknown): AgendaItem[] | null {
+  if (!Array.isArray(raw)) return null;
+  const out: AgendaItem[] = [];
+  const vistos = new Set<string>();
+  for (const it of raw.slice(0, MAX_ITEMS)) {
+    if (!it || typeof it !== "object") return null;
+    const id = (it as { id?: unknown }).id;
+    const texto = (it as { texto?: unknown }).texto;
+    if (typeof id !== "string" || !id) return null;
+    if (typeof texto !== "string") return null;
+    if (vistos.has(id)) continue;
+    vistos.add(id);
+    const clean: AgendaItem = { id, texto: texto.slice(0, MAX_TEXTO) };
+    if ((it as { done?: unknown }).done === true) clean.done = true;
+    out.push(clean);
+  }
+  return out;
+}
+
+/**
+ * Reemplaza la lista completa de ítems de un día (tablero compartido: 1 fila por
+ * `fecha`, last-write-wins). El orden del array persiste tal cual.
+ */
+export async function saveAgendaItemsAction(
   fecha: string,
-  contenido: string,
+  items: AgendaItem[],
 ): Promise<ActionResult> {
   let ctx: ActorCtx;
   try {
@@ -49,23 +75,25 @@ export async function saveAgendaNotaAction(
   if (typeof fecha !== "string" || !FECHA_RE.test(fecha)) {
     return { ok: false, error: "Fecha inválida" };
   }
-  if (typeof contenido !== "string") {
-    return { ok: false, error: "Contenido inválido" };
+  const clean = sanitizeItems(items);
+  if (clean === null) {
+    return { ok: false, error: "Lista de tareas inválida" };
   }
-  const texto = contenido.slice(0, MAX_LEN);
   try {
-    await db
-      .insert(adminAgendaNotas)
-      .values({
-        fecha,
-        contenido: texto,
-        updatedBy: ctx.userId,
-        updatedAt: new Date(),
-      })
-      .onConflictDoUpdate({
-        target: adminAgendaNotas.fecha,
-        set: { contenido: texto, updatedBy: ctx.userId, updatedAt: new Date() },
-      });
+    await withNeonRetry(() =>
+      db
+        .insert(adminAgendaNotas)
+        .values({
+          fecha,
+          items: clean,
+          updatedBy: ctx.userId,
+          updatedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: adminAgendaNotas.fecha,
+          set: { items: clean, updatedBy: ctx.userId, updatedAt: new Date() },
+        }),
+    );
     revalidatePath("/admin/agenda");
     return { ok: true };
   } catch (err) {

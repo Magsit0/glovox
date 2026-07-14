@@ -4,12 +4,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, ChevronDown, Search } from "lucide-react";
 import type { NegocioOption } from "@/lib/unabase/types";
+import type { MontoMode } from "@/components/montoMode";
 
 interface Props {
   options: NegocioOption[];
   selectedId?: string;
   /** URL del listado de origen — se preserva al cambiar de negocio. */
   from?: string;
+  /** Modo de montos — se preserva al cambiar de negocio (default neto). */
+  monto?: MontoMode;
 }
 
 function asStr(value: unknown): string {
@@ -27,7 +30,7 @@ function matches(option: NegocioOption, query: string): boolean {
   );
 }
 
-export default function NegocioSelector({ options, selectedId, from }: Props) {
+export default function NegocioSelector({ options, selectedId, from, monto }: Props) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -71,6 +74,7 @@ export default function NegocioSelector({ options, selectedId, from }: Props) {
     setQuery("");
     const params = new URLSearchParams();
     params.set("id", id);
+    if (monto === "bruto") params.set("monto", monto);
     if (from) params.set("from", from);
     router.push(`/cierre-negocio?${params.toString()}`);
   }

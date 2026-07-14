@@ -1,0 +1,1 @@
+ALTER TABLE "admin_agenda_notas" ADD COLUMN "items" jsonb DEFAULT '[]'::jsonb NOT NULL;

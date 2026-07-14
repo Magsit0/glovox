@@ -1,7 +1,7 @@
 import { and, gte, lte } from "drizzle-orm";
 import { requireSuperadmin } from "@/lib/access";
 import { db } from "@/db";
-import { adminAgendaNotas } from "@/db/schema";
+import { adminAgendaNotas, type AgendaItem } from "@/db/schema";
 import AgendaBoard from "./_components/AgendaBoard";
 
 export const dynamic = "force-dynamic";
@@ -57,13 +57,13 @@ export default async function AdminAgendaPage({ searchParams }: PageProps) {
   }
 
   // Sólo el fetch va en el try/catch; el JSX se arma afuera (regla de Next).
-  let notas: { fecha: string; contenido: string }[] = [];
+  let notas: { fecha: string; items: AgendaItem[] }[] = [];
   let errorMsg: string | null = null;
   try {
     notas = await db
       .select({
         fecha: adminAgendaNotas.fecha,
-        contenido: adminAgendaNotas.contenido,
+        items: adminAgendaNotas.items,
       })
       .from(adminAgendaNotas)
       .where(
@@ -76,10 +76,10 @@ export default async function AdminAgendaPage({ searchParams }: PageProps) {
     errorMsg = err instanceof Error ? err.message : "No se pudo cargar la agenda.";
   }
 
-  const porFecha = new Map(notas.map((n) => [n.fecha, n.contenido]));
+  const porFecha = new Map(notas.map((n) => [n.fecha, n.items]));
   const diasView = fechas.map((fecha) => ({
     fecha,
-    contenido: porFecha.get(fecha) ?? "",
+    items: porFecha.get(fecha) ?? [],
     esHoy: fecha === hoy,
   }));
 

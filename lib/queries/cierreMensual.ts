@@ -214,9 +214,19 @@ export async function getNegociosRows(
   return { rows: clean, cached: false, cacheAgeSeconds: 0 };
 }
 
+// Cache de proceso (mismo TTL que getNegociosRows). El listado ya llamaba esto
+// fresco en cada request; ahora también lo consume el detalle para calcular el
+// negocio anterior/siguiente dentro de la categoría, así que cachear evita un
+// full-scan por cada informe abierto.
+let allNegociosCache: { data: NegocioRow[]; timestamp: number } | null = null;
+
 export async function getAllNegociosAdmin(
   { timeoutMs = 30_000 }: { timeoutMs?: number } = {},
 ): Promise<NegocioRow[]> {
+  const now = Date.now();
+  if (allNegociosCache && now - allNegociosCache.timestamp < NEGOCIOS_CACHE_TTL_MS) {
+    return allNegociosCache.data;
+  }
   const sql = `${NEGOCIOS_SELECT} ORDER BY negocio_id DESC`;
   const queryPromise = query<Record<string, unknown>>(sql);
   const timeoutPromise = new Promise<never>((_, reject) =>
@@ -226,5 +236,7 @@ export async function getAllNegociosAdmin(
     ),
   );
   const rawRows = await Promise.race([queryPromise, timeoutPromise]);
-  return rawRows.map((row) => serializeRow(row) as unknown as NegocioRow);
+  const clean = rawRows.map((row) => serializeRow(row) as unknown as NegocioRow);
+  allNegociosCache = { data: clean, timestamp: Date.now() };
+  return clean;
 }

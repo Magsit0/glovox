@@ -7,6 +7,8 @@ import { compactCurrency, formatCurrency } from "@/lib/unabase/formatting";
 
 interface Props {
   resumen: NegocioResumenRow | null;
+  /** true solo para "producción de eventos propios" — únicas áreas con sección Inputs Externos. */
+  tieneInputsExternos: boolean;
 }
 
 // Base de cálculo del bloque "Admin y Finanzas: Unabase". Estado local al
@@ -30,6 +32,10 @@ interface Kpi {
   showBadge?: boolean;
   /** Nota sutil en verde — ej. qué otra cifra del dashboard debería calzar con esta. */
   hint?: string;
+  /** 4ª card: muestra el toggle Utilidad ($) / Margen bruto (%) en su cabecera. */
+  hasMargenToggle?: boolean;
+  /** Fórmula del cálculo, en un chip debajo del valor (ej. cómo se arma el margen). */
+  formula?: string;
 }
 
 const dotColor: Record<Tone, string> = {
@@ -54,7 +60,24 @@ const MODE_OPTIONS: { value: Mode; label: string; title: string }[] = [
 
 const MODE_LABEL: Record<Mode, string> = { neto: "Neto", bruto: "Bruto", impuestos: "Impuestos" };
 
-function buildKpis(resumen: NegocioResumenRow | null, mode: Mode): Kpi[] {
+// 4ª card: alterna entre el monto de utilidad ($) y el margen bruto (%).
+type MargenView = "utilidad" | "margen";
+
+const MARGEN_VIEW_OPTIONS: { value: MargenView; label: string; title: string }[] = [
+  { value: "utilidad", label: "$", title: "Utilidad (venta − gasto)" },
+  { value: "margen", label: "%", title: "Margen bruto (utilidad ÷ venta)" },
+];
+
+function pct(ratio: number): string {
+  return `${(ratio * 100).toFixed(1)}%`;
+}
+
+function buildKpis(
+  resumen: NegocioResumenRow | null,
+  mode: Mode,
+  tieneInputsExternos: boolean,
+  margenView: MargenView,
+): Kpi[] {
   // Venta neta: par maestro venta_neta/venta_bruta (total_neto/total_nv de
   // Unabase) — total de la Nota de Venta. A diferencia de las otras 2 cards,
   // el par neto/bruto ya viene limpio del maestro (no depende del rollup
@@ -80,32 +103,39 @@ function buildKpis(resumen: NegocioResumenRow | null, mode: Mode): Kpi[] {
     value: ventaNetaKpiValue,
     caption: ventaNetaCaption,
     showBadge: true,
-    // Solo en Neto: el Total ingresos de Inputs Externos también es neto, así
-    // que ahí es donde la comparación tiene sentido (en Bruto/Impuestos no).
-    hint: mode === "neto" ? "Este número debe calzar con el total de INPUTS EXTERNOS" : undefined,
+    // Solo en Neto y solo si el negocio tiene sección Inputs Externos (áreas
+    // fuera de "producción de eventos propios" no la tienen, nada que calzar).
+    hint:
+      mode === "neto" && tieneInputsExternos
+        ? "Este número debe calzar con el total de INPUTS EXTERNOS"
+        : undefined,
   };
 
   const docsVenta = resumen?.docsVentaResumen ?? 0;
+  // Base coherente: el neto es el maestro (ventaFacturada) y el bruto se arma
+  // SUMÁNDOLE el IVA documentado (bruto = neto + IVA), no saltando a la cifra
+  // documentada. Así el bruto nunca queda por debajo del neto y neto+IVA=bruto.
+  const vFact = resumen?.ventaFacturada ?? null;
+  const vIva = resumen?.ventaIvaDocumentada ?? null;
   let ventaValue = "—";
   let ventaSubLines: string[] | undefined;
   if (mode === "neto") {
-    ventaValue = resumen?.ventaFacturada != null ? compactCurrency(resumen.ventaFacturada) : "—";
+    ventaValue = vFact != null ? compactCurrency(vFact) : "—";
     ventaSubLines =
       resumen?.ventaNetaDocumentada != null
         ? [`Documentado ${compactCurrency(resumen.ventaNetaDocumentada)} · ${docsVenta} docs`]
         : undefined;
   } else if (mode === "bruto") {
-    ventaValue =
-      resumen?.ventaBrutaDocumentada != null ? compactCurrency(resumen.ventaBrutaDocumentada) : "—";
+    ventaValue = vFact != null && vIva != null ? compactCurrency(vFact + vIva) : "—";
     ventaSubLines =
-      resumen?.ventaFacturada != null
-        ? [`Facturado (neto, maestro) ${compactCurrency(resumen.ventaFacturada)} · ${docsVenta} docs`]
+      vFact != null && vIva != null
+        ? [`Neto ${compactCurrency(vFact)} + IVA ${compactCurrency(vIva)}`]
         : undefined;
   } else {
-    ventaValue = resumen?.ventaIvaDocumentada != null ? compactCurrency(resumen.ventaIvaDocumentada) : "—";
+    ventaValue = vIva != null ? compactCurrency(vIva) : "—";
     ventaSubLines =
-      resumen?.ventaNetaDocumentada != null
-        ? [`IVA sobre ${compactCurrency(resumen.ventaNetaDocumentada)} neto · ${docsVenta} docs`]
+      vFact != null && vIva != null
+        ? [`Neto ${compactCurrency(vFact)} · Bruto ${compactCurrency(vFact + vIva)}`]
         : undefined;
   }
   const ventaFacturadaKpi: Kpi = {
@@ -117,32 +147,37 @@ function buildKpis(resumen: NegocioResumenRow | null, mode: Mode): Kpi[] {
   };
 
   const lineasGasto = resumen?.lineasGasto ?? 0;
+  // Mismo criterio que Venta: neto = maestro (gastoReal); impuestos = delta
+  // documentado (bruto_doc − neto_doc = IVA + otros + retención); bruto = neto +
+  // impuestos. Coherente: bruto ≥ neto y neto + impuestos = bruto.
+  const gReal = resumen?.gastoReal ?? null;
+  const gNetoDoc = resumen?.gastoNetoDocumentado ?? null;
+  const gBrutoDoc = resumen?.gastoBrutoDocumentado ?? null;
+  const gImpuestos = gNetoDoc != null && gBrutoDoc != null ? gBrutoDoc - gNetoDoc : null;
   let gastoValue = "—";
   let gastoSubLines: string[] | undefined;
   if (mode === "neto") {
-    gastoValue = resumen?.gastoReal != null ? compactCurrency(resumen.gastoReal) : "—";
+    gastoValue = gReal != null ? compactCurrency(gReal) : "—";
     gastoSubLines =
-      resumen?.gastoNetoDocumentado != null
-        ? [`Documentado ${compactCurrency(resumen.gastoNetoDocumentado)} · ${lineasGasto} líneas`]
+      gNetoDoc != null
+        ? [`Documentado ${compactCurrency(gNetoDoc)} · ${lineasGasto} líneas`]
         : undefined;
   } else if (mode === "bruto") {
-    gastoValue =
-      resumen?.gastoBrutoDocumentado != null ? compactCurrency(resumen.gastoBrutoDocumentado) : "—";
+    gastoValue = gReal != null && gImpuestos != null ? compactCurrency(gReal + gImpuestos) : "—";
     gastoSubLines =
-      resumen?.gastoReal != null
-        ? [`Real (neto, maestro) ${compactCurrency(resumen.gastoReal)} · ${lineasGasto} líneas`]
+      gReal != null && gImpuestos != null
+        ? [`Neto ${compactCurrency(gReal)} + impuestos ${compactCurrency(gImpuestos)}`]
         : undefined;
   } else {
-    const iva = resumen?.gastoIvaDocumentado ?? null;
-    const otros = resumen?.gastoOtrosImpuestosDocumentado ?? null;
-    const retencion = resumen?.gastoRetencionHonorariosDocumentado ?? null;
-    gastoValue =
-      iva == null && otros == null && retencion == null
-        ? "—"
-        : compactCurrency((iva ?? 0) + (otros ?? 0) + (retencion ?? 0));
-    gastoSubLines = [
-      `IVA ${compactCurrency(iva ?? 0)} · Otros ${compactCurrency(otros ?? 0)} · Retención ${compactCurrency(retencion ?? 0)}`,
-    ];
+    gastoValue = gImpuestos != null ? compactCurrency(gImpuestos) : "—";
+    gastoSubLines =
+      gImpuestos != null
+        ? [
+            `IVA ${compactCurrency(resumen?.gastoIvaDocumentado ?? 0)} · Otros ${compactCurrency(
+              resumen?.gastoOtrosImpuestosDocumentado ?? 0,
+            )} · Retención ${compactCurrency(resumen?.gastoRetencionHonorariosDocumentado ?? 0)}`,
+          ]
+        : undefined;
   }
   const gastoRealKpi: Kpi = {
     label: "Gasto real",
@@ -152,63 +187,53 @@ function buildKpis(resumen: NegocioResumenRow | null, mode: Mode): Kpi[] {
     showBadge: true,
   };
 
-  // En impuestos, el margen deja de ser un margen: pasa a ser la posición neta
-  // de IVA (débito de venta − crédito de gasto) — por eso cambia también el label.
-  let margenLabel = "Margen real facturado";
-  let margenValue = "—";
-  let margenCaption: string | undefined;
-  let margenTone: Tone | undefined;
-  let margenSubLines: string[] | undefined;
-  if (mode === "neto") {
-    margenValue = resumen?.utilidadReal != null ? compactCurrency(resumen.utilidadReal) : "—";
-    margenCaption =
-      resumen?.utilidadFinal != null ? `Utilidad final ${compactCurrency(resumen.utilidadFinal)}` : undefined;
-    margenTone = resumen?.utilidadReal != null ? marginTone(resumen.utilidadReal) : undefined;
-    const margenDocNeto =
-      resumen?.ventaNetaDocumentada != null && resumen?.gastoNetoDocumentado != null
-        ? resumen.ventaNetaDocumentada - resumen.gastoNetoDocumentado
-        : null;
-    margenSubLines = margenDocNeto != null ? [`Margen documentado ${compactCurrency(margenDocNeto)}`] : undefined;
-  } else if (mode === "bruto") {
-    const margenDocBruto =
-      resumen?.ventaBrutaDocumentada != null && resumen?.gastoBrutoDocumentado != null
-        ? resumen.ventaBrutaDocumentada - resumen.gastoBrutoDocumentado
-        : null;
-    margenValue = margenDocBruto != null ? compactCurrency(margenDocBruto) : "—";
-    margenCaption =
-      resumen?.utilidadReal != null
-        ? `Utilidad real (neto, maestro) ${compactCurrency(resumen.utilidadReal)}`
-        : undefined;
-    margenTone = margenDocBruto != null ? marginTone(margenDocBruto) : undefined;
-    margenSubLines =
-      resumen?.utilidadFinal != null ? [`Utilidad final ${compactCurrency(resumen.utilidadFinal)}`] : undefined;
-  } else {
-    margenLabel = "IVA neto a pagar";
-    const ivaNeto =
-      resumen?.ventaIvaDocumentada != null && resumen?.gastoIvaDocumentado != null
-        ? resumen.ventaIvaDocumentada - resumen.gastoIvaDocumentado
-        : null;
-    margenValue = ivaNeto != null ? compactCurrency(ivaNeto) : "—";
-    margenCaption = "Débito de venta − crédito de gasto";
-    const otrosGasto =
-      (resumen?.gastoOtrosImpuestosDocumentado ?? 0) + (resumen?.gastoRetencionHonorariosDocumentado ?? 0);
-    margenSubLines = [`Otros impuestos y retención de gasto ${compactCurrency(otrosGasto)}`];
-  }
-  const margenKpi: Kpi = {
-    label: margenLabel,
-    value: margenValue,
-    caption: margenCaption,
-    deltaTone: margenTone,
-    subLines: margenSubLines,
-    showBadge: true,
-  };
+  // 4ª card — INDEPENDIENTE del switch Neto/Bruto/Impuestos (decisión del usuario):
+  // solo alterna entre Utilidad ($) y Margen bruto (%). Usa las cifras reales del
+  // maestro (netas): venta_facturada − gasto_real, los mismos montos de las cards
+  // 2 y 3, así se puede verificar a ojo que card2 − card3 = esta utilidad.
+  const ventaReal = resumen?.ventaFacturada ?? null;
+  const gastoRealVal = resumen?.gastoReal ?? null;
+  const utilidad = ventaReal != null && gastoRealVal != null ? ventaReal - gastoRealVal : null;
+  const margenRatio =
+    utilidad != null && ventaReal != null && ventaReal !== 0 ? utilidad / ventaReal : null;
+  const utilidadTone: Tone | undefined = utilidad != null ? marginTone(utilidad) : undefined;
+  const ventaGastoLine =
+    ventaReal != null && gastoRealVal != null
+      ? `Venta fact. ${compactCurrency(ventaReal)} − Gasto ${compactCurrency(gastoRealVal)}`
+      : undefined;
+
+  const margenKpi: Kpi =
+    margenView === "utilidad"
+      ? {
+          label: "Utilidad real facturada",
+          value: utilidad != null ? compactCurrency(utilidad) : "—",
+          caption: margenRatio != null ? `Margen bruto ${pct(margenRatio)}` : undefined,
+          deltaTone: utilidadTone,
+          subLines: [
+            ventaGastoLine,
+            resumen?.utilidadFinal != null
+              ? `Utilidad final ${compactCurrency(resumen.utilidadFinal)}`
+              : undefined,
+          ].filter((l): l is string => Boolean(l)),
+          hasMargenToggle: true,
+        }
+      : {
+          label: "Margen bruto",
+          value: margenRatio != null ? pct(margenRatio) : "—",
+          caption: utilidad != null ? `Utilidad ${compactCurrency(utilidad)}` : undefined,
+          deltaTone: utilidadTone,
+          subLines: ventaGastoLine ? [ventaGastoLine] : undefined,
+          hasMargenToggle: true,
+          formula: margenRatio != null ? "Utilidad ÷ Venta facturada" : undefined,
+        };
 
   return [ventaNeta, ventaFacturadaKpi, gastoRealKpi, margenKpi];
 }
 
-export default function ResumenKpis({ resumen }: Props) {
+export default function ResumenKpis({ resumen, tieneInputsExternos }: Props) {
   const [mode, setMode] = useState<Mode>("neto");
-  const kpis = buildKpis(resumen, mode);
+  const [margenView, setMargenView] = useState<MargenView>("utilidad");
+  const kpis = buildKpis(resumen, mode, tieneInputsExternos, margenView);
 
   return (
     <section data-pdf-section className="flex flex-col gap-4">
@@ -254,19 +279,56 @@ export default function ResumenKpis({ resumen }: Props) {
         {kpis.map((k) => (
           <article
             key={k.label}
-            className="flex flex-col rounded-lg border border-[#E5E5E5] bg-white p-6"
+            // min-h fijo: la 4ª card cambia de alto al togglear $/% y el grid
+            // estira toda la fila a la más alta; con un piso común no hay salto.
+            // El label queda de header arriba y el bloque métrica se centra en el
+            // espacio restante, para que el aire se reparta parejo (no hueco abajo).
+            className="flex min-h-[220px] flex-col rounded-lg border border-[#E5E5E5] bg-white p-6"
           >
-            <div className="flex items-center gap-2">
-              <p className="font-sans text-xs text-[#666666]">{k.label}</p>
-              {k.showBadge && (
-                <span className="rounded-full bg-[#F0EFFE] px-1.5 py-0.5 font-sans text-[10px] font-medium uppercase tracking-wide text-[#9F99F8]">
-                  {MODE_LABEL[mode]}
-                </span>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <p className="font-sans text-xs text-[#666666]">{k.label}</p>
+                {k.showBadge && (
+                  <span className="rounded-full bg-[#F0EFFE] px-1.5 py-0.5 font-sans text-[10px] font-medium uppercase tracking-wide text-[#9F99F8]">
+                    {MODE_LABEL[mode]}
+                  </span>
+                )}
+              </div>
+              {k.hasMargenToggle && (
+                <div
+                  role="group"
+                  aria-label="Utilidad o margen bruto"
+                  data-no-print="true"
+                  className="inline-flex shrink-0 rounded-lg border border-[#E5E5E5] bg-white p-0.5"
+                >
+                  {MARGEN_VIEW_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      title={opt.title}
+                      aria-pressed={margenView === opt.value}
+                      onClick={() => setMargenView(opt.value)}
+                      className={`rounded-md px-2 py-0.5 font-sans text-[11px] font-medium transition-colors ${
+                        margenView === opt.value
+                          ? "bg-[#F0EFFE] text-[#9F99F8]"
+                          : "text-[#666666] hover:text-[#333333]"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
-            <p className="mt-2 font-display text-4xl font-bold leading-none tracking-tight text-[#333333]">
+            <div className="flex flex-1 flex-col justify-center">
+            <p className="font-display text-4xl font-bold leading-none tracking-tight text-[#333333]">
               {k.value}
             </p>
+            {k.formula && (
+              <span className="mt-2 inline-flex w-fit items-center rounded-md bg-[#FAFAFA] px-2 py-1 font-sans text-[11px] text-[#666666]">
+                {k.formula}
+              </span>
+            )}
             {k.caption && (
               <div className="mt-3 flex items-center gap-2">
                 {k.deltaTone && (
@@ -294,8 +356,9 @@ export default function ResumenKpis({ resumen }: Props) {
               </div>
             )}
             {k.hint && (
-              <p className="mt-2 font-sans text-[11px] text-[#7B9E24]">{k.hint}</p>
+              <p className="mt-2 font-sans text-[11px] text-[#B1D750]">{k.hint}</p>
             )}
+            </div>
           </article>
         ))}
       </div>
