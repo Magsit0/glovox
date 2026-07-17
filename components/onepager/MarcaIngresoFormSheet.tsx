@@ -104,7 +104,7 @@ export default function MarcaIngresoFormSheet({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             onClick={onClose}
-            className="fixed inset-0 z-40 bg-black/40"
+            className="fixed inset-0 z-40 bg-[#333333]/40"
           />
           <motion.div
             role="dialog"
@@ -116,11 +116,11 @@ export default function MarcaIngresoFormSheet({
             transition={{ duration: 0.2 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
           >
-            <div className="pointer-events-auto w-full max-w-lg bg-white border-4 border-black shadow-[8px_8px_0px_#000] rounded-none">
-              <header className="flex items-center justify-between gap-4 border-b-4 border-black px-6 py-4">
+            <div className="pointer-events-auto w-full max-w-lg bg-white border border-[#E5E5E5] shadow-md rounded-lg">
+              <header className="flex items-center justify-between gap-4 border-b border-[#E5E5E5] px-6 py-4">
                 <h2
                   id="marca-ingreso-title"
-                  className="font-display uppercase text-2xl leading-none text-black"
+                  className="font-display font-bold text-lg leading-none text-[#333333]"
                 >
                   Imputar ingreso
                 </h2>
@@ -128,7 +128,7 @@ export default function MarcaIngresoFormSheet({
                   type="button"
                   onClick={onClose}
                   aria-label="Cerrar"
-                  className="border-2 border-black p-1 hover:bg-[#FFFF00] cursor-pointer transition-colors"
+                  className="rounded-lg p-1 text-[#333333] hover:bg-[#F5F5F5] cursor-pointer transition-colors"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -136,7 +136,7 @@ export default function MarcaIngresoFormSheet({
 
               <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
                 <div className="space-y-1">
-                  <label className="font-mono-data uppercase text-[10px] text-black/70 block">
+                  <label className="font-sans text-xs text-[#666666] block">
                     Cliente
                   </label>
                   <ClienteCombobox
@@ -165,7 +165,7 @@ export default function MarcaIngresoFormSheet({
                 </div>
 
                 <div className="space-y-1">
-                  <label className="font-mono-data uppercase text-[10px] text-black/70 block">
+                  <label className="font-sans text-xs text-[#666666] block">
                     Monto neto (CLP)
                   </label>
                   <input
@@ -174,23 +174,23 @@ export default function MarcaIngresoFormSheet({
                     value={montoNetoStr}
                     onChange={(e) => setMontoNetoStr(e.target.value)}
                     placeholder="0"
-                    className="w-full font-mono-data text-sm px-3 py-2 border-2 border-black outline-none focus:bg-[#FFFF00]/30 tabular-nums"
+                    className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8] tabular-nums"
                   />
                 </div>
 
-                <div className="bg-black text-[#FFFF00] px-4 py-3 border-2 border-black">
+                <div className="bg-[#FAFAFA] border border-[#E5E5E5] rounded-lg px-4 py-3">
                   <div className="flex items-baseline justify-between gap-4">
-                    <span className="font-mono-data uppercase text-[10px]">
+                    <span className="font-sans text-xs text-[#666666]">
                       Monto + IVA (19%)
                     </span>
-                    <span className="font-display text-2xl leading-none tabular-nums">
+                    <span className="font-display font-bold text-2xl leading-none text-[#333333] tabular-nums">
                       {fmtClp(brutoNum)}
                     </span>
                   </div>
                 </div>
 
                 {error && (
-                  <p className="font-mono-data text-xs text-[#FF0000] border-2 border-[#FF0000] px-3 py-2">
+                  <p className="font-sans text-xs text-[#ED75A0] border border-[#ED75A0] rounded-lg px-3 py-2">
                     {error}
                   </p>
                 )}
@@ -200,14 +200,14 @@ export default function MarcaIngresoFormSheet({
                     type="button"
                     onClick={onClose}
                     disabled={pending}
-                    className="flex-1 font-display uppercase text-sm leading-none px-4 py-3 border-2 border-black bg-white hover:bg-[#FFFF00] cursor-pointer disabled:opacity-50 transition-colors"
+                    className="flex-1 rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] cursor-pointer disabled:opacity-50 transition-colors"
                   >
                     Cancelar
                   </button>
                   <button
                     type="submit"
                     disabled={pending || !clienteId || netoNum <= 0}
-                    className="flex-1 font-display uppercase text-sm leading-none px-4 py-3 border-2 border-black bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black cursor-pointer disabled:opacity-50 transition-colors"
+                    className="flex-1 rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer disabled:opacity-50 transition-colors"
                   >
                     {pending ? "Guardando…" : "Agregar"}
                   </button>

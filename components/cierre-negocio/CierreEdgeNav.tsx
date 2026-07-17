@@ -23,7 +23,7 @@ function EdgeButton({ side, neighbor }: { side: Side; neighbor: EdgeNeighbor }) 
       href={neighbor.href}
       aria-label={`${isLeft ? "Negocio anterior" : "Negocio siguiente"}: ${neighbor.nombre}`}
       data-no-print="true"
-      className={`group fixed top-1/2 z-20 flex -translate-y-1/2 items-center gap-2 rounded-lg border border-[#E5E5E5] bg-white p-3 shadow-sm transition-shadow duration-200 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[#9F99F8] ${
+      className={`group fixed top-1/2 z-20 flex -translate-y-1/2 items-center gap-2 rounded-lg border border-[#E5E5E5] bg-white p-3 opacity-40 shadow-sm transition-[opacity,box-shadow] duration-200 hover:opacity-100 hover:shadow-md focus-visible:opacity-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#9F99F8] ${
         isLeft ? "left-3 flex-row" : "right-3 flex-row-reverse text-right"
       }`}
     >

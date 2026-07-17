@@ -14,12 +14,12 @@ export function UserBar({
   }
 
   return (
-    <div className="absolute right-4 top-4 flex items-center gap-3 font-mono-data text-xs uppercase tracking-widest text-black">
+    <div className="absolute right-4 top-4 flex items-center gap-3 font-sans text-sm text-[#666666]">
       {email && <span className="hidden sm:inline">{email}</span>}
       {isSuperadmin ? (
         <Link
           href="/admin/users"
-          className="border-2 border-black bg-[#FFFF00] px-3 py-1.5 font-bold uppercase shadow-[2px_2px_0px_#000000] transition-colors hover:bg-black hover:text-[#FFFF00]"
+          className="rounded-lg bg-[#9F99F8] px-3 py-1.5 font-medium text-white transition-colors hover:bg-[#8780F0]"
         >
           Admin
         </Link>
@@ -27,7 +27,7 @@ export function UserBar({
       <form action={logout}>
         <button
           type="submit"
-          className="border-2 border-black bg-white px-3 py-1.5 font-bold uppercase shadow-[2px_2px_0px_#000000] transition-colors hover:bg-black hover:text-[#FFFF00] cursor-pointer"
+          className="cursor-pointer rounded-lg border border-[#333333] bg-white px-3 py-1.5 font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA]"
         >
           Cerrar sesión
         </button>

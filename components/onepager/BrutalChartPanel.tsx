@@ -4,16 +4,18 @@ type BrutalChartPanelProps = {
   className?: string;
 };
 
+// Panel/card estándar Glovox (bg blanco, borde hairline, rounded-lg). El
+// nombre "Brutal…" es histórico; el estilo ya sigue docs/STYLE_DASHBOARD.md.
 export default function BrutalChartPanel({
   title,
   children,
-  className = "col-span-3",
+  className = "",
 }: BrutalChartPanelProps) {
   return (
     <div
-      className={`bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none p-6 ${className}`}
+      className={`bg-white border border-[#E5E5E5] rounded-lg p-6 ${className}`}
     >
-      <h3 className="font-display uppercase text-2xl leading-none text-black mb-4">
+      <h3 className="font-display font-bold text-lg text-[#333333] mb-4">
         {title}
       </h3>
       {children}

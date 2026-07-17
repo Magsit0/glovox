@@ -70,7 +70,7 @@ export default function MarcaMatrixSheet({
   matrix,
 }: Props) {
   const temporadaActual = useMemo(() => currentSeasonLabel(), []);
-  // Filtros de categoría (multi-select de chips brutalistas).
+  // Filtros de categoría (multi-select de chips).
   const [categorias, setCategorias] = useState<Set<string>>(new Set());
   // Colapsa la lista de chips para liberar espacio vertical para la matriz.
   const [categoriasOpen, setCategoriasOpen] = useState(true);
@@ -454,7 +454,7 @@ export default function MarcaMatrixSheet({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
             onClick={onClose}
-            className="fixed inset-0 z-40 bg-black/40"
+            className="fixed inset-0 z-40 bg-[#333333]/40"
           />
           <motion.div
             role="dialog"
@@ -466,17 +466,17 @@ export default function MarcaMatrixSheet({
             transition={{ duration: 0.2 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
           >
-            <div className="pointer-events-auto w-full max-w-[1200px] h-[90vh] bg-white border-4 border-black shadow-[8px_8px_0px_#000] rounded-none flex flex-col">
+            <div className="pointer-events-auto w-full max-w-[1200px] h-[90vh] bg-white border border-[#E5E5E5] shadow-md rounded-lg flex flex-col">
               {/* Header */}
-              <header className="flex items-start justify-between gap-4 border-b-4 border-black px-6 py-4 flex-shrink-0">
+              <header className="flex items-start justify-between gap-4 border-b border-[#E5E5E5] px-6 py-4 flex-shrink-0">
                 <div>
                   <h2
                     id="marca-matrix-title"
-                    className="font-display uppercase text-2xl leading-none text-black"
+                    className="font-display font-bold text-2xl leading-none text-[#333333]"
                   >
                     Imputar marcas
                   </h2>
-                  <p className="mt-1 font-mono-data text-[10px] uppercase text-black/60">
+                  <p className="mt-1 font-sans text-xs text-[#666666]">
                     Una celda = una marca × un evento · click y enter o tab
                     para guardar
                   </p>
@@ -485,21 +485,21 @@ export default function MarcaMatrixSheet({
                   type="button"
                   onClick={onClose}
                   aria-label="Cerrar"
-                  className="border-2 border-black p-1 hover:bg-[#FFFF00] cursor-pointer transition-colors"
+                  className="rounded-lg p-1 text-[#666666] hover:bg-[#F5F5F5] hover:text-[#333333] cursor-pointer transition-colors"
                 >
                   <X className="h-4 w-4" />
                 </button>
               </header>
 
               {/* Toolbar: chips de categoría + "Agregar cliente" */}
-              <div className="border-b-4 border-black px-6 py-3 flex-shrink-0 space-y-3">
+              <div className="border-b border-[#E5E5E5] px-6 py-3 flex-shrink-0 space-y-3">
                 <div className="flex flex-wrap items-center gap-2">
                   <button
                     type="button"
                     onClick={() => setCategoriasOpen((v) => !v)}
                     aria-expanded={categoriasOpen}
                     aria-controls="marca-matrix-categoria-chips"
-                    className="font-mono-data uppercase text-[10px] text-black/70 flex items-center gap-1 cursor-pointer hover:text-black transition-colors"
+                    className="font-sans text-xs text-[#666666] flex items-center gap-1 cursor-pointer hover:text-[#333333] transition-colors"
                   >
                     <span aria-hidden className="font-bold">
                       {categoriasOpen ? "▾" : "▸"}
@@ -511,10 +511,10 @@ export default function MarcaMatrixSheet({
                       <button
                         type="button"
                         onClick={() => setCategorias(new Set())}
-                        className={`font-mono-data uppercase text-xs leading-none px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 ${
+                        className={`font-sans text-xs leading-none px-3 py-2 border rounded-lg cursor-pointer transition-colors duration-150 ${
                           categorias.size === 0
-                            ? "bg-black text-[#FFFF00]"
-                            : "bg-white text-black hover:bg-[#FFFF00]"
+                            ? "bg-[#F0EFFE] border-[#9F99F8] text-[#9F99F8]"
+                            : "bg-white border-[#E5E5E5] text-[#333333] hover:bg-[#FAFAFA]"
                         }`}
                       >
                         Todas
@@ -540,12 +540,12 @@ export default function MarcaMatrixSheet({
                                   : undefined
                               }
                               onClick={() => toggleCategoria(c)}
-                              className={`font-mono-data uppercase text-xs leading-none px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 ${
+                              className={`font-sans text-xs leading-none px-3 py-2 border rounded-lg cursor-pointer transition-colors duration-150 ${
                                 active
-                                  ? "bg-black text-[#FFFF00]"
+                                  ? "bg-[#F0EFFE] border-[#9F99F8] text-[#9F99F8]"
                                   : currentSeason
-                                    ? "bg-[#FFF7A8] text-black font-bold hover:bg-[#FFFF00]"
-                                  : "bg-white text-black hover:bg-[#FFFF00]"
+                                    ? "bg-white border-[#F6C544] text-[#333333] font-medium hover:bg-[#FAFAFA]"
+                                  : "bg-white border-[#E5E5E5] text-[#333333] hover:bg-[#FAFAFA]"
                               }`}
                             >
                               {c}
@@ -555,7 +555,7 @@ export default function MarcaMatrixSheet({
                       </span>
                     </>
                   )}
-                  <span className="font-mono-data uppercase text-[10px] text-black/70">
+                  <span className="font-sans text-xs text-[#666666]">
                     {visibleEventos.length} de {eventos.length} evento
                     {eventos.length === 1 ? "" : "s"}
                     {!categoriasOpen && categorias.size > 0
@@ -570,7 +570,7 @@ export default function MarcaMatrixSheet({
                       if (!addingCliente) setEditingCliente(false);
                     }}
                     aria-pressed={addingCliente}
-                    className="ml-auto font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-white hover:bg-[#FFFF00] cursor-pointer transition-colors duration-150"
+                    className="ml-auto rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] cursor-pointer transition-colors duration-150"
                   >
                     + Agregar marca
                   </button>
@@ -591,20 +591,20 @@ export default function MarcaMatrixSheet({
                     }}
                     aria-pressed={editingCliente}
                     disabled={allClientes.length === 0}
-                    className="font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-white hover:bg-[#FFFF00] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors duration-150"
+                    className="rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors duration-150"
                   >
                     Editar marca
                   </button>
                 </div>
 
                 {addingCliente && (
-                  <div className="border-2 border-black p-3 space-y-2 bg-white">
-                    <p className="font-mono-data uppercase text-[10px] text-black/70">
+                  <div className="border border-[#E5E5E5] rounded-lg p-3 space-y-2 bg-[#FAFAFA]">
+                    <p className="font-sans text-xs font-medium text-[#666666]">
                       Nueva marca
                     </p>
                     <div className="flex flex-wrap items-start gap-2">
                       <div className="flex-1 min-w-[180px]">
-                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                        <label className="font-sans text-xs text-[#666666] block mb-1">
                           Nombre de marca
                         </label>
                         <input
@@ -613,11 +613,11 @@ export default function MarcaMatrixSheet({
                           value={newNombre}
                           onChange={(e) => setNewNombre(e.target.value)}
                           autoFocus
-                          className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+                          className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
                         />
                       </div>
                       <div className="flex-1 min-w-[180px]">
-                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                        <label className="font-sans text-xs text-[#666666] block mb-1">
                           RUT facturador
                         </label>
                         <input
@@ -625,16 +625,16 @@ export default function MarcaMatrixSheet({
                           placeholder="ej. 76.123.456-7"
                           value={newRut}
                           onChange={(e) => setNewRut(e.target.value)}
-                          className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 outline-none focus:bg-[#FFFF00]/30 ${
+                          className={`w-full rounded-lg border bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:outline-none focus:ring-1 ${
                             rutPreview && !rutPreview.ok
-                              ? "border-[#FF0000]"
-                              : "border-black"
+                              ? "border-[#ED75A0] focus:border-[#ED75A0] focus:ring-[#ED75A0]"
+                              : "border-[#E5E5E5] hover:border-[#333333] focus:border-[#9F99F8] focus:ring-[#9F99F8]"
                           }`}
                         />
                         {rutPreview && (
                           <p
-                            className={`mt-1 font-mono-data text-[10px] ${
-                              rutPreview.ok ? "text-black/60" : "text-[#FF0000]"
+                            className={`mt-1 font-sans text-xs ${
+                              rutPreview.ok ? "text-[#666666]" : "text-[#ED75A0]"
                             }`}
                           >
                             {rutPreview.msg}
@@ -642,7 +642,7 @@ export default function MarcaMatrixSheet({
                         )}
                       </div>
                       <div className="flex-1 min-w-[200px]">
-                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                        <label className="font-sans text-xs text-[#666666] block mb-1">
                           Razón social
                         </label>
                         <input
@@ -655,14 +655,14 @@ export default function MarcaMatrixSheet({
                               : undefined
                           }
                           readOnly={addFacturadorLock != null}
-                          className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30 ${
+                          className={`w-full rounded-lg border border-[#E5E5E5] px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:outline-none focus:ring-1 focus:ring-[#9F99F8] focus:border-[#9F99F8] ${
                             addFacturadorLock != null
-                              ? "bg-black/5 cursor-not-allowed"
-                              : ""
+                              ? "bg-[#FAFAFA] cursor-not-allowed"
+                              : "bg-white hover:border-[#333333]"
                           }`}
                         />
                         {addFacturadorLock != null && (
-                          <p className="mt-1 font-mono-data text-[10px] text-black/60">
+                          <p className="mt-1 font-sans text-xs text-[#666666]">
                             Facturador existente — se reutilizará.
                           </p>
                         )}
@@ -672,7 +672,7 @@ export default function MarcaMatrixSheet({
                           type="button"
                           onClick={() => setAddingCliente(false)}
                           disabled={addPending}
-                          className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-white hover:bg-[#FFFF00] cursor-pointer disabled:opacity-50 transition-colors"
+                          className="rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] cursor-pointer disabled:opacity-50 transition-colors"
                         >
                           Cancelar
                         </button>
@@ -686,14 +686,14 @@ export default function MarcaMatrixSheet({
                             !rutPreview.ok ||
                             !(addFacturadorLock ?? newRazonSocial).trim()
                           }
-                          className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black cursor-pointer disabled:opacity-50 transition-colors"
+                          className="rounded-lg bg-[#9F99F8] px-4 py-2 font-sans font-medium text-sm text-white hover:bg-[#8780F0] cursor-pointer disabled:opacity-50 transition-colors"
                         >
                           {addPending ? "Guardando…" : "Guardar"}
                         </button>
                       </div>
                     </div>
                     {addError && (
-                      <p className="font-mono-data text-[10px] text-[#FF0000]">
+                      <p className="font-sans text-xs text-[#ED75A0]">
                         {addError}
                       </p>
                     )}
@@ -701,13 +701,13 @@ export default function MarcaMatrixSheet({
                 )}
 
                 {editingCliente && (
-                  <div className="border-2 border-black p-3 space-y-2 bg-white">
-                    <p className="font-mono-data uppercase text-[10px] text-black/70">
+                  <div className="border border-[#E5E5E5] rounded-lg p-3 space-y-2 bg-[#FAFAFA]">
+                    <p className="font-sans text-xs font-medium text-[#666666]">
                       Editar marca existente
                     </p>
                     <div className="flex flex-wrap items-start gap-2">
                       <div className="flex-1 min-w-[220px]">
-                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                        <label className="font-sans text-xs text-[#666666] block mb-1">
                           Marca a editar
                         </label>
                         <select
@@ -715,7 +715,7 @@ export default function MarcaMatrixSheet({
                           onChange={(e) =>
                             handleSelectClienteEdit(e.target.value)
                           }
-                          className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30 cursor-pointer"
+                          className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8] cursor-pointer"
                         >
                           {allClientes.map((c) => (
                             <option key={c.id} value={c.id}>
@@ -725,7 +725,7 @@ export default function MarcaMatrixSheet({
                         </select>
                       </div>
                       <div className="flex-1 min-w-[180px]">
-                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                        <label className="font-sans text-xs text-[#666666] block mb-1">
                           Nombre de marca
                         </label>
                         <input
@@ -733,11 +733,11 @@ export default function MarcaMatrixSheet({
                           placeholder="Xtreme, Entel..."
                           value={editNombre}
                           onChange={(e) => setEditNombre(e.target.value)}
-                          className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+                          className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
                         />
                       </div>
                       <div className="flex-1 min-w-[180px]">
-                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                        <label className="font-sans text-xs text-[#666666] block mb-1">
                           RUT facturador
                         </label>
                         <input
@@ -745,18 +745,18 @@ export default function MarcaMatrixSheet({
                           placeholder="ej. 76.123.456-7"
                           value={editRut}
                           onChange={(e) => setEditRut(e.target.value)}
-                          className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 outline-none focus:bg-[#FFFF00]/30 ${
+                          className={`w-full rounded-lg border bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:outline-none focus:ring-1 ${
                             editRutPreview && !editRutPreview.ok
-                              ? "border-[#FF0000]"
-                              : "border-black"
+                              ? "border-[#ED75A0] focus:border-[#ED75A0] focus:ring-[#ED75A0]"
+                              : "border-[#E5E5E5] hover:border-[#333333] focus:border-[#9F99F8] focus:ring-[#9F99F8]"
                           }`}
                         />
                         {editRutPreview && (
                           <p
-                            className={`mt-1 font-mono-data text-[10px] ${
+                            className={`mt-1 font-sans text-xs ${
                               editRutPreview.ok
-                                ? "text-black/60"
-                                : "text-[#FF0000]"
+                                ? "text-[#666666]"
+                                : "text-[#ED75A0]"
                             }`}
                           >
                             {editRutPreview.msg}
@@ -764,7 +764,7 @@ export default function MarcaMatrixSheet({
                         )}
                       </div>
                       <div className="flex-1 min-w-[200px]">
-                        <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                        <label className="font-sans text-xs text-[#666666] block mb-1">
                           Razón social
                         </label>
                         <input
@@ -772,9 +772,9 @@ export default function MarcaMatrixSheet({
                           placeholder="Razón social del facturador"
                           value={editRazonSocial}
                           onChange={(e) => setEditRazonSocial(e.target.value)}
-                          className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+                          className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
                         />
-                        <p className="mt-1 font-mono-data text-[10px] text-black/60">
+                        <p className="mt-1 font-sans text-xs text-[#666666]">
                           Aplica al facturador completo — afecta todas las marcas con este RUT.
                         </p>
                       </div>
@@ -783,7 +783,7 @@ export default function MarcaMatrixSheet({
                           type="button"
                           onClick={() => setEditingCliente(false)}
                           disabled={editPending}
-                          className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-white hover:bg-[#FFFF00] cursor-pointer disabled:opacity-50 transition-colors"
+                          className="rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] cursor-pointer disabled:opacity-50 transition-colors"
                         >
                           Cancelar
                         </button>
@@ -798,14 +798,14 @@ export default function MarcaMatrixSheet({
                             !editRutPreview.ok ||
                             !editRazonSocial.trim()
                           }
-                          className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black cursor-pointer disabled:opacity-50 transition-colors"
+                          className="rounded-lg bg-[#9F99F8] px-4 py-2 font-sans font-medium text-sm text-white hover:bg-[#8780F0] cursor-pointer disabled:opacity-50 transition-colors"
                         >
                           {editPending ? "Guardando…" : "Guardar cambios"}
                         </button>
                       </div>
                     </div>
                     {editError && (
-                      <p className="font-mono-data text-[10px] text-[#FF0000]">
+                      <p className="font-sans text-xs text-[#ED75A0]">
                         {editError}
                       </p>
                     )}
@@ -816,7 +816,7 @@ export default function MarcaMatrixSheet({
               {/* Matriz */}
               <div className="flex-1 overflow-auto">
                 {allClientes.length === 0 || visibleEventos.length === 0 ? (
-                  <p className="font-mono-data text-sm text-black/50 px-6 py-6">
+                  <p className="font-sans text-sm text-[#999999] px-6 py-6">
                     {allClientes.length === 0
                       ? "No hay clientes. Agregá uno con el botón de arriba."
                       : "No hay eventos para la categoría seleccionada."}
@@ -876,27 +876,29 @@ function MatrixGrid({
   totalesCol: Map<string, number>;
   granTotal: number;
 }) {
-  // Sticky top-left: bg-black, z-30. Headers de fila: z-20. Headers de col: z-10.
+  // Sticky top-left: z-30. Headers de fila: z-20. Headers de col: z-10.
   return (
     <table className="border-collapse">
       <thead>
         <tr>
-          <th className="sticky top-0 left-0 z-30 bg-black text-white font-mono-data uppercase text-[10px] px-3 py-2 text-left border-r-2 border-b-2 border-black min-w-[220px]">
+          <th className="sticky top-0 left-0 z-30 bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-3 py-2 text-left border-r border-b border-[#E5E5E5] min-w-[220px]">
             Cliente
           </th>
           {eventos.map((e) => (
             <th
               key={e.eventoId}
               title={e.nombre}
-              className="sticky top-0 z-10 bg-black text-white font-mono-data uppercase text-[10px] px-2 py-2 text-left border-r-2 border-b-2 border-black min-w-[140px] max-w-[180px]"
+              className="sticky top-0 z-10 bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-2 py-2 text-left border-r border-b border-[#E5E5E5] min-w-[140px] max-w-[180px]"
             >
-              <div className="truncate font-bold">{e.nombre}</div>
-              <div className="text-[9px] text-white/70 tabular-nums">
+              <div className="truncate font-semibold text-[#333333]">
+                {e.nombre}
+              </div>
+              <div className="text-[9px] text-[#999999] tabular-nums">
                 {fmtFecha(e.fechaEvento)}
               </div>
             </th>
           ))}
-          <th className="sticky top-0 z-10 bg-[#FFFF00] text-black font-mono-data uppercase text-[10px] px-3 py-2 text-right border-l-4 border-b-2 border-black min-w-[140px]">
+          <th className="sticky top-0 z-10 bg-[#F0EFFE] font-sans text-xs font-medium uppercase tracking-wide text-[#9F99F8] px-3 py-2 text-right border-l border-b border-[#E5E5E5] min-w-[140px]">
             Total cliente
           </th>
         </tr>
@@ -906,13 +908,13 @@ function MatrixGrid({
           <tr key={c.id}>
             <th
               scope="row"
-              className="sticky left-0 z-20 bg-white font-mono-data text-xs px-3 py-2 text-left border-r-2 border-b-2 border-black min-w-[220px]"
+              className="sticky left-0 z-20 bg-white font-sans text-sm text-[#333333] px-3 py-2 text-left border-r border-b border-[#E5E5E5] min-w-[220px]"
             >
-              <div className="font-bold uppercase truncate" title={c.nombre}>
+              <div className="font-semibold truncate text-[#333333]" title={c.nombre}>
                 {c.nombre}
               </div>
               <div
-                className="text-[10px] text-black/60 truncate"
+                className="text-[10px] text-[#999999] truncate"
                 title={`${c.razonSocial} · ${formatRut(c.rut)}`}
               >
                 {c.razonSocial} · {formatRut(c.rut)}
@@ -927,7 +929,7 @@ function MatrixGrid({
               return (
                 <td
                   key={e.eventoId}
-                  className="bg-white px-1 py-1 border-r-2 border-b-2 border-black"
+                  className="bg-white px-1 py-1 border-r border-b border-[#E5E5E5]"
                 >
                   <input
                     type="text"
@@ -941,18 +943,18 @@ function MatrixGrid({
                     aria-label={`Monto neto ${c.nombre} en ${e.nombre}`}
                     title={neto > 0 ? `Bruto: ${fmtClp(bruto)}` : "Vacío"}
                     placeholder="$0"
-                    className={`w-full font-mono-data text-xs text-right px-2 py-1.5 outline-none tabular-nums focus:bg-[#FFFF00]/30 ${
+                    className={`w-full rounded-md border border-transparent px-2 py-1.5 font-sans text-xs text-right tabular-nums placeholder:text-[#999999] outline-none focus:border-[#9F99F8] focus:ring-1 focus:ring-[#9F99F8] ${
                       isSaving
-                        ? "bg-[#FFFF00]/40"
+                        ? "bg-[#F0EFFE] text-[#9F99F8]"
                         : neto > 0
-                          ? "bg-white"
-                          : "bg-white text-black/40"
+                          ? "bg-white text-[#333333]"
+                          : "bg-white text-[#999999]"
                     }`}
                   />
                 </td>
               );
             })}
-            <td className="bg-[#FFFF00] font-mono-data text-xs text-right font-bold px-3 py-2 border-l-4 border-b-2 border-black tabular-nums">
+            <td className="bg-[#F0EFFE] font-sans text-xs text-right font-semibold text-[#9F99F8] px-3 py-2 border-l border-b border-[#E5E5E5] tabular-nums">
               {fmtClp(totalesRow.get(c.id) ?? 0)}
             </td>
           </tr>
@@ -961,19 +963,19 @@ function MatrixGrid({
         <tr>
           <th
             scope="row"
-            className="sticky left-0 z-20 bg-[#FFFF00] font-mono-data text-xs uppercase font-bold px-3 py-2 text-left border-r-2 border-t-4 border-black"
+            className="sticky left-0 z-20 bg-[#F0EFFE] font-sans text-xs font-semibold text-[#9F99F8] px-3 py-2 text-left border-r border-t border-[#E5E5E5]"
           >
             Total evento
           </th>
           {eventos.map((e) => (
             <td
               key={e.eventoId}
-              className="bg-[#FFFF00] font-mono-data text-xs text-right font-bold px-2 py-2 border-r-2 border-t-4 border-black tabular-nums"
+              className="bg-[#F0EFFE] font-sans text-xs text-right font-semibold text-[#9F99F8] px-2 py-2 border-r border-t border-[#E5E5E5] tabular-nums"
             >
               {fmtClp(totalesCol.get(e.eventoId) ?? 0)}
             </td>
           ))}
-          <td className="bg-black text-[#FFFF00] font-mono-data text-sm text-right font-bold px-3 py-2 border-l-4 border-t-4 border-black tabular-nums">
+          <td className="bg-[#9F99F8] font-sans text-sm text-right font-semibold text-white px-3 py-2 border-l border-t border-[#E5E5E5] tabular-nums">
             {fmtClp(granTotal)}
           </td>
         </tr>

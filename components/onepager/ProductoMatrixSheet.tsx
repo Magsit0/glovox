@@ -9,13 +9,16 @@ import {
 } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import { X } from "lucide-react";
-import type { MarcaClienteRow, MarcaMatrixCell } from "@/lib/queries/marca";
-import type { MarcaClienteTagRow } from "@/lib/queries/medios";
+import type { MarcaClienteRow } from "@/lib/queries/marca";
+import type {
+  MarcaClienteProductoTagRow,
+  ProductoMatrixCell,
+} from "@/lib/queries/producto";
 import {
-  setPlanMediosAction,
-  upsertMediosIngresoAction,
-} from "@/app/onepager/medios-actions";
-import { netoToBruto } from "@/lib/constants/tax";
+  setPlanProductoAction,
+  upsertProductoIngresoAction,
+} from "@/app/onepager/producto-actions";
+import { brutoToNeto } from "@/lib/constants/tax";
 import { formatRut } from "@/lib/utils/rut";
 import {
   currentSeasonLabel,
@@ -33,11 +36,13 @@ type Props = {
   open: boolean;
   onClose: () => void;
   eventos: MatrixEvento[];
-  /** Todas las marcas del catálogo + su flag (para marcar/desmarcar). */
-  marcas: MarcaClienteTagRow[];
-  /** Pivot cliente×evento de medios_ingresos. */
-  matrix: MarcaMatrixCell[];
+  /** Todas las marcas del catálogo + su flag de producto (para marcar/desmarcar). */
+  marcas: MarcaClienteProductoTagRow[];
+  /** Pivot cliente×evento de producto_ingresos (precio + exento). */
+  matrix: ProductoMatrixCell[];
 };
+
+type CellState = { precio: number; exento: boolean };
 
 function fmtClp(value: number) {
   return "$" + Math.round(value).toLocaleString("es-CL");
@@ -64,7 +69,13 @@ function cellKey(clienteId: string, eventoId: string): string {
   return `${clienteId}::${eventoId}`;
 }
 
-export default function MediosMatrixSheet({
+// neto a partir del precio + exento: exento → precio ES el neto; afecto → precio
+// es bruto (IVA incluido) → neto = ÷1,19.
+function netoDe(precio: number, exento: boolean): number {
+  return exento ? Math.round(precio) : brutoToNeto(precio);
+}
+
+export default function ProductoMatrixSheet({
   open,
   onClose,
   eventos,
@@ -75,7 +86,7 @@ export default function MediosMatrixSheet({
   const [categorias, setCategorias] = useState<Set<string>>(new Set());
   const [categoriasOpen, setCategoriasOpen] = useState(true);
 
-  // Panel "gestionar plan de medios" + búsqueda de marca.
+  // Panel "gestionar plan de producto" + búsqueda de marca.
   const [managing, setManaging] = useState(false);
   const [search, setSearch] = useState("");
   // Overrides optimistas del flag por clienteId.
@@ -85,9 +96,12 @@ export default function MediosMatrixSheet({
   const [tagPendingId, setTagPendingId] = useState<string | null>(null);
   const [, startTag] = useTransition();
 
-  // Estado de celdas editables.
+  // Estado de celdas editables. `saved` = lo persistido (precio + exento).
+  // `draft` = texto del precio en edición. `exentoState` = exento elegido
+  // optimista (default exento cuando no hay override ni fila guardada).
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const [saved, setSaved] = useState<Record<string, number>>({});
+  const [saved, setSaved] = useState<Record<string, CellState>>({});
+  const [exentoState, setExentoState] = useState<Record<string, boolean>>({});
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const [, startSave] = useTransition();
 
@@ -97,10 +111,15 @@ export default function MediosMatrixSheet({
   if (prevFormKey !== formKey) {
     setPrevFormKey(formKey);
     if (open) {
-      const next: Record<string, number> = {};
-      for (const c of matrix) next[cellKey(c.clienteId, c.eventoId)] = c.montoNeto;
+      const next: Record<string, CellState> = {};
+      for (const c of matrix)
+        next[cellKey(c.clienteId, c.eventoId)] = {
+          precio: c.precio,
+          exento: c.exento,
+        };
       setSaved(next);
       setDraft({});
+      setExentoState({});
       setCategorias(new Set());
       setManaging(false);
       setSearch("");
@@ -120,14 +139,14 @@ export default function MediosMatrixSheet({
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose, managing]);
 
-  function effectiveTag(c: MarcaClienteTagRow): boolean {
+  function effectiveTag(c: MarcaClienteProductoTagRow): boolean {
     return tagOverrides.has(c.id)
       ? (tagOverrides.get(c.id) as boolean)
-      : c.tienePlanMedios;
+      : c.tienePlanProducto;
   }
 
-  // Filas de la matriz = marcas con plan de medios activo.
-  const clientesMedios = useMemo<MarcaClienteRow[]>(() => {
+  // Filas de la matriz = marcas con plan de producto activo.
+  const clientesProducto = useMemo<MarcaClienteRow[]>(() => {
     return marcas
       .filter((c) => effectiveTag(c))
       .map((c) => ({
@@ -186,55 +205,59 @@ export default function MediosMatrixSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [marcas, search, tagOverrides]);
 
-  function toggleTag(c: MarcaClienteTagRow) {
+  function toggleTag(c: MarcaClienteProductoTagRow) {
     const next = !effectiveTag(c);
     setTagOverrides((prev) => new Map(prev).set(c.id, next));
     setTagPendingId(c.id);
     startTag(async () => {
-      const res = await setPlanMediosAction({
+      const res = await setPlanProductoAction({
         clienteId: c.id,
-        tienePlanMedios: next,
+        tienePlanProducto: next,
       });
       setTagPendingId(null);
       if (!res.ok) {
         // revertir override en error
         setTagOverrides((prev) => new Map(prev).set(c.id, !next));
-        console.error("[MediosMatrixSheet] setPlanMedios failed:", res.error);
+        console.error("[ProductoMatrixSheet] setPlanProducto failed:", res.error);
       }
     });
   }
 
-  function cellNeto(clienteId: string, eventoId: string): number {
+  function cellPrecio(clienteId: string, eventoId: string): number {
     const key = cellKey(clienteId, eventoId);
     if (key in draft) return parseMonto(draft[key]);
-    return saved[key] ?? 0;
+    return saved[key]?.precio ?? 0;
+  }
+  function cellExento(clienteId: string, eventoId: string): boolean {
+    const key = cellKey(clienteId, eventoId);
+    if (key in exentoState) return exentoState[key];
+    return saved[key]?.exento ?? true;
+  }
+  function cellNetoValue(clienteId: string, eventoId: string): number {
+    return netoDe(cellPrecio(clienteId, eventoId), cellExento(clienteId, eventoId));
   }
   function cellDisplay(clienteId: string, eventoId: string): string {
     const key = cellKey(clienteId, eventoId);
     if (key in draft) return draft[key];
-    const v = saved[key];
+    const v = saved[key]?.precio;
     return v ? fmtClp(v) : "";
   }
 
-  function commitCell(clienteId: string, eventoId: string) {
+  // Persiste una celda (precio + exento) y refresca el estado local.
+  function persistCell(
+    clienteId: string,
+    eventoId: string,
+    precio: number,
+    exento: boolean,
+  ) {
     const key = cellKey(clienteId, eventoId);
-    if (!(key in draft)) return;
-    const neto = parseMonto(draft[key]);
-    const current = saved[key] ?? 0;
-    if (Math.round(neto) === Math.round(current)) {
-      setDraft((prev) => {
-        const next = { ...prev };
-        delete next[key];
-        return next;
-      });
-      return;
-    }
     setSavingKeys((prev) => new Set(prev).add(key));
     startSave(async () => {
-      const res = await upsertMediosIngresoAction({
+      const res = await upsertProductoIngresoAction({
         eventoId,
         clienteId,
-        montoNeto: neto,
+        precio,
+        exento,
       });
       setSavingKeys((prev) => {
         const next = new Set(prev);
@@ -242,17 +265,52 @@ export default function MediosMatrixSheet({
         return next;
       });
       if (!res.ok) {
-        console.error("[MediosMatrixSheet] upsert failed:", res.error);
+        console.error("[ProductoMatrixSheet] upsert failed:", res.error);
         return;
       }
-      const nextValue = res.data?.montoNeto ?? 0;
-      setSaved((prev) => ({ ...prev, [key]: nextValue }));
+      setSaved((prev) => ({
+        ...prev,
+        [key]: {
+          precio: res.data?.precio ?? 0,
+          exento: res.data?.exento ?? exento,
+        },
+      }));
       setDraft((prev) => {
         const next = { ...prev };
         delete next[key];
         return next;
       });
     });
+  }
+
+  function commitCell(clienteId: string, eventoId: string) {
+    const key = cellKey(clienteId, eventoId);
+    if (!(key in draft)) return;
+    const precio = parseMonto(draft[key]);
+    const exento = cellExento(clienteId, eventoId);
+    const prev = saved[key];
+    const prevPrecio = prev?.precio ?? 0;
+    const prevExento = prev?.exento ?? true;
+    // Sin cambios (mismo precio y mismo exento) → sólo limpiar el draft.
+    if (Math.round(precio) === Math.round(prevPrecio) && exento === prevExento) {
+      setDraft((p) => {
+        const next = { ...p };
+        delete next[key];
+        return next;
+      });
+      return;
+    }
+    persistCell(clienteId, eventoId, precio, exento);
+  }
+
+  // Alterna exento/afecto de una celda. Si ya hay un precio, persiste de una;
+  // si la celda está vacía, sólo deja el exento elegido para cuando se impute.
+  function toggleExento(clienteId: string, eventoId: string) {
+    const key = cellKey(clienteId, eventoId);
+    const next = !cellExento(clienteId, eventoId);
+    setExentoState((prev) => ({ ...prev, [key]: next }));
+    const precio = cellPrecio(clienteId, eventoId);
+    if (precio > 0) persistCell(clienteId, eventoId, precio, next);
   }
 
   function handleCellKeyDown(
@@ -279,23 +337,23 @@ export default function MediosMatrixSheet({
     const map = new Map<string, number>();
     for (const e of visibleEventos) {
       let sum = 0;
-      for (const c of clientesMedios) sum += cellNeto(c.id, e.eventoId);
+      for (const c of clientesProducto) sum += cellNetoValue(c.id, e.eventoId);
       map.set(e.eventoId, sum);
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visibleEventos, clientesMedios, draft, saved]);
+  }, [visibleEventos, clientesProducto, draft, saved, exentoState]);
 
   const totalesRow = useMemo(() => {
     const map = new Map<string, number>();
-    for (const c of clientesMedios) {
+    for (const c of clientesProducto) {
       let sum = 0;
-      for (const e of visibleEventos) sum += cellNeto(c.id, e.eventoId);
+      for (const e of visibleEventos) sum += cellNetoValue(c.id, e.eventoId);
       map.set(c.id, sum);
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [clientesMedios, visibleEventos, draft, saved]);
+  }, [clientesProducto, visibleEventos, draft, saved, exentoState]);
 
   const granTotal = useMemo(() => {
     let sum = 0;
@@ -320,32 +378,32 @@ export default function MediosMatrixSheet({
           <motion.div
             role="dialog"
             aria-modal="true"
-            aria-labelledby="medios-matrix-title"
+            aria-labelledby="producto-matrix-title"
             initial={{ opacity: 0, y: 12, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.98 }}
             transition={{ duration: 0.2 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4 pointer-events-none"
           >
-            <div className="pointer-events-auto w-full max-w-[1200px] h-[90vh] bg-white border border-[#E5E5E5] shadow-sm rounded-lg overflow-hidden flex flex-col">
+            <div className="pointer-events-auto w-full max-w-[1200px] h-[90vh] bg-white border border-[#E5E5E5] shadow-sm rounded-lg flex flex-col">
               <header className="flex items-start justify-between gap-4 border-b border-[#E5E5E5] px-6 py-4 flex-shrink-0">
                 <div>
                   <h2
-                    id="medios-matrix-title"
-                    className="font-display font-bold text-xl leading-none text-[#333333]"
+                    id="producto-matrix-title"
+                    className="font-display font-bold text-xl text-[#333333]"
                   >
-                    Imputar medios
+                    Imputar producto
                   </h2>
                   <p className="mt-1 font-sans text-xs text-[#666666]">
-                    Plan de medios por marca × evento · sólo marcas con el plan
-                    activo
+                    Producto por marca × evento · sólo marcas con el plan activo ·
+                    montos = precio · totales = neto
                   </p>
                 </div>
                 <button
                   type="button"
                   onClick={onClose}
                   aria-label="Cerrar"
-                  className="rounded-lg p-2 text-[#666666] hover:bg-[#F5F5F5] hover:text-[#333333] cursor-pointer transition-colors"
+                  className="rounded-lg border border-[#E5E5E5] p-1 text-[#666666] hover:bg-[#F5F5F5] hover:text-[#333333] cursor-pointer transition-colors"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -369,10 +427,10 @@ export default function MediosMatrixSheet({
                       <button
                         type="button"
                         onClick={() => setCategorias(new Set())}
-                        className={`font-sans text-xs leading-none px-3 py-2 border rounded-lg cursor-pointer transition-colors duration-150 ${
+                        className={`font-sans text-xs px-3 py-2 border border-[#E5E5E5] rounded-lg cursor-pointer transition-colors duration-150 ${
                           categorias.size === 0
-                            ? "border-[#9F99F8] bg-[#F0EFFE] text-[#9F99F8] font-medium"
-                            : "border-[#E5E5E5] bg-white text-[#333333] hover:bg-[#FAFAFA]"
+                            ? "bg-[#F0EFFE] text-[#9F99F8]"
+                            : "bg-white text-[#333333] hover:bg-[#FAFAFA]"
                         }`}
                       >
                         Todas
@@ -389,12 +447,12 @@ export default function MediosMatrixSheet({
                             type="button"
                             aria-pressed={active}
                             onClick={() => toggleCategoria(c)}
-                            className={`font-sans text-xs leading-none px-3 py-2 border rounded-lg cursor-pointer transition-colors duration-150 ${
+                            className={`font-sans text-xs px-3 py-2 border border-[#E5E5E5] rounded-lg cursor-pointer transition-colors duration-150 ${
                               active
-                                ? "border-[#9F99F8] bg-[#F0EFFE] text-[#9F99F8] font-medium"
+                                ? "bg-[#F0EFFE] text-[#9F99F8]"
                                 : currentSeason
-                                  ? "border-[#F6C544] bg-white text-[#333333] font-medium hover:bg-[#FAFAFA]"
-                                  : "border-[#E5E5E5] bg-white text-[#333333] hover:bg-[#FAFAFA]"
+                                  ? "bg-white text-[#333333] font-medium ring-1 ring-[#F6C544] hover:bg-[#FAFAFA]"
+                                  : "bg-white text-[#333333] hover:bg-[#FAFAFA]"
                             }`}
                           >
                             {c}
@@ -406,28 +464,24 @@ export default function MediosMatrixSheet({
                   <span className="font-sans text-xs text-[#666666]">
                     {visibleEventos.length} de {eventos.length} evento
                     {eventos.length === 1 ? "" : "s"} ·{" "}
-                    {clientesMedios.length} marca
-                    {clientesMedios.length === 1 ? "" : "s"} con plan
+                    {clientesProducto.length} marca
+                    {clientesProducto.length === 1 ? "" : "s"} con producto
                   </span>
                   <button
                     type="button"
                     onClick={() => setManaging((v) => !v)}
                     aria-pressed={managing}
-                    className={`ml-auto rounded-lg border px-4 py-2 font-sans font-medium text-sm leading-none cursor-pointer transition-colors duration-150 ${
-                      managing
-                        ? "border-[#9F99F8] bg-[#F0EFFE] text-[#9F99F8]"
-                        : "border-[#333333] bg-white text-[#333333] hover:bg-[#FAFAFA]"
-                    }`}
+                    className="ml-auto rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] cursor-pointer transition-colors duration-150"
                   >
-                    Gestionar plan de medios
+                    Gestionar plan de producto
                   </button>
                 </div>
 
                 {managing && (
                   <div className="border border-[#E5E5E5] rounded-lg p-3 space-y-2 bg-white">
                     <p className="font-sans text-xs text-[#666666]">
-                      Marcá qué marcas tienen plan de medios (aparecen como fila
-                      en la matriz)
+                      Marcá qué marcas pagan producto (aparecen como fila en la
+                      matriz)
                     </p>
                     <input
                       type="text"
@@ -448,10 +502,10 @@ export default function MediosMatrixSheet({
                             disabled={pending}
                             onClick={() => toggleTag(c)}
                             title={`${c.razonSocial} · ${formatRut(c.rut)}`}
-                            className={`font-sans text-xs leading-none px-3 py-2 border rounded-lg cursor-pointer transition-colors duration-150 disabled:opacity-50 ${
+                            className={`font-sans text-xs px-3 py-2 border border-[#E5E5E5] rounded-lg cursor-pointer transition-colors duration-150 disabled:opacity-50 ${
                               active
-                                ? "border-[#9F99F8] bg-[#F0EFFE] text-[#9F99F8] font-medium"
-                                : "border-[#E5E5E5] bg-white text-[#333333] hover:bg-[#FAFAFA]"
+                                ? "bg-[#F0EFFE] text-[#9F99F8]"
+                                : "bg-white text-[#333333] hover:bg-[#FAFAFA]"
                             }`}
                           >
                             {active ? "✓ " : "+ "}
@@ -470,20 +524,23 @@ export default function MediosMatrixSheet({
               </div>
 
               <div className="flex-1 overflow-auto">
-                {clientesMedios.length === 0 || visibleEventos.length === 0 ? (
+                {clientesProducto.length === 0 || visibleEventos.length === 0 ? (
                   <p className="font-sans text-sm text-[#999999] px-6 py-6">
-                    {clientesMedios.length === 0
-                      ? "Ninguna marca tiene plan de medios. Activá una con “Gestionar plan de medios”."
+                    {clientesProducto.length === 0
+                      ? "Ninguna marca paga producto. Activá una con “Gestionar plan de producto”."
                       : "No hay eventos para la categoría seleccionada."}
                   </p>
                 ) : (
                   <MatrixGrid
-                    clientes={clientesMedios}
+                    clientes={clientesProducto}
                     eventos={visibleEventos}
                     cellDisplay={cellDisplay}
-                    cellNeto={cellNeto}
+                    cellPrecio={cellPrecio}
+                    cellExento={cellExento}
+                    cellNetoValue={cellNetoValue}
                     setDraft={setDraft}
                     commitCell={commitCell}
+                    toggleExento={toggleExento}
                     handleCellKeyDown={handleCellKeyDown}
                     savingKeys={savingKeys}
                     totalesRow={totalesRow}
@@ -506,9 +563,12 @@ function MatrixGrid({
   clientes,
   eventos,
   cellDisplay,
-  cellNeto,
+  cellPrecio,
+  cellExento,
+  cellNetoValue,
   setDraft,
   commitCell,
+  toggleExento,
   handleCellKeyDown,
   savingKeys,
   totalesRow,
@@ -518,9 +578,12 @@ function MatrixGrid({
   clientes: MarcaClienteRow[];
   eventos: MatrixEvento[];
   cellDisplay: (clienteId: string, eventoId: string) => string;
-  cellNeto: (clienteId: string, eventoId: string) => number;
+  cellPrecio: (clienteId: string, eventoId: string) => number;
+  cellExento: (clienteId: string, eventoId: string) => boolean;
+  cellNetoValue: (clienteId: string, eventoId: string) => number;
   setDraft: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   commitCell: (clienteId: string, eventoId: string) => void;
+  toggleExento: (clienteId: string, eventoId: string) => void;
   handleCellKeyDown: (
     e: KeyboardEvent<HTMLInputElement>,
     clienteId: string,
@@ -535,24 +598,22 @@ function MatrixGrid({
     <table className="border-collapse">
       <thead>
         <tr>
-          <th className="sticky top-0 left-0 z-30 bg-[#FAFAFA] font-sans uppercase tracking-wide text-xs font-medium text-[#666666] px-3 py-3 text-left border-r border-b border-[#E5E5E5] min-w-[220px]">
+          <th className="sticky top-0 left-0 z-30 bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-3 py-2 text-left border-r border-b border-[#E5E5E5] min-w-[220px]">
             Marca
           </th>
           {eventos.map((e) => (
             <th
               key={e.eventoId}
               title={e.nombre}
-              className="sticky top-0 z-10 bg-[#FAFAFA] font-sans uppercase tracking-wide text-xs font-medium text-[#666666] px-2 py-3 text-left border-r border-b border-[#E5E5E5] min-w-[140px] max-w-[180px]"
+              className="sticky top-0 z-10 bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-2 py-2 text-left border-r border-b border-[#E5E5E5] min-w-[150px] max-w-[190px]"
             >
-              <div className="truncate font-semibold text-[#333333]">
-                {e.nombre}
-              </div>
-              <div className="text-[10px] font-normal text-[#999999] tabular-nums">
+              <div className="truncate font-bold">{e.nombre}</div>
+              <div className="text-[9px] text-[#999999] tabular-nums">
                 {fmtFecha(e.fechaEvento)}
               </div>
             </th>
           ))}
-          <th className="sticky top-0 z-10 bg-[#FAFAFA] font-sans uppercase tracking-wide text-xs font-medium text-[#666666] px-3 py-3 text-right border-l border-b border-[#E5E5E5] min-w-[140px]">
+          <th className="sticky top-0 z-10 bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-3 py-2 text-right border-l border-b border-[#E5E5E5] min-w-[140px]">
             Total marca
           </th>
         </tr>
@@ -562,16 +623,13 @@ function MatrixGrid({
           <tr key={c.id}>
             <th
               scope="row"
-              className="sticky left-0 z-20 bg-white font-sans text-sm px-3 py-2 text-left border-r border-b border-[#E5E5E5] min-w-[220px]"
+              className="sticky left-0 z-20 bg-white font-sans text-sm text-[#333333] px-3 py-2 text-left border-r border-b border-[#E5E5E5] min-w-[220px]"
             >
-              <div
-                className="font-medium text-[#333333] truncate"
-                title={c.nombre}
-              >
+              <div className="font-bold truncate" title={c.nombre}>
                 {c.nombre}
               </div>
               <div
-                className="text-xs text-[#666666] truncate"
+                className="text-[10px] text-[#666666] truncate"
                 title={`${c.razonSocial} · ${formatRut(c.rut)}`}
               >
                 {c.razonSocial} · {formatRut(c.rut)}
@@ -581,12 +639,14 @@ function MatrixGrid({
               const key = `${c.id}::${e.eventoId}`;
               const isSaving = savingKeys.has(key);
               const value = cellDisplay(c.id, e.eventoId);
-              const neto = cellNeto(c.id, e.eventoId);
-              const bruto = netoToBruto(neto);
+              const precio = cellPrecio(c.id, e.eventoId);
+              const exento = cellExento(c.id, e.eventoId);
+              const neto = cellNetoValue(c.id, e.eventoId);
+              const iva = Math.round(precio) - neto;
               return (
                 <td
                   key={e.eventoId}
-                  className="bg-white px-1 py-1 border-r border-b border-[#E5E5E5]"
+                  className="bg-white px-1 py-1 border-r border-b border-[#E5E5E5] align-top"
                 >
                   <input
                     type="text"
@@ -597,21 +657,42 @@ function MatrixGrid({
                     }
                     onBlur={() => commitCell(c.id, e.eventoId)}
                     onKeyDown={(ev) => handleCellKeyDown(ev, c.id, e.eventoId)}
-                    aria-label={`Monto neto medios ${c.nombre} en ${e.nombre}`}
-                    title={neto > 0 ? `Bruto: ${fmtClp(bruto)}` : "Vacío"}
+                    aria-label={`Precio producto ${c.nombre} en ${e.nombre}`}
+                    title={
+                      precio > 0
+                        ? exento
+                          ? `Exento · neto ${fmtClp(neto)} (sin IVA)`
+                          : `Afecto · neto ${fmtClp(neto)} · IVA ${fmtClp(iva)}`
+                        : "Vacío"
+                    }
                     placeholder="$0"
-                    className={`w-full rounded font-sans text-sm text-right px-2 py-1.5 outline-none tabular-nums placeholder:text-[#999999] focus:bg-[#F0EFFE] focus:ring-1 focus:ring-inset focus:ring-[#9F99F8] ${
+                    className={`w-full font-sans text-sm text-right px-2 py-1.5 rounded outline-none tabular-nums focus:ring-1 focus:ring-[#9F99F8] ${
                       isSaving
                         ? "bg-[#F0EFFE] text-[#9F99F8]"
-                        : neto > 0
+                        : precio > 0
                           ? "bg-white text-[#333333]"
                           : "bg-white text-[#999999]"
                     }`}
                   />
+                  {precio > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => toggleExento(c.id, e.eventoId)}
+                      aria-pressed={!exento}
+                      title="Cambiar exento / afecto"
+                      className={`mt-1 w-full font-sans text-[9px] px-1 py-1 border border-[#E5E5E5] rounded cursor-pointer transition-colors duration-150 ${
+                        exento
+                          ? "bg-white text-[#666666] hover:bg-[#FAFAFA]"
+                          : "bg-[#F0EFFE] text-[#9F99F8]"
+                      }`}
+                    >
+                      {exento ? "Exento" : "Afecto +IVA"}
+                    </button>
+                  )}
                 </td>
               );
             })}
-            <td className="bg-[#FAFAFA] font-sans text-sm text-right font-semibold text-[#333333] px-3 py-2 border-l border-b border-[#E5E5E5] tabular-nums">
+            <td className="bg-[#F0EFFE] font-sans text-sm text-right font-bold text-[#9F99F8] px-3 py-2 border-l border-b border-[#E5E5E5] tabular-nums align-top">
               {fmtClp(totalesRow.get(c.id) ?? 0)}
             </td>
           </tr>
@@ -619,19 +700,19 @@ function MatrixGrid({
         <tr>
           <th
             scope="row"
-            className="sticky left-0 z-20 bg-[#FAFAFA] font-sans text-xs uppercase tracking-wide font-medium text-[#666666] px-3 py-3 text-left border-r border-t border-[#E5E5E5]"
+            className="sticky left-0 z-20 bg-[#F0EFFE] font-sans text-sm font-bold text-[#9F99F8] px-3 py-2 text-left border-r border-t border-[#E5E5E5]"
           >
-            Total evento
+            Total evento (neto)
           </th>
           {eventos.map((e) => (
             <td
               key={e.eventoId}
-              className="bg-[#FAFAFA] font-sans text-sm text-right font-semibold text-[#333333] px-2 py-2 border-r border-t border-[#E5E5E5] tabular-nums"
+              className="bg-[#F0EFFE] font-sans text-sm text-right font-bold text-[#9F99F8] px-2 py-2 border-r border-t border-[#E5E5E5] tabular-nums"
             >
               {fmtClp(totalesCol.get(e.eventoId) ?? 0)}
             </td>
           ))}
-          <td className="bg-[#9F99F8] font-sans text-sm text-right font-semibold text-white px-3 py-2 border-l border-t border-[#E5E5E5] tabular-nums">
+          <td className="bg-[#9F99F8] text-white font-sans text-sm text-right font-bold px-3 py-2 border-l border-t border-[#E5E5E5] tabular-nums">
             {fmtClp(granTotal)}
           </td>
         </tr>

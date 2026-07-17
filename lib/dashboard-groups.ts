@@ -93,6 +93,16 @@ export const MARKETING_GROUP: DashboardGroup = {
       accentText: "text-white",
     },
     {
+      key: "inversion-medios",
+      label: "CONTROL INVERSIÓN PM",
+      path: "/inversion-medios",
+      description:
+        "Presupuesto diario de paid media (plan por plataforma) vs gasto real por evento, en calendario libre.",
+      icon: "briefcase",
+      accentClass: "bg-[#534AB7]",
+      accentText: "text-white",
+    },
+    {
       key: "ticketing",
       label: "TICKETING",
       path: "/ticketing",
@@ -109,7 +119,7 @@ export const FINANZAS_GROUP: DashboardGroup = {
   key: "finanzas",
   title: "FINANZAS",
   description:
-    "Cierres del negocio: cierre mensual por área y cierre por negocio.",
+    "Cierres del negocio y resumen por evento: cierre mensual por área, cierre por negocio y onepager.",
   icon: "database",
   accentClass: "bg-[#FF0000]",
   accentText: "text-white",
@@ -139,12 +149,59 @@ export const FINANZAS_GROUP: DashboardGroup = {
       accentClass: "bg-[#9F99F8]",
       accentText: "text-white",
     },
+    {
+      key: "onepager",
+      label: "Onepager",
+      path: "/onepager",
+      description: "Resumen por evento de ventas de tickets y AA&BB.",
+      icon: "file-text",
+      accentClass: "bg-[#FF7A00]",
+      accentText: "text-black",
+    },
+  ],
+};
+
+export const REPORTES_GROUP: DashboardGroup = {
+  key: "reportes",
+  title: "REPORTES ESTÁTICOS",
+  description:
+    "Reportes puntuales de activaciones y experimentos por evento — archivo consultable.",
+  icon: "folder",
+  accentClass: "bg-[#9F99F8]",
+  accentText: "text-white",
+  theme: "glovox",
+  href: "/reportes",
+  heroVt: "reportes-hero",
+  navVt: "reportes-nav",
+  contentVt: "reportes-content",
+  members: [
+    {
+      key: "reportes.entel.the-grid",
+      label: "Entel · The Grid",
+      path: "/reportes/entel-the-grid",
+      description:
+        "Reporte de activación Entel en The Grid · kiki — 9 mayo 2026 (Espacio Riesco).",
+      icon: "zap",
+      accentClass: "bg-[#00BCD4]",
+      accentText: "text-black",
+    },
+    {
+      key: "reportes.grid-kiki-jw",
+      label: "Johnnie Walker · The Grid KI/KI",
+      path: "/reportes/grid-kiki-jw",
+      description:
+        "Experimento de promo flash por WhatsApp: efecto en el consumo de Johnnie Walker — The Grid System · KI/KI, 9 mayo 2026.",
+      icon: "megaphone",
+      accentClass: "bg-[#B1D750]",
+      accentText: "text-black",
+    },
   ],
 };
 
 export const DASHBOARD_GROUPS: readonly DashboardGroup[] = [
   MARKETING_GROUP,
   FINANZAS_GROUP,
+  REPORTES_GROUP,
 ];
 
 /** Todas las keys de dashboards que pertenecen a algún grupo. */

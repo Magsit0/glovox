@@ -13,11 +13,24 @@ import {
   YAxis,
 } from "recharts";
 import type { OnepagerFfbbEvolucionRow } from "@/lib/queries/onepager";
+import {
+  axisTick,
+  gridProps,
+  legendProps,
+  seriesColor,
+  seriesFillSoft,
+  SURFACE,
+} from "@/lib/chart-colors";
+import { ChartTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
 import MultiFilter from "./MultiFilter";
 
 type Props = {
   data: OnepagerFfbbEvolucionRow[];
 };
+
+// Series colors in index order: venta (Area) = 0, qtty (Line) = 1.
+const VENTA_COLOR = seriesColor(0);
+const QTTY_COLOR = seriesColor(1);
 
 function fmtClp(value: number) {
   return "$" + Math.round(value).toLocaleString("es-CL");
@@ -49,47 +62,6 @@ function slotRange(slotLabel: string): string {
 }
 
 type SerieRow = { slotLabel: string; slotIso: string; venta: number; qtty: number };
-
-type TooltipPayloadEntry = {
-  dataKey?: string | number;
-  value?: number | string;
-  payload?: SerieRow;
-};
-
-function ChartTooltip({
-  active,
-  payload,
-  label,
-}: {
-  active?: boolean;
-  payload?: TooltipPayloadEntry[];
-  label?: string | number;
-}) {
-  if (!active || !payload || payload.length === 0) return null;
-  const venta = payload.find((p) => p.dataKey === "venta")?.value;
-  const qtty  = payload.find((p) => p.dataKey === "qtty")?.value;
-  const labelStr = typeof label === "string" ? label : String(label ?? "");
-  const rangeLabel = labelStr ? slotRange(labelStr) : labelStr;
-  return (
-    <div className="bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none px-3 py-2 font-mono-data text-xs">
-      <div className="font-bold uppercase mb-1">{rangeLabel}</div>
-      <div className="flex items-center gap-2">
-        <span className="inline-block w-3 h-3 border border-black" style={{ background: "#FFFF00" }} />
-        <span className="uppercase">Venta</span>
-        <span className="ml-auto font-bold whitespace-nowrap">
-          {typeof venta === "number" ? fmtClp(venta) : "—"}
-        </span>
-      </div>
-      <div className="flex items-center gap-2 mt-1">
-        <span className="inline-block w-3 h-3 border border-black bg-black" />
-        <span className="uppercase">Cantidad</span>
-        <span className="ml-auto font-bold whitespace-nowrap">
-          {typeof qtty === "number" ? fmtQty(qtty) : "—"}
-        </span>
-      </div>
-    </div>
-  );
-}
 
 function uniqueSorted(values: Iterable<string>): string[] {
   return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b, "es-CL"));
@@ -159,7 +131,7 @@ export default function FfbbEvolucionChart({ data }: Props) {
     categorias.size > 0 || effectiveProductos.size > 0 || puntosVenta.size > 0;
 
   if (data.length === 0) {
-    return <p className="font-mono-data text-sm text-black/50">Sin datos.</p>;
+    return <p className="font-sans text-sm text-[#999999]">Sin datos.</p>;
   }
 
   return (
@@ -188,7 +160,7 @@ export default function FfbbEvolucionChart({ data }: Props) {
           <button
             type="button"
             onClick={clearAll}
-            className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-white text-black hover:bg-[#FFFF00] transition-colors duration-150 cursor-pointer"
+            className="rounded-lg px-3 py-2 font-sans font-medium text-sm text-[#666666] hover:text-[#333333] hover:bg-[#F5F5F5] transition-colors duration-150 cursor-pointer"
           >
             Limpiar filtros
           </button>
@@ -197,84 +169,90 @@ export default function FfbbEvolucionChart({ data }: Props) {
 
       {/* Chart */}
       {serie.length === 0 ? (
-        <p className="font-mono-data text-sm text-black/50">
+        <p className="font-sans text-sm text-[#999999]">
           Sin datos para la combinación de filtros seleccionada.
         </p>
       ) : (
-        <div className="border-4 border-black bg-white p-3">
+        <div className="border border-[#E5E5E5] bg-white rounded-lg p-3">
           <ResponsiveContainer width="100%" height={320}>
             <ComposedChart
               data={serie}
               margin={{ top: 8, right: 16, bottom: 4, left: 0 }}
             >
-              <CartesianGrid
-                stroke="#000"
-                strokeDasharray="2 3"
-                strokeOpacity={0.2}
-                vertical={false}
-              />
+              <CartesianGrid {...gridProps} />
               <XAxis
                 dataKey="slotLabel"
-                stroke="#000"
+                axisLine={{ stroke: SURFACE.divider }}
                 tickLine={false}
                 interval="preserveStartEnd"
                 minTickGap={20}
-                tick={{ fontFamily: "monospace", fontSize: 11, fill: "#000" }}
+                tick={axisTick}
               />
               <YAxis
                 yAxisId="venta"
                 orientation="left"
-                stroke="#000"
+                axisLine={false}
                 tickLine={false}
                 tickFormatter={fmtClpShort}
-                tick={{ fontFamily: "monospace", fontSize: 11, fill: "#000" }}
+                tick={axisTick}
                 width={56}
               />
               <YAxis
                 yAxisId="qtty"
                 orientation="right"
-                stroke="#000"
+                axisLine={false}
                 tickLine={false}
                 tickFormatter={(v: number) => fmtQty(v)}
-                tick={{ fontFamily: "monospace", fontSize: 11, fill: "#000" }}
+                tick={axisTick}
                 width={44}
               />
               <Tooltip
-                content={<ChartTooltip />}
-                cursor={{ stroke: "#000", strokeWidth: 1, strokeDasharray: "3 3" }}
-              />
-              <Legend
-                verticalAlign="top"
-                height={28}
-                iconType="square"
-                wrapperStyle={{
-                  fontFamily: "monospace",
-                  fontSize: 11,
-                  textTransform: "uppercase",
-                  color: "#000",
-                  paddingBottom: 4,
+                cursor={{ stroke: SURFACE.divider, strokeWidth: 1, strokeDasharray: "3 3" }}
+                content={({ active, payload, label }) => {
+                  const labelStr = typeof label === "string" ? label : String(label ?? "");
+                  const rangeLabel = labelStr ? slotRange(labelStr) : labelStr;
+                  return (
+                    <ChartTooltip
+                      active={active}
+                      label={rangeLabel}
+                      items={(payload ?? []).map((p) => {
+                        const key = String(p.dataKey ?? "");
+                        const num = Number(p.value);
+                        return {
+                          name: key === "venta" ? "Venta" : "Cantidad",
+                          color: key === "venta" ? VENTA_COLOR : QTTY_COLOR,
+                          formatted:
+                            key === "venta"
+                              ? Number.isFinite(num) ? fmtClp(num) : String(p.value)
+                              : Number.isFinite(num) ? fmtQty(num) : String(p.value),
+                        };
+                      })}
+                    />
+                  );
                 }}
               />
+              <Legend {...legendProps} verticalAlign="top" height={28} />
               <Area
                 yAxisId="venta"
                 type="linear"
                 dataKey="venta"
                 name="Venta CLP"
-                fill="#FFFF00"
-                stroke="#000"
-                strokeWidth={3}
+                fill={seriesFillSoft(VENTA_COLOR, 0.15)}
+                stroke={VENTA_COLOR}
+                strokeWidth={2}
                 isAnimationActive={false}
-                activeDot={{ r: 4, stroke: "#000", strokeWidth: 2, fill: "#FFFF00" }}
+                dot={false}
+                activeDot={{ r: 4 }}
               />
               <Line
                 yAxisId="qtty"
                 type="linear"
                 dataKey="qtty"
                 name="Cantidad"
-                stroke="#000"
-                strokeWidth={3}
-                dot={{ r: 3, fill: "#000", stroke: "#000" }}
-                activeDot={{ r: 5, stroke: "#000", strokeWidth: 2, fill: "#FFFFFF" }}
+                stroke={QTTY_COLOR}
+                strokeWidth={2}
+                dot={false}
+                activeDot={{ r: 4 }}
                 isAnimationActive={false}
               />
             </ComposedChart>

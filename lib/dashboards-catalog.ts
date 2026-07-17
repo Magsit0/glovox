@@ -205,6 +205,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentText: "text-white",
   },
   {
+    key: "inversion-medios",
+    pathPrefix: "/inversion-medios",
+    label: "Control inversión PM",
+    appliesCountryScope: false,
+    sortOrder: 26,
+    title: "CONTROL INVERSIÓN PM",
+    description:
+      "Presupuesto diario de paid media (plan por plataforma) vs gasto real por evento, en calendario libre. Techo por evento y ejecución.",
+    icon: "briefcase",
+    accentClass: "bg-[#534AB7]",
+    accentText: "text-white",
+  },
+  {
     key: "proveedor",
     pathPrefix: "/proveedor",
     label: "Proveedor",

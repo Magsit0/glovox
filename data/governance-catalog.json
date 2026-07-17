@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-10T16:56:49.881681+00:00",
+  "generatedAt": "2026-07-17T20:48:02.023241+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -69,6 +69,28 @@
         "TIKTOK_ACCESS_TOKEN"
       ],
       "notes": "Vars TIKTOK_* aún no documentadas en .env.example (deuda D7 del diagnóstico)."
+    },
+    {
+      "id": "bcentral",
+      "label": "Banco Central de Chile (dólar observado)",
+      "type": "api",
+      "area": "marketing",
+      "endpoints": [
+        "mindicador.cl GET /api/dolar/{year} — dólar observado diario (serie BCCh F073.TCO.PRE.Z.D)"
+      ],
+      "envVars": [],
+      "notes": "Sin credenciales. mindicador.cl republica el dólar observado oficial del Banco Central de Chile. Fuente de verdad declarada: BCCh (migrable al API oficial SIETE cuando haya usuario/clave, sin cambiar el schema)."
+    },
+    {
+      "id": "bcb",
+      "label": "Banco Central do Brasil (PTAX)",
+      "type": "api",
+      "area": "marketing",
+      "endpoints": [
+        "Olinda OData CotacaoDolarPeriodo — PTAX de cierre diario (BRL/USD)"
+      ],
+      "envVars": [],
+      "notes": "Sin credenciales. PTAX de cierre; units_per_usd = punto medio (cotacaoCompra + cotacaoVenda) / 2."
     },
     {
       "id": "unabase",
@@ -1171,6 +1193,71 @@
           "type": "TIMESTAMP",
           "mode": "NULLABLE",
           "description": "Timestamp UTC de la carga"
+        }
+      ]
+    },
+    {
+      "key": "referencia.tipo_cambio",
+      "area": "marketing",
+      "source": "bcentral",
+      "endpoint": "mindicador.cl /api/dolar (CLP) + BCB Olinda CotacaoDolarPeriodo (BRL)",
+      "pipeline": "pipelines/referencia/banco_central/tipo_cambio.py",
+      "schema": "referencia_tipo_cambio",
+      "assetType": "table",
+      "status": "governed_unconsumed",
+      "loadPattern": "merge",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "replaces": "paidMedia.fx_rates",
+      "upstream": [],
+      "consumers": [
+        "marts.paidmedia_ads_performance"
+      ],
+      "notes": "Tipo de cambio diario a USD (units_per_usd = unidades locales por 1 USD), fuente fidedigna de bancos centrales. Reemplazo gobernado de la legacy paidMedia.fx_rates (plana, sin fecha, editada a mano en BQ). Tabla DENSA: rellena finde/feriados con el último valor hábil (imputado=TRUE). CLP=dólar observado BCCh (vía mindicador.cl), BRL=PTAX cierre BCB (fuente 'bcb'), USD=1. AÚN NO consumida: el switch en /paid-media y /marketing/weekly (agregar join por fecha) queda pendiente por decisión del owner — este cambio NO toca paid media.",
+      "metrics": [],
+      "endpointLabel": "mindicador.cl /api/dolar (CLP) + BCB Olinda CotacaoDolarPeriodo (BRL)",
+      "fields": [
+        {
+          "name": "fecha",
+          "type": "DATE",
+          "mode": "REQUIRED",
+          "description": "Día de la tasa, denso (incluye finde/feriados) (parte de la clave de upsert)"
+        },
+        {
+          "name": "currency",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Moneda local ISO 4217: CLP, BRL, USD (parte de la clave de upsert)"
+        },
+        {
+          "name": "units_per_usd",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Unidades de la moneda local equivalentes a 1 USD. Conversión: monto_usd = monto_local / units_per_usd; monto_local = monto_usd * units_per_usd. USD=1.0"
+        },
+        {
+          "name": "fuente",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Origen del valor: BCCH_OBSERVADO (Chile), BCB_PTAX_CIERRE (Brasil), IDENTIDAD (USD)"
+        },
+        {
+          "name": "serie",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Identificador de la serie en la fuente (ej. F073.TCO.PRE.Z.D para el dólar observado del BCCh)"
+        },
+        {
+          "name": "imputado",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "TRUE si el valor es carry-forward del último día hábil (finde/feriado sin publicación); FALSE si es un valor publicado real"
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga del registro"
         }
       ]
     },
@@ -3542,6 +3629,320 @@
       "fields": []
     },
     {
+      "key": "finanzas.unabase_gasto_dtc",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "https://api-v3-new.herokuapp.com/v1/gastoslist",
+      "pipeline": "pipelines/finanzas/unabase/unabase_gasto_dtc.py",
+      "schema": "finanzas_unabase_gasto_dtc",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "delete-then-append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "marts.finanzas_gastos"
+      ],
+      "notes": "Nº DOC (folio del documento tributario, dtc_folio) por gasto — NO existe en /gastos/{negocio_id}. Grano: 1 fila por gasto_id (NO por negocio: el endpoint barre todos los negocios por rango de fecha). Corrida diaria usa fromDate/toDate fijos y amplios (2018-2030) + modificatedFrom/modificatedTo angosto (default 3 días): así se captura una factura que llega tarde a una OC vieja (filtra por fecha de MODIFICACIÓN, no de creación — verificado en vivo 17-jul-2026). dtc_folios (ARRAY) porque un gasto puede tener varios documentos (pagos/facturas parciales contra la misma OC). Backfill histórico: backfills/finanzas/unabase/unabase_gasto_dtc_backfill.py (chunked por mes).",
+      "metrics": [],
+      "endpointLabel": "https://api-v3-new.herokuapp.com/v1/gastoslist",
+      "fields": [
+        {
+          "name": "gasto_id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "ID del gasto en Unabase (= finanzas.unabase_detalle_gasto.id). Clave del delete-then-append."
+        },
+        {
+          "name": "negocio_id",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "ID interno del negocio (= finanzas.unabase_detalle_gasto.negocio / unabase_negocios.id)."
+        },
+        {
+          "name": "negocio_folio",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Folio de negocio visible (= unabase_negocios.folio). Viene directo del endpoint, sin necesidad de mapeo id↔folio."
+        },
+        {
+          "name": "folio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Folio del gasto/OC (= finanzas.unabase_detalle_gasto.folio, ej '044213')."
+        },
+        {
+          "name": "tipo",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de gasto (ej 'DIRECTOS')."
+        },
+        {
+          "name": "doc",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de documento del gasto (ej 'FACTURA ELECTRONICA')."
+        },
+        {
+          "name": "fecha",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de creación del gasto."
+        },
+        {
+          "name": "vencimiento",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de vencimiento del gasto."
+        },
+        {
+          "name": "estado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado del gasto: EMITIDA | PAGADA | CERRADA | ANULADA."
+        },
+        {
+          "name": "validado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "'SI'/'NO' tal cual lo entrega el endpoint (no boolear: no calza con los tokens que castea _cast_to_schema)."
+        },
+        {
+          "name": "referencia",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Referencia textual del gasto."
+        },
+        {
+          "name": "referencia_oc",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Referencia de la orden de compra."
+        },
+        {
+          "name": "centro_costo",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Centro de costo asignado."
+        },
+        {
+          "name": "codigo_proyecto",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Código de proyecto asignado."
+        },
+        {
+          "name": "origen",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Origen del gasto (ej 'PROYECTO')."
+        },
+        {
+          "name": "proveedor",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Razón social del proveedor."
+        },
+        {
+          "name": "proveedor_id",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "ID interno del proveedor en Unabase (proveedorId)."
+        },
+        {
+          "name": "rut",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "RUT del proveedor."
+        },
+        {
+          "name": "forma_pago",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Forma de pago pactada (formapago)."
+        },
+        {
+          "name": "neto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto neto del gasto (neto_, numérico limpio)."
+        },
+        {
+          "name": "exento",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto exento del gasto (exento_)."
+        },
+        {
+          "name": "total",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto total del gasto (total_)."
+        },
+        {
+          "name": "saldo_a_pagar",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Saldo pendiente de pago (saldo_a_pagar_)."
+        },
+        {
+          "name": "pago",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto ya pagado (pago_)."
+        },
+        {
+          "name": "justificado",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto justificado (justificado_)."
+        },
+        {
+          "name": "dtc_folio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nº DOC crudo tal cual lo entrega el endpoint. Puede traer VARIOS folios separados por coma cuando el gasto tiene más de un documento tributario (pagos/facturas parciales contra la misma OC)."
+        },
+        {
+          "name": "dtc_folios",
+          "type": "STRING",
+          "mode": "REPEATED",
+          "description": "Nº DOC parseado como lista (split de dtc_folio por coma) — la forma consultable, ej: dtc_folio IN UNNEST(dtc_folios)."
+        },
+        {
+          "name": "dtc_fecha",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Fecha(s) del/los documento(s) tributario(s), crudo (no parseado 1:1 con dtc_folios: no hay garantía de orden emparejado)."
+        },
+        {
+          "name": "dtc_info_completa",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Texto combinado folio+fecha tal cual lo arma el endpoint, ej '[ 27861 / 13-05-2026 ]'. Fallback legible."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "REQUIRED",
+          "description": "Timestamp UTC de la carga del registro."
+        }
+      ]
+    },
+    {
+      "key": "finanzas.gasto_proveedor_real",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Workbook Drive 'Analisis Espacio Riesco.xlsx' (pestañas 2025/2026)",
+      "pipeline": "pipelines/finanzas/unabase/gasto_proveedor_real.py",
+      "schema": "finanzas_gasto_proveedor_real",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "full-replace",
+      "frequency": "on-demand",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "marts.finanzas_gastos"
+      ],
+      "notes": "Seed: proveedor REAL por Nº DOC de los documentos de Espacio Riesco (re-factura servicios de Provetec, Casablanca, VDS/MPG, Denis Leiva…). 1 fila por línea de la planilla (docs multi-negocio explotados). rut_valido=FALSE participa del conteo de líneas (guard de la atribución doc-uniforme) pero no reatribuye. NCs y bloques resumen descartados en el parseo. Cuando finanzas actualice el workbook: bajar a data/finanzas/ y recorrer el pipeline.",
+      "metrics": [],
+      "endpointLabel": "Workbook Drive 'Analisis Espacio Riesco.xlsx' (pestañas 2025/2026)",
+      "fields": [
+        {
+          "name": "nro_doc",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Nº DOC (folio del documento tributario de compra emitido por Espacio Riesco). STRING para joinear directo contra unabase_gasto_dtc.dtc_folios."
+        },
+        {
+          "name": "negocio_folio",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "Folio de negocio visible (= unabase_gasto_dtc.negocio_folio). Filas multi-negocio de la planilla ('1095 - 1108 - 1106') vienen EXPLOTADAS: una fila por negocio."
+        },
+        {
+          "name": "anio_pestana",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "Pestaña del workbook de la que salió la fila (2025, 2026)."
+        },
+        {
+          "name": "tipo_documento",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de documento según la planilla (ej 'Factura Electronica'). Las notas de crédito NO se cargan."
+        },
+        {
+          "name": "fecha_emision",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de emisión del documento según la planilla."
+        },
+        {
+          "name": "evento",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Evento al que la planilla atribuye el documento (texto libre, ej 'THE GRID SYSTEM')."
+        },
+        {
+          "name": "detalle",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Detalle de la línea de factura según la planilla (ej 'Aseo Baños')."
+        },
+        {
+          "name": "categoria",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Categoría de la línea según la planilla (ej 'Baños')."
+        },
+        {
+          "name": "monto_neto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto neto de la línea según la planilla. Llave del match fino cuando un doc tiene proveedores reales mixtos entre líneas."
+        },
+        {
+          "name": "monto_bruto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto bruto del documento según la planilla (nivel doc, repetido en docs multi-línea)."
+        },
+        {
+          "name": "proveedor_corto",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre corto del proveedor real según la planilla (ej 'Provetec', 'VDS'). Informativo: el campo gobernante es proveedor_real_razon_social + rut."
+        },
+        {
+          "name": "proveedor_real_razon_social",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Razón social del proveedor REAL del servicio (el que Espacio Riesco re-factura)."
+        },
+        {
+          "name": "proveedor_real_rut",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "RUT del proveedor real, normalizado (sin puntos, guión + DV mayúscula)."
+        },
+        {
+          "name": "rut_valido",
+          "type": "BOOL",
+          "mode": "REQUIRED",
+          "description": "TRUE si proveedor_real_rut matchea el patrón RUT chileno. Las filas sin RUT válido participan del conteo de líneas del doc (para decidir si la atribución doc-uniforme es segura) pero NO reatribuyen."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "REQUIRED",
+          "description": "Timestamp UTC de la carga del registro."
+        }
+      ]
+    },
+    {
       "key": "marts.finanzas_gastos",
       "area": "finanzas",
       "source": "unabase",
@@ -3556,7 +3957,9 @@
       "upstream": [
         "finanzas.unabase_detalle_gasto",
         "finanzas.unabase_negocios",
-        "finanzas.unabase_categoria_map"
+        "finanzas.unabase_categoria_map",
+        "finanzas.unabase_gasto_dtc",
+        "finanzas.gasto_proveedor_real"
       ],
       "consumers": [
         "/proveedor",
@@ -3566,7 +3969,7 @@
         "slack-data-agent",
         "finanzas.reconciliacion_gasto_log"
       ],
-      "notes": "LA fuente canónica del GASTO a nivel línea. gasto_neto = item_costo_empresa (reconcilia exacto con costo_real del maestro); item_costo_real NO se expone (corrupto en 2.436 docs por bug de la API, error '# 53'). Modelo neto/impuesto/bruto: gasto_iva (aditivo), gasto_retencion_honorarios (contenida en el neto), gasto_bruto = neto + IVA. Categoría oficial (17) + bucket (7) resueltos vía el seed unabase_categoria_map. No elimina filas: universo por predicados (incluir_en_totales, es_produccion_propia...).",
+      "notes": "LA fuente canónica del GASTO a nivel línea. gasto_neto = item_costo_empresa (reconcilia exacto con costo_real del maestro); item_costo_real NO se expone (corrupto en 2.436 docs por bug de la API, error '# 53'). Modelo neto/impuesto/bruto: gasto_iva (aditivo), gasto_retencion_honorarios (contenida en el neto), gasto_bruto = neto + IVA. Categoría oficial (17) + bucket (7) resueltos vía el seed unabase_categoria_map. No elimina filas: universo por predicados (incluir_en_totales, es_produccion_propia...). nro_doc/nro_doc_folios (Nº DOC, ej '27861') vía LEFT JOIN a finanzas.unabase_gasto_dtc — NULL si el gasto aún no tiene documento. proveedor_real/proveedor_efectivo/flag_proveedor_reatribuido (17-jul): re-atribución de docs Riesco al proveedor real vía seed gasto_proveedor_real (solo gastos con rut Riesco, guard por negocio; doc-uniforme seguro o match por monto). proveedor declarado queda intacto — consumidores migran opt-in (/proveedor migrado).",
       "metrics": [
         "Gasto canónico por línea: gasto_neto / gasto_iva / gasto_bruto",
         "Retención de boletas de honorarios por línea",
@@ -3703,6 +4106,30 @@
         "google_analytics.funnel"
       ],
       "consumers": [],
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.paidmedia_ads_performance",
+      "area": "marketing",
+      "source": "legacy",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_paidmedia_ads_performance.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "paidMedia.ads_performance",
+        "referencia.tipo_cambio"
+      ],
+      "consumers": [
+        "/inversion-medios"
+      ],
+      "notes": "Performance consolidada de ads (paidMedia.ads_performance) + montos en USD por FECHA vía referencia.tipo_cambio. Define la conversión gasto→USD UNA vez (gasto_usd, cpc_usd, cpm_usd, valor_conversion_usd + fx_units_per_usd/fx_imputado) en vez de repetir `gasto / fx` en marketing.ts. Join denso por (currency, fecha): siempre pega para CLP/BRL/USD; una moneda no cubierta (ej. PEN) sale *_usd = NULL (gap visible) en vez del COALESCE(fx,1) que contaba moneda extranjera como USD. source=legacy porque la base ads_performance sigue siendo la scheduled query legacy; cuando se jubile, esta vista es candidata a reemplazo consolidado+USD gobernado. PRIMER consumidor (14-jul): /inversion-medios — control presupuesto vs gasto real de ads por evento×día (usa EventoID + gasto_usd + fx_imputado; el plan diario vive en Neon: inversion_medios_diario, escrito solo por ese panel; el techo por evento es categoriaEvento.budgetPm, read-only en el panel, se edita en /admin/eventos). Sigue pendiente el switch de /marketing/weekly (marketing.ts) a leer gasto_usd de acá.",
       "metrics": [],
       "endpointLabel": "Vista BQ",
       "fields": []

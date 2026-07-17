@@ -19,11 +19,14 @@ interface Props {
   mesasVipBruto: number | null;
   mediosNeto: number | null;
   mediosBruto: number | null;
+  productoNeto: number | null;
+  productoBruto: number | null;
   /** % de rebate en puntos porcentuales (55 = 55%). */
   rebatePorcentaje: number | null;
   marcaDetalle: IngresoDetalleRow[];
   mesasVipDetalle: IngresoDetalleRow[];
   mediosDetalle: IngresoDetalleRow[];
+  productoDetalle: IngresoDetalleRow[];
 }
 
 // Los inputs externos se muestran NETOS como número principal, con el IVA y el
@@ -73,7 +76,9 @@ function brutoMetric(label: string, bruto: number | null, source: string): Metri
 }
 
 // Métrica desde ONEPAGER (marcas, mesas VIP, medios): neto y bruto vienen
-// guardados, así que el IVA es exacto (bruto − neto), no derivado.
+// guardados, así que el IVA es exacto (bruto − neto), no derivado. Si neto ==
+// bruto no hay IVA (venta exenta, ej. mesas VIP) → se muestra un monto único
+// sin las líneas de IVA/total.
 function onepagerMetric(
   label: string,
   neto: number | null,
@@ -81,11 +86,13 @@ function onepagerMetric(
   source: string,
   detalle?: IngresoDetalleRow[],
 ): Metric {
+  const hasIva =
+    bruto != null && neto != null && Math.round(bruto) !== Math.round(neto);
   return {
     label,
     neto: neto != null ? compactCurrency(neto) : "—",
-    iva: bruto != null && neto != null ? compactCurrency(bruto - neto) : undefined,
-    total: bruto != null ? compactCurrency(bruto) : undefined,
+    iva: hasIva ? compactCurrency(bruto - neto) : undefined,
+    total: hasIva ? compactCurrency(bruto) : undefined,
     source,
     detalle,
   };
@@ -100,10 +107,11 @@ function DetalleTooltip({ detalle }: { detalle: IngresoDetalleRow[] }) {
     <div
       role="tooltip"
       data-no-print="true"
-      // pointer-events-auto (no "-none"): el botón de abajo debe ser clickeable.
-      // Sigue funcionando el group-hover porque este div es descendiente del
-      // article.group — pasar el mouse sobre la nube mantiene el hover del padre.
-      className="absolute left-0 right-0 top-full z-30 mt-2 rounded-lg border border-[#E5E5E5] bg-white p-3 opacity-0 shadow-md transition-opacity duration-150 group-hover:opacity-100"
+      // OCULTA = pointer-events-none: su caja invisible cuelga bajo la card (top-full),
+      // y si captara el mouse aparecería al pasar por ese espacio "vacío" de abajo.
+      // En hover se vuelve pointer-events-auto (el link queda clickeable). Sin `mt`:
+      // pegada a la card, así moverse card→nube es continuo (no hay hueco muerto).
+      className="pointer-events-none absolute left-0 right-0 top-full z-30 rounded-lg border border-[#E5E5E5] bg-white p-3 opacity-0 shadow-md transition-opacity duration-150 group-hover:pointer-events-auto group-hover:opacity-100"
     >
       <p className="mb-1.5 font-sans text-xs font-medium text-[#666666]">
         Detalle por cliente
@@ -181,10 +189,13 @@ export default function EventoResumen({
   mesasVipBruto,
   mediosNeto,
   mediosBruto,
+  productoNeto,
+  productoBruto,
   rebatePorcentaje,
   marcaDetalle,
   mesasVipDetalle,
   mediosDetalle,
+  productoDetalle,
 }: Props) {
   const [valorMode, setValorMode] = useState<ValorMode>("total");
   const asistentes = evento.totalAsistentes;
@@ -209,6 +220,8 @@ export default function EventoResumen({
   const mesasVipBrutoEsc = scale(mesasVipBruto);
   const mediosNetoEsc = scale(mediosNeto);
   const mediosBrutoEsc = scale(mediosBruto);
+  const productoNetoEsc = scale(productoNeto);
+  const productoBrutoEsc = scale(productoBruto);
   const pct = rebatePorcentaje ?? REBATE_PCT_DEFAULT;
 
   // Rebate: solo el pct% del cargo por servicio es ingreso Glovox. Se aplica
@@ -216,21 +229,23 @@ export default function EventoResumen({
   const rebateBruto = cargoBruto != null ? rebateFrom(cargoBruto, pct) : null;
   const rebateNeto = rebateBruto != null ? netoDe(rebateBruto) : null;
 
-  // Total ingresos = las 6 fuentes de la izquierda (el cargo entra solo como rebate).
+  // Total ingresos = las 7 fuentes de la izquierda (el cargo entra solo como rebate).
   const totalNeto =
     (tBruto != null ? netoDe(tBruto) : 0) +
     (rebateNeto ?? 0) +
     (fBruto != null ? netoDe(fBruto) : 0) +
     (marcaNeto ?? 0) +
     (mesasVipNetoEsc ?? 0) +
-    (mediosNetoEsc ?? 0);
+    (mediosNetoEsc ?? 0) +
+    (productoNetoEsc ?? 0);
   const totalBruto =
     (tBruto ?? 0) +
     (rebateBruto ?? 0) +
     (fBruto ?? 0) +
     (marcaBruto ?? 0) +
     (mesasVipBrutoEsc ?? 0) +
-    (mediosBrutoEsc ?? 0);
+    (mediosBrutoEsc ?? 0) +
+    (productoBrutoEsc ?? 0);
 
   const donutSlices = [
     { label: "Tickets", value: tBruto != null ? netoDe(tBruto) : 0 },
@@ -239,6 +254,7 @@ export default function EventoResumen({
     { label: "Marcas", value: marcaNeto ?? 0 },
     { label: "Mesas VIP", value: mesasVipNetoEsc ?? 0 },
     { label: "Medios", value: mediosNetoEsc ?? 0 },
+    { label: "Producto", value: productoNetoEsc ?? 0 },
   ];
 
   const rebateMetric: Metric = {
@@ -268,13 +284,18 @@ export default function EventoResumen({
     ),
   };
 
-  const ingresos: Metric[] = [
+  // Fila de arriba: las 3 fuentes que NO vienen del ONEPAGER (ticketera + OnFire).
+  const ingresosTop: Metric[] = [
     brutoMetric("Venta tickets", tBruto, "desde Punto Ticket"),
     rebateMetric,
     brutoMetric("Venta FF&BB", fBruto, "desde OnFire"),
+  ];
+  // Fila de abajo: los 4 inputs imputados en el ONEPAGER.
+  const ingresosOnepager: Metric[] = [
     onepagerMetric("Ingresos marcas", marcaNeto, marcaBruto, "desde ONEPAGER", marcaDetalle),
     onepagerMetric("Mesas VIP", mesasVipNetoEsc, mesasVipBrutoEsc, "desde ONEPAGER", mesasVipDetalle),
     onepagerMetric("Medios", mediosNetoEsc, mediosBrutoEsc, "desde ONEPAGER", mediosDetalle),
+    onepagerMetric("Producto", productoNetoEsc, productoBrutoEsc, "desde ONEPAGER", productoDetalle),
   ];
 
   return (
@@ -331,18 +352,29 @@ export default function EventoResumen({
         </div>
       </header>
 
-      {/* 6 ingresos a la izquierda (3×2) → confluyen al total, exclusivo a la derecha. */}
+      {/* 7 ingresos a la izquierda → confluyen al total, exclusivo a la derecha.
+          Arriba las 3 fuentes de ticketera/OnFire; abajo los 4 inputs del ONEPAGER. */}
       <div
         data-pdf-grid="side-by-side"
         className="grid grid-cols-1 gap-6 lg:grid-cols-4"
       >
-        <div
-          data-pdf-grid="kpis-6"
-          className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:col-span-3 lg:grid-cols-3"
-        >
-          {ingresos.map((m) => (
-            <MetricCard key={m.label} m={m} />
-          ))}
+        <div className="flex flex-col gap-6 lg:col-span-3">
+          <div
+            data-pdf-grid="kpis-3"
+            className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3"
+          >
+            {ingresosTop.map((m) => (
+              <MetricCard key={m.label} m={m} />
+            ))}
+          </div>
+          <div
+            data-pdf-grid="kpis-4"
+            className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4"
+          >
+            {ingresosOnepager.map((m) => (
+              <MetricCard key={m.label} m={m} />
+            ))}
+          </div>
         </div>
 
         {/* Spotlight KPI (docs/STYLE_DASHBOARD.md): única card con relleno de
@@ -358,7 +390,7 @@ export default function EventoResumen({
             Total {compactCurrency(totalBruto)}
           </p>
           <p className="mt-4 font-sans text-xs text-white/80">
-            Tickets + Rebate + FF&BB + Marcas + Mesas VIP + Medios
+            Tickets + Rebate + FF&BB + Marcas + Mesas VIP + Medios + Producto
           </p>
           {totalNeto > 0 && (
             <div className="mt-6 border-t border-white/20 pt-6">

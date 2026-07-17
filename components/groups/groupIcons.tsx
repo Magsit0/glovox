@@ -4,6 +4,8 @@ import {
   Ticket,
   Database,
   Wallet,
+  Zap,
+  Folder,
   type LucideIcon,
 } from "lucide-react";
 
@@ -18,6 +20,8 @@ export const GROUP_ICON_MAP: Record<string, LucideIcon> = {
   ticket: Ticket,
   database: Database,
   wallet: Wallet,
+  zap: Zap,
+  folder: Folder,
 };
 
 export const FALLBACK_GROUP_ICON: LucideIcon = Ticket;

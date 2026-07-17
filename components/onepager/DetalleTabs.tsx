@@ -49,7 +49,7 @@ export default function DetalleTabs({
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-0 border-b-4 border-black">
+      <div className="flex gap-0 border-b border-[#E5E5E5]">
         {tabs.map((t) => {
           const active = tab === t.key;
           return (
@@ -57,10 +57,10 @@ export default function DetalleTabs({
               key={t.key}
               type="button"
               onClick={() => setTab(t.key)}
-              className={`font-display uppercase text-lg leading-none px-6 py-3 border-4 border-black border-b-0 -mb-1 transition-colors duration-150 cursor-pointer ${
+              className={`font-sans font-medium text-sm leading-none px-4 py-3 -mb-px border-b-2 transition-colors duration-150 cursor-pointer ${
                 active
-                  ? "bg-black text-[#FFFF00]"
-                  : "bg-white text-black hover:bg-[#FFFF00]"
+                  ? "border-[#9F99F8] text-[#333333]"
+                  : "border-transparent text-[#666666] hover:text-[#333333]"
               }`}
             >
               {t.label}
@@ -72,9 +72,9 @@ export default function DetalleTabs({
       {tab === "tickets" && (
         <BrutalChartPanel title="Tickets — Tipo Producto">
           {ticketsByTipo.length === 0 ? (
-            <p className="font-mono-data text-sm text-black/50">Sin datos.</p>
+            <p className="font-sans text-sm text-[#999999]">Sin datos.</p>
           ) : (
-            <TipoProductoChart data={ticketsByTipo} color="#0000FF" />
+            <TipoProductoChart data={ticketsByTipo} color="#9F99F8" />
           )}
         </BrutalChartPanel>
       )}
@@ -87,16 +87,16 @@ export default function DetalleTabs({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <BrutalChartPanel title="FF&BB — Ranking">
               {ffbbByCatProd.length === 0 ? (
-                <p className="font-mono-data text-sm text-black/50">Sin datos.</p>
+                <p className="font-sans text-sm text-[#999999]">Sin datos.</p>
               ) : (
-                <FfbbRankingChart data={ffbbByCatProd} color="#FF0000" />
+                <FfbbRankingChart data={ffbbByCatProd} color="#B1D750" />
               )}
             </BrutalChartPanel>
             <BrutalChartPanel title="FF&BB — Ranking Punto de Venta">
               {ffbbByPuntoVenta.length === 0 ? (
-                <p className="font-mono-data text-sm text-black/50">Sin datos.</p>
+                <p className="font-sans text-sm text-[#999999]">Sin datos.</p>
               ) : (
-                <PuntoVentaChart data={ffbbByPuntoVenta} color="#FF0000" />
+                <PuntoVentaChart data={ffbbByPuntoVenta} color="#B1D750" />
               )}
             </BrutalChartPanel>
           </div>
@@ -110,13 +110,13 @@ export default function DetalleTabs({
         <BrutalChartPanel title="Marcas">
           <div className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <p className="font-mono-data uppercase text-xs text-black/70">
+              <p className="font-sans text-xs text-[#666666]">
                 Ingresos imputados al evento
               </p>
               <button
                 type="button"
                 onClick={() => setMarcaSheetOpen(true)}
-                className="font-display uppercase text-sm leading-none px-4 py-2 border-4 border-black bg-[#FFFF00] text-black shadow-[4px_4px_0px_#000] hover:bg-black hover:text-[#FFFF00] cursor-pointer transition-colors duration-150"
+                className="rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer transition-colors duration-150"
               >
                 + Imputar ingreso
               </button>

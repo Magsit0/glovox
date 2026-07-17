@@ -25,9 +25,11 @@ import {
   Target,
   Truck,
   Sandwich,
+  Folder,
   Pencil,
   GripVertical,
   Check,
+  ChevronRight,
 } from "lucide-react";
 import { useSearchParams, useRouter } from "next/navigation";
 import {
@@ -78,6 +80,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   target: Target,
   truck: Truck,
   sandwich: Sandwich,
+  folder: Folder,
 };
 
 const TITLE_MAX = 80;
@@ -232,39 +235,44 @@ export default function HomeDashboards({
   };
 
   // En vista, los dashboards de un grupo se colapsan en una sola card (que
-  // lleva al hub). En edición se muestran individuales para que el superadmin
-  // pueda reordenarlos/editarlos como siempre.
+  // lleva al hub) y todas las cards se ordenan alfabéticamente por título. En
+  // edición se muestran individuales y en el orden de la DB, para que el
+  // superadmin pueda reordenarlos/editarlos como siempre.
   const collapsedSections = useMemo(() => {
-    if (groups.length === 0) return sections;
-    const groupByMember = new Map<string, HomeGroup>();
-    for (const g of groups) {
-      for (const k of g.memberKeys) groupByMember.set(k, g);
-    }
-    const out: Section[] = [];
-    const seen = new Set<string>();
-    for (const s of sections) {
-      const g = groupByMember.get(s.key);
-      if (!g) {
-        out.push(s);
-        continue;
+    const collapse = (): Section[] => {
+      if (groups.length === 0) return sections;
+      const groupByMember = new Map<string, HomeGroup>();
+      for (const g of groups) {
+        for (const k of g.memberKeys) groupByMember.set(k, g);
       }
-      // La card del grupo toma la posición del primer miembro visible; el
-      // resto de los miembros se omiten.
-      if (seen.has(g.key)) continue;
-      seen.add(g.key);
-      out.push({
-        key: `group:${g.key}`,
-        title: g.title,
-        description: g.description,
-        href: g.href,
-        icon: g.icon,
-        accentClass: g.accentClass,
-        accentText: g.accentText,
-        vtName: g.vtName,
-        transitionType: NAV_FORWARD,
-      });
-    }
-    return out;
+      const out: Section[] = [];
+      const seen = new Set<string>();
+      for (const s of sections) {
+        const g = groupByMember.get(s.key);
+        if (!g) {
+          out.push(s);
+          continue;
+        }
+        // La card del grupo reemplaza a sus miembros; solo se emite una vez.
+        if (seen.has(g.key)) continue;
+        seen.add(g.key);
+        out.push({
+          key: `group:${g.key}`,
+          title: g.title,
+          description: g.description,
+          href: g.href,
+          icon: g.icon,
+          accentClass: g.accentClass,
+          accentText: g.accentText,
+          vtName: g.vtName,
+          transitionType: NAV_FORWARD,
+        });
+      }
+      return out;
+    };
+    return [...collapse()].sort((a, b) =>
+      a.title.localeCompare(b.title, "es", { sensitivity: "base" }),
+    );
   }, [sections, groups]);
 
   const list = mode === "edit" ? draft : collapsedSections;
@@ -288,7 +296,7 @@ export default function HomeDashboards({
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center bg-white px-6 py-16">
+    <main className="flex min-h-screen flex-col items-center justify-center bg-[#FAFAFA] px-6 py-16">
       {/* Edit-mode toolbar */}
       <AnimatePresence>
         {mode === "edit" && (
@@ -296,15 +304,15 @@ export default function HomeDashboards({
             initial={{ opacity: 0, y: -24 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -24 }}
-            transition={{ duration: 0.25 }}
-            className="fixed inset-x-0 top-0 z-40 flex items-center justify-between gap-4 border-b-4 border-black bg-white px-6 py-3 shadow-[0_4px_0px_#000000]"
+            transition={{ duration: 0.2 }}
+            className="fixed inset-x-0 top-0 z-40 flex items-center justify-between gap-4 border-b border-[#E5E5E5] bg-white px-6 py-3 shadow-sm"
           >
             <div className="flex items-center gap-3">
-              <span className="inline-flex items-center gap-2 border-2 border-black bg-[#FFFF00] px-3 py-1.5 font-mono-data text-xs font-bold uppercase tracking-wide text-black">
-                <Pencil size={14} strokeWidth={2.5} />
+              <span className="inline-flex items-center gap-2 rounded-full bg-[#F0EFFE] px-3 py-1.5 font-sans text-xs font-medium text-[#9F99F8]">
+                <Pencil size={14} strokeWidth={2} />
                 Modo edición
               </span>
-              <span className="hidden font-mono-data text-[10px] uppercase tracking-widest text-black/60 sm:inline">
+              <span className="hidden font-sans text-xs text-[#999999] sm:inline">
                 Click en título/descripción para editar · Arrastrá para
                 reordenar
               </span>
@@ -314,7 +322,7 @@ export default function HomeDashboards({
                 type="button"
                 onClick={cancelEdit}
                 disabled={pending}
-                className="border-2 border-black bg-white px-4 py-2 font-mono-data text-xs font-bold uppercase text-black transition-colors hover:bg-black hover:text-white disabled:opacity-50"
+                className="rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans text-sm font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA] disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -322,9 +330,9 @@ export default function HomeDashboards({
                 type="button"
                 onClick={saveEdit}
                 disabled={pending || !isDirty}
-                className="inline-flex items-center gap-2 border-2 border-black bg-black px-4 py-2 font-mono-data text-xs font-bold uppercase text-[#FFFF00] shadow-[3px_3px_0px_#FFFF00] transition-all hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[2px_2px_0px_#FFFF00] disabled:opacity-50 disabled:hover:translate-x-0 disabled:hover:translate-y-0"
+                className="inline-flex items-center gap-2 rounded-lg bg-[#9F99F8] px-4 py-2 font-sans text-sm font-medium text-white transition-colors hover:bg-[#8780F0] disabled:opacity-50"
               >
-                <Check size={14} strokeWidth={3} />
+                <Check size={14} strokeWidth={2.5} />
                 {pending ? "Guardando..." : "Guardar cambios"}
               </button>
             </div>
@@ -340,12 +348,13 @@ export default function HomeDashboards({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.2 }}
-            className={`fixed right-6 top-20 z-50 border-4 border-black px-4 py-3 font-mono-data text-xs font-bold uppercase shadow-[4px_4px_0px_#000000] ${
-              toast.kind === "ok"
-                ? "bg-[#B1D750] text-black"
-                : "bg-[#ED75A0] text-black"
-            }`}
+            className="fixed right-6 top-20 z-50 inline-flex items-center gap-2 rounded-lg border border-[#E5E5E5] bg-white px-4 py-3 font-sans text-sm font-medium text-[#333333] shadow-md"
           >
+            <span
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                toast.kind === "ok" ? "bg-[#B1D750]" : "bg-[#ED75A0]"
+              }`}
+            />
             {toast.msg}
           </motion.div>
         )}
@@ -358,23 +367,23 @@ export default function HomeDashboards({
             initial={{ opacity: 0, y: -16 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
-            transition={{ duration: 0.25 }}
-            className="fixed left-1/2 top-6 z-50 flex -translate-x-1/2 items-center gap-3 border-4 border-black bg-[#FFFF00] px-5 py-3 shadow-[4px_4px_0px_#000000]"
+            transition={{ duration: 0.2 }}
+            className="fixed left-1/2 top-6 z-50 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-[#E5E5E5] bg-white px-5 py-3 shadow-md"
           >
             <AlertCircle
               size={18}
-              strokeWidth={2.5}
-              className="shrink-0 text-black"
+              strokeWidth={2}
+              className="shrink-0 text-[#ED75A0]"
             />
-            <span className="font-mono-data text-xs font-bold uppercase tracking-wide text-black">
+            <span className="font-sans text-sm text-[#333333]">
               No tienes acceso a ese dashboard
             </span>
             <button
               onClick={() => setShowBanner(false)}
               aria-label="Cerrar aviso"
-              className="ml-2 shrink-0 text-black hover:opacity-60"
+              className="ml-2 shrink-0 text-[#999999] transition-colors hover:text-[#333333]"
             >
-              <X size={16} strokeWidth={2.5} />
+              <X size={16} strokeWidth={2} />
             </button>
           </motion.div>
         )}
@@ -393,7 +402,7 @@ export default function HomeDashboards({
           width={200}
           height={72}
           priority
-          className="h-16 w-auto sm:h-20"
+          className="h-14 w-auto sm:h-16"
         />
       </motion.div>
 
@@ -402,18 +411,18 @@ export default function HomeDashboards({
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.1 }}
-        className="font-display text-7xl font-black uppercase leading-none tracking-tight text-black sm:text-8xl md:text-9xl"
+        className="font-display text-5xl font-bold tracking-tight text-[#333333] sm:text-6xl"
       >
-        DATA GLOVOX
+        Data Glovox
       </motion.h1>
 
       <motion.p
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.4, delay: 0.15 }}
-        className="mt-4 font-mono-data text-xs uppercase tracking-widest text-black"
+        className="mt-3 font-sans text-sm text-[#666666]"
       >
-        Internal Data Dashboards
+        Dashboards internos de datos
       </motion.p>
 
       {/* Dashboard grid or empty state */}
@@ -422,20 +431,20 @@ export default function HomeDashboards({
           initial={{ opacity: 0, y: 24 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.25 }}
-          className="mt-16 flex max-w-md flex-col items-center gap-6 border-4 border-black bg-white p-10 text-center shadow-[6px_6px_0px_#000000]"
+          className="mt-16 flex max-w-md flex-col items-center gap-6 rounded-lg border border-[#E5E5E5] bg-white p-10 text-center shadow-sm"
         >
-          <div className="inline-flex items-center justify-center border-2 border-black bg-black p-4">
-            <Lock size={32} className="text-[#FFFF00]" strokeWidth={2.5} />
+          <div className="inline-flex items-center justify-center rounded-full bg-[#F0EFFE] p-4">
+            <Lock size={28} className="text-[#9F99F8]" strokeWidth={2} />
           </div>
           <div>
-            <p className="font-display text-xl font-black uppercase tracking-tight text-black">
+            <p className="font-display text-xl font-bold tracking-tight text-[#333333]">
               Sin acceso a dashboards
             </p>
-            <p className="mt-3 font-mono-data text-xs uppercase leading-relaxed tracking-wide text-black">
+            <p className="mt-3 font-sans text-sm leading-relaxed text-[#666666]">
               Consigue un permiso escribiendo a{" "}
               <a
                 href="mailto:maximiliano@glovox.cl"
-                className="underline decoration-2 underline-offset-2 hover:opacity-60"
+                className="text-[#9F99F8] underline decoration-1 underline-offset-2 hover:text-[#8780F0]"
               >
                 maximiliano@glovox.cl
               </a>{" "}
@@ -456,7 +465,7 @@ export default function HomeDashboards({
             disabled={mode !== "edit"}
           >
             <div
-              className={`mt-16 grid w-full max-w-6xl grid-cols-1 gap-8 md:grid-cols-2 ${lgGridCols[cols] ?? "lg:grid-cols-4"}`}
+              className={`mt-16 grid w-full max-w-6xl grid-cols-1 gap-6 md:grid-cols-2 ${lgGridCols[cols] ?? "lg:grid-cols-4"}`}
             >
               {list.map((section, i) => (
                 <CardItem
@@ -490,12 +499,12 @@ export default function HomeDashboards({
           onClick={enterEdit}
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.97 }}
+          whileHover={{ scale: 1.03 }}
+          whileTap={{ scale: 0.98 }}
           transition={{ duration: 0.2 }}
-          className="fixed bottom-6 right-6 z-30 inline-flex items-center gap-2 border-4 border-black bg-[#FFFF00] px-5 py-3 font-mono-data text-xs font-bold uppercase tracking-wide text-black shadow-[4px_4px_0px_#000000] hover:bg-black hover:text-[#FFFF00]"
+          className="fixed bottom-6 right-6 z-30 inline-flex items-center gap-2 rounded-lg bg-[#9F99F8] px-5 py-3 font-sans text-sm font-medium text-white shadow-md transition-colors hover:bg-[#8780F0]"
         >
-          <Pencil size={16} strokeWidth={2.5} />
+          <Pencil size={16} strokeWidth={2} />
           Editar
         </motion.button>
       )}
@@ -532,9 +541,9 @@ function CardItem({ section, index, mode, onChange }: CardItemProps) {
     <motion.div
       ref={setNodeRef}
       style={style}
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: isDragging ? 0.35 : 1, y: 0 }}
-      transition={{ duration: 0.3, delay: 0.25 + index * 0.05 }}
+      transition={{ duration: 0.4, ease: "easeOut", delay: 0.2 + index * 0.06 }}
       className="relative h-full"
     >
       {mode === "edit" && (
@@ -543,9 +552,9 @@ function CardItem({ section, index, mode, onChange }: CardItemProps) {
           {...attributes}
           {...listeners}
           aria-label="Mover tarjeta"
-          className="absolute -left-3 -top-3 z-10 inline-flex h-8 w-8 cursor-grab items-center justify-center border-2 border-black bg-[#FFFF00] text-black shadow-[2px_2px_0px_#000000] active:cursor-grabbing"
+          className="absolute -left-3 -top-3 z-10 inline-flex h-8 w-8 cursor-grab items-center justify-center rounded-full border border-[#E5E5E5] bg-white text-[#666666] shadow-sm transition-colors hover:text-[#333333] active:cursor-grabbing"
         >
-          <GripVertical size={16} strokeWidth={2.5} />
+          <GripVertical size={16} strokeWidth={2} />
         </button>
       )}
       <CardSurface section={section} mode={mode} onChange={onChange} />
@@ -566,9 +575,9 @@ function CardSurface({ section, mode, dragging, onChange }: CardSurfaceProps) {
   const headerBlock = (
     <div className="mb-4 flex items-center gap-4">
       <div
-        className={`inline-flex shrink-0 items-center justify-center border-2 border-black p-3 ${section.accentClass}`}
+        className={`inline-flex shrink-0 items-center justify-center rounded-lg p-3 ${section.accentClass}`}
       >
-        <Icon size={24} className={section.accentText} strokeWidth={2.5} />
+        <Icon size={22} className={section.accentText} strokeWidth={2} />
       </div>
       {mode === "edit" ? (
         <EditableTitle
@@ -576,7 +585,7 @@ function CardSurface({ section, mode, dragging, onChange }: CardSurfaceProps) {
           onChange={(v) => onChange({ title: v })}
         />
       ) : (
-        <h2 className="min-w-0 font-display text-xl font-black uppercase leading-none tracking-tight text-black">
+        <h2 className="min-w-0 font-display text-lg font-bold leading-tight tracking-tight text-[#333333]">
           {section.title}
         </h2>
       )}
@@ -599,30 +608,39 @@ function CardSurface({ section, mode, dragging, onChange }: CardSurfaceProps) {
           onChange={(v) => onChange({ description: v })}
         />
       ) : (
-        <p className="mt-3 grow text-justify font-mono-data text-xs uppercase leading-relaxed tracking-wide text-black">
+        <p className="mt-1 grow font-sans text-sm leading-relaxed text-[#666666]">
           {section.description}
         </p>
       )}
 
       <div
-        className={`mt-5 inline-block border-2 border-black bg-[#FFFF00] px-4 py-2 font-mono-data text-xs font-bold uppercase text-black ${
+        className={`mt-5 inline-flex items-center gap-1.5 self-start rounded-lg bg-[#F0EFFE] px-3 py-1.5 font-sans text-sm font-medium text-[#9F99F8] ${
           mode === "view"
-            ? "transition-colors group-hover:bg-black group-hover:text-[#FFFF00]"
+            ? "transition-colors group-hover:bg-[#9F99F8] group-hover:text-white"
             : ""
         }`}
       >
-        Open Dashboard
+        Abrir dashboard
+        <ChevronRight
+          size={15}
+          strokeWidth={2.5}
+          className={
+            mode === "view"
+              ? "transition-transform group-hover:translate-x-0.5"
+              : ""
+          }
+        />
       </div>
     </>
   );
 
-  const shellClass = `flex h-full flex-col border-4 border-black bg-white p-6 ${
+  const shellClass = `flex h-full flex-col rounded-lg border border-[#E5E5E5] bg-white p-6 ${
     dragging
-      ? "shadow-[8px_8px_0px_#000000] scale-[1.03] rotate-[-1deg]"
-      : "shadow-[4px_4px_0px_#000000]"
+      ? "shadow-lg"
+      : "shadow-sm"
   } ${
     mode === "view"
-      ? "group transition-transform hover:translate-x-[2px] hover:translate-y-[2px] hover:shadow-[2px_2px_0px_#000000]"
+      ? "group transition-all duration-150 hover:-translate-y-px hover:shadow-md"
       : ""
   }`;
 
@@ -693,9 +711,9 @@ function EditableTitle({ value, onChange }: EditableTitleProps) {
               setEditing(false);
             }
           }}
-          className="w-full border-2 border-black bg-[#FFFF00] px-2 py-1 font-display text-xl font-black uppercase leading-none tracking-tight text-black outline-none ring-2 ring-black sm:text-2xl"
+          className="w-full rounded-lg border border-[#E5E5E5] bg-white px-2 py-1 font-display text-lg font-bold leading-tight tracking-tight text-[#333333] outline-none focus:border-[#9F99F8] focus:ring-1 focus:ring-[#9F99F8]"
         />
-        <span className="pointer-events-none absolute -bottom-4 right-0 font-mono-data text-[9px] uppercase tracking-wide text-black/60">
+        <span className="pointer-events-none absolute -bottom-4 right-0 font-sans text-[10px] text-[#999999]">
           {local.length}/{TITLE_MAX}
         </span>
       </div>
@@ -705,7 +723,7 @@ function EditableTitle({ value, onChange }: EditableTitleProps) {
   return (
     <h2
       onClick={() => setEditing(true)}
-      className="min-w-0 flex-1 cursor-text rounded-sm font-display text-xl font-black uppercase leading-none tracking-tight text-black outline-dashed outline-2 outline-offset-4 outline-black/20 hover:outline-black sm:text-2xl"
+      className="min-w-0 flex-1 cursor-text rounded-md font-display text-lg font-bold leading-tight tracking-tight text-[#333333] outline-dashed outline-1 outline-offset-4 outline-[#E5E5E5] hover:outline-[#9F99F8]"
       title="Click para editar"
     >
       {value}
@@ -748,7 +766,7 @@ function EditableDescription({ value, onChange }: EditableDescriptionProps) {
 
   if (editing) {
     return (
-      <div className="relative mt-3 grow">
+      <div className="relative mt-1 grow">
         <textarea
           ref={textareaRef}
           value={local}
@@ -770,9 +788,9 @@ function EditableDescription({ value, onChange }: EditableDescriptionProps) {
             }
           }}
           rows={3}
-          className="w-full resize-none border-2 border-black bg-[#FFFF00] p-2 text-justify font-mono-data text-xs uppercase leading-relaxed tracking-wide text-black outline-none ring-2 ring-black"
+          className="w-full resize-none rounded-lg border border-[#E5E5E5] bg-white p-2 font-sans text-sm leading-relaxed text-[#666666] outline-none focus:border-[#9F99F8] focus:ring-1 focus:ring-[#9F99F8]"
         />
-        <span className="pointer-events-none absolute -bottom-4 right-0 font-mono-data text-[9px] uppercase tracking-wide text-black/60">
+        <span className="pointer-events-none absolute -bottom-4 right-0 font-sans text-[10px] text-[#999999]">
           {local.length}/{DESCRIPTION_MAX}
         </span>
       </div>
@@ -782,7 +800,7 @@ function EditableDescription({ value, onChange }: EditableDescriptionProps) {
   return (
     <p
       onClick={() => setEditing(true)}
-      className="mt-3 grow cursor-text rounded-sm text-justify font-mono-data text-xs uppercase leading-relaxed tracking-wide text-black outline-dashed outline-2 outline-offset-4 outline-black/20 hover:outline-black"
+      className="mt-1 grow cursor-text rounded-md font-sans text-sm leading-relaxed text-[#666666] outline-dashed outline-1 outline-offset-4 outline-[#E5E5E5] hover:outline-[#9F99F8]"
       title="Click para editar"
     >
       {value || "Sin descripción — click para escribir"}

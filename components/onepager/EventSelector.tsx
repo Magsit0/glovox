@@ -47,13 +47,13 @@ function BrutalSelect({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="bg-white border-4 border-black rounded-none font-mono-data text-sm px-4 py-2 text-black cursor-pointer flex items-center gap-2 min-w-[200px] justify-between shadow-[4px_4px_0px_#000] hover:bg-[#FFFF00] transition-colors duration-150"
+        className="bg-white border border-[#E5E5E5] rounded-lg font-sans text-sm px-3 py-2 text-[#333333] cursor-pointer flex items-center gap-2 min-w-[200px] justify-between hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8] transition-colors duration-150"
       >
         <span className="truncate">{selectedLabel}</span>
-        <span className="font-display text-xs">{open ? "▲" : "▼"}</span>
+        <span className="font-sans text-xs text-[#999999]">{open ? "▲" : "▼"}</span>
       </button>
       {open && (
-        <div className="absolute top-full left-0 mt-1 z-50 bg-white border-4 border-black rounded-none shadow-[4px_4px_0px_#000] max-h-80 overflow-y-auto min-w-[300px]">
+        <div className="absolute top-full left-0 mt-1 z-50 bg-white border border-[#E5E5E5] rounded-lg shadow-md max-h-80 overflow-y-auto min-w-[300px]">
           {options.map((opt) => (
             <button
               key={opt.value}
@@ -62,10 +62,10 @@ function BrutalSelect({
                 onChange(opt.value);
                 setOpen(false);
               }}
-              className={`w-full text-left px-4 py-2 font-mono-data text-sm border-b-2 border-black last:border-b-0 transition-colors duration-150 cursor-pointer ${
+              className={`w-full text-left px-3 py-2 font-sans text-sm border-b border-[#E5E5E5] last:border-b-0 transition-colors duration-150 cursor-pointer ${
                 opt.value === value
-                  ? "bg-[#FFFF00] text-black font-bold"
-                  : "hover:bg-[#FFFF00] text-black"
+                  ? "bg-[#F0EFFE] text-[#9F99F8] font-medium"
+                  : "hover:bg-[#FAFAFA] text-[#333333]"
               }`}
             >
               {opt.label}
@@ -136,9 +136,9 @@ export default function EventSelector({
   }));
 
   return (
-    <div className="flex items-center gap-4 justify-between bg-[#FFFF00] border-b-4 border-black px-6 py-4 flex-wrap">
+    <div className="flex items-center gap-4 justify-between bg-white border-b border-[#E5E5E5] px-6 py-4 flex-wrap">
       <div className="flex items-center gap-4 flex-wrap">
-        <span className="font-display uppercase text-2xl leading-none text-black">
+        <span className="font-display font-bold text-xl leading-none text-[#333333]">
           Evento
         </span>
         <BrutalSelect
@@ -155,7 +155,7 @@ export default function EventSelector({
 
       {recentEvents.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-mono-data uppercase text-xs text-black mr-1">
+          <span className="font-sans text-xs text-[#666666] mr-1">
             Últimos Eventos
           </span>
           {recentEvents.map((ev) => (
@@ -163,10 +163,10 @@ export default function EventSelector({
               key={ev.eventoId}
               type="button"
               onClick={() => handleRecentEventClick(ev)}
-              className={`border-2 border-black rounded-none font-mono-data text-xs px-3 py-1.5 cursor-pointer transition-colors duration-150 text-left ${
+              className={`border rounded-lg font-sans text-xs px-3 py-1.5 cursor-pointer transition-colors duration-150 text-left ${
                 ev.eventoId === selected
-                  ? "bg-black text-[#FFFF00] font-bold"
-                  : "bg-white text-black hover:bg-[#FFFF00]"
+                  ? "border-[#9F99F8] bg-[#F0EFFE] text-[#9F99F8] font-medium"
+                  : "border-[#333333] bg-white text-[#333333] hover:bg-[#FAFAFA]"
               }`}
             >
               <span className="block truncate max-w-[120px]">{ev.nombre}</span>

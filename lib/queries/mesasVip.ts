@@ -42,14 +42,15 @@ export async function getMesasVipClientes(): Promise<MesasVipClienteRow[]> {
 export type MesasVipMatrixCell = {
   clienteId: string;
   eventoId: string;
-  precio: number;          // BRUTO (IVA incluido)
+  precio: number;          // lo que paga el cliente
+  exento: boolean;         // true → sin IVA (neto = precio)
   estadoPago: EstadoPago;
 };
 
 /**
  * Pivot completo de mesas_vip_ingresos para alimentar la matriz cliente ×
  * evento. El upsert garantiza una fila por par (cliente, evento), así que se
- * devuelve directo — sin agregar. `precio` es el monto bruto.
+ * devuelve directo — sin agregar.
  */
 export async function getMesasVipMatrix(): Promise<MesasVipMatrixCell[]> {
   const rows = await db
@@ -57,6 +58,7 @@ export async function getMesasVipMatrix(): Promise<MesasVipMatrixCell[]> {
       clienteId: mesasVipIngresos.clienteId,
       eventoId: mesasVipIngresos.eventoId,
       precio: mesasVipIngresos.precio,
+      exento: mesasVipIngresos.exento,
       estadoPago: mesasVipIngresos.estadoPago,
     })
     .from(mesasVipIngresos);
@@ -64,14 +66,24 @@ export async function getMesasVipMatrix(): Promise<MesasVipMatrixCell[]> {
     clienteId: r.clienteId,
     eventoId: r.eventoId,
     precio: Number(r.precio) || 0,
+    exento: r.exento !== false,
     estadoPago: normalizeEstadoPago(r.estadoPago),
   }));
 }
 
+// Suma exenta + neto de la parte afecta. `precio` de una venta exenta es el
+// neto (no hay IVA); el de una afecta es bruto → neto = ÷1,19.
+const SUM_EXENTO = sql<number>`COALESCE(SUM(${mesasVipIngresos.precio}) FILTER (WHERE ${mesasVipIngresos.exento}), 0)`;
+const SUM_AFECTO = sql<number>`COALESCE(SUM(${mesasVipIngresos.precio}) FILTER (WHERE NOT ${mesasVipIngresos.exento}), 0)`;
+
+function netoFromSplit(sumExento: number, sumAfecto: number): number {
+  return Math.round(sumExento) + brutoToNeto(sumAfecto);
+}
+
 /**
  * Detalle NETO por cliente para un evento (tooltip de la card "Mesas VIP" del
- * cierre). `precio` es bruto → el neto se deriva (÷1,19) para cuadrar con la
- * card. Agrega por cliente y ordena de mayor a menor.
+ * cierre). Las ventas exentas aportan su monto completo; las afectas, el neto
+ * (÷1,19). Agrega por cliente y ordena de mayor a menor.
  */
 export async function getMesasVipDetalleByEvento(
   eventoId: string,
@@ -79,7 +91,8 @@ export async function getMesasVipDetalleByEvento(
   const rows = await db
     .select({
       cliente: mesasVipIngresos.cliente,
-      bruto: sql<number>`COALESCE(SUM(${mesasVipIngresos.precio}), 0)`.as("bruto"),
+      sumExento: SUM_EXENTO.as("sum_exento"),
+      sumAfecto: SUM_AFECTO.as("sum_afecto"),
     })
     .from(mesasVipIngresos)
     .where(eq(mesasVipIngresos.eventoId, eventoId))
@@ -87,7 +100,7 @@ export async function getMesasVipDetalleByEvento(
     .orderBy(desc(sql`COALESCE(SUM(${mesasVipIngresos.precio}), 0)`));
   return rows.map((r) => ({
     cliente: r.cliente,
-    monto: brutoToNeto(Number(r.bruto) || 0),
+    monto: netoFromSplit(Number(r.sumExento) || 0, Number(r.sumAfecto) || 0),
   }));
 }
 
@@ -99,48 +112,47 @@ export type MesasVipAgg = {
 
 /**
  * Agregado liviano por evento para el cuadro "Ingresos por Fuente" del
- * one-pager singular. `precio` es bruto; el neto se deriva (÷1,19) para que la
- * fila sea comparable con las otras fuentes (que se muestran netas).
- * Espeja `getMarcaIngresosAggByEvento`.
+ * one-pager singular. `ventaBruto` = lo cobrado (Σ precio); `ventaNeto` deriva
+ * IVA solo de la parte afecta (las exentas aportan completo). Cuando todo es
+ * exento, ventaNeto == ventaBruto. Espeja `getMarcaIngresosAggByEvento`.
  */
 export async function getMesasVipAggByEvento(
   eventoId: string,
 ): Promise<MesasVipAgg> {
   const rows = await db
     .select({
-      ventaBruto: sql<number>`COALESCE(SUM(${mesasVipIngresos.precio}), 0)`.as(
-        "venta_bruto",
-      ),
+      sumExento: SUM_EXENTO.as("sum_exento"),
+      sumAfecto: SUM_AFECTO.as("sum_afecto"),
       qtty: sql<number>`COUNT(*)`.as("qtty"),
     })
     .from(mesasVipIngresos)
     .where(eq(mesasVipIngresos.eventoId, eventoId));
   const r = rows[0];
-  const ventaBruto = Number(r?.ventaBruto ?? 0);
+  const sumExento = Number(r?.sumExento ?? 0);
+  const sumAfecto = Number(r?.sumAfecto ?? 0);
   return {
-    ventaNeto: brutoToNeto(ventaBruto),
-    ventaBruto,
+    ventaNeto: netoFromSplit(sumExento, sumAfecto),
+    ventaBruto: Math.round(sumExento + sumAfecto),
     qtty: Number(r?.qtty ?? 0),
   };
 }
 
 /**
- * Mapa eventoId → venta NETA (derivada del bruto), agregado en una sola query.
- * Reservado para una futura columna "Mesas VIP" en el listado multi-evento.
+ * Mapa eventoId → venta NETA, agregado en una sola query. Reservado para una
+ * futura columna "Mesas VIP" en el listado multi-evento.
  */
 export async function getMesasVipAggMap(): Promise<Map<string, number>> {
   const rows = await db
     .select({
       eventoId: mesasVipIngresos.eventoId,
-      ventaBruto: sql<number>`COALESCE(SUM(${mesasVipIngresos.precio}), 0)`.as(
-        "venta_bruto",
-      ),
+      sumExento: SUM_EXENTO.as("sum_exento"),
+      sumAfecto: SUM_AFECTO.as("sum_afecto"),
     })
     .from(mesasVipIngresos)
     .groupBy(mesasVipIngresos.eventoId);
   const map = new Map<string, number>();
   for (const r of rows) {
-    map.set(r.eventoId, brutoToNeto(Number(r.ventaBruto) || 0));
+    map.set(r.eventoId, netoFromSplit(Number(r.sumExento) || 0, Number(r.sumAfecto) || 0));
   }
   return map;
 }

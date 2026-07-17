@@ -13,7 +13,9 @@ import {
 } from "recharts";
 import type { FfbbConsumoEvento } from "./FfbbConsumoChart";
 import type { MesasVipClienteRow, MesasVipMatrixCell } from "@/lib/queries/mesasVip";
-import { brutoToNeto } from "@/lib/constants/tax";
+import { netoFromPrecio } from "@/lib/constants/mesasVip";
+import { seriesColor, gridProps, legendProps, axisTick, SURFACE } from "@/lib/chart-colors";
+import { ChartTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
 import MultiFilter from "./MultiFilter";
 
 type Props = {
@@ -31,20 +33,6 @@ type Grouping = "evento" | "cliente";
 // Clave de la serie "agregada" en modo por evento.
 const ALL_KEY = "__todas__";
 const ALL_LABEL = "Mesas VIP (total)";
-
-// Paleta legible sobre blanco (evita amarillo puro, invisible como línea).
-const LINE_PALETTE = [
-  "#0000FF",
-  "#FF0000",
-  "#00A000",
-  "#C800C8",
-  "#FF8800",
-  "#00A0A0",
-  "#7A00FF",
-  "#A85400",
-  "#0055AA",
-  "#000000",
-];
 
 function fmtClp(value: number) {
   return "$" + Math.round(value).toLocaleString("es-CL");
@@ -123,7 +111,7 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
   //    una línea por cada cliente con datos.
   const series = useMemo<{ key: string; label: string; color: string }[]>(() => {
     if (grouping === "evento") {
-      return [{ key: ALL_KEY, label: ALL_LABEL, color: LINE_PALETTE[0] }];
+      return [{ key: ALL_KEY, label: ALL_LABEL, color: seriesColor(0) }];
     }
     const nombres =
       effectiveSeleccion.size > 0
@@ -132,7 +120,7 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
     return nombres.map((nombre, i) => ({
       key: idByNombre.get(nombre) ?? nombre,
       label: nombre,
-      color: LINE_PALETTE[i % LINE_PALETTE.length],
+      color: seriesColor(i),
     }));
   }, [grouping, effectiveSeleccion, clienteOpts, idByNombre]);
 
@@ -147,24 +135,29 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
     return s;
   }, [effectiveSeleccion, clienteOpts, idByNombre]);
 
-  // Índice de precios (bruto) por evento → cliente, para acumular en una pasada.
+  // Índice por evento → cliente con bruto (lo cobrado) y neto (exento aporta
+  // completo; afecto ÷1,19), para acumular en una sola pasada.
   const byEvento = useMemo(() => {
-    const m = new Map<string, Map<string, number>>();
+    const m = new Map<string, Map<string, { bruto: number; neto: number }>>();
     for (const c of scopedMatrix) {
       let inner = m.get(c.eventoId);
       if (!inner) {
         inner = new Map();
         m.set(c.eventoId, inner);
       }
-      inner.set(c.clienteId, (inner.get(c.clienteId) ?? 0) + c.precio);
+      const acc = inner.get(c.clienteId) ?? { bruto: 0, neto: 0 };
+      acc.bruto += c.precio;
+      acc.neto += netoFromPrecio(c.precio, c.exento);
+      inner.set(c.clienteId, acc);
     }
     return m;
   }, [scopedMatrix]);
 
   // Datos del gráfico: un punto por evento, orden cronológico (evolución).
-  // `precio` es bruto; el neto se deriva (÷1,19) cuando la métrica es "neto".
   const chartData = useMemo(() => {
     const sorted = [...events].sort((a, b) => a.fecha.localeCompare(b.fecha));
+    const pick = (v: { bruto: number; neto: number }) =>
+      metric === "neto" ? v.neto : v.bruto;
     return sorted.map((ev) => {
       const point: Record<string, string | number | null> = {
         nombre: ev.nombre,
@@ -172,13 +165,13 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
       };
       const inner = byEvento.get(ev.eventoId);
       if (grouping === "evento") {
-        let sumBruto = 0;
-        if (inner) for (const v of inner.values()) sumBruto += v;
-        point[ALL_KEY] = metric === "neto" ? brutoToNeto(sumBruto) : sumBruto;
+        let sum = 0;
+        if (inner) for (const v of inner.values()) sum += pick(v);
+        point[ALL_KEY] = sum;
       } else {
         for (const id of selectedIds) {
-          const bruto = inner?.get(id) ?? 0;
-          point[id] = metric === "neto" ? brutoToNeto(bruto) : bruto;
+          const v = inner?.get(id);
+          point[id] = v ? pick(v) : 0;
         }
       }
       return point;
@@ -205,10 +198,10 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
       <div className="flex flex-wrap items-end gap-3">
         {/* Switch de agrupación */}
         <div className="flex flex-col gap-1">
-          <span className="font-mono-data uppercase text-[10px] text-black/70">
+          <span className="font-sans text-xs text-[#666666]">
             Ver
           </span>
-          <div className="flex border-2 border-black">
+          <div className="flex border border-[#E5E5E5] rounded-lg overflow-hidden">
             {(
               [
                 { key: "evento", label: "Por evento" },
@@ -222,12 +215,12 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
                   type="button"
                   aria-pressed={active}
                   onClick={() => setGrouping(g.key)}
-                  className={`font-mono-data uppercase text-xs leading-none px-3 py-2 cursor-pointer transition-colors duration-150 ${
-                    i === 0 ? "border-r-2 border-black" : ""
+                  className={`font-sans text-xs leading-none px-3 py-2 cursor-pointer transition-colors duration-150 ${
+                    i === 0 ? "border-r border-[#E5E5E5]" : ""
                   } ${
                     active
-                      ? "bg-black text-[#FFFF00]"
-                      : "bg-white text-black hover:bg-[#FFFF00]"
+                      ? "bg-[#F0EFFE] text-[#9F99F8]"
+                      : "bg-white text-[#666666] hover:text-[#333333]"
                   }`}
                 >
                   {g.label}
@@ -250,7 +243,7 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
               <button
                 type="button"
                 onClick={() => setSeleccion(new Set())}
-                className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-white text-black hover:bg-[#FFFF00] transition-colors duration-150 cursor-pointer"
+                className="font-sans text-xs leading-none px-3 py-2 rounded-lg border border-[#E5E5E5] bg-white text-[#666666] hover:bg-[#FAFAFA] hover:text-[#333333] transition-colors duration-150 cursor-pointer"
               >
                 Limpiar filtros
               </button>
@@ -259,10 +252,10 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
         )}
 
         <div className="ml-auto flex flex-col gap-1">
-          <span className="font-mono-data uppercase text-[10px] text-black/70">
+          <span className="font-sans text-xs text-[#666666]">
             Monto
           </span>
-          <div className="flex border-2 border-black">
+          <div className="flex border border-[#E5E5E5] rounded-lg overflow-hidden">
             {(
               [
                 { key: "neto", label: "Neto" },
@@ -276,12 +269,12 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
                   type="button"
                   aria-pressed={active}
                   onClick={() => setMetric(m.key)}
-                  className={`font-mono-data uppercase text-xs leading-none px-3 py-2 cursor-pointer transition-colors duration-150 ${
-                    i === 0 ? "border-r-2 border-black" : ""
+                  className={`font-sans text-xs leading-none px-3 py-2 cursor-pointer transition-colors duration-150 ${
+                    i === 0 ? "border-r border-[#E5E5E5]" : ""
                   } ${
                     active
-                      ? "bg-black text-[#FFFF00]"
-                      : "bg-white text-black hover:bg-[#FFFF00]"
+                      ? "bg-[#F0EFFE] text-[#9F99F8]"
+                      : "bg-white text-[#666666] hover:text-[#333333]"
                   }`}
                 >
                   {m.label}
@@ -293,58 +286,64 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
       </div>
 
       {events.length === 0 ? (
-        <p className="font-mono-data text-sm text-black/50">
+        <p className="font-sans text-sm text-[#999999]">
           No hay eventos en la vista actual.
         </p>
       ) : !hasValues ? (
-        <p className="font-mono-data text-sm text-black/50">
+        <p className="font-sans text-sm text-[#999999]">
           Sin ingresos de mesas VIP para los filtros seleccionados.
         </p>
       ) : (
-        <div className="border-4 border-black bg-white p-3">
+        <div className="border border-[#E5E5E5] bg-white rounded-lg p-3">
           <ResponsiveContainer width="100%" height={380}>
             <LineChart
               data={chartData}
               margin={{ top: 8, right: 16, bottom: 72, left: 8 }}
             >
-              <CartesianGrid
-                stroke="#000"
-                strokeDasharray="2 3"
-                strokeOpacity={0.2}
-                vertical={false}
-              />
+              <CartesianGrid {...gridProps} />
               <XAxis
                 dataKey="nombre"
-                stroke="#000"
+                axisLine={{ stroke: SURFACE.divider }}
                 tickLine={false}
                 interval={0}
                 angle={-35}
                 textAnchor="end"
                 height={78}
-                tick={{ fontFamily: "monospace", fontSize: 10, fill: "#000" }}
+                tick={axisTick}
               />
               <YAxis
-                stroke="#000"
+                axisLine={false}
                 tickLine={false}
                 tickFormatter={(v: number) => fmtClpShort(v)}
-                tick={{ fontFamily: "monospace", fontSize: 11, fill: "#000" }}
+                tick={axisTick}
                 width={70}
               />
               <Tooltip
-                cursor={{ stroke: "#000", strokeWidth: 1, strokeDasharray: "3 3" }}
-                content={<MesasVipTooltip series={series} />}
+                cursor={{ stroke: SURFACE.divider, strokeWidth: 1, strokeDasharray: "3 3" }}
+                content={({ active, payload, label }) => {
+                  const fecha = payload?.[0]?.payload?.fecha;
+                  const fechaStr = typeof fecha === "string" ? fmtFecha(fecha) : "";
+                  const nombre =
+                    typeof label === "string" ? label : String(label ?? "");
+                  const header = fechaStr ? `${nombre} · ${fechaStr}` : nombre;
+                  return (
+                    <ChartTooltip
+                      active={active}
+                      label={header}
+                      items={(payload ?? []).map((p) => ({
+                        name: String(p.name ?? ""),
+                        color: String(p.color ?? ""),
+                        formatted:
+                          typeof p.value === "number" ? fmtClp(p.value) : "—",
+                      }))}
+                    />
+                  );
+                }}
               />
               <Legend
+                {...legendProps}
                 verticalAlign="top"
                 height={28}
-                iconType="plainline"
-                wrapperStyle={{
-                  fontFamily: "monospace",
-                  fontSize: 11,
-                  textTransform: "uppercase",
-                  color: "#000",
-                  paddingBottom: 4,
-                }}
               />
               {series.map((s) => (
                 <Line
@@ -353,69 +352,20 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
                   dataKey={s.key}
                   name={s.label}
                   stroke={s.color}
-                  strokeWidth={3}
-                  dot={{ r: 3, fill: s.color, stroke: s.color }}
-                  activeDot={{ r: 5, stroke: "#000", strokeWidth: 2, fill: s.color }}
+                  strokeWidth={2}
+                  dot={false}
+                  activeDot={{ r: 4 }}
                   connectNulls={false}
                   isAnimationActive={false}
                 />
               ))}
             </LineChart>
           </ResponsiveContainer>
-          <p className="mt-2 font-mono-data uppercase text-[10px] text-black/50">
+          <p className="mt-2 font-sans text-xs text-[#999999]">
             {unitLabel(metric)} · {grouping === "evento" ? "total por evento" : "por cliente"} · orden cronológico
           </p>
         </div>
       )}
-    </div>
-  );
-}
-
-type TooltipEntry = {
-  dataKey?: string | number;
-  value?: number | string | null;
-  color?: string;
-  payload?: Record<string, string | number | null>;
-};
-
-function MesasVipTooltip({
-  active,
-  payload,
-  label,
-  series,
-}: {
-  active?: boolean;
-  payload?: TooltipEntry[];
-  label?: string | number;
-  series: { key: string; label: string; color: string }[];
-}) {
-  if (!active || !payload || payload.length === 0) return null;
-  const fecha = payload[0]?.payload?.fecha;
-  const fechaStr = typeof fecha === "string" ? fmtFecha(fecha) : "";
-  return (
-    <div className="bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none px-3 py-2 font-mono-data text-xs">
-      <div className="font-bold uppercase mb-0.5 truncate max-w-[260px]">
-        {typeof label === "string" ? label : String(label ?? "")}
-      </div>
-      {fechaStr && (
-        <div className="text-[10px] text-black/60 mb-1">{fechaStr}</div>
-      )}
-      {series.map((s) => {
-        const entry = payload.find((p) => p.dataKey === s.key);
-        const v = entry?.value;
-        return (
-          <div key={s.key} className="flex items-center gap-2 mt-1">
-            <span
-              className="inline-block w-3 h-0.5 flex-shrink-0"
-              style={{ background: s.color }}
-            />
-            <span className="uppercase truncate max-w-[180px]">{s.label}</span>
-            <span className="ml-auto font-bold whitespace-nowrap">
-              {typeof v === "number" ? fmtClp(v) : "—"}
-            </span>
-          </div>
-        );
-      })}
     </div>
   );
 }

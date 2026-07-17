@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 /**
- * Dropdown multi-select brutalista (bordes negros, acento #FFFF00,
- * font-mono-data). Set vacío = "Todos" (sin filtro). Compartido por los
- * paneles del one-pager (evolución horaria, detalle por producto, etc).
+ * Dropdown multi-select con el estilo Glovox (docs/STYLE_DASHBOARD.md §
+ * FILTER CONTROLS): superficie clara, hairlines #E5E5E5, acento #9F99F8.
+ * Set vacío = "Todos" (sin filtro). Compartido por los paneles del one-pager
+ * (evolución horaria, detalle por producto, etc).
  *
  * ESTÁNDAR de filtros del dashboard — todo filtro debe tener:
  *   1. Buscador      → input que filtra las opciones por texto.
@@ -94,7 +95,7 @@ export default function MultiFilter({
 
   return (
     <div ref={ref} className="relative flex flex-col gap-1">
-      <span className="font-mono-data uppercase text-[10px] text-black/70">
+      <span className="font-sans text-xs text-[#666666]">
         {label}
       </span>
       <button
@@ -102,12 +103,18 @@ export default function MultiFilter({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`flex items-center justify-between gap-3 min-w-[180px] font-mono-data uppercase text-xs px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 hover:bg-[#FFFF00] ${
-          isActive ? "bg-[#FFFF00]" : "bg-white"
-        }`}
+        className="flex items-center justify-between gap-3 min-w-[180px] rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] cursor-pointer transition-colors duration-150 hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
       >
-        <span className="truncate text-left">{triggerText}</span>
-        <span aria-hidden className="font-bold leading-none">
+        <span className="flex items-center gap-2 min-w-0">
+          {isActive && (
+            <span
+              aria-hidden
+              className="inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-[#9F99F8]"
+            />
+          )}
+          <span className="truncate text-left">{triggerText}</span>
+        </span>
+        <span aria-hidden className="text-[#999999] leading-none">
           {open ? "▴" : "▾"}
         </span>
       </button>
@@ -116,27 +123,27 @@ export default function MultiFilter({
         <div
           role="listbox"
           aria-multiselectable
-          className="absolute top-full left-0 z-50 mt-1 w-[260px] max-h-72 overflow-y-auto bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none"
+          className="absolute top-full left-0 z-50 mt-1 w-[260px] max-h-72 overflow-y-auto bg-white border border-[#E5E5E5] rounded-lg shadow-md"
         >
-          <div className="sticky top-0 z-10 bg-black border-b-2 border-black">
+          <div className="sticky top-0 z-10 bg-[#FAFAFA] border-b border-[#E5E5E5]">
             {/* Buscador */}
-            <div className="p-2 border-b-2 border-black/40">
+            <div className="p-2 border-b border-[#E5E5E5]">
               <input
                 ref={inputRef}
                 type="text"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-white bg-white text-black placeholder:text-black/40 outline-none"
+                className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
               />
             </div>
             {/* Acciones */}
-            <div className="flex items-center justify-between gap-2 text-white px-3 py-2">
+            <div className="flex items-center justify-between gap-2 px-3 py-2">
               <button
                 type="button"
                 onClick={selectAllVisible}
                 disabled={filteredOptions.length === 0}
-                className="font-mono-data uppercase text-[10px] hover:text-[#FFFF00] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                className="font-sans text-xs text-[#666666] hover:text-[#333333] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {query.trim() ? "Marcar visibles" : "Marcar todos"}
               </button>
@@ -144,18 +151,18 @@ export default function MultiFilter({
                 type="button"
                 onClick={clear}
                 disabled={selected.size === 0}
-                className="font-mono-data uppercase text-[10px] hover:text-[#FFFF00] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                className="font-sans text-xs text-[#666666] hover:text-[#333333] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Limpiar
               </button>
             </div>
           </div>
           {options.length === 0 ? (
-            <div className="font-mono-data text-xs text-black/50 px-3 py-2">
+            <div className="font-sans text-sm text-[#999999] px-3 py-2">
               Sin opciones
             </div>
           ) : filteredOptions.length === 0 ? (
-            <div className="font-mono-data text-xs text-black/50 px-3 py-2">
+            <div className="font-sans text-sm text-[#999999] px-3 py-2">
               Sin coincidencias
             </div>
           ) : (
@@ -168,21 +175,21 @@ export default function MultiFilter({
                   aria-selected={checked}
                   key={opt}
                   onClick={() => toggle(opt)}
-                  className="flex items-center gap-2 w-full text-left px-3 py-2 border-b border-black/20 last:border-b-0 hover:bg-[#FFFF00] cursor-pointer transition-colors duration-150"
+                  className="flex items-center gap-2 w-full text-left px-3 py-2 border-b border-[#E5E5E5] last:border-b-0 hover:bg-[#FAFAFA] cursor-pointer transition-colors duration-150"
                 >
                   <span
                     aria-hidden
-                    className={`relative inline-block w-4 h-4 border-2 border-black flex-shrink-0 ${
-                      checked ? "bg-black" : "bg-white"
+                    className={`relative inline-block w-4 h-4 rounded border flex-shrink-0 ${
+                      checked ? "bg-[#9F99F8] border-[#9F99F8]" : "bg-white border-[#E5E5E5]"
                     }`}
                   >
                     {checked && (
-                      <span className="absolute inset-0 flex items-center justify-center text-[#FFFF00] text-[10px] font-bold leading-none">
+                      <span className="absolute inset-0 flex items-center justify-center text-white text-[10px] font-bold leading-none">
                         ✓
                       </span>
                     )}
                   </span>
-                  <span className="font-mono-data uppercase text-xs truncate">
+                  <span className="font-sans text-sm text-[#333333] truncate">
                     {opt}
                   </span>
                 </button>

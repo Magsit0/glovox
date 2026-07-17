@@ -12,7 +12,7 @@ export default function MarcaIngresosTable({
 }) {
   if (rows.length === 0) {
     return (
-      <p className="font-mono-data text-sm text-black/50">
+      <p className="font-sans text-sm text-[#999999]">
         Sin ingresos registrados.
       </p>
     );
@@ -22,20 +22,20 @@ export default function MarcaIngresosTable({
   const totalBruto = rows.reduce((a, r) => a + r.montoBruto, 0);
 
   return (
-    <div className="border-4 border-black bg-white overflow-hidden">
+    <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-hidden">
       <table className="w-full border-collapse">
         <thead>
-          <tr className="bg-black text-white">
-            <th className="font-mono-data uppercase text-[11px] px-3 py-2 text-left">
+          <tr className="bg-[#FAFAFA] border-b border-[#E5E5E5]">
+            <th className="font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-left">
               Cliente
             </th>
-            <th className="font-mono-data uppercase text-[11px] px-3 py-2 text-left">
+            <th className="font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-left">
               RUT
             </th>
-            <th className="font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+            <th className="font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
               Neto
             </th>
-            <th className="font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+            <th className="font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
               Bruto
             </th>
           </tr>
@@ -44,31 +44,31 @@ export default function MarcaIngresosTable({
           {rows.map((r) => (
             <tr
               key={r.id}
-              className="border-b-2 border-black hover:bg-[#FFFF00] transition-colors duration-150"
+              className="border-b border-[#E5E5E5] hover:bg-[#FAFAFA] transition-colors duration-150"
             >
-              <td className="font-mono-data text-sm px-3 py-2 font-bold border-r-2 border-black">
+              <td className="font-sans text-sm text-[#333333] px-4 py-3 font-medium">
                 {r.cliente}
               </td>
-              <td className="font-mono-data text-sm px-3 py-2 border-r-2 border-black">
+              <td className="font-sans text-sm text-[#333333] px-4 py-3">
                 {formatRut(r.rutCliente)}
               </td>
-              <td className="font-mono-data text-sm px-3 py-2 text-right border-r-2 border-black tabular-nums">
+              <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right tabular-nums">
                 {fmtClp(r.montoNeto)}
               </td>
-              <td className="font-mono-data text-sm px-3 py-2 text-right tabular-nums">
+              <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right tabular-nums">
                 {fmtClp(r.montoBruto)}
               </td>
             </tr>
           ))}
-          <tr className="bg-[#FFFF00]">
-            <td className="font-mono-data text-sm px-3 py-2 font-bold uppercase border-r-2 border-black">
+          <tr className="border-t border-[#E5E5E5] bg-[#FAFAFA]">
+            <td className="font-sans text-sm text-[#333333] px-4 py-3 font-semibold">
               Total
             </td>
-            <td className="font-mono-data text-sm px-3 py-2 border-r-2 border-black" />
-            <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+            <td className="font-sans text-sm text-[#333333] px-4 py-3" />
+            <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-semibold tabular-nums">
               {fmtClp(totalNeto)}
             </td>
-            <td className="font-mono-data text-sm px-3 py-2 text-right font-bold tabular-nums">
+            <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-semibold tabular-nums">
               {fmtClp(totalBruto)}
             </td>
           </tr>

@@ -249,6 +249,12 @@ export const marcaClientes = pgTable("marca_clientes", {
   // marcas con este flag aparecen en la matriz del card MEDIOS para imputar
   // ese ingreso aparte. El catálogo de marcas es uno solo (reusa este mismo).
   tienePlanMedios: boolean("tiene_plan_medios").notNull().default(false),
+  // PRODUCTO — marca que además paga "producto" (ingreso que pasa por la marca,
+  // aparte del fee de auspicio y del plan de medios). Flag INDEPENDIENTE de
+  // `tiene_plan_medios`: una marca puede tener ambos, uno o ninguno. Sólo las
+  // marcas con este flag aparecen en la matriz del card PRODUCTO. Reusa el mismo
+  // catálogo de marcas.
+  tienePlanProducto: boolean("tiene_plan_producto").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),
@@ -313,6 +319,35 @@ export const mediosIngresos = pgTable(
   (t) => [index("medios_ingresos_evento_idx").on(t.eventoId)],
 );
 
+// PRODUCTO — Ingreso de "producto" por marca imputado manualmente al evento.
+// Reusa el catálogo `marca_clientes` (sólo las marcas con `tiene_plan_producto
+// = true`) igual que MEDIOS, pero el tratamiento de IVA es como MESAS VIP:
+// `precio` es el monto que paga la marca y `exento` decide el IVA. Por defecto
+// TRUE (exento) → neto = precio, IVA = 0; si FALSE (afecto), el precio es bruto
+// (IVA incluido) → neto = precio/1,19. Snapshot de rut/cliente del facturador.
+export const productoIngresos = pgTable(
+  "producto_ingresos",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventoId: text("evento_id").notNull(),
+    clienteId: uuid("cliente_id")
+      .notNull()
+      .references(() => marcaClientes.id),
+    rutCliente: text("rut_cliente").notNull(),
+    cliente: text("cliente").notNull(),
+    precio: doublePrecision("precio").notNull(),
+    exento: boolean("exento").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [index("producto_ingresos_evento_idx").on(t.eventoId)],
+);
+
 // MESAS VIP — Cliente que reserva/compra mesas VIP (fila de la matriz). El
 // dato viene de un canal informal (planilla en Drive), por eso `rut` y
 // `razon_social` son OPCIONALES: muchos clientes son personas sin RUT
@@ -334,11 +369,13 @@ export const mesasVipClientes = pgTable("mesas_vip_clientes", {
 });
 
 // MESAS VIP — Venta de mesa(s) por cliente imputada manualmente al evento
-// (celda de la matriz). `precio` es el monto BRUTO (IVA incluido) que imputa el
-// usuario; neto/IVA se derivan en cliente/servidor (lib/constants/tax.ts) y el
-// consumo asociado = 25% del precio (lib/constants/mesasVip.ts) — ninguno se
-// persiste. `estado_pago` (pendiente|abono|pagado) es el control de si el
-// cliente está al día. Snapshot de rut/cliente para estabilidad histórica.
+// (celda de la matriz). `precio` es el monto que paga el cliente (lo que imputa
+// el usuario). `exento` decide el tratamiento de IVA: por defecto TRUE (mesas
+// VIP suele ser exenta) → neto = precio, IVA = 0; si FALSE (afecta), el precio
+// es bruto (IVA incluido) → neto = precio/1,19. El consumo asociado = 25% del
+// precio (lib/constants/mesasVip.ts) es informativo — no se persiste.
+// `estado_pago` (pendiente|abono|pagado) controla si el cliente está al día.
+// Snapshot de rut/cliente para estabilidad histórica.
 export const mesasVipIngresos = pgTable(
   "mesas_vip_ingresos",
   {
@@ -350,6 +387,7 @@ export const mesasVipIngresos = pgTable(
     rutCliente: text("rut_cliente"),
     cliente: text("cliente").notNull(),
     precio: doublePrecision("precio").notNull(),
+    exento: boolean("exento").notNull().default(true),
     estadoPago: text("estado_pago").notNull().default("pendiente"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
@@ -429,6 +467,8 @@ export type MarcaIngreso = typeof marcaIngresos.$inferSelect;
 export type NewMarcaIngreso = typeof marcaIngresos.$inferInsert;
 export type MediosIngreso = typeof mediosIngresos.$inferSelect;
 export type NewMediosIngreso = typeof mediosIngresos.$inferInsert;
+export type ProductoIngreso = typeof productoIngresos.$inferSelect;
+export type NewProductoIngreso = typeof productoIngresos.$inferInsert;
 export type MesasVipCliente = typeof mesasVipClientes.$inferSelect;
 export type NewMesasVipCliente = typeof mesasVipClientes.$inferInsert;
 export type MesasVipIngreso = typeof mesasVipIngresos.$inferSelect;
@@ -530,6 +570,50 @@ export const adminAgendaNotas = pgTable("admin_agenda_notas", {
 
 export type AdminAgendaNota = typeof adminAgendaNotas.$inferSelect;
 export type NewAdminAgendaNota = typeof adminAgendaNotas.$inferInsert;
+
+// INVERSIÓN MEDIOS — Plan diario de inversión en publicidad digital por evento
+// y PLATAFORMA (reemplaza la hoja de Google "mapa de gasto diario"). Una fila
+// por (EventoID, fecha, plataforma), monto SIEMPRE en USD. `plataforma` ∈
+// {meta, google, tiktok} (por ahora sin abrir por tipo de campaña). El plan
+// TOTAL del día del evento = SUMA de las 3 plataformas. `fecha` completa
+// YYYY-MM-DD. El gasto REAL no se persiste acá: se lee de
+// marts.paidmedia_ads_performance (gasto_usd por EventoID × fecha × plataforma).
+export const inversionMediosDiario = pgTable(
+  "inversion_medios_diario",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventoId: text("evento_id").notNull(),
+    fecha: date("fecha").notNull(),
+    plataforma: text("plataforma").notNull(),
+    montoUsd: doublePrecision("monto_usd").notNull(),
+    nota: text("nota"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedBy: uuid("updated_by"),
+  },
+  (t) => [
+    // target del onConflictDoUpdate: una celda = un (evento, día, plataforma)
+    uniqueIndex("inversion_medios_diario_evento_fecha_plat_idx").on(
+      t.eventoId,
+      t.fecha,
+      t.plataforma,
+    ),
+    index("inversion_medios_diario_evento_idx").on(t.eventoId),
+    index("inversion_medios_diario_fecha_idx").on(t.fecha),
+  ],
+);
+
+// Plataformas planificables (por ahora; tipo de campaña vendrá después).
+export const PLATAFORMAS_MEDIOS = ["meta", "google", "tiktok"] as const;
+export type PlataformaMedios = (typeof PLATAFORMAS_MEDIOS)[number];
+
+export type InversionMediosDiario = typeof inversionMediosDiario.$inferSelect;
+export type NewInversionMediosDiario = typeof inversionMediosDiario.$inferInsert;
 
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Country = (typeof countryEnum.enumValues)[number];

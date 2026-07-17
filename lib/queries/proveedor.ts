@@ -14,6 +14,15 @@ import { query } from "@/lib/bigquery";
  * Métrica de gasto: `gasto_neto` (= item_costo_empresa, canónica; reconcilia
  * con el costo_real del maestro) o `gasto_bruto` (= neto + IVA) según el
  * switch neto/bruto del dashboard (?monto=bruto).
+ *
+ * Proveedor: este dashboard usa `proveedor_efectivo` (17-jul-2026) — el REAL
+ * del servicio cuando Espacio Riesco re-factura a terceros (Provetec,
+ * Casablanca, VDS, Denis Leiva…), resuelto en la vista vía el seed
+ * `finanzas.gasto_proveedor_real` (workbook de finanzas) + Nº DOC. Así el
+ * gasto no se infla en Riesco ni se desinfla en el proveedor real. Para el
+ * resto de las filas proveedor_efectivo = proveedor declarado. El doc_key
+ * mantiene el RUT DECLARADO: identifica el documento (emitido por Riesco),
+ * no al prestador del servicio.
  */
 
 const P = process.env.BIGQUERY_PROJECT_ID;
@@ -182,7 +191,7 @@ function baseCte(filters: ProveedorFilters): {
   const montoCol = MONTO_COL[filters.monto === "bruto" ? "bruto" : "neto"];
 
   if (filters.proveedor) {
-    inner.push("proveedor = @proveedor");
+    inner.push("proveedor_efectivo = @proveedor");
     params.proveedor = filters.proveedor;
   }
   if (filters.from) {
@@ -198,8 +207,8 @@ function baseCte(filters: ProveedorFilters): {
   WITH g AS (
     SELECT * FROM (
       SELECT
-        proveedor,
-        proveedor_rut                                                    AS rut,
+        proveedor_efectivo                                               AS proveedor,
+        proveedor_efectivo_rut                                           AS rut,
         CAST(negocio_id AS STRING)                                       AS negocio_id,
         negocio_nombre,
         fecha,

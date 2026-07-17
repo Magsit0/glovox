@@ -19,9 +19,10 @@ import {
   updateMesasVipClienteAction,
   upsertMesasVipIngresoAction,
 } from "@/app/onepager/mesasvip-actions";
-import { brutoToNeto, ivaFromBruto } from "@/lib/constants/tax";
 import {
   consumoFromPrecio,
+  netoFromPrecio,
+  ivaFromPrecio,
   ESTADOS_PAGO,
   ESTADO_PAGO_META,
   nextEstadoPago,
@@ -129,8 +130,9 @@ export default function MesasVipCard({
 
   // Estado editable de las celdas: clave "clienteId::eventoId".
   const [draft, setDraft] = useState<Record<string, string>>({});
-  const [saved, setSaved] = useState<Record<string, number>>({}); // precio bruto
+  const [saved, setSaved] = useState<Record<string, number>>({}); // precio
   const [savedEstado, setSavedEstado] = useState<Record<string, EstadoPago>>({});
+  const [savedExento, setSavedExento] = useState<Record<string, boolean>>({});
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const [, startSave] = useTransition();
 
@@ -141,13 +143,16 @@ export default function MesasVipCard({
     if (expanded) {
       const nextSaved: Record<string, number> = {};
       const nextEstado: Record<string, EstadoPago> = {};
+      const nextExento: Record<string, boolean> = {};
       for (const c of matrix) {
         const k = cellKey(c.clienteId, c.eventoId);
         nextSaved[k] = c.precio;
         nextEstado[k] = c.estadoPago;
+        nextExento[k] = c.exento;
       }
       setSaved(nextSaved);
       setSavedEstado(nextEstado);
+      setSavedExento(nextExento);
       setDraft({});
       setExtraClientes([]);
       setAddingCliente(false);
@@ -239,6 +244,10 @@ export default function MesasVipCard({
     return savedEstado[cellKey(clienteId, eventoId)] ?? "pendiente";
   }
 
+  function cellExento(clienteId: string, eventoId: string): boolean {
+    return savedExento[cellKey(clienteId, eventoId)] ?? true;
+  }
+
   function commitCell(clienteId: string, eventoId: string) {
     const key = cellKey(clienteId, eventoId);
     if (!(key in draft)) return;
@@ -254,6 +263,7 @@ export default function MesasVipCard({
     }
 
     const estado = savedEstado[key] ?? "pendiente";
+    const exento = savedExento[key] ?? true;
     setSavingKeys((prev) => new Set(prev).add(key));
     startSave(async () => {
       const res = await upsertMesasVipIngresoAction({
@@ -261,6 +271,7 @@ export default function MesasVipCard({
         clienteId,
         precio,
         estadoPago: estado,
+        exento,
       });
       setSavingKeys((prev) => {
         const next = new Set(prev);
@@ -274,6 +285,7 @@ export default function MesasVipCard({
       if (res.data) {
         setSaved((prev) => ({ ...prev, [key]: res.data!.precio }));
         setSavedEstado((prev) => ({ ...prev, [key]: res.data!.estadoPago }));
+        setSavedExento((prev) => ({ ...prev, [key]: res.data!.exento }));
       } else {
         // precio <= 0 → celda borrada.
         setSaved((prev) => {
@@ -282,6 +294,11 @@ export default function MesasVipCard({
           return next;
         });
         setSavedEstado((prev) => {
+          const next = { ...prev };
+          delete next[key];
+          return next;
+        });
+        setSavedExento((prev) => {
           const next = { ...prev };
           delete next[key];
           return next;
@@ -309,6 +326,7 @@ export default function MesasVipCard({
         clienteId,
         precio,
         estadoPago: next,
+        exento: savedExento[key] ?? true,
       });
       setSavingKeys((prev) => {
         const n = new Set(prev);
@@ -318,6 +336,34 @@ export default function MesasVipCard({
       if (!res.ok) {
         setSavedEstado((prev) => ({ ...prev, [key]: current })); // revertir
         console.error("[MesasVipCard] estado upsert failed:", res.error);
+      }
+    });
+  }
+
+  function toggleExento(clienteId: string, eventoId: string) {
+    const key = cellKey(clienteId, eventoId);
+    const precio = cellPrecio(clienteId, eventoId);
+    if (precio <= 0) return; // sin venta, no hay IVA que marcar
+    const current = savedExento[key] ?? true;
+    const next = !current;
+    setSavedExento((prev) => ({ ...prev, [key]: next })); // optimista
+    setSavingKeys((prev) => new Set(prev).add(key));
+    startSave(async () => {
+      const res = await upsertMesasVipIngresoAction({
+        eventoId,
+        clienteId,
+        precio,
+        estadoPago: savedEstado[key] ?? "pendiente",
+        exento: next,
+      });
+      setSavingKeys((prev) => {
+        const n = new Set(prev);
+        n.delete(key);
+        return n;
+      });
+      if (!res.ok) {
+        setSavedExento((prev) => ({ ...prev, [key]: current })); // revertir
+        console.error("[MesasVipCard] exento upsert failed:", res.error);
       }
     });
   }
@@ -489,6 +535,19 @@ export default function MesasVipCard({
     return sum;
   }, [totalesCol]);
 
+  // Neto/IVA del gran total: exento aporta completo; afecto deriva ÷1,19.
+  const granNetoIva = useMemo(() => {
+    let neto = 0;
+    for (const c of allClientes) {
+      for (const e of visibleEventos) {
+        const p = cellPrecio(c.id, e.eventoId);
+        if (p > 0) neto += netoFromPrecio(p, cellExento(c.id, e.eventoId));
+      }
+    }
+    return { neto, iva: Math.round(granTotal) - neto };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allClientes, visibleEventos, draft, saved, savedExento, granTotal]);
+
   // Total global (badge del header colapsado) — bruto directo de la matriz.
   const totalGlobal = useMemo(
     () => matrix.reduce((a, c) => a + c.precio, 0),
@@ -496,35 +555,35 @@ export default function MesasVipCard({
   );
 
   return (
-    <div className="bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none">
+    <div className="bg-white border border-[#E5E5E5] shadow-sm rounded-lg">
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
-        className="w-full flex items-center gap-3 px-6 py-4 text-left cursor-pointer hover:bg-[#FFFF00] transition-colors duration-150"
+        className="w-full flex items-center gap-3 px-6 py-4 text-left cursor-pointer hover:bg-[#FAFAFA] transition-colors duration-150"
       >
-        <span aria-hidden className="flex-shrink-0">
+        <span aria-hidden className="flex-shrink-0 text-[#666666]">
           {expanded ? (
             <ChevronDown className="h-6 w-6" />
           ) : (
             <ChevronRight className="h-6 w-6" />
           )}
         </span>
-        <h3 className="font-display uppercase text-2xl leading-none text-black">
+        <h3 className="font-display font-bold text-xl leading-none text-[#333333]">
           Mesas VIP
         </h3>
         <span className="ml-auto flex items-center gap-3">
-          <span className="font-mono-data uppercase text-[10px] text-black/60 hidden sm:inline">
+          <span className="font-sans text-xs text-[#666666] hidden sm:inline">
             Total imputado (bruto)
           </span>
-          <span className="font-display text-xl leading-none text-black tabular-nums border-2 border-black px-3 py-1 bg-[#FFFF00]">
+          <span className="font-display font-bold text-lg leading-none text-white tabular-nums rounded-lg px-3 py-1 bg-[#9F99F8]">
             {fmtClp(totalGlobal)}
           </span>
         </span>
       </button>
 
       {expanded && (
-        <div className="border-t-4 border-black p-6 space-y-6">
+        <div className="border-t border-[#E5E5E5] p-6 space-y-6">
           {/* Toolbar: chips de categoría + agregar/editar cliente */}
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-2">
@@ -532,7 +591,7 @@ export default function MesasVipCard({
                 type="button"
                 onClick={() => setCategoriasOpen((v) => !v)}
                 aria-expanded={categoriasOpen}
-                className="font-mono-data uppercase text-[10px] text-black/70 flex items-center gap-1 cursor-pointer hover:text-black transition-colors"
+                className="font-sans text-xs text-[#666666] flex items-center gap-1 cursor-pointer hover:text-[#333333] transition-colors"
               >
                 <span aria-hidden className="font-bold">
                   {categoriasOpen ? "▾" : "▸"}
@@ -544,10 +603,10 @@ export default function MesasVipCard({
                   <button
                     type="button"
                     onClick={() => setCategorias(new Set())}
-                    className={`font-mono-data uppercase text-xs leading-none px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 ${
+                    className={`font-sans text-xs leading-none px-3 py-2 border rounded-lg cursor-pointer transition-colors duration-150 ${
                       categorias.size === 0
-                        ? "bg-black text-[#FFFF00]"
-                        : "bg-white text-black hover:bg-[#FFFF00]"
+                        ? "border-[#9F99F8] bg-[#F0EFFE] text-[#9F99F8]"
+                        : "border-[#E5E5E5] bg-white text-[#333333] hover:bg-[#FAFAFA]"
                     }`}
                   >
                     Todas
@@ -569,12 +628,12 @@ export default function MesasVipCard({
                             : undefined
                         }
                         onClick={() => toggleCategoria(c)}
-                        className={`font-mono-data uppercase text-xs leading-none px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 ${
+                        className={`font-sans text-xs leading-none px-3 py-2 border rounded-lg cursor-pointer transition-colors duration-150 ${
                           active
-                            ? "bg-black text-[#FFFF00]"
+                            ? "border-[#9F99F8] bg-[#F0EFFE] text-[#9F99F8]"
                             : currentSeason
-                              ? "bg-[#FFF7A8] text-black font-bold hover:bg-[#FFFF00]"
-                              : "bg-white text-black hover:bg-[#FFFF00]"
+                              ? "border-[#F6C544] bg-white text-[#333333] font-medium hover:bg-[#FAFAFA]"
+                              : "border-[#E5E5E5] bg-white text-[#333333] hover:bg-[#FAFAFA]"
                         }`}
                       >
                         {c}
@@ -583,7 +642,7 @@ export default function MesasVipCard({
                   })}
                 </>
               )}
-              <span className="font-mono-data uppercase text-[10px] text-black/70">
+              <span className="font-sans text-xs text-[#666666]">
                 {visibleEventos.length} de {eventos.length} evento
                 {eventos.length === 1 ? "" : "s"}
               </span>
@@ -595,7 +654,7 @@ export default function MesasVipCard({
                   if (!addingCliente) setEditingCliente(false);
                 }}
                 aria-pressed={addingCliente}
-                className="ml-auto font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-white hover:bg-[#FFFF00] cursor-pointer transition-colors duration-150"
+                className="ml-auto rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] cursor-pointer transition-colors duration-150"
               >
                 + Agregar cliente
               </button>
@@ -614,23 +673,23 @@ export default function MesasVipCard({
                 }}
                 aria-pressed={editingCliente}
                 disabled={allClientes.length === 0}
-                className="font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-white hover:bg-[#FFFF00] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors duration-150"
+                className="rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer transition-colors duration-150"
               >
                 Editar cliente
               </button>
             </div>
 
             {addingCliente && (
-              <div className="border-2 border-black p-3 space-y-2 bg-white">
+              <div className="border border-[#E5E5E5] rounded-lg p-3 space-y-2 bg-white">
                 <div className="flex items-center gap-2">
-                  <p className="font-mono-data uppercase text-[10px] text-black/70">
+                  <p className="font-sans text-xs text-[#666666]">
                     Nuevo cliente
                   </p>
                   <TipoToggle value={newTipo} onChange={setNewTipo} />
                 </div>
                 <div className="flex flex-wrap items-start gap-2">
                   <div className="flex-1 min-w-[180px]">
-                    <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                    <label className="font-sans text-xs text-[#666666] block mb-1">
                       Nombre del cliente
                     </label>
                     <input
@@ -639,28 +698,28 @@ export default function MesasVipCard({
                       value={newNombre}
                       onChange={(e) => setNewNombre(e.target.value)}
                       autoFocus
-                      className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+                      className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
                     />
                   </div>
                   <div className="flex-1 min-w-[180px]">
-                    <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
-                      RUT <span className="text-black/40">(opcional)</span>
+                    <label className="font-sans text-xs text-[#666666] block mb-1">
+                      RUT <span className="text-[#999999]">(opcional)</span>
                     </label>
                     <input
                       type="text"
                       placeholder="ej. 76.123.456-7"
                       value={newRut}
                       onChange={(e) => setNewRut(e.target.value)}
-                      className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 outline-none focus:bg-[#FFFF00]/30 ${
+                      className={`w-full rounded-lg border bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:outline-none focus:ring-1 ${
                         rutPreview && !rutPreview.ok
-                          ? "border-[#FF0000]"
-                          : "border-black"
+                          ? "border-[#ED75A0] focus:border-[#ED75A0] focus:ring-[#ED75A0]"
+                          : "border-[#E5E5E5] hover:border-[#333333] focus:border-[#9F99F8] focus:ring-[#9F99F8]"
                       }`}
                     />
                     {rutPreview && (
                       <p
-                        className={`mt-1 font-mono-data text-[10px] ${
-                          rutPreview.ok ? "text-black/60" : "text-[#FF0000]"
+                        className={`mt-1 font-sans text-xs ${
+                          rutPreview.ok ? "text-[#666666]" : "text-[#ED75A0]"
                         }`}
                       >
                         {rutPreview.msg}
@@ -668,8 +727,8 @@ export default function MesasVipCard({
                     )}
                   </div>
                   <div className="flex-1 min-w-[200px]">
-                    <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
-                      {tipoLabel(newTipo)} <span className="text-black/40">(opcional)</span>
+                    <label className="font-sans text-xs text-[#666666] block mb-1">
+                      {tipoLabel(newTipo)} <span className="text-[#999999]">(opcional)</span>
                     </label>
                     <input
                       type="text"
@@ -680,7 +739,7 @@ export default function MesasVipCard({
                       }
                       value={newRazonSocial}
                       onChange={(e) => setNewRazonSocial(e.target.value)}
-                      className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+                      className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
                     />
                   </div>
                   <div className="flex gap-2 items-end">
@@ -688,7 +747,7 @@ export default function MesasVipCard({
                       type="button"
                       onClick={() => setAddingCliente(false)}
                       disabled={addPending}
-                      className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-white hover:bg-[#FFFF00] cursor-pointer disabled:opacity-50 transition-colors"
+                      className="rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] cursor-pointer disabled:opacity-50 transition-colors"
                     >
                       Cancelar
                     </button>
@@ -700,14 +759,14 @@ export default function MesasVipCard({
                         !newNombre.trim() ||
                         (rutPreview !== null && !rutPreview.ok)
                       }
-                      className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black cursor-pointer disabled:opacity-50 transition-colors"
+                      className="rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer disabled:opacity-50 transition-colors"
                     >
                       {addPending ? "Guardando…" : "Guardar"}
                     </button>
                   </div>
                 </div>
                 {addError && (
-                  <p className="font-mono-data text-[10px] text-[#FF0000]">
+                  <p className="font-sans text-xs text-[#ED75A0]">
                     {addError}
                   </p>
                 )}
@@ -715,22 +774,22 @@ export default function MesasVipCard({
             )}
 
             {editingCliente && (
-              <div className="border-2 border-black p-3 space-y-2 bg-white">
+              <div className="border border-[#E5E5E5] rounded-lg p-3 space-y-2 bg-white">
                 <div className="flex items-center gap-2">
-                  <p className="font-mono-data uppercase text-[10px] text-black/70">
+                  <p className="font-sans text-xs text-[#666666]">
                     Editar cliente existente
                   </p>
                   <TipoToggle value={editTipo} onChange={setEditTipo} />
                 </div>
                 <div className="flex flex-wrap items-start gap-2">
                   <div className="flex-1 min-w-[200px]">
-                    <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                    <label className="font-sans text-xs text-[#666666] block mb-1">
                       Cliente a editar
                     </label>
                     <select
                       value={editClienteId}
                       onChange={(e) => handleSelectClienteEdit(e.target.value)}
-                      className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30 cursor-pointer"
+                      className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8] cursor-pointer"
                     >
                       {allClientes.map((c) => (
                         <option key={c.id} value={c.id}>
@@ -741,35 +800,35 @@ export default function MesasVipCard({
                     </select>
                   </div>
                   <div className="flex-1 min-w-[180px]">
-                    <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
+                    <label className="font-sans text-xs text-[#666666] block mb-1">
                       Nombre del cliente
                     </label>
                     <input
                       type="text"
                       value={editNombre}
                       onChange={(e) => setEditNombre(e.target.value)}
-                      className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+                      className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
                     />
                   </div>
                   <div className="flex-1 min-w-[180px]">
-                    <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
-                      RUT <span className="text-black/40">(opcional)</span>
+                    <label className="font-sans text-xs text-[#666666] block mb-1">
+                      RUT <span className="text-[#999999]">(opcional)</span>
                     </label>
                     <input
                       type="text"
                       placeholder="ej. 76.123.456-7"
                       value={editRut}
                       onChange={(e) => setEditRut(e.target.value)}
-                      className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 outline-none focus:bg-[#FFFF00]/30 ${
+                      className={`w-full rounded-lg border bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:outline-none focus:ring-1 ${
                         editRutPreview && !editRutPreview.ok
-                          ? "border-[#FF0000]"
-                          : "border-black"
+                          ? "border-[#ED75A0] focus:border-[#ED75A0] focus:ring-[#ED75A0]"
+                          : "border-[#E5E5E5] hover:border-[#333333] focus:border-[#9F99F8] focus:ring-[#9F99F8]"
                       }`}
                     />
                     {editRutPreview && (
                       <p
-                        className={`mt-1 font-mono-data text-[10px] ${
-                          editRutPreview.ok ? "text-black/60" : "text-[#FF0000]"
+                        className={`mt-1 font-sans text-xs ${
+                          editRutPreview.ok ? "text-[#666666]" : "text-[#ED75A0]"
                         }`}
                       >
                         {editRutPreview.msg}
@@ -777,14 +836,14 @@ export default function MesasVipCard({
                     )}
                   </div>
                   <div className="flex-1 min-w-[200px]">
-                    <label className="font-mono-data uppercase text-[9px] text-black/60 block mb-1">
-                      {tipoLabel(editTipo)} <span className="text-black/40">(opcional)</span>
+                    <label className="font-sans text-xs text-[#666666] block mb-1">
+                      {tipoLabel(editTipo)} <span className="text-[#999999]">(opcional)</span>
                     </label>
                     <input
                       type="text"
                       value={editRazonSocial}
                       onChange={(e) => setEditRazonSocial(e.target.value)}
-                      className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+                      className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
                     />
                   </div>
                   <div className="flex gap-2 items-end">
@@ -792,7 +851,7 @@ export default function MesasVipCard({
                       type="button"
                       onClick={() => setEditingCliente(false)}
                       disabled={editPending}
-                      className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-white hover:bg-[#FFFF00] cursor-pointer disabled:opacity-50 transition-colors"
+                      className="rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] cursor-pointer disabled:opacity-50 transition-colors"
                     >
                       Cancelar
                     </button>
@@ -805,14 +864,14 @@ export default function MesasVipCard({
                         !editNombre.trim() ||
                         (editRutPreview !== null && !editRutPreview.ok)
                       }
-                      className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black cursor-pointer disabled:opacity-50 transition-colors"
+                      className="rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer disabled:opacity-50 transition-colors"
                     >
                       {editPending ? "Guardando…" : "Guardar cambios"}
                     </button>
                   </div>
                 </div>
                 {editError && (
-                  <p className="font-mono-data text-[10px] text-[#FF0000]">
+                  <p className="font-sans text-xs text-[#ED75A0]">
                     {editError}
                   </p>
                 )}
@@ -823,12 +882,22 @@ export default function MesasVipCard({
           {/* Matriz inline */}
           <div>
             <div className="mb-2 flex flex-wrap items-center gap-x-4 gap-y-1">
-              <p className="font-mono-data text-[10px] uppercase text-black/60">
-                Una celda = precio bruto de la(s) mesa(s) del cliente en el evento
-                · enter/tab para guardar
+              <p className="font-sans text-xs text-[#666666]">
+                Una celda = monto de la(s) mesa(s) del cliente en el evento ·
+                enter/tab para guardar
               </p>
+              <span className="flex items-center gap-1 font-sans text-xs text-[#666666]">
+                <span className="inline-flex w-6 h-4 items-center justify-center rounded border border-[#E5E5E5] text-[9px] font-bold bg-white text-[#999999]">
+                  EX
+                </span>
+                exento
+                <span className="inline-flex w-8 h-4 items-center justify-center rounded border border-[#9F99F8] text-[9px] font-bold bg-[#9F99F8] text-white ml-1">
+                  IVA
+                </span>
+                afecto
+              </span>
               <span className="flex items-center gap-2 flex-wrap">
-                <span className="font-mono-data uppercase text-[10px] text-black/60">
+                <span className="font-sans text-xs text-[#666666]">
                   Pago:
                 </span>
                 {ESTADOS_PAGO.map((e) => {
@@ -836,10 +905,10 @@ export default function MesasVipCard({
                   return (
                     <span
                       key={e}
-                      className="flex items-center gap-1 font-mono-data text-[10px] text-black/70"
+                      className="flex items-center gap-1 font-sans text-xs text-[#666666]"
                     >
                       <span
-                        className="inline-flex w-4 h-4 items-center justify-center border-2 border-black text-[9px] font-bold"
+                        className="inline-flex w-4 h-4 items-center justify-center rounded-full border border-[#E5E5E5] text-[9px] font-bold"
                         style={{ background: m.bg, color: m.fg }}
                       >
                         {m.short}
@@ -848,14 +917,14 @@ export default function MesasVipCard({
                     </span>
                   );
                 })}
-                <span className="font-mono-data text-[10px] text-black/40">
+                <span className="font-sans text-xs text-[#999999]">
                   (click para cambiar)
                 </span>
               </span>
             </div>
-            <div className="border-4 border-black bg-white max-h-[60vh] overflow-auto">
+            <div className="border border-[#E5E5E5] rounded-lg bg-white max-h-[60vh] overflow-auto">
               {allClientes.length === 0 || visibleEventos.length === 0 ? (
-                <p className="font-mono-data text-sm text-black/50 px-6 py-6">
+                <p className="font-sans text-sm text-[#999999] px-6 py-6">
                   {allClientes.length === 0
                     ? "No hay clientes. Agregá uno con el botón de arriba."
                     : "No hay eventos para la categoría seleccionada."}
@@ -867,9 +936,11 @@ export default function MesasVipCard({
                   cellDisplay={cellDisplay}
                   cellPrecio={cellPrecio}
                   cellEstado={cellEstado}
+                  cellExento={cellExento}
                   setDraft={setDraft}
                   commitCell={commitCell}
                   cycleEstado={cycleEstado}
+                  toggleExento={toggleExento}
                   handleCellKeyDown={handleCellKeyDown}
                   savingKeys={savingKeys}
                   totalesRow={totalesRow}
@@ -879,17 +950,18 @@ export default function MesasVipCard({
               )}
             </div>
             {granTotal > 0 && (
-              <p className="mt-2 font-mono-data text-[10px] uppercase text-black/60 tabular-nums">
-                Gran total bruto {fmtClp(granTotal)} · neto{" "}
-                {fmtClp(brutoToNeto(granTotal))} · IVA{" "}
-                {fmtClp(ivaFromBruto(granTotal))}
+              <p className="mt-2 font-sans text-xs text-[#666666] tabular-nums">
+                Gran total {fmtClp(granTotal)}
+                {granNetoIva.iva > 0
+                  ? ` · neto ${fmtClp(granNetoIva.neto)} · IVA ${fmtClp(granNetoIva.iva)}`
+                  : " · exento (sin IVA)"}
               </p>
             )}
           </div>
 
           {/* Gráfico de evolución */}
           <div>
-            <h4 className="font-display uppercase text-lg leading-none text-black mb-3">
+            <h4 className="font-display font-bold text-lg leading-none text-[#333333] mb-3">
               Evolución
             </h4>
             <MesasVipEvolucionChart
@@ -914,7 +986,7 @@ function TipoToggle({
   onChange: (t: TipoCliente) => void;
 }) {
   return (
-    <div className="flex border-2 border-black">
+    <div className="flex rounded-lg border border-[#E5E5E5] overflow-hidden">
       {(
         [
           { key: "empresa", label: "Empresa" },
@@ -928,12 +1000,12 @@ function TipoToggle({
             type="button"
             aria-pressed={active}
             onClick={() => onChange(t.key)}
-            className={`font-mono-data uppercase text-[10px] leading-none px-2 py-1 cursor-pointer transition-colors duration-150 ${
-              i === 0 ? "border-r-2 border-black" : ""
+            className={`font-sans text-xs leading-none px-3 py-2 cursor-pointer transition-colors duration-150 ${
+              i === 0 ? "border-r border-[#E5E5E5]" : ""
             } ${
               active
-                ? "bg-black text-[#FFFF00]"
-                : "bg-white text-black hover:bg-[#FFFF00]"
+                ? "bg-[#F0EFFE] text-[#9F99F8]"
+                : "bg-white text-[#333333] hover:bg-[#FAFAFA]"
             }`}
           >
             {t.label}
@@ -952,9 +1024,11 @@ function MatrixGrid({
   cellDisplay,
   cellPrecio,
   cellEstado,
+  cellExento,
   setDraft,
   commitCell,
   cycleEstado,
+  toggleExento,
   handleCellKeyDown,
   savingKeys,
   totalesRow,
@@ -966,9 +1040,11 @@ function MatrixGrid({
   cellDisplay: (clienteId: string, eventoId: string) => string;
   cellPrecio: (clienteId: string, eventoId: string) => number;
   cellEstado: (clienteId: string, eventoId: string) => EstadoPago;
+  cellExento: (clienteId: string, eventoId: string) => boolean;
   setDraft: React.Dispatch<React.SetStateAction<Record<string, string>>>;
   commitCell: (clienteId: string, eventoId: string) => void;
   cycleEstado: (clienteId: string, eventoId: string) => void;
+  toggleExento: (clienteId: string, eventoId: string) => void;
   handleCellKeyDown: (
     e: KeyboardEvent<HTMLInputElement>,
     clienteId: string,
@@ -983,22 +1059,22 @@ function MatrixGrid({
     <table className="border-collapse">
       <thead>
         <tr>
-          <th className="sticky top-0 left-0 z-30 bg-black text-white font-mono-data uppercase text-[10px] px-3 py-2 text-left border-r-2 border-b-2 border-black min-w-[220px]">
+          <th className="sticky top-0 left-0 z-30 bg-[#FAFAFA] font-sans uppercase tracking-wide text-xs font-medium text-[#666666] px-4 py-3 text-left border-r border-b border-[#E5E5E5] min-w-[220px]">
             Cliente
           </th>
           {eventos.map((e) => (
             <th
               key={e.eventoId}
               title={e.nombre}
-              className="sticky top-0 z-10 bg-black text-white font-mono-data uppercase text-[10px] px-2 py-2 text-left border-r-2 border-b-2 border-black min-w-[150px] max-w-[190px]"
+              className="sticky top-0 z-10 bg-[#FAFAFA] font-sans uppercase tracking-wide text-xs font-medium text-[#666666] px-4 py-3 text-left border-r border-b border-[#E5E5E5] min-w-[175px] max-w-[210px]"
             >
               <div className="truncate font-bold">{e.nombre}</div>
-              <div className="text-[9px] text-white/70 tabular-nums">
+              <div className="text-[9px] text-[#999999] tabular-nums">
                 {fmtFecha(e.fechaEvento)}
               </div>
             </th>
           ))}
-          <th className="sticky top-0 z-10 bg-[#FFFF00] text-black font-mono-data uppercase text-[10px] px-3 py-2 text-right border-l-4 border-b-2 border-black min-w-[140px]">
+          <th className="sticky top-0 z-10 bg-[#F0EFFE] font-sans uppercase tracking-wide text-xs font-medium text-[#9F99F8] px-4 py-3 text-right border-l border-b border-[#E5E5E5] min-w-[140px]">
             Total cliente
           </th>
         </tr>
@@ -1010,13 +1086,13 @@ function MatrixGrid({
             <tr key={c.id}>
               <th
                 scope="row"
-                className="sticky left-0 z-20 bg-white font-mono-data text-xs px-3 py-2 text-left border-r-2 border-b-2 border-black min-w-[220px]"
+                className="sticky left-0 z-20 bg-white font-sans text-sm text-[#333333] px-4 py-3 text-left border-r border-b border-[#E5E5E5] min-w-[220px]"
               >
-                <div className="font-bold uppercase truncate" title={c.nombre}>
+                <div className="font-medium text-[#333333] truncate" title={c.nombre}>
                   {c.nombre}
                 </div>
                 {sub && (
-                  <div className="text-[10px] text-black/60 truncate" title={sub}>
+                  <div className="text-xs text-[#666666] truncate" title={sub}>
                     {sub}
                   </div>
                 )}
@@ -1027,17 +1103,20 @@ function MatrixGrid({
                 const value = cellDisplay(c.id, e.eventoId);
                 const precio = cellPrecio(c.id, e.eventoId);
                 const estado = cellEstado(c.id, e.eventoId);
+                const exento = cellExento(c.id, e.eventoId);
                 const meta = ESTADO_PAGO_META[estado];
                 const tip =
-                  precio > 0
-                    ? `Neto ${fmtClp(brutoToNeto(precio))} · IVA ${fmtClp(
-                        ivaFromBruto(precio),
-                      )} · Consumo ${fmtClp(consumoFromPrecio(precio))}`
-                    : "Vacío";
+                  precio <= 0
+                    ? "Vacío"
+                    : exento
+                      ? `Exento (sin IVA) · Consumo ${fmtClp(consumoFromPrecio(precio))}`
+                      : `Neto ${fmtClp(netoFromPrecio(precio, false))} · IVA ${fmtClp(
+                          ivaFromPrecio(precio, false),
+                        )} · Consumo ${fmtClp(consumoFromPrecio(precio))}`;
                 return (
                   <td
                     key={e.eventoId}
-                    className="bg-white p-0 border-r-2 border-b-2 border-black"
+                    className="bg-white p-0 border-r border-b border-[#E5E5E5]"
                   >
                     <div className="flex items-stretch">
                       <input
@@ -1052,34 +1131,53 @@ function MatrixGrid({
                         }
                         onBlur={() => commitCell(c.id, e.eventoId)}
                         onKeyDown={(ev) => handleCellKeyDown(ev, c.id, e.eventoId)}
-                        aria-label={`Precio bruto ${c.nombre} en ${e.nombre}`}
+                        aria-label={`Monto ${c.nombre} en ${e.nombre}`}
                         title={tip}
                         placeholder="$0"
-                        className={`flex-1 min-w-0 font-mono-data text-xs text-right px-2 py-1.5 outline-none tabular-nums focus:bg-[#FFFF00]/30 ${
+                        className={`flex-1 min-w-0 font-sans text-sm text-right px-3 py-2 outline-none tabular-nums focus:bg-[#F0EFFE] ${
                           isSaving
-                            ? "bg-[#FFFF00]/40"
+                            ? "bg-[#F0EFFE]"
                             : precio > 0
-                              ? "bg-white"
-                              : "bg-white text-black/40"
+                              ? "bg-white text-[#333333]"
+                              : "bg-white text-[#999999]"
                         }`}
                       />
                       {precio > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => cycleEstado(c.id, e.eventoId)}
-                          title={`Estado: ${meta.label} — click para cambiar`}
-                          aria-label={`Estado de pago ${c.nombre} en ${e.nombre}: ${meta.label}`}
-                          style={{ background: meta.bg, color: meta.fg }}
-                          className="w-6 flex-shrink-0 border-l-2 border-black font-mono-data text-[11px] font-bold leading-none cursor-pointer flex items-center justify-center hover:opacity-80 transition-opacity"
-                        >
-                          {meta.short}
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => toggleExento(c.id, e.eventoId)}
+                            title={
+                              exento
+                                ? "Exento (sin IVA) — click para marcar afecto"
+                                : "Afecto a IVA — click para marcar exento"
+                            }
+                            aria-label={`IVA ${c.nombre} en ${e.nombre}: ${exento ? "exento" : "afecto"}`}
+                            className={`w-8 flex-shrink-0 border-l border-[#E5E5E5] font-sans text-[9px] font-bold leading-none cursor-pointer flex items-center justify-center hover:opacity-80 transition-opacity ${
+                              exento
+                                ? "bg-white text-[#999999]"
+                                : "bg-[#9F99F8] text-white"
+                            }`}
+                          >
+                            {exento ? "EX" : "IVA"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => cycleEstado(c.id, e.eventoId)}
+                            title={`Estado: ${meta.label} — click para cambiar`}
+                            aria-label={`Estado de pago ${c.nombre} en ${e.nombre}: ${meta.label}`}
+                            style={{ background: meta.bg, color: meta.fg }}
+                            className="w-6 flex-shrink-0 border-l border-[#E5E5E5] font-sans text-[11px] font-bold leading-none cursor-pointer flex items-center justify-center hover:opacity-80 transition-opacity"
+                          >
+                            {meta.short}
+                          </button>
+                        </>
                       )}
                     </div>
                   </td>
                 );
               })}
-              <td className="bg-[#FFFF00] font-mono-data text-xs text-right font-bold px-3 py-2 border-l-4 border-b-2 border-black tabular-nums">
+              <td className="bg-[#F0EFFE] font-sans text-sm text-right font-medium text-[#333333] px-4 py-3 border-l border-b border-[#E5E5E5] tabular-nums">
                 {fmtClp(totalesRow.get(c.id) ?? 0)}
               </td>
             </tr>
@@ -1088,19 +1186,19 @@ function MatrixGrid({
         <tr>
           <th
             scope="row"
-            className="sticky left-0 z-20 bg-[#FFFF00] font-mono-data text-xs uppercase font-bold px-3 py-2 text-left border-r-2 border-t-4 border-black"
+            className="sticky left-0 z-20 bg-[#F0EFFE] font-sans text-sm font-medium text-[#9F99F8] px-4 py-3 text-left border-r border-t border-[#E5E5E5]"
           >
             Total evento
           </th>
           {eventos.map((e) => (
             <td
               key={e.eventoId}
-              className="bg-[#FFFF00] font-mono-data text-xs text-right font-bold px-2 py-2 border-r-2 border-t-4 border-black tabular-nums"
+              className="bg-[#F0EFFE] font-sans text-sm text-right font-medium text-[#333333] px-4 py-3 border-r border-t border-[#E5E5E5] tabular-nums"
             >
               {fmtClp(totalesCol.get(e.eventoId) ?? 0)}
             </td>
           ))}
-          <td className="bg-black text-[#FFFF00] font-mono-data text-sm text-right font-bold px-3 py-2 border-l-4 border-t-4 border-black tabular-nums">
+          <td className="bg-[#9F99F8] text-white font-sans text-sm text-right font-semibold px-4 py-3 border-l border-t border-[#E5E5E5] tabular-nums">
             {fmtClp(granTotal)}
           </td>
         </tr>

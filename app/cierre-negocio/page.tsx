@@ -151,6 +151,15 @@ function categoriaDeNegocio(r: NegocioRow, catMap: Map<string, string>): string 
   return CATEGORIA_OTRO;
 }
 
+// Número del código de evento (GLO/GLP/…) tomado de los primeros 6 chars de la
+// referencia — el mismo tramo que categoriaDeNegocio usa como EventoID. Ordena
+// prev/next "según GLO" (GLO199 → GLO200). null si no hay dígitos.
+function eventoNumOf(referencia: string | null | undefined): number | null {
+  const eid = (referencia ?? "").trim().slice(0, 6);
+  const digits = eid.replace(/\D/g, "");
+  return digits ? Number(digits) : null;
+}
+
 function groupByCategoria(rows: NegocioRow[], catMap: Map<string, string>): GroupCard[] {
   const map = new Map<string, number>();
   for (const r of rows) {
@@ -285,10 +294,23 @@ async function computeNeighbors(args: {
     peers = areaRows; // "otros": sin subcategoría, toda el área.
   }
 
-  // DESC (id mayor primero) para calzar con el listado y el selector, que
-  // ordenan `ORDER BY negocio_id DESC`. Así "anterior" (idx-1) es la fila de
-  // ARRIBA (id mayor) y "siguiente" (idx+1) la de ABAJO, como se ve en la tabla.
-  peers.sort((a, b) => Number(b.id) - Number(a.id));
+  // Orden por número de evento GLO ASCENDENTE: "siguiente" (idx+1) es el GLO
+  // mayor (GLO200 va después de GLO199) y "anterior" (idx-1) el menor. El id NO
+  // sirve para ordenar (id y GLO divergen: id 8454→GLO194 pero id 8443→GLO197),
+  // así que se ordena por GLO con el id sólo como desempate. Áreas sin GLO
+  // (btl/corp/otros): por id ascendente.
+  if (areaBucket === "produccion") {
+    peers.sort((a, b) => {
+      const na = eventoNumOf(a.referencia);
+      const nb = eventoNumOf(b.referencia);
+      if (na != null && nb != null && na !== nb) return na - nb;
+      if (na != null && nb == null) return -1;
+      if (na == null && nb != null) return 1;
+      return Number(a.id) - Number(b.id);
+    });
+  } else {
+    peers.sort((a, b) => Number(a.id) - Number(b.id));
+  }
   const idx = peers.findIndex((r) => String(r.id) === String(id));
   if (idx < 0) return none;
 
@@ -538,10 +560,13 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
           mesasVipBruto={detail.mesasVipBruto}
           mediosNeto={detail.mediosNeto}
           mediosBruto={detail.mediosBruto}
+          productoNeto={detail.productoNeto}
+          productoBruto={detail.productoBruto}
           rebatePorcentaje={rebatePorcentaje}
           marcaDetalle={detail.marcaDetalle}
           mesasVipDetalle={detail.mesasVipDetalle}
           mediosDetalle={detail.mediosDetalle}
+          productoDetalle={detail.productoDetalle}
         />
       )}
       <UnabaseHeading />

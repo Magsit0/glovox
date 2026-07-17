@@ -8,6 +8,10 @@ import {
   getMesasVipDetalleByEvento,
 } from "@/lib/queries/mesasVip";
 import { getMediosAggByEvento, getMediosDetalleByEvento } from "@/lib/queries/medios";
+import {
+  getProductoAggByEvento,
+  getProductoDetalleByEvento,
+} from "@/lib/queries/producto";
 import type {
   CierreEventoRow,
   DetalleGastoRow,
@@ -141,10 +145,13 @@ export interface NegocioDetail {
   mesasVipBruto: number | null;
   mediosNeto: number | null;
   mediosBruto: number | null;
+  productoNeto: number | null;
+  productoBruto: number | null;
   // Detalle por cliente (neto) para el tooltip de cada card. [] si no aplica.
   marcaDetalle: IngresoDetalleRow[];
   mesasVipDetalle: IngresoDetalleRow[];
   mediosDetalle: IngresoDetalleRow[];
+  productoDetalle: IngresoDetalleRow[];
   // NOTA: el % de rebate NO vive acá a propósito — el detalle se cachea 5 min
   // por proceso y el % es editable en la propia página; se lee fresco en cada
   // render desde page.tsx (getRebatePorcentaje) para que el guardado se vea
@@ -351,9 +358,12 @@ export async function getNegocioDetail(
   let mesasVipBruto: number | null = null;
   let mediosNeto: number | null = null;
   let mediosBruto: number | null = null;
+  let productoNeto: number | null = null;
+  let productoBruto: number | null = null;
   let marcaDetalle: IngresoDetalleRow[] = [];
   let mesasVipDetalle: IngresoDetalleRow[] = [];
   let mediosDetalle: IngresoDetalleRow[] = [];
+  let productoDetalle: IngresoDetalleRow[] = [];
   if (negocio) {
     const area = (negocio.area_negocio ?? "").trim().toLowerCase();
     const eventoId = (negocio.referencia ?? "").trim().slice(0, 6).toUpperCase();
@@ -363,17 +373,21 @@ export async function getNegocioDetail(
         marcaAgg,
         mesasVipAgg,
         mediosAgg,
+        productoAgg,
         marcaDet,
         mesasVipDet,
         mediosDet,
+        productoDet,
       ] = await Promise.all([
         withTimeout(query<Record<string, unknown>>(EVENTO_SQL, { eventoId })),
         getMarcaIngresosAggByEvento(eventoId),
         getMesasVipAggByEvento(eventoId),
         getMediosAggByEvento(eventoId),
+        getProductoAggByEvento(eventoId),
         getMarcaIngresosDetalleByEvento(eventoId),
         getMesasVipDetalleByEvento(eventoId),
         getMediosDetalleByEvento(eventoId),
+        getProductoDetalleByEvento(eventoId),
       ]);
       evento = eventoRaw[0]
         ? (serialize(eventoRaw[0]) as unknown as CierreEventoRow)
@@ -385,9 +399,12 @@ export async function getNegocioDetail(
       mesasVipBruto = mesasVipAgg.ventaBruto;
       mediosNeto = mediosAgg.ventaNeto;
       mediosBruto = mediosAgg.ventaBruto;
+      productoNeto = productoAgg.ventaNeto;
+      productoBruto = productoAgg.ventaBruto;
       marcaDetalle = marcaDet;
       mesasVipDetalle = mesasVipDet;
       mediosDetalle = mediosDet;
+      productoDetalle = productoDet;
     }
   }
 
@@ -406,9 +423,12 @@ export async function getNegocioDetail(
     mesasVipBruto,
     mediosNeto,
     mediosBruto,
+    productoNeto,
+    productoBruto,
     marcaDetalle,
     mesasVipDetalle,
     mediosDetalle,
+    productoDetalle,
   };
   detailCache.set(cacheKey, { data: detail, timestamp: now });
   return detail;

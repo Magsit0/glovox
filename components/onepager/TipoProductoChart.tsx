@@ -1,6 +1,7 @@
 "use client";
 
 import type { OnepagerTipoProductoRow } from "@/lib/queries/onepager";
+import { BRAND } from "@/lib/chart-colors";
 
 type Props = {
   data: OnepagerTipoProductoRow[];
@@ -11,24 +12,24 @@ function fmtClp(value: number) {
   return "$" + Math.round(value).toLocaleString("es-CL");
 }
 
-export default function TipoProductoChart({ data, color = "#0000FF" }: Props) {
+export default function TipoProductoChart({ data, color = BRAND.purple }: Props) {
   const maxVenta = Math.max(...data.map((d) => d.venta), 1);
 
   return (
-    <div className="max-h-[480px] overflow-y-auto border-4 border-black">
+    <div className="max-h-[480px] overflow-y-auto bg-white border border-[#E5E5E5] rounded-lg">
       <table className="w-full border-collapse">
         <thead className="sticky top-0 z-10">
-          <tr className="bg-black text-white">
-            <th className="font-mono-data uppercase text-xs px-4 py-3 text-left w-[40%]">
+          <tr className="border-b border-[#E5E5E5]">
+            <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-left w-[40%]">
               Tipo Producto
             </th>
-            <th className="font-mono-data uppercase text-xs px-4 py-3 text-right w-[20%]">
+            <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right w-[20%]">
               Qtty
             </th>
-            <th className="font-mono-data uppercase text-xs px-4 py-3 text-right w-[20%]">
+            <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right w-[20%]">
               Venta
             </th>
-            <th className="font-mono-data uppercase text-xs px-4 py-3 w-[20%]" />
+            <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 w-[20%]" />
           </tr>
         </thead>
         <tbody>
@@ -37,21 +38,21 @@ export default function TipoProductoChart({ data, color = "#0000FF" }: Props) {
             return (
               <tr
                 key={row.tipoProducto}
-                className="border-b-2 border-black last:border-b-0 hover:bg-[#FFFF00] transition-colors duration-150"
+                className="border-b border-[#E5E5E5] last:border-b-0 hover:bg-[#FAFAFA] transition-colors duration-150"
               >
-                <td className="font-mono-data text-xs px-4 py-2 font-bold">
+                <td className="font-sans text-sm text-[#333333] px-4 py-2 font-medium">
                   {row.tipoProducto}
                 </td>
-                <td className="font-mono-data text-xs px-4 py-2 text-right">
+                <td className="font-sans text-sm text-[#333333] px-4 py-2 text-right tabular-nums">
                   {row.qtty.toLocaleString("es-CL")}
                 </td>
-                <td className="font-mono-data text-xs px-4 py-2 text-right whitespace-nowrap">
+                <td className="font-sans text-sm text-[#333333] px-4 py-2 text-right tabular-nums whitespace-nowrap">
                   {fmtClp(row.venta)}
                 </td>
                 <td className="px-4 py-2">
-                  <div className="w-full bg-black/10 h-3 border border-black">
+                  <div className="w-full bg-[#F0F0F0] h-3 rounded-full overflow-hidden">
                     <div
-                      className="h-full"
+                      className="h-full rounded-full"
                       style={{ width: `${pct}%`, backgroundColor: color }}
                     />
                   </div>

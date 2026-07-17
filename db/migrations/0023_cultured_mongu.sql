@@ -1,0 +1,1 @@
+DROP TABLE "inversion_medios_techo" CASCADE;

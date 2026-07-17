@@ -63,7 +63,7 @@ export default function FfbbDetalleTable({ data, eventoId }: Props) {
   const hasActiveFilter = categorias.size > 0 || effectiveProductos.size > 0;
 
   if (data.length === 0) {
-    return <p className="font-mono-data text-sm text-black/50">Sin datos.</p>;
+    return <p className="font-sans text-sm text-[#999999]">Sin datos.</p>;
   }
 
   const totalVenta = filtered.reduce((a, r) => a + r.venta, 0);
@@ -105,7 +105,7 @@ export default function FfbbDetalleTable({ data, eventoId }: Props) {
               setCategorias(new Set());
               setProductos(new Set());
             }}
-            className="font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-white text-black hover:bg-[#FFFF00] transition-colors duration-150 cursor-pointer"
+            className="rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] transition-colors duration-150 cursor-pointer"
           >
             Limpiar filtros
           </button>
@@ -114,7 +114,7 @@ export default function FfbbDetalleTable({ data, eventoId }: Props) {
           type="button"
           onClick={handleDownload}
           disabled={filtered.length === 0}
-          className="ml-auto inline-flex items-center gap-2 font-display uppercase text-sm leading-none px-4 py-2 border-4 border-black bg-[#FFFF00] text-black shadow-[4px_4px_0px_#000] hover:bg-black hover:text-[#FFFF00] cursor-pointer transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="ml-auto inline-flex items-center gap-2 rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download className="h-4 w-4" />
           Descargar CSV
@@ -122,24 +122,24 @@ export default function FfbbDetalleTable({ data, eventoId }: Props) {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="font-mono-data text-sm text-black/50">
+        <p className="font-sans text-sm text-[#999999]">
           Sin datos para la combinación de filtros seleccionada.
         </p>
       ) : (
-        <div className="border-4 border-black bg-white max-h-[60vh] overflow-auto">
+        <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-auto max-h-[60vh]">
           <table className="w-full border-collapse">
             <thead className="sticky top-0 z-10">
-              <tr className="bg-black text-white">
-                <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-left">
+              <tr className="bg-[#FAFAFA] border-b border-[#E5E5E5]">
+                <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-left">
                   Producto
                 </th>
-                <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-left">
+                <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-left">
                   Categoría
                 </th>
-                <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                   Venta (CLP)
                 </th>
-                <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                   Cantidad
                 </th>
               </tr>
@@ -148,31 +148,31 @@ export default function FfbbDetalleTable({ data, eventoId }: Props) {
               {filtered.map((r, i) => (
                 <tr
                   key={`${r.categoria}::${r.producto}::${i}`}
-                  className="border-b-2 border-black hover:bg-[#FFFF00] transition-colors duration-150"
+                  className="border-b border-[#E5E5E5] hover:bg-[#FAFAFA] transition-colors duration-150"
                 >
-                  <td className="font-mono-data text-sm px-3 py-2 font-bold border-r-2 border-black">
+                  <td className="font-sans text-sm text-[#333333] px-4 py-3 font-medium">
                     {r.producto || "—"}
                   </td>
-                  <td className="font-mono-data text-sm px-3 py-2 border-r-2 border-black">
+                  <td className="font-sans text-sm text-[#333333] px-4 py-3">
                     {r.categoria || "—"}
                   </td>
-                  <td className="font-mono-data text-sm px-3 py-2 text-right border-r-2 border-black tabular-nums">
+                  <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right tabular-nums">
                     {fmtClp(r.venta)}
                   </td>
-                  <td className="font-mono-data text-sm px-3 py-2 text-right tabular-nums">
+                  <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right tabular-nums">
                     {r.qtty.toLocaleString("es-CL")}
                   </td>
                 </tr>
               ))}
-              <tr className="bg-[#FFFF00]">
-                <td className="font-mono-data text-sm px-3 py-2 font-bold uppercase border-r-2 border-black">
+              <tr className="border-t border-[#E5E5E5] bg-[#FAFAFA]">
+                <td className="font-sans text-sm text-[#333333] px-4 py-3 font-semibold">
                   Total ({filtered.length} prod.)
                 </td>
-                <td className="font-mono-data text-sm px-3 py-2 border-r-2 border-black" />
-                <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                <td className="font-sans text-sm text-[#333333] px-4 py-3" />
+                <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-semibold tabular-nums">
                   {fmtClp(totalVenta)}
                 </td>
-                <td className="font-mono-data text-sm px-3 py-2 text-right font-bold tabular-nums">
+                <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-semibold tabular-nums">
                   {totalQtty.toLocaleString("es-CL")}
                 </td>
               </tr>

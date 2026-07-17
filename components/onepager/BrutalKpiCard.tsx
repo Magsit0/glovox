@@ -29,6 +29,8 @@ type BrutalKpiCardProps = {
   suffix?: string;
 };
 
+// KPI card estándar Glovox (docs/STYLE_DASHBOARD.md § KPI CARD). Nombre
+// histórico; mantiene el count-up sutil permitido por el manual.
 export default function BrutalKpiCard({
   label,
   value,
@@ -52,32 +54,33 @@ export default function BrutalKpiCard({
     return () => controls.stop();
   }, [value, fmt]);
 
-  const deltaColor =
+  const dotColor =
     delta == null
       ? null
       : delta > 0
-        ? "bg-[#0000FF] text-white"
+        ? "bg-[#B1D750]"
         : delta < 0
-          ? "bg-[#FF0000] text-white"
-          : "bg-[#FFFF00] text-black";
+          ? "bg-[#ED75A0]"
+          : "bg-[#999999]";
 
   return (
-    <div className="bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none p-2 flex flex-col gap-0.5 overflow-hidden min-w-0">
-      <span className="font-mono-data uppercase text-[10px] text-black tracking-wide truncate leading-tight">
+    <div className="bg-white border border-[#E5E5E5] rounded-lg p-4 flex flex-col gap-1 overflow-hidden min-w-0">
+      <span className="font-sans text-xs text-[#666666] truncate leading-tight">
         {label}
       </span>
       <span
         ref={ref}
-        className="font-display text-xl leading-none text-black truncate block"
+        className="font-display font-bold text-2xl leading-none text-[#333333] truncate block mt-1 tracking-tight"
         title={displayed + (suffix ?? "")}
       >
         {displayed}
-        {suffix && <span className="text-base">{suffix}</span>}
+        {suffix && <span className="text-base font-medium text-[#666666]">{suffix}</span>}
       </span>
       {delta != null && (
-        <span
-          className={`inline-block self-start font-mono-data text-xs px-2 py-1 rounded-none ${deltaColor}`}
-        >
+        <span className="inline-flex items-center gap-1.5 font-sans text-xs text-[#666666] mt-2">
+          <span
+            className={`inline-block h-1.5 w-1.5 shrink-0 rounded-full ${dotColor}`}
+          />
           {delta > 0 ? "+" : ""}
           {delta}%
         </span>

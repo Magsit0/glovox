@@ -32,6 +32,11 @@ import {
   getMediosMatrix,
   getMediosAggByEvento,
 } from "@/lib/queries/medios";
+import {
+  getMarcaClientesConTagProducto,
+  getProductoMatrix,
+  getProductoAggByEvento,
+} from "@/lib/queries/producto";
 import EventSelector from "@/components/onepager/EventSelector";
 import BrutalKpiCard from "@/components/onepager/BrutalKpiCard";
 import BrutalChartPanel from "@/components/onepager/BrutalChartPanel";
@@ -43,9 +48,9 @@ import OnepagerListadoTable, {
 
 function Skeleton() {
   return (
-    <div className="bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none p-6 animate-pulse">
-      <div className="h-6 bg-black/10 rounded-none w-1/3 mb-4" />
-      <div className="h-40 bg-black/5 rounded-none" />
+    <div className="bg-white border border-[#E5E5E5] rounded-lg p-6 animate-pulse">
+      <div className="h-5 bg-[#F0F0F0] rounded w-1/3 mb-4" />
+      <div className="h-40 bg-[#F0F0F0] rounded-lg" />
     </div>
   );
 }
@@ -63,11 +68,11 @@ export default async function OnepagerPage({
   // Sin ?event=  → vista índice (matriz de todos los eventos).
   if (!eventoId) {
     return (
-      <div className="bg-white text-black min-h-full p-6 space-y-6">
+      <div className="text-[#333333] min-h-full p-6 space-y-6">
         <Link
           href="/"
           aria-label="Volver al menú principal"
-          className="inline-flex items-center justify-center border-4 border-black bg-white p-1.5 shadow-[4px_4px_0px_#000] transition-colors hover:bg-[#FFFF00]"
+          className="inline-flex items-center justify-center border border-[#E5E5E5] rounded-lg bg-white p-1.5 shadow-sm transition-colors hover:bg-[#FAFAFA]"
         >
           <Image
             src="/glovox_logo_gvx_black.svg"
@@ -77,7 +82,7 @@ export default async function OnepagerPage({
             priority
           />
         </Link>
-        <h1 className="font-display uppercase text-3xl leading-none text-black">
+        <h1 className="font-display font-bold text-3xl leading-none text-[#333333] tracking-tight">
           Eventos
         </h1>
         <Suspense fallback={<Skeleton />}>
@@ -95,14 +100,16 @@ export default async function OnepagerPage({
 
   if (events.length === 0) {
     return (
-      <div className="bg-white text-black min-h-full p-6">
-        <p className="font-mono-data text-sm">No hay eventos disponibles.</p>
+      <div className="text-[#333333] min-h-full p-6">
+        <p className="font-sans text-sm text-[#666666]">
+          No hay eventos disponibles.
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="bg-white text-black min-h-full">
+    <div className="text-[#333333] min-h-full">
       <EventSelector
         events={events}
         selected={eventoId}
@@ -114,7 +121,7 @@ export default async function OnepagerPage({
           <Link
             href="/"
             aria-label="Volver al menú principal"
-            className="inline-flex items-center justify-center border-4 border-black bg-white p-1.5 shadow-[4px_4px_0px_#000] transition-colors hover:bg-[#FFFF00]"
+            className="inline-flex items-center justify-center border border-[#E5E5E5] rounded-lg bg-white p-1.5 shadow-sm transition-colors hover:bg-[#FAFAFA]"
           >
             <Image
               src="/glovox_logo_gvx_black.svg"
@@ -126,7 +133,7 @@ export default async function OnepagerPage({
           </Link>
           <Link
             href="/onepager"
-            className="font-display uppercase text-xs leading-none px-3 py-2 border-4 border-black bg-white shadow-[4px_4px_0px_#000] hover:bg-[#FFFF00] transition-colors"
+            className="rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans text-sm font-medium text-[#333333] hover:bg-[#FAFAFA] transition-colors"
           >
             ← Volver al listado
           </Link>
@@ -170,6 +177,8 @@ async function ListadoSection() {
     mesasVipMatrix,
     mediosMarcas,
     mediosMatrix,
+    productoMarcas,
+    productoMatrix,
   ] = await Promise.all([
     getOnepagerListadoKpis(),
     getCierreEventos(),
@@ -181,6 +190,8 @@ async function ListadoSection() {
     getMesasVipMatrix(),
     getMarcaClientesConTag(),
     getMediosMatrix(),
+    getMarcaClientesConTagProducto(),
+    getProductoMatrix(),
   ]);
 
   const asistMap = new Map<string, number | null>();
@@ -213,6 +224,8 @@ async function ListadoSection() {
       mesasVipMatrix={mesasVipMatrix}
       mediosMarcas={mediosMarcas}
       mediosMatrix={mediosMatrix}
+      productoMarcas={productoMarcas}
+      productoMatrix={productoMatrix}
     />
   );
 }
@@ -286,20 +299,20 @@ async function KpiStrip({ eventoId }: { eventoId: string }) {
       </div>
 
       {/* Conteos: tickets vs asistentes por tipo (derecha) */}
-      <div className="bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none overflow-hidden">
+      <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-hidden">
         <table className="w-full border-collapse">
           <thead>
-            <tr className="bg-black text-white">
-              <th className="font-mono-data uppercase text-[11px] px-3 py-2 text-left">
+            <tr className="bg-[#FAFAFA] border-b border-[#E5E5E5]">
+              <th className="font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-left">
                 Tipo
               </th>
-              <th className="font-mono-data uppercase text-[11px] px-3 py-2 text-left">
+              <th className="font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                 Tickets
               </th>
-              <th className="font-mono-data uppercase text-[11px] px-3 py-2 text-left">
+              <th className="font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                 Asistentes
               </th>
-              <th className="font-mono-data uppercase text-[11px] px-3 py-2 text-left">
+              <th className="font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                 % Asistencia
               </th>
             </tr>
@@ -310,34 +323,34 @@ async function KpiStrip({ eventoId }: { eventoId: string }) {
               return (
                 <tr
                   key={r.ventaNoventa}
-                  className="border-b-2 border-black hover:bg-[#FFFF00] transition-colors duration-150"
+                  className="border-b border-[#E5E5E5] hover:bg-[#FAFAFA] transition-colors duration-150"
                 >
-                  <td className="font-mono-data text-sm px-4 py-3 font-bold border-r-2 border-black">
+                  <td className="font-sans text-sm font-medium text-[#333333] px-4 py-3">
                     {r.ventaNoventa}
                   </td>
-                  <td className="font-display text-xl sm:text-2xl leading-none text-black px-3 py-2.5 border-r-2 border-black">
+                  <td className="font-display font-bold text-xl leading-none text-[#333333] px-4 py-3 text-right tabular-nums">
                     {r.qtty.toLocaleString("es-CL")}
                   </td>
-                  <td className="font-display text-xl sm:text-2xl leading-none text-black px-3 py-2.5 border-r-2 border-black">
+                  <td className="font-display font-bold text-xl leading-none text-[#333333] px-4 py-3 text-right tabular-nums">
                     {r.qtty2.toLocaleString("es-CL")}
                   </td>
-                  <td className="font-display text-xl sm:text-2xl leading-none text-black px-3 py-2.5">
+                  <td className="font-display font-bold text-xl leading-none text-[#333333] px-4 py-3 text-right tabular-nums">
                     {pct != null ? `${pct.toFixed(1)}%` : "—"}
                   </td>
                 </tr>
               );
             })}
-            <tr className="bg-[#FFFF00]">
-              <td className="font-mono-data text-sm px-4 py-3 font-bold uppercase border-r-2 border-black">
+            <tr className="bg-[#FAFAFA] border-t border-[#E5E5E5]">
+              <td className="font-sans text-sm font-semibold text-[#333333] px-4 py-3">
                 Total
               </td>
-              <td className="font-display text-xl sm:text-2xl leading-none text-black px-3 py-2.5 border-r-2 border-black">
+              <td className="font-display font-bold text-xl leading-none text-[#333333] px-4 py-3 text-right tabular-nums">
                 {totalQtty.toLocaleString("es-CL")}
               </td>
-              <td className="font-display text-xl sm:text-2xl leading-none text-black px-3 py-2.5 border-r-2 border-black">
+              <td className="font-display font-bold text-xl leading-none text-[#333333] px-4 py-3 text-right tabular-nums">
                 {totalQtty2.toLocaleString("es-CL")}
               </td>
-              <td className="font-display text-xl sm:text-2xl leading-none text-black px-3 py-2.5">
+              <td className="font-display font-bold text-xl leading-none text-[#333333] px-4 py-3 text-right tabular-nums">
                 {totalQtty > 0
                   ? `${((totalQtty2 / totalQtty) * 100).toFixed(1)}%`
                   : "—"}
@@ -360,17 +373,23 @@ function fmtClp(value: number) {
 
 function labelIngreso(ingreso: string): string {
   if (ingreso === "FFBB") return "FF&BB";
+  if (ingreso === "TICKETS") return "Tickets";
+  if (ingreso === "MARCAS") return "Marcas";
+  if (ingreso === "MESAS VIP") return "Mesas VIP";
+  if (ingreso === "MEDIOS") return "Medios";
+  if (ingreso === "PRODUCTO") return "Producto";
   return ingreso;
 }
 
 async function IngresoSection({ eventoId }: { eventoId: string }) {
-  const [bqData, totalAsistentes, marcaAgg, mesasVipAgg, mediosAgg] =
+  const [bqData, totalAsistentes, marcaAgg, mesasVipAgg, mediosAgg, productoAgg] =
     await Promise.all([
       getOnepagerByIngreso(eventoId),
       getTotalAsistentes(eventoId),
       getMarcaIngresosAggByEvento(eventoId),
       getMesasVipAggByEvento(eventoId),
       getMediosAggByEvento(eventoId),
+      getProductoAggByEvento(eventoId),
     ]);
   const hasAttendees = totalAsistentes != null && totalAsistentes > 0;
 
@@ -398,51 +417,67 @@ async function IngresoSection({ eventoId }: { eventoId: string }) {
       qtty: mediosAgg.qtty,
       rebate: 0,
     },
+    {
+      ingreso: "PRODUCTO",
+      venta: productoAgg.ventaNeto,
+      qtty: productoAgg.qtty,
+      rebate: 0,
+    },
   ].sort((a, b) => b.venta - a.venta);
 
   return (
-    <BrutalChartPanel title="Ingresos por Fuente" className="col-span-4">
+    <BrutalChartPanel title="Ingresos por Fuente">
       <div className="flex items-start gap-8">
         {/* Tabla */}
         <div className="overflow-x-auto flex-1">
-          <table className="border-4 border-black rounded-none w-full">
-            <thead>
-              <tr className="bg-black text-white">
-                {["Ingreso", "Venta (CLP)", "Qtty", "Rebate Est.", "Percápita"].map((h) => (
-                  <th
-                    key={h}
-                    className="font-mono-data uppercase text-xs px-4 py-3 text-left"
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {data.map((row) => (
-                <tr
-                  key={row.ingreso}
-                  className="border-b-2 border-black last:border-b-0 hover:bg-[#FFFF00] transition-colors duration-150"
-                >
-                  <td className="font-mono-data text-sm px-4 py-3 font-bold">
-                    {labelIngreso(row.ingreso)}
-                  </td>
-                  <td className="font-mono-data text-sm px-4 py-3">
-                    {fmtClp(row.venta)}
-                  </td>
-                  <td className="font-mono-data text-sm px-4 py-3">
-                    {row.qtty.toLocaleString("es-CL")}
-                  </td>
-                  <td className="font-mono-data text-sm px-4 py-3">
-                    {fmtClp(row.rebate)}
-                  </td>
-                  <td className="font-mono-data text-sm px-4 py-3">
-                    {hasAttendees ? fmtClp(row.venta / totalAsistentes) : "—"}
-                  </td>
+          <div className="border border-[#E5E5E5] rounded-lg overflow-hidden">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="bg-[#FAFAFA] border-b border-[#E5E5E5]">
+                  {[
+                    { h: "Ingreso", right: false },
+                    { h: "Venta (CLP)", right: true },
+                    { h: "Qtty", right: true },
+                    { h: "Rebate Est.", right: true },
+                    { h: "Percápita", right: true },
+                  ].map(({ h, right }) => (
+                    <th
+                      key={h}
+                      className={`font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 ${
+                        right ? "text-right" : "text-left"
+                      }`}
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {data.map((row) => (
+                  <tr
+                    key={row.ingreso}
+                    className="border-b border-[#E5E5E5] last:border-b-0 hover:bg-[#FAFAFA] transition-colors duration-150"
+                  >
+                    <td className="font-sans text-sm font-medium text-[#333333] px-4 py-3">
+                      {labelIngreso(row.ingreso)}
+                    </td>
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right tabular-nums">
+                      {fmtClp(row.venta)}
+                    </td>
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right tabular-nums">
+                      {row.qtty.toLocaleString("es-CL")}
+                    </td>
+                    <td className="font-sans text-sm text-[#666666] px-4 py-3 text-right tabular-nums">
+                      {fmtClp(row.rebate)}
+                    </td>
+                    <td className="font-sans text-sm text-[#666666] px-4 py-3 text-right tabular-nums">
+                      {hasAttendees ? fmtClp(row.venta / totalAsistentes) : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Donut al lado derecho */}

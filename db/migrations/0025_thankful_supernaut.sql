@@ -1,0 +1,1 @@
+ALTER TABLE "mesas_vip_ingresos" ADD COLUMN "exento" boolean DEFAULT true NOT NULL;

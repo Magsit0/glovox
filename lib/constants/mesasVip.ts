@@ -1,9 +1,12 @@
 /**
  * Reglas de negocio de Mesas VIP.
  *
- * El usuario imputa el PRECIO (bruto, IVA incluido) de la mesa. De ahí se
- * derivan neto/IVA (ver lib/constants/tax.ts) y el CONSUMO asociado.
+ * El usuario imputa el PRECIO (lo que paga el cliente). Si la venta es exenta
+ * no hay IVA (neto = precio); si es afecta, el precio es bruto y el neto se
+ * deriva ÷1,19 (ver lib/constants/tax.ts). El CONSUMO (25%) es informativo.
  */
+
+import { brutoToNeto } from "./tax";
 
 /**
  * El consumo (crédito de barra) asociado a una mesa es el 25% de su precio.
@@ -14,6 +17,22 @@ export const CONSUMO_RATE = 0.25;
 export function consumoFromPrecio(precio: number): number {
   if (!Number.isFinite(precio)) return 0;
   return Math.round(precio * CONSUMO_RATE);
+}
+
+// ------------------------------------------------------------------ IVA
+// `precio` = lo que paga el cliente. Si la venta es EXENTA no hay IVA
+// (neto = precio); si es AFECTA, el precio es bruto (IVA incluido) → el neto se
+// deriva ÷1,19 (ver lib/constants/tax.ts). Centralizado para que input, queries
+// y cierre usen exactamente la misma fórmula.
+
+export function netoFromPrecio(precio: number, exento: boolean): number {
+  if (!Number.isFinite(precio)) return 0;
+  return exento ? Math.round(precio) : brutoToNeto(precio);
+}
+
+export function ivaFromPrecio(precio: number, exento: boolean): number {
+  if (!Number.isFinite(precio)) return 0;
+  return exento ? 0 : Math.round(precio) - brutoToNeto(precio);
 }
 
 /**

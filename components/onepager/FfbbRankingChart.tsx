@@ -2,6 +2,7 @@
 
 import { Fragment, useMemo, useState } from "react";
 import type { OnepagerFfbbCategoriaProductoRow } from "@/lib/queries/onepager";
+import { BRAND } from "@/lib/chart-colors";
 
 type Props = {
   data: OnepagerFfbbCategoriaProductoRow[];
@@ -27,7 +28,7 @@ function fmtQty(value: number) {
 
 export default function FfbbRankingChart({
   data,
-  color = "#FF0000",
+  color = BRAND.purple,
 }: Props) {
   const [metric, setMetric] = useState<Metric>("venta");
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -81,7 +82,7 @@ export default function FfbbRankingChart({
   return (
     <div className="space-y-3">
       {/* Toggle métrica */}
-      <div className="flex gap-0">
+      <div className="inline-flex border border-[#E5E5E5] rounded-lg overflow-hidden">
         {(
           [
             { key: "venta", label: "Venta $" },
@@ -94,10 +95,10 @@ export default function FfbbRankingChart({
               key={opt.key}
               type="button"
               onClick={() => setMetric(opt.key)}
-              className={`font-display uppercase text-sm leading-none px-4 py-2 border-2 border-black -mr-[2px] last:mr-0 transition-colors duration-150 cursor-pointer ${
+              className={`font-sans font-medium text-sm leading-none px-4 py-2 transition-colors duration-150 cursor-pointer ${
                 active
-                  ? "bg-black text-[#FFFF00]"
-                  : "bg-white text-black hover:bg-[#FFFF00]"
+                  ? "bg-[#F0EFFE] text-[#9F99F8]"
+                  : "bg-white text-[#666666] hover:text-[#333333]"
               }`}
             >
               {opt.label}
@@ -107,28 +108,28 @@ export default function FfbbRankingChart({
       </div>
 
       {/* Tabla */}
-      <div className="max-h-[480px] overflow-y-auto border-4 border-black">
+      <div className="max-h-[480px] overflow-y-auto bg-white border border-[#E5E5E5] rounded-lg">
         <table className="w-full border-collapse">
-          <thead className="sticky top-0 z-10">
-            <tr className="bg-black text-white">
-              <th className="font-mono-data uppercase text-xs px-4 py-3 text-left w-[40%]">
+          <thead className="sticky top-0 z-10 bg-[#FAFAFA]">
+            <tr className="border-b border-[#E5E5E5]">
+              <th className="font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-left w-[40%]">
                 Categoría / Producto
               </th>
               <th
-                className={`font-mono-data uppercase text-xs px-4 py-3 text-right w-[20%] ${
+                className={`font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right w-[20%] ${
                   isVenta ? "opacity-50" : ""
                 }`}
               >
                 Qtty
               </th>
               <th
-                className={`font-mono-data uppercase text-xs px-4 py-3 text-right w-[20%] ${
+                className={`font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right w-[20%] ${
                   isVenta ? "" : "opacity-50"
                 }`}
               >
                 Venta
               </th>
-              <th className="font-mono-data uppercase text-xs px-4 py-3 w-[20%]" />
+              <th className="font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 w-[20%]" />
             </tr>
           </thead>
           <tbody>
@@ -140,32 +141,32 @@ export default function FfbbRankingChart({
                 <Fragment key={cat.categoria}>
                   <tr
                     onClick={() => toggle(cat.categoria)}
-                    className="bg-black/5 border-b-2 border-black hover:bg-[#FFFF00] cursor-pointer transition-colors duration-150"
+                    className="bg-[#FAFAFA] border-b border-[#E5E5E5] hover:bg-[#F0EFFE] cursor-pointer transition-colors duration-150"
                   >
-                    <td className="font-mono-data text-xs px-4 py-2 font-bold">
+                    <td className="font-sans text-sm px-4 py-3 font-medium text-[#333333]">
                       <span className="inline-block w-4">
                         {open ? "▾" : "▸"}
                       </span>
                       {cat.categoria}
                     </td>
                     <td
-                      className={`font-mono-data text-xs px-4 py-2 text-right ${
-                        isVenta ? "opacity-50" : "font-bold"
+                      className={`font-sans text-sm px-4 py-3 text-right tabular-nums text-[#333333] ${
+                        isVenta ? "opacity-50" : "font-medium"
                       }`}
                     >
                       {fmtQty(cat.qtty)}
                     </td>
                     <td
-                      className={`font-mono-data text-xs px-4 py-2 text-right whitespace-nowrap ${
-                        isVenta ? "font-bold" : "opacity-50"
+                      className={`font-sans text-sm px-4 py-3 text-right whitespace-nowrap tabular-nums text-[#333333] ${
+                        isVenta ? "font-medium" : "opacity-50"
                       }`}
                     >
                       {fmtClp(cat.venta)}
                     </td>
-                    <td className="px-4 py-2">
-                      <div className="w-full bg-black/10 h-3 border border-black">
+                    <td className="px-4 py-3">
+                      <div className="w-full bg-[#F0F0F0] h-3 rounded-full overflow-hidden">
                         <div
-                          className="h-full"
+                          className="h-full rounded-full"
                           style={{
                             width: `${catPct}%`,
                             backgroundColor: color,
@@ -181,29 +182,29 @@ export default function FfbbRankingChart({
                       return (
                         <tr
                           key={p.producto}
-                          className="border-b border-black/40 last:border-b-2 last:border-black hover:bg-[#FFFF00] transition-colors duration-150"
+                          className="border-b border-[#E5E5E5] hover:bg-[#FAFAFA] transition-colors duration-150"
                         >
-                          <td className="font-mono-data text-xs px-4 py-2 pl-10 text-black/80">
+                          <td className="font-sans text-sm px-4 py-3 pl-10 text-[#666666]">
                             {p.producto}
                           </td>
                           <td
-                            className={`font-mono-data text-xs px-4 py-2 text-right ${
+                            className={`font-sans text-sm px-4 py-3 text-right tabular-nums text-[#333333] ${
                               isVenta ? "opacity-50" : ""
                             }`}
                           >
                             {fmtQty(p.qtty)}
                           </td>
                           <td
-                            className={`font-mono-data text-xs px-4 py-2 text-right whitespace-nowrap ${
+                            className={`font-sans text-sm px-4 py-3 text-right whitespace-nowrap tabular-nums text-[#333333] ${
                               isVenta ? "" : "opacity-50"
                             }`}
                           >
                             {fmtClp(p.venta)}
                           </td>
-                          <td className="px-4 py-2">
-                            <div className="w-full bg-black/10 h-2 border border-black/60">
+                          <td className="px-4 py-3">
+                            <div className="w-full bg-[#F0F0F0] h-2 rounded-full overflow-hidden">
                               <div
-                                className="h-full opacity-70"
+                                className="h-full rounded-full"
                                 style={{
                                   width: `${pPct}%`,
                                   backgroundColor: color,

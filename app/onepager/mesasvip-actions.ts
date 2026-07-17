@@ -251,11 +251,14 @@ export interface MesasVipIngresoUpsertInput {
   clienteId: string;
   precio: number | null;
   estadoPago: EstadoPago;
+  exento: boolean;
 }
 
 export async function upsertMesasVipIngresoAction(
   input: Partial<MesasVipIngresoUpsertInput>,
-): Promise<ActionResult<{ precio: number; estadoPago: EstadoPago } | null>> {
+): Promise<
+  ActionResult<{ precio: number; estadoPago: EstadoPago; exento: boolean } | null>
+> {
   let ctx: SessionCtx;
   try {
     ctx = await requireOnepagerAccess();
@@ -270,6 +273,7 @@ export async function upsertMesasVipIngresoAction(
 
   const precio = numOrNull(input.precio);
   const estadoPago = normalizeEstadoPago(input.estadoPago);
+  const exento = input.exento !== false; // default exento
   const shouldDelete = precio === null || precio <= 0;
 
   try {
@@ -304,6 +308,7 @@ export async function upsertMesasVipIngresoAction(
           rutCliente: view.rut,
           cliente: view.nombre,
           precio,
+          exento,
           estadoPago,
           createdBy: ctx.userId,
         });
@@ -315,7 +320,7 @@ export async function upsertMesasVipIngresoAction(
     if (shouldDelete || precio === null) {
       return { ok: true, data: null };
     }
-    return { ok: true, data: { precio, estadoPago } };
+    return { ok: true, data: { precio, estadoPago, exento } };
   } catch (err) {
     return {
       ok: false,

@@ -12,6 +12,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { axisTick, BRAND, gridProps, heatmapScale, SURFACE } from "@/lib/chart-colors";
+import { ChartTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
 import BrutalChartPanel from "./BrutalChartPanel";
 import MarcaMatrixSheet, {
   type MatrixEvento,
@@ -22,13 +24,19 @@ import FfbbConsumoChart, {
 import MarcaEvolucionChart from "./MarcaEvolucionChart";
 import MesasVipCard from "./MesasVipCard";
 import MediosMatrixSheet from "./MediosMatrixSheet";
+import ProductoMatrixSheet from "./ProductoMatrixSheet";
 import type { MarcaClienteRow, MarcaMatrixCell } from "@/lib/queries/marca";
 import type { MarcaClienteTagRow } from "@/lib/queries/medios";
+import type {
+  MarcaClienteProductoTagRow,
+  ProductoMatrixCell,
+} from "@/lib/queries/producto";
 import type {
   MesasVipClienteRow,
   MesasVipMatrixCell,
 } from "@/lib/queries/mesasVip";
 import type { OnepagerFfbbConsumoRow } from "@/lib/queries/onepager";
+import { brutoToNeto } from "@/lib/constants/tax";
 import {
   currentSeasonLabel,
   isCurrentSeasonCategory,
@@ -97,12 +105,11 @@ function heatT(value: number, min: number, max: number): number {
 }
 
 /**
- * Estilo de calor: blanco (t=0) → tomate-rojo (t=1) usando alpha sobre el
- * fondo blanco de la celda. Mantiene el texto legible incluso en t=1.
+ * Estilo de calor: usa la escala morada de marca (t=0 → #FAFAFA, t=1 → morado
+ * #9F99F8). Mantiene el texto legible sobre la celda.
  */
 function heatStyle(t: number): React.CSSProperties {
-  const alpha = t * 0.65;
-  return { backgroundColor: `rgba(255, 80, 30, ${alpha})` };
+  return { backgroundColor: heatmapScale(t).hex() };
 }
 
 const SIN_CATEGORIA = "(Sin categoría)";
@@ -167,6 +174,8 @@ export default function OnepagerListadoTable({
   mesasVipMatrix,
   mediosMarcas,
   mediosMatrix,
+  productoMarcas,
+  productoMatrix,
 }: {
   rows: OnepagerListadoTableRow[];
   marcaClientes: MarcaClienteRow[];
@@ -176,6 +185,8 @@ export default function OnepagerListadoTable({
   mesasVipMatrix: MesasVipMatrixCell[];
   mediosMarcas: MarcaClienteTagRow[];
   mediosMatrix: MarcaMatrixCell[];
+  productoMarcas: MarcaClienteProductoTagRow[];
+  productoMatrix: ProductoMatrixCell[];
 }) {
   const router = useRouter();
   const temporadaActual = useMemo(() => currentSeasonLabel(), []);
@@ -190,10 +201,28 @@ export default function OnepagerListadoTable({
   const [marcaSheetOpen, setMarcaSheetOpen] = useState(false);
   // Sheet global para imputar medios (plan de medios por marca × evento).
   const [mediosSheetOpen, setMediosSheetOpen] = useState(false);
+  // Sheet global para imputar producto (plan de producto por marca × evento).
+  const [productoSheetOpen, setProductoSheetOpen] = useState(false);
   // Marcas con plan de medios activo (filas del gráfico evolutivo de medios).
   const mediosClientes = useMemo<MarcaClienteRow[]>(
     () => mediosMarcas.filter((m) => m.tienePlanMedios),
     [mediosMarcas],
+  );
+  // Marcas con plan de producto activo (filas del gráfico evolutivo de producto).
+  const productoClientes = useMemo<MarcaClienteRow[]>(
+    () => productoMarcas.filter((m) => m.tienePlanProducto),
+    [productoMarcas],
+  );
+  // Matriz neta para el gráfico de producto: el precio afecto trae IVA incluido
+  // (neto = ÷1,19); el exento ya ES neto. MarcaEvolucionChart consume montoNeto.
+  const productoChartMatrix = useMemo<MarcaMatrixCell[]>(
+    () =>
+      productoMatrix.map((c) => ({
+        clienteId: c.clienteId,
+        eventoId: c.eventoId,
+        montoNeto: c.exento ? Math.round(c.precio) : brutoToNeto(c.precio),
+      })),
+    [productoMatrix],
   );
 
   // Eventos que recibe el sheet — usa el dataset completo, no el filtrado de
@@ -350,7 +379,7 @@ export default function OnepagerListadoTable({
   if (rows.length === 0) {
     return (
       <BrutalChartPanel title="Listado de eventos">
-        <p className="font-mono-data text-sm text-black/50">Sin eventos.</p>
+        <p className="font-sans text-sm text-[#999999]">Sin eventos.</p>
       </BrutalChartPanel>
     );
   }
@@ -412,16 +441,16 @@ export default function OnepagerListadoTable({
           <div className="flex flex-wrap items-center gap-2">
             {mode === "eventos" ? (
               <>
-                <span className="font-mono-data uppercase text-[10px] text-black/70 mr-1">
+                <span className="font-sans text-xs text-[#666666] mr-1">
                   Categoría
                 </span>
                 <button
                   type="button"
                   onClick={() => setCategorias(new Set())}
-                  className={`font-mono-data uppercase text-xs leading-none px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 ${
+                  className={`font-sans text-xs leading-none px-3 py-2 rounded-full border cursor-pointer transition-colors duration-150 ${
                     categorias.size === 0
-                      ? "bg-black text-[#FFFF00]"
-                      : "bg-white text-black hover:bg-[#FFFF00]"
+                      ? "bg-[#F0EFFE] text-[#9F99F8] border-[#E5E5E5]"
+                      : "bg-white text-[#666666] border-[#E5E5E5] hover:text-[#333333]"
                   }`}
                 >
                   Todas
@@ -443,19 +472,19 @@ export default function OnepagerListadoTable({
                           : undefined
                       }
                       onClick={() => toggleCategoria(c)}
-                      className={`font-mono-data uppercase text-xs leading-none px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 ${
+                      className={`font-sans text-xs leading-none px-3 py-2 rounded-full border cursor-pointer transition-colors duration-150 ${
                         active
-                          ? "bg-black text-[#FFFF00]"
+                          ? "bg-[#F0EFFE] text-[#9F99F8] border-[#E5E5E5]"
                           : currentSeason
-                            ? "bg-[#FFF7A8] text-black font-bold hover:bg-[#FFFF00]"
-                          : "bg-white text-black hover:bg-[#FFFF00]"
+                            ? "bg-[#FAFAFA] text-[#333333] font-medium border-[#E5E5E5] hover:text-[#333333]"
+                          : "bg-white text-[#666666] border-[#E5E5E5] hover:text-[#333333]"
                       }`}
                     >
                       {c}
                     </button>
                   );
                 })}
-                <span className="font-mono-data uppercase text-[10px] text-black/70">
+                <span className="font-sans text-xs text-[#666666]">
                   {filtered.length} de {rows.length} evento
                   {rows.length === 1 ? "" : "s"}
                   {categorias.size > 0
@@ -465,16 +494,16 @@ export default function OnepagerListadoTable({
               </>
             ) : (
               <>
-                <span className="font-mono-data uppercase text-[10px] text-black/70 mr-1">
+                <span className="font-sans text-xs text-[#666666] mr-1">
                   Grupo
                 </span>
                 <button
                   type="button"
                   onClick={() => setGrupos(new Set())}
-                  className={`font-mono-data uppercase text-xs leading-none px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 ${
+                  className={`font-sans text-xs leading-none px-3 py-2 rounded-full border cursor-pointer transition-colors duration-150 ${
                     grupos.size === 0
-                      ? "bg-black text-[#FFFF00]"
-                      : "bg-white text-black hover:bg-[#FFFF00]"
+                      ? "bg-[#F0EFFE] text-[#9F99F8] border-[#E5E5E5]"
+                      : "bg-white text-[#666666] border-[#E5E5E5] hover:text-[#333333]"
                   }`}
                 >
                   Todos
@@ -487,17 +516,17 @@ export default function OnepagerListadoTable({
                       type="button"
                       aria-pressed={active}
                       onClick={() => toggleGrupo(g)}
-                      className={`font-mono-data uppercase text-xs leading-none px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 ${
+                      className={`font-sans text-xs leading-none px-3 py-2 rounded-full border cursor-pointer transition-colors duration-150 ${
                         active
-                          ? "bg-black text-[#FFFF00]"
-                          : "bg-white text-black hover:bg-[#FFFF00]"
+                          ? "bg-[#F0EFFE] text-[#9F99F8] border-[#E5E5E5]"
+                          : "bg-white text-[#666666] border-[#E5E5E5] hover:text-[#333333]"
                       }`}
                     >
                       {g}
                     </button>
                   );
                 })}
-                <span className="font-mono-data uppercase text-[10px] text-black/70">
+                <span className="font-sans text-xs text-[#666666]">
                   {aggByCategoria.length} categoría
                   {aggByCategoria.length === 1 ? "" : "s"} · {rowsForAgg.length}{" "}
                   evento{rowsForAgg.length === 1 ? "" : "s"}
@@ -513,10 +542,10 @@ export default function OnepagerListadoTable({
                 setMode(compareActive ? "eventos" : "categorias")
               }
               aria-pressed={compareActive}
-              className={`ml-auto font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] cursor-pointer transition-colors duration-150 ${
+              className={`ml-auto rounded-lg border px-4 py-2 font-sans font-medium text-sm cursor-pointer transition-colors duration-150 ${
                 compareActive
-                  ? "bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black"
-                  : "bg-white text-black hover:bg-[#FFFF00]"
+                  ? "border-[#E5E5E5] bg-[#F0EFFE] text-[#9F99F8]"
+                  : "border-[#333333] bg-white text-[#333333] hover:bg-[#FAFAFA]"
               }`}
             >
               {compareActive ? "Ver eventos" : "Comparar categorías"}
@@ -524,32 +553,32 @@ export default function OnepagerListadoTable({
           </div>
 
           {mode === "eventos" ? (
-            <div className="border-4 border-black bg-white max-h-[60vh] overflow-auto">
+            <div className="bg-white border border-[#E5E5E5] rounded-lg max-h-[60vh] overflow-auto">
               <table className="w-full border-collapse">
                 <thead className="sticky top-0 z-10">
-                  <tr className="bg-black text-white">
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-left">
+                  <tr className="bg-[#FAFAFA] border-b border-[#E5E5E5]">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-left">
                       Evento
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-left">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-left">
                       Fecha
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Tickets
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Comprados
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       FF&BB
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Marcas
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Total
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Asistentes
                     </th>
                   </tr>
@@ -571,33 +600,33 @@ export default function OnepagerListadoTable({
                             go(r.eventoId);
                           }
                         }}
-                        className="border-b-2 border-black hover:bg-[#FFFF00] focus:bg-[#FFFF00] focus:outline-none cursor-pointer transition-colors duration-150"
+                        className="border-b border-[#E5E5E5] hover:bg-[#FAFAFA] focus:bg-[#FAFAFA] focus:outline-none cursor-pointer transition-colors duration-150"
                       >
-                        <td className="font-mono-data text-sm px-3 py-2 font-bold border-r-2 border-black">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 font-bold border-r border-[#E5E5E5]">
                           {r.nombre || r.eventoId}
                         </td>
-                        <td className="font-mono-data text-xs px-3 py-2 border-r-2 border-black tabular-nums">
+                        <td className="font-sans text-xs text-[#666666] px-4 py-3 border-r border-[#E5E5E5] tabular-nums">
                           {fmtFecha(r.fechaEvento)}
                         </td>
-                        <td className="font-mono-data text-sm px-3 py-2 text-right border-r-2 border-black tabular-nums">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
                           {fmtClp(r.ventaTickets)}
                         </td>
-                        <td className="font-mono-data text-sm px-3 py-2 text-right border-r-2 border-black tabular-nums">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
                           {r.ticketsComprados.toLocaleString("es-CL")}
                         </td>
-                        <td className="font-mono-data text-sm px-3 py-2 text-right border-r-2 border-black tabular-nums">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
                           {fmtClp(r.ventaFfBb)}
                         </td>
-                        <td className="font-mono-data text-sm px-3 py-2 text-right border-r-2 border-black tabular-nums">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
                           {fmtClp(r.ventaMarcas)}
                         </td>
                         <td
                           style={heatStyle(t)}
-                          className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums"
+                          className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums"
                         >
                           {fmtClp(total)}
                         </td>
-                        <td className="font-mono-data text-sm px-3 py-2 text-right tabular-nums">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right tabular-nums">
                           {r.asistentes != null
                             ? r.asistentes.toLocaleString("es-CL")
                             : "—"}
@@ -605,28 +634,28 @@ export default function OnepagerListadoTable({
                       </tr>
                     );
                   })}
-                  <tr className="bg-[#FFFF00]">
-                    <td className="font-mono-data text-sm px-3 py-2 font-bold uppercase border-r-2 border-black">
+                  <tr className="bg-[#FAFAFA] border-t border-[#E5E5E5]">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 font-bold border-r border-[#E5E5E5]">
                       Total ({filtered.length} evento
                       {filtered.length === 1 ? "" : "s"})
                     </td>
-                    <td className="font-mono-data text-xs px-3 py-2 border-r-2 border-black" />
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                    <td className="font-sans text-xs text-[#666666] px-4 py-3 border-r border-[#E5E5E5]" />
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {fmtClp(totalTickets)}
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {totalCompr.toLocaleString("es-CL")}
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {fmtClp(totalFfBb)}
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {fmtClp(totalMarcas)}
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {fmtClp(totalTickets + totalFfBb + totalMarcas)}
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold tabular-nums">
                       {totalAsist.toLocaleString("es-CL")}
                     </td>
                   </tr>
@@ -634,32 +663,32 @@ export default function OnepagerListadoTable({
               </table>
             </div>
           ) : (
-            <div className="border-4 border-black bg-white max-h-[60vh] overflow-auto">
+            <div className="bg-white border border-[#E5E5E5] rounded-lg max-h-[60vh] overflow-auto">
               <table className="w-full border-collapse">
                 <thead className="sticky top-0 z-10">
-                  <tr className="bg-black text-white">
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-left">
+                  <tr className="bg-[#FAFAFA] border-b border-[#E5E5E5]">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-left">
                       Categoría
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Eventos
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Tickets
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Comprados
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       FF&BB
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Marcas
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Total
                     </th>
-                    <th className="bg-black font-mono-data uppercase text-[11px] px-3 py-2 text-right">
+                    <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Asistentes
                     </th>
                   </tr>
@@ -671,33 +700,33 @@ export default function OnepagerListadoTable({
                     return (
                       <tr
                         key={r.categoria}
-                        className="border-b-2 border-black hover:bg-[#FFFF00] transition-colors duration-150"
+                        className="border-b border-[#E5E5E5] hover:bg-[#FAFAFA] transition-colors duration-150"
                       >
-                        <td className="font-mono-data text-sm px-3 py-2 font-bold border-r-2 border-black">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 font-bold border-r border-[#E5E5E5]">
                           {r.categoria}
                         </td>
-                        <td className="font-mono-data text-sm px-3 py-2 text-right border-r-2 border-black tabular-nums">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
                           {r.eventos.toLocaleString("es-CL")}
                         </td>
-                        <td className="font-mono-data text-sm px-3 py-2 text-right border-r-2 border-black tabular-nums">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
                           {fmtClp(r.ventaTickets)}
                         </td>
-                        <td className="font-mono-data text-sm px-3 py-2 text-right border-r-2 border-black tabular-nums">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
                           {r.ticketsComprados.toLocaleString("es-CL")}
                         </td>
-                        <td className="font-mono-data text-sm px-3 py-2 text-right border-r-2 border-black tabular-nums">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
                           {fmtClp(r.ventaFfBb)}
                         </td>
-                        <td className="font-mono-data text-sm px-3 py-2 text-right border-r-2 border-black tabular-nums">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
                           {fmtClp(r.ventaMarcas)}
                         </td>
                         <td
                           style={heatStyle(t)}
-                          className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums"
+                          className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums"
                         >
                           {fmtClp(total)}
                         </td>
-                        <td className="font-mono-data text-sm px-3 py-2 text-right tabular-nums">
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right tabular-nums">
                           {r.asistentesKnown
                             ? r.asistentes.toLocaleString("es-CL")
                             : "—"}
@@ -705,30 +734,30 @@ export default function OnepagerListadoTable({
                       </tr>
                     );
                   })}
-                  <tr className="bg-[#FFFF00]">
-                    <td className="font-mono-data text-sm px-3 py-2 font-bold uppercase border-r-2 border-black">
+                  <tr className="bg-[#FAFAFA] border-t border-[#E5E5E5]">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 font-bold border-r border-[#E5E5E5]">
                       Total ({aggByCategoria.length} categoría
                       {aggByCategoria.length === 1 ? "" : "s"})
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {aggTotalEventos.toLocaleString("es-CL")}
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {fmtClp(aggTotalTickets)}
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {aggTotalCompr.toLocaleString("es-CL")}
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {fmtClp(aggTotalFfBb)}
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {fmtClp(aggTotalMarcas)}
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold border-r-2 border-black tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {fmtClp(aggTotalTickets + aggTotalFfBb + aggTotalMarcas)}
                     </td>
-                    <td className="font-mono-data text-sm px-3 py-2 text-right font-bold tabular-nums">
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold tabular-nums">
                       {aggTotalAsist.toLocaleString("es-CL")}
                     </td>
                   </tr>
@@ -759,7 +788,7 @@ export default function OnepagerListadoTable({
           <button
             type="button"
             onClick={() => setMarcaSheetOpen(true)}
-            className="font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-[#FFFF00] text-black hover:bg-black hover:text-[#FFFF00] cursor-pointer transition-colors duration-150"
+            className="rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer transition-colors duration-150"
           >
             + Imputar marcas
           </button>
@@ -776,7 +805,7 @@ export default function OnepagerListadoTable({
           <button
             type="button"
             onClick={() => setMediosSheetOpen(true)}
-            className="font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black shadow-[4px_4px_0px_#000] bg-[#FFFF00] text-black hover:bg-black hover:text-[#FFFF00] cursor-pointer transition-colors duration-150"
+            className="rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer transition-colors duration-150"
           >
             + Imputar medios
           </button>
@@ -788,6 +817,26 @@ export default function OnepagerListadoTable({
           aggLabel="Medios (todos)"
           filterLabel="Marca (medios)"
           emptyLabel="Sin ingresos de medios para los filtros seleccionados."
+        />
+      </BrutalChartPanel>
+
+      <BrutalChartPanel title="PRODUCTO — Ingresos por evento">
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => setProductoSheetOpen(true)}
+            className="rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer transition-colors duration-150"
+          >
+            + Imputar producto
+          </button>
+        </div>
+        <MarcaEvolucionChart
+          events={consumoEventos}
+          clientes={productoClientes}
+          matrix={productoChartMatrix}
+          aggLabel="Producto (todos)"
+          filterLabel="Marca (producto)"
+          emptyLabel="Sin ingresos de producto para los filtros seleccionados."
         />
       </BrutalChartPanel>
 
@@ -812,6 +861,14 @@ export default function OnepagerListadoTable({
         eventos={matrixEventos}
         marcas={mediosMarcas}
         matrix={mediosMatrix}
+      />
+
+      <ProductoMatrixSheet
+        open={productoSheetOpen}
+        onClose={() => setProductoSheetOpen(false)}
+        eventos={matrixEventos}
+        marcas={productoMarcas}
+        matrix={productoMatrix}
       />
     </div>
   );
@@ -846,20 +903,17 @@ function ComparativoChart({
     sortMode === "fecha-asc" ? "Fecha ↑" : "Valor ↓";
 
   // Color por barra usando el mismo mapa de calor de la columna Total —
-  // permite leer la magnitud de un vistazo, no sólo por altura.
+  // permite leer la magnitud de un vistazo, no sólo por altura. Usa la
+  // escala morada de marca (heatmapScale) para mantener la coherencia.
   function barColor(value: number): string {
     const t = heatT(value, heat.min, heat.max);
-    // mezclamos con blanco para que las barras chicas no queden invisibles
-    const r = Math.round(255 * (1 - t) + 255 * t);
-    const g = Math.round(255 * (1 - t) + 80 * t);
-    const b = Math.round(255 * (1 - t) + 30 * t);
-    return `rgb(${r}, ${g}, ${b})`;
+    return heatmapScale(t).hex();
   }
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-mono-data uppercase text-[10px] text-black/70 mr-1">
+        <span className="font-sans text-xs text-[#666666] mr-1">
           ¿Qué variable querés graficar?
         </span>
         {METRICS.map((m) => {
@@ -870,10 +924,10 @@ function ComparativoChart({
               type="button"
               aria-pressed={active}
               onClick={() => setMetric(m.key)}
-              className={`font-mono-data uppercase text-xs leading-none px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 ${
+              className={`font-sans text-xs leading-none px-3 py-2 rounded-full border cursor-pointer transition-colors duration-150 ${
                 active
-                  ? "bg-black text-[#FFFF00]"
-                  : "bg-white text-black hover:bg-[#FFFF00]"
+                  ? "bg-[#F0EFFE] text-[#9F99F8] border-[#E5E5E5]"
+                  : "bg-white text-[#666666] border-[#E5E5E5] hover:text-[#333333]"
               }`}
             >
               {m.label}
@@ -886,54 +940,67 @@ function ComparativoChart({
             setSortMode(sortMode === "fecha-asc" ? "valor-desc" : "fecha-asc")
           }
           aria-label="Cambiar orden"
-          className="ml-auto font-display uppercase text-xs leading-none px-4 py-2 border-4 border-black bg-white shadow-[4px_4px_0px_#000] cursor-pointer hover:bg-[#FFFF00] transition-colors duration-150"
+          className="ml-auto rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] cursor-pointer transition-colors duration-150"
         >
           {sortLabel}
         </button>
       </div>
 
       {data.length === 0 ? (
-        <p className="font-mono-data text-sm text-black/50">
+        <p className="font-sans text-sm text-[#999999]">
           Sin eventos para graficar con el filtro actual.
         </p>
       ) : (
-        <div className="border-4 border-black bg-white p-3">
+        <div className="bg-white border border-[#E5E5E5] rounded-lg p-3">
           <ResponsiveContainer width="100%" height={360}>
             <BarChart
               data={data}
               margin={{ top: 8, right: 16, bottom: 64, left: 8 }}
             >
-              <CartesianGrid
-                stroke="#000"
-                strokeDasharray="2 3"
-                strokeOpacity={0.2}
-                vertical={false}
-              />
+              <CartesianGrid {...gridProps} />
               <XAxis
                 dataKey="nombre"
-                stroke="#000"
+                axisLine={{ stroke: SURFACE.divider }}
                 tickLine={false}
                 interval={0}
                 angle={-35}
                 textAnchor="end"
                 height={70}
-                tick={{ fontFamily: "monospace", fontSize: 10, fill: "#000" }}
+                tick={axisTick}
               />
               <YAxis
-                stroke="#000"
+                axisLine={false}
                 tickLine={false}
                 tickFormatter={(v: number) => fmtMetricAxis(v, metric)}
-                tick={{ fontFamily: "monospace", fontSize: 11, fill: "#000" }}
+                tick={axisTick}
                 width={64}
               />
               <Tooltip
-                cursor={{ fill: "rgba(255,255,0,0.15)" }}
-                content={<ChartTooltip metric={metric} />}
+                cursor={{ fill: SURFACE.canvas }}
+                content={({ active, payload }) => {
+                  const d = payload?.[0]?.payload as ChartDatum | undefined;
+                  return (
+                    <ChartTooltip
+                      active={active}
+                      label={
+                        d
+                          ? `${d.nombre} · ${fmtFecha(d.fecha)}${
+                              d.categoria ? ` · ${d.categoria}` : ""
+                            }`
+                          : undefined
+                      }
+                      items={(payload ?? []).map((p) => ({
+                        name: METRICS.find((m) => m.key === metric)?.label ?? metric,
+                        color: BRAND.purple,
+                        formatted: fmtMetric((p.payload as ChartDatum).value, metric),
+                      }))}
+                    />
+                  );
+                }}
               />
               <Bar
                 dataKey="value"
-                stroke="#000"
-                strokeWidth={2}
+                radius={[4, 4, 0, 0]}
                 isAnimationActive={false}
               >
                 {data.map((d) => (
@@ -944,44 +1011,6 @@ function ComparativoChart({
           </ResponsiveContainer>
         </div>
       )}
-    </div>
-  );
-}
-
-type TooltipPayloadEntry = {
-  value?: number | string;
-  payload?: ChartDatum;
-};
-
-function ChartTooltip({
-  active,
-  payload,
-  metric,
-}: {
-  active?: boolean;
-  payload?: TooltipPayloadEntry[];
-  metric: Metric;
-}) {
-  if (!active || !payload || payload.length === 0) return null;
-  const d = payload[0]?.payload;
-  if (!d) return null;
-  return (
-    <div className="bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none px-3 py-2 font-mono-data text-xs">
-      <div className="font-bold uppercase mb-1 truncate max-w-[260px]">
-        {d.nombre}
-      </div>
-      <div className="text-[10px] text-black/60 mb-1">
-        {fmtFecha(d.fecha)}
-        {d.categoria ? ` · ${d.categoria}` : ""}
-      </div>
-      <div className="flex items-center gap-2">
-        <span className="uppercase">
-          {METRICS.find((m) => m.key === metric)?.label ?? metric}
-        </span>
-        <span className="ml-auto font-bold whitespace-nowrap">
-          {fmtMetric(d.value, metric)}
-        </span>
-      </div>
     </div>
   );
 }

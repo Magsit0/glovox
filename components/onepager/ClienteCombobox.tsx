@@ -152,12 +152,12 @@ export default function ClienteCombobox({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="listbox"
         aria-expanded={open}
-        className={`flex items-center justify-between gap-3 w-full font-mono-data uppercase text-xs px-3 py-2 border-2 border-black rounded-none cursor-pointer transition-colors duration-150 hover:bg-[#FFFF00] ${
-          selected ? "bg-[#FFFF00]" : "bg-white"
+        className={`flex items-center justify-between gap-3 w-full rounded-lg border border-[#E5E5E5] px-3 py-2 font-sans text-sm cursor-pointer transition-colors duration-150 hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8] ${
+          selected ? "bg-[#F0EFFE] text-[#9F99F8]" : "bg-white text-[#333333]"
         }`}
       >
         <span className="truncate text-left">{triggerText}</span>
-        <span aria-hidden className="font-bold leading-none">
+        <span aria-hidden className="leading-none text-[#999999]">
           {open ? "▴" : "▾"}
         </span>
       </button>
@@ -165,23 +165,23 @@ export default function ClienteCombobox({
       {open && (
         <div
           role="listbox"
-          className="absolute top-full left-0 z-50 mt-1 w-full min-w-[320px] bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none"
+          className="absolute top-full left-0 z-50 mt-1 w-full min-w-[320px] bg-white border border-[#E5E5E5] shadow-md rounded-lg overflow-hidden"
         >
           {!creating && (
             <>
-              <div className="bg-black p-2 border-b-2 border-black">
+              <div className="p-2 border-b border-[#E5E5E5]">
                 <input
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Buscar marca, razón social o RUT…"
                   autoFocus
-                  className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-white bg-white text-black placeholder:text-black/40 outline-none"
+                  className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
                 />
               </div>
               <div className="max-h-[260px] overflow-y-auto">
                 {filtered.length === 0 ? (
-                  <div className="font-mono-data text-xs text-black/50 px-3 py-3">
+                  <div className="font-sans text-sm text-[#999999] px-3 py-3">
                     Sin marcas que coincidan.
                   </div>
                 ) : (
@@ -198,14 +198,14 @@ export default function ClienteCombobox({
                           setOpen(false);
                           setQuery("");
                         }}
-                        className={`flex flex-col items-start w-full text-left px-3 py-2 border-b border-black/20 last:border-b-0 hover:bg-[#FFFF00] cursor-pointer transition-colors duration-150 ${
-                          active ? "bg-[#FFFF00]" : ""
+                        className={`flex flex-col items-start w-full text-left px-3 py-2 border-b border-[#E5E5E5] last:border-b-0 hover:bg-[#FAFAFA] cursor-pointer transition-colors duration-150 ${
+                          active ? "bg-[#F0EFFE] text-[#9F99F8]" : "text-[#333333]"
                         }`}
                       >
-                        <span className="font-mono-data uppercase text-xs font-bold truncate w-full">
+                        <span className="font-sans text-sm font-medium truncate w-full">
                           {c.nombre}
                         </span>
-                        <span className="font-mono-data text-[10px] text-black/60 truncate w-full">
+                        <span className="font-sans text-xs text-[#666666] truncate w-full">
                           {c.razonSocial} · {formatRut(c.rut)}
                         </span>
                       </button>
@@ -216,7 +216,7 @@ export default function ClienteCombobox({
               <button
                 type="button"
                 onClick={startCreate}
-                className="w-full text-left px-3 py-2 border-t-2 border-black bg-white hover:bg-[#FFFF00] font-mono-data uppercase text-xs font-bold cursor-pointer transition-colors duration-150"
+                className="w-full text-left px-3 py-2 border-t border-[#E5E5E5] bg-white hover:bg-[#FAFAFA] font-sans text-sm font-medium text-[#9F99F8] cursor-pointer transition-colors duration-150"
               >
                 + Crear marca nueva
               </button>
@@ -225,7 +225,7 @@ export default function ClienteCombobox({
 
           {creating && (
             <div className="p-3 space-y-2">
-              <p className="font-mono-data uppercase text-[10px] text-black/70">
+              <p className="font-sans text-xs text-[#666666]">
                 Nueva marca
               </p>
               <input
@@ -233,7 +233,7 @@ export default function ClienteCombobox({
                 placeholder="Nombre de la marca (Xtreme, Entel...)"
                 value={newNombre}
                 onChange={(e) => setNewNombre(e.target.value)}
-                className="w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30"
+                className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
               />
               <div>
                 <input
@@ -241,16 +241,16 @@ export default function ClienteCombobox({
                   placeholder="RUT del facturador (ej. 76.123.456-7)"
                   value={newRut}
                   onChange={(e) => setNewRut(e.target.value)}
-                  className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 outline-none focus:bg-[#FFFF00]/30 ${
+                  className={`w-full rounded-lg border bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:outline-none focus:ring-1 ${
                     rutPreview && !rutPreview.ok
-                      ? "border-[#FF0000]"
-                      : "border-black"
+                      ? "border-[#ED75A0] focus:border-[#ED75A0] focus:ring-[#ED75A0]"
+                      : "border-[#E5E5E5] hover:border-[#333333] focus:border-[#9F99F8] focus:ring-[#9F99F8]"
                   }`}
                 />
                 {rutPreview && (
                   <p
-                    className={`mt-1 font-mono-data text-[10px] ${
-                      rutPreview.ok ? "text-black/60" : "text-[#FF0000]"
+                    className={`mt-1 font-sans text-xs ${
+                      rutPreview.ok ? "text-[#666666]" : "text-[#ED75A0]"
                     }`}
                   >
                     {rutPreview.message}
@@ -268,18 +268,18 @@ export default function ClienteCombobox({
                       : undefined
                   }
                   readOnly={lockedRazonSocial != null}
-                  className={`w-full font-mono-data text-xs px-2 py-1.5 border-2 border-black outline-none focus:bg-[#FFFF00]/30 ${
-                    lockedRazonSocial != null ? "bg-black/5 cursor-not-allowed" : ""
+                  className={`w-full rounded-lg border border-[#E5E5E5] px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8] ${
+                    lockedRazonSocial != null ? "bg-[#FAFAFA] cursor-not-allowed" : "bg-white hover:border-[#333333]"
                   }`}
                 />
                 {lockedRazonSocial != null && (
-                  <p className="mt-1 font-mono-data text-[10px] text-black/60">
+                  <p className="mt-1 font-sans text-xs text-[#666666]">
                     Facturador existente — se reutilizará.
                   </p>
                 )}
               </div>
               {createError && (
-                <p className="font-mono-data text-[10px] text-[#FF0000]">
+                <p className="font-sans text-xs text-[#ED75A0]">
                   {createError}
                 </p>
               )}
@@ -288,7 +288,7 @@ export default function ClienteCombobox({
                   type="button"
                   onClick={() => setCreating(false)}
                   disabled={savePending}
-                  className="flex-1 font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-white hover:bg-[#FFFF00] cursor-pointer disabled:opacity-50 transition-colors"
+                  className="flex-1 rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans font-medium text-sm text-[#333333] hover:bg-[#FAFAFA] cursor-pointer disabled:opacity-50 transition-colors"
                 >
                   Cancelar
                 </button>
@@ -302,7 +302,7 @@ export default function ClienteCombobox({
                     !rutPreview.ok ||
                     !razonSocialValue.trim()
                   }
-                  className="flex-1 font-display uppercase text-xs leading-none px-3 py-2 border-2 border-black bg-black text-[#FFFF00] hover:bg-[#FFFF00] hover:text-black cursor-pointer disabled:opacity-50 transition-colors"
+                  className="flex-1 rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer disabled:opacity-50 transition-colors"
                 >
                   {savePending ? "Guardando…" : "Guardar"}
                 </button>
