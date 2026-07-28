@@ -130,11 +130,15 @@ function UpcomingStrip({
     }
   }, [events, selected]);
 
+  // Page by whole windows, snapping the target back onto the card grid so a
+  // free trackpad scroll can't leave cards half-cut. The browser clamps the
+  // upper end to scrollWidth - clientWidth.
   function page(dir: 1 | -1) {
-    scroller.current?.scrollBy({
-      left: dir * UPCOMING_STEP * UPCOMING_VISIBLE,
-      behavior: "smooth",
-    });
+    const el = scroller.current;
+    if (!el) return;
+    const current = Math.round(el.scrollLeft / UPCOMING_STEP);
+    const target = Math.max(0, current + dir * UPCOMING_VISIBLE);
+    el.scrollTo({ left: target * UPCOMING_STEP, behavior: "smooth" });
   }
 
   const scrollable = events.length > UPCOMING_VISIBLE;
@@ -159,7 +163,7 @@ function UpcomingStrip({
       )}
       <div
         ref={scroller}
-        className="flex gap-2 overflow-x-auto overflow-y-hidden scrollbar-none snap-x snap-mandatory max-w-full"
+        className="flex gap-2 shrink-0 overflow-x-auto overflow-y-hidden scrollbar-none max-w-full"
         style={{
           width:
             Math.min(events.length, UPCOMING_VISIBLE) * UPCOMING_STEP -
@@ -171,7 +175,7 @@ function UpcomingStrip({
             key={ev.eventoId}
             type="button"
             onClick={() => onPick(ev)}
-            className={`w-[140px] shrink-0 snap-start border-2 border-black rounded-none font-mono-data text-xs px-3 py-1.5 cursor-pointer transition-colors duration-150 text-left ${
+            className={`w-[140px] shrink-0 border-2 border-black rounded-none font-mono-data text-xs px-3 py-1.5 cursor-pointer transition-colors duration-150 text-left ${
               ev.eventoId === selected
                 ? "bg-black text-[#FFFF00] font-bold"
                 : "bg-white text-black hover:bg-[#FFFF00]"

@@ -66,7 +66,7 @@ A diferencia de Unabase, el dashboard de Marketing no usa un gran React Context 
 *   **Explicación detallada de las Queries en `lib/queries/marketing.ts`:**
 
     *   `getEventList`: Extrae todos los eventos agrupados, devolviendo el ID, nombre, categoría, fecha del evento y la cantidad total de tickets vendidos. Sirve para alimentar el selector principal.
-    *   `getUpcomingEvents`: Similar a la anterior, pero filtra solo aquellos eventos cuya fecha es mayor o igual a la actual (`>= CURRENT_DATE()`), limitando los resultados a los 5 más próximos. Ideal para accesos rápidos.
+    *   `getUpcomingEvents`: Similar a la anterior, pero filtra solo aquellos eventos cuya fecha es mayor o igual a la actual (`>= CURRENT_DATE()`), ordenados del más próximo al más lejano y sin tope de cantidad (la tira de accesos rápidos los muestra en una ventana de 3 con scroll). Ideal para accesos rápidos.
     *   `getTicketDateRange`: Calcula la "ventana de tiempo" activa de un evento. Busca la fecha del primer ticket vendido (`start_date`) y la fecha máxima actual para ventas (`end_date`).
     *   `getEventKpis`: Genera las métricas principales (KPI Strip) haciendo cruces entre las tablas de tickets, gastos en anuncios (`ADS`) y las metas de la categoría. Retorna ventas totales, ingresos, precio promedio, días restantes, CPA y porcentaje de ejecución del presupuesto.
     *   `getCumulativeSales`: Obtiene la evolución diaria de tickets vendidos y calcula la suma acumulada (`cumulative_tickets`) usando una función de ventana (`SUM() OVER`), lo que dibuja la curva de ventas históricas.
