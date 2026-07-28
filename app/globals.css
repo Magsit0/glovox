@@ -18,6 +18,16 @@ body {
   font-family: var(--font-montserrat), system-ui, sans-serif;
 }
 
+/* Horizontal card strips scroll with arrows / swipe; the native bar would
+   only add height inside the bordered bars. */
+@utility scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
 /* Print-only helpers (hidden on screen, shown on paper) */
 .print-only {
   display: none;

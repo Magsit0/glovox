@@ -48,9 +48,13 @@ const GASTO_COL: Record<MontoMode, string> = {
 // Filtro común de ventas: documentos vivos del negocio. `incluir_en_venta`
 // (= NOT anulado AND NOT nota de crédito/débito) es el mismo predicado que
 // antes se replicaba acá con LIKEs sobre tipo_documento.
+// `NOT es_interno_glovox` en TODAS las queries por @id: un negocio interno
+// (area 'GLOVOX') no debe abrirse ni por URL directa — devuelve vacío y la
+// página cae en su estado "Sin información disponible".
 const VENTAS_WHERE = `
   WHERE CAST(negocio_id AS STRING) = @id
     AND incluir_en_venta
+    AND NOT es_interno_glovox
 `;
 
 const AREA_PRODUCCION = "produccion de eventos propios";
@@ -209,6 +213,7 @@ const ITEMS_SQL = `
     llave_item
   FROM ${PRESUPUESTO_ITEMS}
   WHERE CAST(negocio_id AS STRING) = @id
+    AND NOT es_interno_glovox
 `;
 
 // Gastos documentados del negocio. `costoempresa` conserva el nombre histórico
@@ -241,6 +246,7 @@ const gastosSql = (monto: MontoMode) => `
   FROM ${GASTOS}
   WHERE CAST(negocio_id AS STRING) = @id
     AND incluir_en_totales
+    AND NOT es_interno_glovox
 `;
 
 // Suma en BigQuery sobre montos ya prorrateados al negocio (atribuibles).
@@ -286,6 +292,7 @@ const RESUMEN_SQL = `
     flag_gasto_no_reconcilia AS flagGastoNoReconcilia
   FROM ${NEGOCIOS}
   WHERE CAST(negocio_id AS STRING) = @id
+    AND NOT es_interno_glovox
   LIMIT 1
 `;
 

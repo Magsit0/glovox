@@ -73,6 +73,7 @@ export const cierreMensualSql = (monto: MontoMode) => `
     ON ev.EventoID = n.evento_id
   WHERE LOWER(n.estadonv) <> 'nulo'
     AND LOWER(n.estado) <> 'cotizacion'
+    AND NOT n.es_interno_glovox
 `;
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -218,6 +219,8 @@ export async function getNegociosRows(
 // fresco en cada request; ahora también lo consume el detalle para calcular el
 // negocio anterior/siguiente dentro de la categoría, así que cachear evita un
 // full-scan por cada informe abierto.
+// A diferencia de NEGOCIOS_SQL conserva cotizaciones y NV nulas (las filtra el
+// consumidor), pero los negocios internos area 'GLOVOX' quedan fuera SIEMPRE.
 let allNegociosCache: { data: NegocioRow[]; timestamp: number } | null = null;
 
 export async function getAllNegociosAdmin(
@@ -227,7 +230,9 @@ export async function getAllNegociosAdmin(
   if (allNegociosCache && now - allNegociosCache.timestamp < NEGOCIOS_CACHE_TTL_MS) {
     return allNegociosCache.data;
   }
-  const sql = `${NEGOCIOS_SELECT} ORDER BY negocio_id DESC`;
+  const sql = `${NEGOCIOS_SELECT}
+  WHERE NOT es_interno_glovox
+  ORDER BY negocio_id DESC`;
   const queryPromise = query<Record<string, unknown>>(sql);
   const timeoutPromise = new Promise<never>((_, reject) =>
     setTimeout(

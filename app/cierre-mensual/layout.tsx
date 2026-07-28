@@ -4,7 +4,7 @@ import GroupNav from "@/components/groups/GroupNav";
 import GroupContent from "@/components/groups/GroupContent";
 
 // Switcher persistente del grupo UNABASE para CIERRE MENSUAL. El control de
-// acceso lo resuelve el middleware (canAccessPath sobre /cierre-mensual).
+// acceso lo resuelve el proxy (canAccessPath sobre /cierre-mensual).
 export default async function CierreMensualLayout({
   children,
 }: {

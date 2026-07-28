@@ -1,4 +1,5 @@
 import {
+  Building2,
   Megaphone,
   Target,
   Ticket,
@@ -22,6 +23,7 @@ export const GROUP_ICON_MAP: Record<string, LucideIcon> = {
   wallet: Wallet,
   zap: Zap,
   folder: Folder,
+  "building-2": Building2,
 };
 
 export const FALLBACK_GROUP_ICON: LucideIcon = Ticket;

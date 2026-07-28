@@ -204,6 +204,8 @@ const VENTA_COL: Record<MontoMode, string> = {
 // `fecha_asignacion` se re-formatea a DD-MM-YYYY para conservar el shape que
 // parsea quarterFromDmy (la legacy la traía como string en ese formato; los
 // sentinels '00-00-00' de la legacy hoy son NULL → quedan fuera igual).
+// `NOT es_interno_glovox`: los negocios internos (area 'GLOVOX', sueldos y
+// gasto administrativo) quedan fuera de las ventas por área y del total.
 const negociosSql = (monto: MontoMode) => `
   SELECT
     CAST(negocio_id AS STRING)                    AS id,
@@ -211,6 +213,7 @@ const negociosSql = (monto: MontoMode) => `
     FORMAT_DATE('%d-%m-%Y', fecha_asignacion)     AS fecha_asignacion,
     SAFE_CAST(${VENTA_COL[monto]} AS FLOAT64)     AS total_neto
   FROM ${NEGOCIOS}
+  WHERE NOT es_interno_glovox
 `;
 
 const negociosCache = new Map<

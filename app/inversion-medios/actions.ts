@@ -6,9 +6,13 @@ import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import {
   auditLog,
+  cargosExtraPm,
   inversionMediosDiario,
+  inversionMediosEtapas,
   PLATAFORMAS_MEDIOS,
+  type EtapaCampana,
 } from "@/db/schema";
+import { METODOS_CARGO } from "@/lib/inversion-medios/cargos";
 import { withNeonRetry } from "@/lib/neon-retry";
 import { getEventInfo } from "@/lib/queries/ticketing";
 
@@ -296,3 +300,140 @@ export async function bulkUpsertAction(input: {
 
 // NOTA: el techo presupuestario NO se edita acá — es categoriaEvento.budgetPm
 // (tabla madre), editable en la hoja de /admin/eventos. Este panel solo lo lee.
+
+// ---------- Etapas de campaña ----------
+
+const MAX_ETAPAS = 12;
+const MAX_ETAPA_NOMBRE = 40;
+
+/** Reemplaza la lista completa de etapas de campaña de un evento. */
+export async function saveEtapasAction(input: {
+  eventoId: string;
+  etapas: { nombre: string; fechaInicio: string }[];
+}): Promise<ActionResult> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const eventoId = String(input.eventoId ?? "").trim().toUpperCase();
+  if (!EVENTO_RE.test(eventoId)) return { ok: false, error: "EventoID inválido" };
+  if (!Array.isArray(input.etapas)) return { ok: false, error: "Etapas inválidas" };
+  if (input.etapas.length > MAX_ETAPAS) {
+    return { ok: false, error: `Máximo ${MAX_ETAPAS} etapas` };
+  }
+
+  // Sanear: nombre obligatorio (recortado); fecha "" o YYYY-MM-DD válida.
+  const clean: EtapaCampana[] = [];
+  for (const e of input.etapas) {
+    const nombre = String(e?.nombre ?? "").trim().slice(0, MAX_ETAPA_NOMBRE);
+    if (!nombre) continue; // descarta etapas sin nombre
+    const fRaw = String(e?.fechaInicio ?? "").trim();
+    const fechaInicio = fRaw === "" || FECHA_RE.test(fRaw) ? fRaw : "";
+    clean.push({ nombre, fechaInicio });
+  }
+
+  const eventoError = await validarEvento(eventoId);
+  if (eventoError) return { ok: false, error: eventoError };
+
+  try {
+    await withNeonRetry(() =>
+      db
+        .insert(inversionMediosEtapas)
+        .values({ eventoId, etapas: clean, createdBy: ctx.userId, updatedBy: ctx.userId })
+        .onConflictDoUpdate({
+          target: inversionMediosEtapas.eventoId,
+          set: { etapas: clean, updatedBy: ctx.userId, updatedAt: sql`now()` },
+        }),
+    );
+    await logAudit(ctx.userId, "inversionMedios.saveEtapas", { eventoId, n: clean.length });
+    revalidatePath("/inversion-medios");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al guardar etapas" };
+  }
+}
+
+// ---------- Cargos extra (CARDDA) ----------
+
+const MAX_PROVEEDOR = 80;
+const MAX_DETALLE = 300;
+const MAX_DIAPAGO = 40;
+
+/** Alta o edición de un cargo extra. Si viene `id`, edita; si no, crea. */
+export async function upsertCargoAction(input: {
+  id?: string;
+  proveedor: string;
+  detalle?: string;
+  metodo: string;
+  montoUsd: number;
+  diaPago?: string;
+}): Promise<ActionResult<{ id: string }>> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const proveedor = String(input.proveedor ?? "").trim().slice(0, MAX_PROVEEDOR);
+  if (!proveedor) return { ok: false, error: "El proveedor es obligatorio" };
+  const metodo = String(input.metodo ?? "").trim().toLowerCase();
+  if (!(METODOS_CARGO as readonly string[]).includes(metodo)) {
+    return { ok: false, error: "Método de pago inválido" };
+  }
+  const monto = sanitizeMonto(input.montoUsd);
+  if (monto === null || monto <= 0) return { ok: false, error: "Monto inválido (USD > 0)" };
+  const detalle = input.detalle ? String(input.detalle).trim().slice(0, MAX_DETALLE) || null : null;
+  const diaPago = input.diaPago ? String(input.diaPago).trim().slice(0, MAX_DIAPAGO) || null : null;
+
+  try {
+    let id = input.id;
+    if (id) {
+      await withNeonRetry(() =>
+        db
+          .update(cargosExtraPm)
+          .set({ proveedor, detalle, metodo, montoUsd: monto, diaPago, updatedBy: ctx.userId, updatedAt: sql`now()` })
+          .where(eq(cargosExtraPm.id, id!)),
+      );
+    } else {
+      const [row] = await withNeonRetry(() =>
+        db
+          .insert(cargosExtraPm)
+          .values({ proveedor, detalle, metodo, montoUsd: monto, diaPago, createdBy: ctx.userId, updatedBy: ctx.userId })
+          .returning({ id: cargosExtraPm.id }),
+      );
+      id = row.id;
+    }
+    await logAudit(ctx.userId, "inversionMedios.upsertCargo", { id, proveedor, metodo, montoUsd: monto });
+    revalidatePath("/inversion-medios");
+    return { ok: true, data: { id: id! } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al guardar el cargo" };
+  }
+}
+
+/** Baja (soft-delete) de un cargo extra. */
+export async function deleteCargoAction(input: { id: string }): Promise<ActionResult> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const id = String(input.id ?? "").trim();
+  if (!id) return { ok: false, error: "Cargo inválido" };
+  try {
+    await withNeonRetry(() =>
+      db
+        .update(cargosExtraPm)
+        .set({ activo: false, updatedBy: ctx.userId, updatedAt: sql`now()` })
+        .where(eq(cargosExtraPm.id, id)),
+    );
+    await logAudit(ctx.userId, "inversionMedios.deleteCargo", { id });
+    revalidatePath("/inversion-medios");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al borrar el cargo" };
+  }
+}

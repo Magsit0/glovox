@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { FileSearch } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import {
@@ -324,9 +325,18 @@ function Heading({ dateRange }: { dateRange?: { min: string; max: string } }) {
         <Image src="/glovox_logo_gvx_black.svg" alt="Glovox" width={18} height={18} />
       </Link>
       <p className="font-sans text-xs text-[#666666]">Proveedor</p>
-      <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
-        Gasto por proveedor
-      </h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
+          Gasto por proveedor
+        </h1>
+        <Link
+          href="/proveedor/documento"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans text-sm font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA]"
+        >
+          <FileSearch className="h-4 w-4" />
+          Buscar por documento
+        </Link>
+      </div>
       <p className="font-sans text-sm text-[#666666]">
         Gasto total por proveedor, su evolución en el tiempo y el desglose por
         negocio. Excluye negocios de área GLOVOX y gastos marcados como excluidos.

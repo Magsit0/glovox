@@ -16,6 +16,7 @@ import {
   X,
   BottleWine,
   Briefcase,
+  Building2,
   Calculator,
   CalendarRange,
   FileText,
@@ -81,6 +82,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   truck: Truck,
   sandwich: Sandwich,
   folder: Folder,
+  "building-2": Building2,
 };
 
 const TITLE_MAX = 80;

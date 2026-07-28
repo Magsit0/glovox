@@ -32,6 +32,12 @@ export default async function AdminLayout({
                 Usuarios
               </Link>
               <Link
+                href="/admin/negocios"
+                className="hover:text-[#333333]"
+              >
+                Negocios
+              </Link>
+              <Link
                 href="/admin/pendings"
                 className="hover:text-[#333333]"
               >

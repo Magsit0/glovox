@@ -1,9 +1,17 @@
-import { and, asc, gte, inArray, lte } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lte } from "drizzle-orm";
 import { sql as dsql } from "drizzle-orm";
 import { db } from "@/db";
-import { inversionMediosDiario } from "@/db/schema";
+import {
+  cargosExtraPm,
+  inversionMediosDiario,
+  inversionMediosEtapas,
+  type CargoExtra,
+  type EtapaCampana,
+} from "@/db/schema";
 import { query } from "@/lib/bigquery";
 import { withNeonRetry } from "@/lib/neon-retry";
+
+export type { EtapaCampana };
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 // Mart gobernado: paidMedia.ads_performance + EventoID (derivado por el
@@ -12,6 +20,13 @@ const P = process.env.BIGQUERY_PROJECT_ID;
 // re-deriva EventoID ni FX (eso es exactamente lo que el mart gobierna).
 const MART = `\`${P}.marts.paidmedia_ads_performance\``;
 const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
+// Marts gobernados de facturación Cardda (la tarjeta que paga los ads y SaaS):
+// consumo real de la tarjeta por mes×canal y fee mensual de Cardda, ambos ya
+// convertidos a USD por fecha vía referencia.tipo_cambio. Producidos por
+// data-governance (pipelines/finanzas/cardda). Es FACTURACIÓN (lo cobrado a la
+// tarjeta), distinta del GASTO declarado de ads que expone MART.
+const CARDDA_CONSUMO = `\`${P}.marts.cardda_consumo_mensual\``;
+const CARDDA_FEE = `\`${P}.marts.cardda_fee_mensual\``;
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -458,6 +473,77 @@ export function mergeGrid(args: {
   return rows;
 }
 
+// ---------- Etapas de campaña (bandas del drill) ----------
+
+/** Etapas de campaña de un evento (lista ordenada; [] si no hay). */
+export async function getEtapas(eventoId: string): Promise<EtapaCampana[]> {
+  const rows = await withNeonRetry(() =>
+    db
+      .select({ etapas: inversionMediosEtapas.etapas })
+      .from(inversionMediosEtapas)
+      .where(eq(inversionMediosEtapas.eventoId, eventoId))
+      .limit(1),
+  );
+  return rows[0]?.etapas ?? [];
+}
+
+// ---------- Cargos extra (CARDDA) ----------
+
+/** Cargos extra activos (pagos recurrentes de plataformas), por proveedor. */
+export async function getCargosExtra(): Promise<CargoExtra[]> {
+  return withNeonRetry(() =>
+    db
+      .select()
+      .from(cargosExtraPm)
+      .where(eq(cargosExtraPm.activo, true))
+      .orderBy(desc(cargosExtraPm.montoUsd)),
+  );
+}
+
+// computeEtapaSegments + tipos viven en @/lib/inversion-medios/etapas
+// (client-safe) para que el drill cliente no arrastre BigQuery al bundle.
+
+// ---------- Desglose real por tipo/campaña (drill: abrir un canal) ----------
+
+/**
+ * Gasto real crudo de UN evento por (fecha, plataforma, objective, campaña),
+ * para desagregar un canal en tipos de campaña y campañas individuales. La
+ * CLASIFICACIÓN (objetivo↔nombre) corre en el cliente (buildDesglose) para que
+ * el toggle sea instantáneo. Tipo/importación en @/lib/inversion-medios/tipos.
+ */
+export async function getRealDesgloseEvento(
+  eventoId: string,
+  from: string,
+  to: string,
+): Promise<
+  { fecha: string; plataforma: string; objective: string; campaignName: string; gastoUsd: number }[]
+> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', fecha) AS fecha,
+      plataforma                     AS plataforma,
+      IFNULL(objective, '')          AS objective,
+      IFNULL(campaign_name, '')      AS campaign_name,
+      SUM(gasto_usd)                 AS gasto_usd
+    FROM ${MART}
+    WHERE EventoID = @eventoId
+      AND fecha BETWEEN DATE(@from) AND DATE(@to)
+      AND gasto_usd > 0
+    GROUP BY fecha, plataforma, objective, campaign_name
+    ORDER BY fecha
+    `,
+    { eventoId, from, to },
+  );
+  return rows.map((r) => ({
+    fecha: s(r.fecha),
+    plataforma: s(r.plataforma),
+    objective: s(r.objective),
+    campaignName: s(r.campaign_name),
+    gastoUsd: n(r.gasto_usd),
+  }));
+}
+
 // ---------- Drill por plataforma (vista de un evento) ----------
 
 export type DrillDayCell = {
@@ -611,4 +697,68 @@ export async function getTotalesEvento(
     if (t) t.totalReal = n(r.gasto_usd);
   }
   return out;
+}
+
+// ---------- Facturación Cardda (histórico, read-only desde marts) ----------
+
+export type CarddaConsumoRow = {
+  periodo: string; // YYYY-MM
+  canal: string; // meta | google | tiktok | otras
+  gastoUsd: number;
+  gastoClp: number;
+  n: number;
+};
+
+export type CarddaFeeRow = {
+  periodo: string; // YYYY-MM
+  status: string; // draft | issued
+  feeUsd: number;
+  feeClp: number;
+  fiscalInvoiceId: string | null;
+};
+
+/**
+ * Consumo de las tarjetas Cardda por mes×canal (solo cargos approved, ya en USD
+ * por fecha). Agrega los comercios del mart al nivel de canal. Es la FACTURACIÓN
+ * real a la tarjeta, distinta del gasto declarado de ads. Read-only.
+ */
+export async function getCarddaConsumoMensual(): Promise<CarddaConsumoRow[]> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    SELECT
+      periodo,
+      canal,
+      SUM(gasto_usd)        AS gasto_usd,
+      SUM(gasto_clp)        AS gasto_clp,
+      SUM(n_transacciones)  AS n
+    FROM ${CARDDA_CONSUMO}
+    GROUP BY periodo, canal
+    ORDER BY periodo, canal
+    `,
+  );
+  return rows.map((r) => ({
+    periodo: s(r.periodo),
+    canal: s(r.canal),
+    gastoUsd: n(r.gasto_usd),
+    gastoClp: n(r.gasto_clp),
+    n: n(r.n),
+  }));
+}
+
+/** Fee mensual de Cardda ("Uso de Cards"), en USD y CLP, por período. Read-only. */
+export async function getCarddaFeeMensual(): Promise<CarddaFeeRow[]> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    SELECT periodo, status, fee_usd, fee_clp, fiscal_invoice_id
+    FROM ${CARDDA_FEE}
+    ORDER BY periodo
+    `,
+  );
+  return rows.map((r) => ({
+    periodo: s(r.periodo),
+    status: s(r.status),
+    feeUsd: n(r.fee_usd),
+    feeClp: n(r.fee_clp),
+    fiscalInvoiceId: r.fiscal_invoice_id == null ? null : s(r.fiscal_invoice_id),
+  }));
 }

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-17T20:48:02.023241+00:00",
+  "generatedAt": "2026-07-24T20:04:16.684700+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -194,9 +194,342 @@
       ],
       "envVars": [],
       "notes": "Cuenta 018FD7-287807-31AC34. El export nativo lo escribe GCP a diario (no hay pipeline Python); el histórico previo a encender el export entra por backfill CSV (no es retroactivo)."
+    },
+    {
+      "id": "cardda",
+      "label": "Cardda (tarjetas corporativas)",
+      "type": "api",
+      "area": "finanzas",
+      "endpoints": [
+        "GET /v1/card_transactions — cargos de tarjeta (merchant, monto, status)",
+        "GET /v1/bills — fee mensual de Cardda ('Uso de Cards')",
+        "GET /v1/companies — resolver el company-id"
+      ],
+      "envVars": [
+        "CARDDA_API_TOKEN",
+        "CARDDA_API_BASE_URL",
+        "CARDDA_COMPANY_ID"
+      ],
+      "notes": "Empresa GLOVOX PRODUCCIONES SPA (b724a3e2-…). Auth Bearer + header company-id. FACTURACIÓN real a la tarjeta con que se pagan ads y SaaS (distinto del gasto declarado de ads en paidMedia). Solo status=approved es dinero real (declined/superseded son ~55%+26%)."
     }
   ],
   "assets": [
+    {
+      "key": "cardda.card_transactions",
+      "area": "finanzas",
+      "source": "cardda",
+      "endpoint": "https://api.cardda.com/v1/card_transactions",
+      "pipeline": "pipelines/finanzas/cardda/card_transactions.py",
+      "schema": "cardda_card_transactions",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "merge",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "marts.cardda_consumo_mensual"
+      ],
+      "metrics": [],
+      "endpointLabel": "https://api.cardda.com/v1/card_transactions",
+      "fields": [
+        {
+          "name": "transaction_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "id de la transacción en Cardda (base64 vendor-prefixed). Clave del upsert."
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de creación del cargo en Cardda."
+        },
+        {
+          "name": "fecha",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Día del cargo en zona America/Santiago (derivado de created_at). Grano para agrupar por mes y join con referencia.tipo_cambio."
+        },
+        {
+          "name": "completed_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC en que el cargo se completó."
+        },
+        {
+          "name": "settled_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de liquidación (puede ser null)."
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado del cargo: approved, declined, superseded, pending. SOLO approved es dinero real (se filtra en la vista)."
+        },
+        {
+          "name": "kind",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de movimiento (charge, refund, etc.)."
+        },
+        {
+          "name": "description",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Descripción del cargo (ej. 'Cargo de Tiktok Ads (TikTok Ads)')."
+        },
+        {
+          "name": "merchant_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "UUID del comercio resuelto por Cardda."
+        },
+        {
+          "name": "merchant_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre crudo del comercio (ej. 'Tiktok Ads (TikTok Ads)')."
+        },
+        {
+          "name": "cleaned_merchant_name",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre limpio del comercio (ej. 'TikTok Ads'). Base para clasificar canal."
+        },
+        {
+          "name": "amount_cents",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Monto en la unidad menor de la moneda NATIVA del cargo. Cargos en negativo. Escala según decimales de `currency` (USD=/100, CLP=/1)."
+        },
+        {
+          "name": "currency",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Moneda nativa del cargo (usd, clp, ...)."
+        },
+        {
+          "name": "target_amount_cents",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Monto en la unidad menor de la moneda CONTABLE (target_currency, siempre CLP para GLOVOX). Cargos en negativo."
+        },
+        {
+          "name": "target_currency",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Moneda contable/liquidación (clp)."
+        },
+        {
+          "name": "monto_clp",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto contable en CLP con signo (target_amount_cents escalado por decimales de target_currency). Negativo = cargo."
+        },
+        {
+          "name": "exchange_rate",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Tipo de cambio que aplicó Cardda (CLP por unidad de la moneda nativa). Solo auditoría; la conversión a USD del mart usa referencia.tipo_cambio."
+        },
+        {
+          "name": "fees_cents",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Comisión por transacción en unidad menor de la moneda contable."
+        },
+        {
+          "name": "invoice_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "id de invoice de Cardda asociada, si existe."
+        },
+        {
+          "name": "vendor_card_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "id de la tarjeta que originó el cargo."
+        },
+        {
+          "name": "user_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "id del usuario Cardda dueño de la tarjeta."
+        },
+        {
+          "name": "company_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "UUID de la empresa en Cardda (GLOVOX PRODUCCIONES SPA)."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga del registro."
+        }
+      ]
+    },
+    {
+      "key": "cardda.bills",
+      "area": "finanzas",
+      "source": "cardda",
+      "endpoint": "https://api.cardda.com/v1/bills",
+      "pipeline": "pipelines/finanzas/cardda/bills.py",
+      "schema": "cardda_bills",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "merge",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "marts.cardda_fee_mensual"
+      ],
+      "metrics": [],
+      "endpointLabel": "https://api.cardda.com/v1/bills",
+      "fields": [
+        {
+          "name": "bill_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "id del bill mensual de Cardda. Clave del upsert."
+        },
+        {
+          "name": "periodo",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Período del bill en formato YYYY-MM (derivado de year+month)."
+        },
+        {
+          "name": "year",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Año del bill."
+        },
+        {
+          "name": "month",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Mes del bill (1-12)."
+        },
+        {
+          "name": "fecha",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha del bill (campo `date` de Cardda; si es null, primer día del período). Grano para join con referencia.tipo_cambio."
+        },
+        {
+          "name": "status",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado del bill: draft, issued, etc."
+        },
+        {
+          "name": "transition",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Transición de estado reportada por Cardda."
+        },
+        {
+          "name": "total_amount_clp",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Monto total del bill en CLP (fee 'Uso de Cards' del mes). Pesos enteros, sin decimales."
+        },
+        {
+          "name": "fiscal_invoice_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "id de la factura fiscal (DTE/SII) asociada al bill, si fue emitida."
+        },
+        {
+          "name": "external_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "id externo del bill en el proveedor."
+        },
+        {
+          "name": "charges_json",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "JSON de charges_with_descriptions ([{amount, description}]) para detalle del bill."
+        },
+        {
+          "name": "created_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de creación del bill."
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de última actualización del bill."
+        },
+        {
+          "name": "company_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "UUID de la empresa en Cardda."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga del registro."
+        }
+      ]
+    },
+    {
+      "key": "marts.cardda_consumo_mensual",
+      "area": "finanzas",
+      "source": "app",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_cardda_consumo_mensual.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "cardda.card_transactions",
+        "referencia.tipo_cambio"
+      ],
+      "consumers": [
+        "/inversion-medios"
+      ],
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.cardda_fee_mensual",
+      "area": "finanzas",
+      "source": "app",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_cardda_fee_mensual.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "cardda.bills",
+        "referencia.tipo_cambio"
+      ],
+      "consumers": [
+        "/inversion-medios"
+      ],
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
     {
       "key": "metricool.followers_daily",
       "area": "marketing",
@@ -1211,7 +1544,9 @@
       "replaces": "paidMedia.fx_rates",
       "upstream": [],
       "consumers": [
-        "marts.paidmedia_ads_performance"
+        "marts.paidmedia_ads_performance",
+        "marts.cardda_consumo_mensual",
+        "marts.cardda_fee_mensual"
       ],
       "notes": "Tipo de cambio diario a USD (units_per_usd = unidades locales por 1 USD), fuente fidedigna de bancos centrales. Reemplazo gobernado de la legacy paidMedia.fx_rates (plana, sin fecha, editada a mano en BQ). Tabla DENSA: rellena finde/feriados con el último valor hábil (imputado=TRUE). CLP=dólar observado BCCh (vía mindicador.cl), BRL=PTAX cierre BCB (fuente 'bcb'), USD=1. AÚN NO consumida: el switch en /paid-media y /marketing/weekly (agregar join por fecha) queda pendiente por decisión del owner — este cambio NO toca paid media.",
       "metrics": [],
@@ -3966,10 +4301,11 @@
         "/fds",
         "/presupuesto",
         "/cierre-negocio",
+        "/interno",
         "slack-data-agent",
         "finanzas.reconciliacion_gasto_log"
       ],
-      "notes": "LA fuente canónica del GASTO a nivel línea. gasto_neto = item_costo_empresa (reconcilia exacto con costo_real del maestro); item_costo_real NO se expone (corrupto en 2.436 docs por bug de la API, error '# 53'). Modelo neto/impuesto/bruto: gasto_iva (aditivo), gasto_retencion_honorarios (contenida en el neto), gasto_bruto = neto + IVA. Categoría oficial (17) + bucket (7) resueltos vía el seed unabase_categoria_map. No elimina filas: universo por predicados (incluir_en_totales, es_produccion_propia...). nro_doc/nro_doc_folios (Nº DOC, ej '27861') vía LEFT JOIN a finanzas.unabase_gasto_dtc — NULL si el gasto aún no tiene documento. proveedor_real/proveedor_efectivo/flag_proveedor_reatribuido (17-jul): re-atribución de docs Riesco al proveedor real vía seed gasto_proveedor_real (solo gastos con rut Riesco, guard por negocio; doc-uniforme seguro o match por monto). proveedor declarado queda intacto — consumidores migran opt-in (/proveedor migrado).",
+      "notes": "LA fuente canónica del GASTO a nivel línea. gasto_neto = item_costo_empresa (reconcilia exacto con costo_real del maestro); item_costo_real NO se expone (corrupto en 2.436 docs por bug de la API, error '# 53'). Modelo neto/impuesto/bruto: gasto_iva (aditivo), gasto_retencion_honorarios (contenida en el neto), gasto_bruto = neto + IVA. Categoría oficial (17) + bucket (7) resueltos vía el seed unabase_categoria_map. No elimina filas: universo por predicados (incluir_en_totales, es_produccion_propia...). nro_doc/nro_doc_folios (Nº DOC, ej '27861') vía LEFT JOIN a finanzas.unabase_gasto_dtc — NULL si el gasto aún no tiene documento. proveedor_real/proveedor_efectivo/flag_proveedor_reatribuido (17-jul): re-atribución de docs Riesco al proveedor real vía seed gasto_proveedor_real (solo gastos con rut Riesco, guard por negocio; doc-uniforme seguro o match por monto). proveedor declarado queda intacto — consumidores migran opt-in (/proveedor migrado). REGLA DE CONSUMO (20-jul): los negocios internos area 'GLOVOX' (es_interno_glovox: sueldos y gasto administrativo) SOLO se muestran en /interno; todo otro consumidor DEBE filtrar NOT es_interno_glovox.",
       "metrics": [
         "Gasto canónico por línea: gasto_neto / gasto_iva / gasto_bruto",
         "Retención de boletas de honorarios por línea",
@@ -4000,7 +4336,7 @@
         "/cierre-negocio",
         "slack-data-agent"
       ],
-      "notes": "LA fuente canónica de la VENTA documentada (grano negocio × documento, montos ATRIBUIBLES que resuelven facturas multi-negocio). venta_neta (sin IVA) / venta_iva / venta_bruta (con IVA). Predicado incluir_en_venta = NOT anulado AND NOT nota crédito/débito. flag_atribucion_stopgap: hoy 100% de los docs (endpoint sin líneas desde jun-2026, atribución degradada al negocio primario) — se apaga solo cuando Unabase reexponga items.",
+      "notes": "LA fuente canónica de la VENTA documentada (grano negocio × documento, montos ATRIBUIBLES que resuelven facturas multi-negocio). venta_neta (sin IVA) / venta_iva / venta_bruta (con IVA). Predicado incluir_en_venta = NOT anulado AND NOT nota crédito/débito. flag_atribucion_stopgap: hoy 100% de los docs (endpoint sin líneas desde jun-2026, atribución degradada al negocio primario) — se apaga solo cuando Unabase reexponga items. REGLA DE CONSUMO (20-jul): los negocios internos area 'GLOVOX' (es_interno_glovox) SOLO se muestran en /interno; todo otro consumidor DEBE filtrar NOT es_interno_glovox.",
       "metrics": [
         "Venta documentada atribuible: venta_neta / venta_iva / venta_bruta",
         "Docs anulados / notas de crédito excluibles (incluir_en_venta)"
@@ -4031,10 +4367,11 @@
         "/unabase/cierre-mensual",
         "/fds",
         "/cierre-negocio",
+        "/interno",
         "slack-data-agent",
         "finanzas.reconciliacion_venta_log"
       ],
-      "notes": "LA tabla ejecutiva por negocio: etapas del ciclo con nombres legibles (venta_contratada/neta/bruta/facturada/cobrada; gasto_presupuestado/real/justificado/pagado), agregados del detalle (sufijo _documentado/a, par neto/bruto para el switch de dashboards), presupuesto nivel hoja (sufijo _items) y flags de reconciliación BQ-vs-API. venta_bruta = total_nv (= total_neto × 1,19 verificado). ⚠ venta_contratada (total_venta) tiene semántica irregular en el origen: solo referencia.",
+      "notes": "LA tabla ejecutiva por negocio: etapas del ciclo con nombres legibles (venta_contratada/neta/bruta/facturada/cobrada; gasto_presupuestado/real/justificado/pagado), agregados del detalle (sufijo _documentado/a, par neto/bruto para el switch de dashboards), presupuesto nivel hoja (sufijo _items) y flags de reconciliación BQ-vs-API. venta_bruta = total_nv (= total_neto × 1,19 verificado). ⚠ venta_contratada (total_venta) tiene semántica irregular en el origen: solo referencia. REGLA DE CONSUMO (20-jul): los negocios internos area 'GLOVOX' (es_interno_glovox: sueldos y gasto administrativo) SOLO se muestran en /interno; todo otro consumidor DEBE filtrar NOT es_interno_glovox.",
       "metrics": [
         "Ciclo de venta por negocio: contratada → neta → facturada → cobrada",
         "Ciclo de gasto: presupuestado → real → justificado → pagado",
@@ -4063,7 +4400,7 @@
         "/cierre-negocio",
         "/unabase/cierre-mensual"
       ],
-      "notes": "Líneas HOJA del presupuesto, planas y listas para sumar (SUM ingenuo = correcto; los nodos TITULO/subcategoría duplican 2-3x). Resuelve el nombre de la subcategoría padre (self-join que cierreNegocio.ts y cierreMensual.ts re-implementaban). ⚠ gasto_real_item = imputación de Unabase por línea de presupuesto, NO reconcilia con el gasto documentado: para totales usar marts.finanzas_gastos.gasto_neto. Montos netos (sin IVA).",
+      "notes": "Líneas HOJA del presupuesto, planas y listas para sumar (SUM ingenuo = correcto; los nodos TITULO/subcategoría duplican 2-3x). Resuelve el nombre de la subcategoría padre (self-join que cierreNegocio.ts y cierreMensual.ts re-implementaban). ⚠ gasto_real_item = imputación de Unabase por línea de presupuesto, NO reconcilia con el gasto documentado: para totales usar marts.finanzas_gastos.gasto_neto. Montos netos (sin IVA). REGLA DE CONSUMO (20-jul): los negocios internos area 'GLOVOX' (es_interno_glovox) SOLO se muestran en /interno; todo otro consumidor DEBE filtrar NOT es_interno_glovox.",
       "metrics": [
         "Presupuesto vs ejecución línea a línea (venta_presupuestada, gasto_presupuestado, gasto_real_item)"
       ],

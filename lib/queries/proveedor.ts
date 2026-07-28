@@ -140,6 +140,34 @@ export type DocumentoRow = {
   costo: number;
 };
 
+/**
+ * Una línea de un documento buscado por Nº DOC. A diferencia de `DocumentoRow`,
+ * expone declarado vs efectivo lado a lado (para auditar la reatribución) y NO
+ * aplica el scope de exclusión — un buscador que "a veces no encuentra un doc
+ * que existe" es peor que uno que lo muestra marcado (ver `incluido`).
+ */
+export type DocDetalleRow = {
+  nroDoc: string;
+  folioGasto: string;
+  gastoId: string;
+  fecha: string;
+  tipoDoc: string;
+  estado: string;
+  negocioId: string;
+  negocioNombre: string;
+  eventoId: string;
+  categoria: string;
+  itemNombre: string;
+  proveedorDeclarado: string;
+  rutDeclarado: string;
+  proveedorEfectivo: string;
+  rutEfectivo: string;
+  reatribuido: boolean;
+  incluido: boolean;
+  neto: number;
+  bruto: number;
+};
+
 export type DateRange = { min: string; max: string };
 
 export type MatrizProveedorAnioRow = {
@@ -600,3 +628,67 @@ export async function getDocumentos(
 }
 
 export const DOCUMENTOS_LIMIT = DETAIL_LIMIT;
+
+/**
+ * Todas las líneas de gasto de un Nº DOC (folio del documento tributario),
+ * transversal a proveedor/negocio/fecha. Matchea contra el ARRAY `nro_doc_folios`
+ * (no el string concatenado): un gasto con folios ['27861','27862'] aparece al
+ * buscar cualquiera de los dos. Sin scope de exclusión a propósito (ver
+ * DocDetalleRow) — `incluido` marca si la línea entra en los totales del dashboard.
+ */
+export async function getDocumentoDetalle(
+  nroDoc: string,
+): Promise<DocDetalleRow[]> {
+  const rows = await withTimeout(
+    query<Record<string, unknown>>(
+      `
+      SELECT
+        NULLIF(ARRAY_TO_STRING(nro_doc_folios, ', '), '') AS nro_doc,
+        folio                                   AS folio_gasto,
+        CAST(gasto_id AS STRING)                AS gasto_id,
+        FORMAT_DATE('%Y-%m-%d', fecha)          AS fecha,
+        tipo_documento                          AS tipo_doc,
+        estado_documento                        AS estado,
+        CAST(negocio_id AS STRING)              AS negocio_id,
+        negocio_nombre,
+        evento_id,
+        categoria_raw                           AS categoria,
+        item_nombre,
+        proveedor                               AS proveedor_declarado,
+        proveedor_rut                           AS rut_declarado,
+        proveedor_efectivo,
+        proveedor_efectivo_rut                  AS rut_efectivo,
+        flag_proveedor_reatribuido              AS reatribuido,
+        incluir_en_totales                      AS incluido,
+        IFNULL(gasto_neto, 0)                   AS neto,
+        gasto_bruto                             AS bruto
+      FROM ${GASTOS}
+      WHERE @nroDoc IN UNNEST(nro_doc_folios)
+      ORDER BY negocio_id, gasto_id, item_nombre
+      LIMIT 2000
+      `,
+      { nroDoc },
+    ),
+  );
+  return rows.map((r) => ({
+    nroDoc: s(r.nro_doc),
+    folioGasto: s(r.folio_gasto),
+    gastoId: s(r.gasto_id),
+    fecha: s(r.fecha),
+    tipoDoc: s(r.tipo_doc),
+    estado: s(r.estado),
+    negocioId: s(r.negocio_id),
+    negocioNombre: s(r.negocio_nombre),
+    eventoId: s(r.evento_id),
+    categoria: s(r.categoria),
+    itemNombre: s(r.item_nombre),
+    proveedorDeclarado: s(r.proveedor_declarado),
+    rutDeclarado: s(r.rut_declarado),
+    proveedorEfectivo: s(r.proveedor_efectivo),
+    rutEfectivo: s(r.rut_efectivo),
+    reatribuido: r.reatribuido === true,
+    incluido: r.incluido === true,
+    neto: n(r.neto),
+    bruto: n(r.bruto),
+  }));
+}

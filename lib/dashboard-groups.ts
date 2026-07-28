@@ -158,6 +158,16 @@ export const FINANZAS_GROUP: DashboardGroup = {
       accentClass: "bg-[#FF7A00]",
       accentText: "text-black",
     },
+    {
+      key: "interno",
+      label: "Gasto interno",
+      path: "/interno",
+      description:
+        "Sueldos y gasto administrativo de los negocios internos GLOVOX: evolución por categoría, proveedores y detalle.",
+      icon: "building-2",
+      accentClass: "bg-[#607D8B]",
+      accentText: "text-white",
+    },
   ],
 };
 

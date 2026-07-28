@@ -4,7 +4,7 @@
  * `requireSession` → throws/redirects unauthenticated callers.
  * `requireSuperadmin` → throws on non-superadmin (admin UI + API).
  *
- * Middleware is the first line of defense; these helpers are defense in depth
+ * The proxy is the first line of defense; these helpers are defense in depth
  * for code paths that bypass the matcher (route groups, layouts, API routes).
  */
 import { redirect } from "next/navigation";

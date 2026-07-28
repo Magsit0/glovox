@@ -8,11 +8,13 @@ import type {
   CellEdit,
   SheetTarget,
 } from "@/lib/eventos-sheet-service";
+import { findEventoIdCol } from "@/lib/eventos-create";
 import {
   appendColumnAction,
   appendRowAction,
   saveCellsAction,
 } from "../actions";
+import NuevoEventoModal from "./NuevoEventoModal";
 
 /** 0-based → letra de columna (0 → A) para etiquetas de respaldo. */
 function colLabel(col: number): string {
@@ -89,6 +91,8 @@ export default function EventosSheetEditor({
   const [adding, setAdding] = useState(false);
   const [newColName, setNewColName] = useState("");
   const [newColType, setNewColType] = useState("STRING");
+  // Modal de alta guiada "Nuevo evento" (solo pestaña Eventos).
+  const [showNew, setShowNew] = useState(false);
 
   // Resincronización cuando el server manda data fresca (tras router.refresh()):
   // ajustar estado durante el render comparando el prop anterior es el patrón
@@ -123,6 +127,14 @@ export default function EventosSheetEditor({
       baseValues.slice(1).map((cells, i) => ({ r: i + 1, cells })), // r = índice absoluto en baseValues
     [baseValues],
   );
+
+  // EventoIDs existentes (columna EventoID) para el alta: unicidad + sugerir el
+  // próximo ID libre. Vacío si la hoja no tiene esa columna (o es venues).
+  const existingIds = useMemo(() => {
+    const idCol = findEventoIdCol(header);
+    if (idCol < 0) return [];
+    return baseValues.slice(1).map((r) => r[idCol] ?? "");
+  }, [baseValues, header]);
 
   const venueColNorm = venueColumn ? normHeader(venueColumn) : null;
   const isVenueCol = (c: number) =>
@@ -245,6 +257,17 @@ export default function EventosSheetEditor({
           />
         </div>
         <div className="flex items-center gap-2">
+          {target === "eventos" && (
+            <button
+              type="button"
+              onClick={() => setShowNew(true)}
+              disabled={pending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#9F99F8] px-4 py-2 font-sans text-sm font-medium text-white transition-colors hover:bg-[#8780F0] disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" />
+              Nuevo evento
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setAdding(true)}
@@ -511,6 +534,16 @@ export default function EventosSheetEditor({
           : ""}{" "}
         Renombrar columnas o reordenar se hace en la hoja original.
       </p>
+
+      {target === "eventos" && (
+        <NuevoEventoModal
+          open={showNew}
+          onClose={() => setShowNew(false)}
+          venues={venues}
+          existingIds={existingIds}
+          onCreated={() => router.refresh()}
+        />
+      )}
     </section>
   );
 }

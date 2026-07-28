@@ -4,7 +4,7 @@ import GroupNav from "@/components/groups/GroupNav";
 import GroupContent from "@/components/groups/GroupContent";
 
 // Switcher persistente del grupo FINANZAS para ONEPAGER. El control de acceso
-// lo resuelve el middleware (canAccessPath sobre /onepager).
+// lo resuelve el proxy (canAccessPath sobre /onepager).
 export default async function OnepagerLayout({
   children,
 }: {

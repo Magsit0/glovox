@@ -7,14 +7,37 @@ import {
   useMemo,
   useRef,
   useState,
+  useTransition,
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, Plus, X } from "lucide-react";
-import type { DayCell, EventoGridRow, NoAtribuidoRow } from "@/lib/queries/inversion-medios";
+import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
+import type {
+  CarddaConsumoRow,
+  CarddaFeeRow,
+  DayCell,
+  EventoGridRow,
+  NoAtribuidoRow,
+} from "@/lib/queries/inversion-medios";
+import type { CargoExtra } from "@/db/schema";
+import {
+  costoMensual,
+  costoSemanal,
+  METODO_LABEL,
+  METODOS_CARGO,
+  resumenCargos,
+  type MetodoCargo,
+} from "@/lib/inversion-medios/cargos";
+import {
+  buildFacturacion,
+  CANAL_FACT_LABEL,
+  CANALES_FACT,
+  fmtPeriodo,
+  resumenFacturacion,
+  type FacturacionMes,
+} from "@/lib/inversion-medios/facturacion";
+import { deleteCargoAction, upsertCargoAction } from "../actions";
 import { fmtDiaCorto, fmtUsd } from "./format";
-
-type Disponible = { eventoId: string; nombre: string; fecha: string };
 
 type Props = {
   desde: string; // YYYY-MM-DD, inicio del rango cargado
@@ -23,10 +46,14 @@ type Props = {
   /** Totales del evento COMPLETO (histórico), no solo del rango cargado. */
   totales: Record<string, { totalPlan: number; totalReal: number }>;
   noAtribuido: NoAtribuidoRow[];
-  disponibles: Disponible[];
   realMaxFecha: string;
   hoy: string;
-  /** false → sin "Agregar evento" (la planificación es superadmin-only). */
+  cargos: CargoExtra[];
+  /** Consumo real de las tarjetas Cardda por mes×canal (facturación histórica). */
+  carddaConsumo: CarddaConsumoRow[];
+  /** Fee mensual de Cardda por período. */
+  carddaFee: CarddaFeeRow[];
+  /** superadmin → puede editar los cargos extra. */
   canEdit: boolean;
 };
 
@@ -52,17 +79,14 @@ export default function InversionMediosPanel({
   grid,
   totales,
   noAtribuido,
-  disponibles,
   realMaxFecha,
   hoy,
+  cargos,
+  carddaConsumo,
+  carddaFee,
   canEdit,
 }: Props) {
   const router = useRouter();
-  const [addOpen, setAddOpen] = useState(false);
-  const [filtro, setFiltro] = useState("");
-  // Eventos agregados a mano (aún sin plan ni gasto): fila sintética visible
-  // hasta que se guarde su primera celda (ahí llega desde el server).
-  const [temporales, setTemporales] = useState<Disponible[]>([]);
   // Resumen superior: KPIs globales o desglose por canal (mismo tramo visible).
   const [modo, setModo] = useState<"resumen" | "canal">("resumen");
 
@@ -77,41 +101,16 @@ export default function InversionMediosPanel({
     return out;
   }, [desde, hasta]);
 
-  // Filas sintéticas para los eventos recién agregados, ordenadas junto al resto
-  // por fecha del evento.
-  const rows = useMemo<EventoGridRow[]>(() => {
-    const sintetica = (t: Disponible): EventoGridRow => ({
-      eventoId: t.eventoId,
-      nombre: t.nombre,
-      fechaEvento: t.fecha,
-      ordenFecha: t.fecha || "9999-12-31",
-      techoUsd: null,
-      days: dias.map((fecha) => ({
-        fecha,
-        plan: null,
-        planNota: null,
-        real: null,
-        metaUsd: 0,
-        googleUsd: 0,
-        tiktokUsd: 0,
-        otrasUsd: 0,
-        fxImputado: false,
-        sinFx: false,
-      })),
-      totalPlan: 0,
-      totalReal: 0,
-      pctPlanVsTecho: 0,
-      pctRealVsTecho: 0,
-    });
-    const enGrid = new Set(grid.map((g) => g.eventoId));
-    const extra = temporales.filter((t) => !enGrid.has(t.eventoId)).map(sintetica);
-    // ordenFecha viene de mergeGrid (Fecha del evento, o último día con datos
-    // para eventos sin Fecha) — el re-sort solo intercala las filas sintéticas.
-    return [...grid, ...extra].sort(
-      (a, b) =>
-        a.ordenFecha.localeCompare(b.ordenFecha) || a.eventoId.localeCompare(b.eventoId),
-    );
-  }, [grid, temporales, dias]);
+  // Los eventos vienen de la tabla madre categoriaEvento (vía mergeGrid): filas
+  // ordenadas por fecha del evento. No hay alta manual.
+  const rows = useMemo<EventoGridRow[]>(
+    () =>
+      [...grid].sort(
+        (a, b) =>
+          a.ordenFecha.localeCompare(b.ordenFecha) || a.eventoId.localeCompare(b.eventoId),
+      ),
+    [grid],
+  );
 
   // Índices con datos por fila (para la visibilidad según viewport).
   const dataIdx = useMemo(
@@ -185,13 +184,8 @@ export default function InversionMediosPanel({
   // Las filas NO se desmontan (se ocultan por CSS): desmontar descartaría una
   // edición en curso si su fila sale del tramo mientras se escribe.
   const visibleIds = useMemo(() => {
-    const tempIds = new Set(temporales.map((t) => t.eventoId));
     const out = new Set<string>();
     rows.forEach((r, i) => {
-      if (tempIds.has(r.eventoId)) {
-        out.add(r.eventoId); // recién agregado: se muestra
-        return;
-      }
       const flags = dataIdx[i];
       for (let j = view.a; j <= view.b && j < flags.length; j++) {
         if (flags[j]) {
@@ -201,7 +195,7 @@ export default function InversionMediosPanel({
       }
     });
     return out;
-  }, [rows, dataIdx, view, temporales]);
+  }, [rows, dataIdx, view]);
 
   // ---------- KPIs del tramo visible ----------
   const kpis = useMemo(() => {
@@ -276,6 +270,95 @@ export default function InversionMediosPanel({
       ? `${fmtDiaCorto(dias[Math.min(view.a, dias.length - 1)])} – ${fmtDiaCorto(dias[Math.min(view.b, dias.length - 1)])}`
       : "";
 
+  // Subtotal por semana (lun→dom): plan vs real de toda la operación (eventos +
+  // no atribuido). El semáforo compara real contra el plan TRANSCURRIDO (días ≤
+  // real-al), para no pintar verde una semana futura que solo no ocurrió aún.
+  // La etiqueta se recorta al rango cargado y se marca "parcial" si está cortada.
+  // Cálculo COMPLETO (todas las semanas): pesado, memoizado fuera del scroll.
+  // El monto es el total de la semana (7 días), no un parcial del scroll, para
+  // que el número no salte al desplazarse; el filtro por viewport es aparte.
+  const semanas = useMemo(() => {
+    const naByFecha = new Map(noAtribuido.map((r) => [r.fecha, r.gastoUsd]));
+    const primero = dias[0];
+    const ultimo = dias[dias.length - 1];
+    const acc = new Map<
+      string,
+      {
+        inicio: string;
+        fin: string;
+        plan: number;
+        planTrans: number;
+        real: number;
+        idxMinData: number;
+        idxMaxData: number;
+      }
+    >();
+    dias.forEach((fecha, i) => {
+      const d = new Date(`${fecha}T00:00:00Z`);
+      const offset = (d.getUTCDay() + 6) % 7; // 0=lunes
+      const lun = new Date(d);
+      lun.setUTCDate(d.getUTCDate() - offset);
+      const inicio = lun.toISOString().slice(0, 10);
+      if (!acc.has(inicio)) {
+        const dom = new Date(lun);
+        dom.setUTCDate(lun.getUTCDate() + 6);
+        acc.set(inicio, {
+          inicio,
+          fin: dom.toISOString().slice(0, 10),
+          plan: 0,
+          planTrans: 0,
+          real: 0,
+          idxMinData: Infinity,
+          idxMaxData: -Infinity,
+        });
+      }
+      const w = acc.get(inicio)!;
+      const transcurrido = fecha <= realMaxFecha;
+      let conMonto = false; // ¿este día aporta plan/real de la semana?
+      for (const r of rows) {
+        const c = r.days[i];
+        if (c.plan != null) {
+          w.plan += c.plan;
+          if (transcurrido) w.planTrans += c.plan;
+          conMonto = true;
+        }
+        if (c.real != null) {
+          w.real += c.real;
+          conMonto = true;
+        }
+      }
+      const na = naByFecha.get(fecha) ?? 0;
+      w.real += na;
+      if (na > 0) conMonto = true;
+      // rango de columnas CON MONTO de la semana: la card aparece cuando uno de
+      // esos días entra en el viewport (mismo criterio de data-presencia que la
+      // grilla), para no mostrar un total mientras la grilla dice "sin gasto".
+      if (conMonto) {
+        if (i < w.idxMinData) w.idxMinData = i;
+        if (i > w.idxMaxData) w.idxMaxData = i;
+      }
+    });
+    return [...acc.values()]
+      .map((w) => ({
+        ...w,
+        // etiqueta recortada al rango cargado + flags de completitud
+        inicioVista: w.inicio < primero ? primero : w.inicio,
+        finVista: w.fin > ultimo ? ultimo : w.fin,
+        futura: w.inicio > realMaxFecha, // aún no empieza (no hay real posible)
+        parcial: w.inicio < primero || w.fin > ultimo || w.fin > realMaxFecha,
+      }))
+      .filter((w) => w.plan > 0 || w.real > 0)
+      .sort((a, b) => a.inicio.localeCompare(b.inicio));
+  }, [dias, rows, noAtribuido, realMaxFecha]);
+
+  // Semanas del TRAMO VISIBLE: la card aparece cuando un día CON MONTO de la
+  // semana entra en el viewport. Se mueve junto al calendario. Barato: filtra la
+  // lista ya calculada por overlap de los índices con gasto/plan.
+  const semanasVisibles = useMemo(
+    () => semanas.filter((w) => w.idxMaxData >= view.a && w.idxMinData <= view.b),
+    [semanas, view],
+  );
+
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
@@ -318,32 +401,8 @@ export default function InversionMediosPanel({
           >
             <CalendarDays className="h-4 w-4 text-[#666666]" /> Hoy
           </button>
-          {canEdit && (
-            <button
-              onClick={() => setAddOpen((v) => !v)}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-[#9F99F8] px-4 py-2 font-sans text-sm font-medium text-white transition-colors hover:bg-[#8780F0]"
-            >
-              <Plus className="h-4 w-4" /> Agregar evento
-            </button>
-          )}
         </div>
       </header>
-
-      {addOpen && (
-        <AddEventoCard
-          disponibles={disponibles.filter(
-            (d) => !temporales.some((t) => t.eventoId === d.eventoId),
-          )}
-          filtro={filtro}
-          setFiltro={setFiltro}
-          onAdd={(e) => {
-            setTemporales((prev) => [...prev, e]);
-            setAddOpen(false);
-            if (e.fecha) irA(e.fecha);
-          }}
-          onClose={() => setAddOpen(false)}
-        />
-      )}
 
       {/* Resumen del tramo visible: KPIs globales o desglose por canal */}
       {modo === "resumen" ? (
@@ -496,6 +555,29 @@ export default function InversionMediosPanel({
         </div>
       </div>
 
+      {/* Subtotal por semana (lun→dom) — sincronizado con el tramo visible */}
+      {semanasVisibles.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <h2 className="font-display text-lg font-bold text-[#333333]">Subtotal por semana</h2>
+            <span className="font-sans text-xs text-[#999999]">
+              semanas del tramo visible ({rangoLabel}) · monto de la semana completa
+            </span>
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {semanasVisibles.map((w) => (
+              <SemanaCard key={w.inicio} w={w} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Cargos extra CARDDA (pagos recurrentes de plataformas) */}
+      <CargosExtra cargos={cargos} canEdit={canEdit} />
+
+      {/* Facturación histórica: lo realmente cobrado a la tarjeta Cardda */}
+      <FacturacionHistorica consumo={carddaConsumo} fee={carddaFee} />
+
       <p className="font-sans text-xs text-[#999999]">
         Cada celda: plan total del día (arriba) y real (abajo). El plan se edita{" "}
         <span className="text-[#333333]">por plataforma</span> abriendo el evento. El techo por
@@ -506,6 +588,66 @@ export default function InversionMediosPanel({
         ). El real de hoy es parcial (los datos de ads llegan a las 09:45). La atribución usa
         el EventoID al inicio del nombre de campaña — lo que no calza queda en &ldquo;No
         atribuido&rdquo;.
+      </p>
+    </div>
+  );
+}
+
+// ---------- Card de subtotal semanal ----------
+
+function SemanaCard({
+  w,
+}: {
+  w: {
+    inicio: string;
+    fin: string;
+    plan: number;
+    planTrans: number;
+    real: number;
+    inicioVista: string;
+    finVista: string;
+    futura: boolean;
+    parcial: boolean;
+  };
+}) {
+  // El semáforo compara real contra el plan TRANSCURRIDO (días ≤ real-al), no
+  // contra el plan de toda la semana: así una semana futura con plan sembrado
+  // pero sin gasto no se pinta verde "cumplida", sino gris "programada".
+  const pct = w.planTrans > 0 ? (w.real / w.planTrans) * 100 : w.real > 0 ? 999 : 0;
+  const tono = w.futura
+    ? { dot: "#CCCCCC", txt: "text-[#999999]" }
+    : pct > 100
+      ? { dot: "#ED75A0", txt: "text-[#ED75A0]" }
+      : pct >= 85
+        ? { dot: "#F6C544", txt: "text-[#B8890B]" }
+        : { dot: "#B1D750", txt: "text-[#3B6D11]" };
+  const estado = w.futura
+    ? "programado — aún sin gasto"
+    : w.planTrans > 0
+      ? `${Math.round(pct)}% del plan${w.parcial ? " a la fecha" : ""}`
+      : w.real > 0
+        ? "gasto sin plan"
+        : "sin plan";
+  return (
+    <div className="rounded-lg border border-[#E5E5E5] bg-white p-4">
+      <p className="font-sans text-xs text-[#666666]">
+        Semana del {fmtDiaCorto(w.inicioVista)} al {fmtDiaCorto(w.finVista)}
+        {w.parcial && !w.futura && (
+          <span className="ml-1 text-[#999999]" title="La semana aún no cierra: el real está incompleto">
+            (parcial)
+          </span>
+        )}
+      </p>
+      <p className="mt-1.5 font-sans text-sm tabular-nums text-[#333333]">
+        <span className="font-display text-lg font-bold">{fmtUsd(w.plan, 0)}</span>
+        <span className="text-[#999999]"> plan</span>
+        <span className="mx-1.5 text-[#CCCCCC]">·</span>
+        <span className="font-display text-lg font-bold">{fmtUsd(w.real, 0)}</span>
+        <span className="text-[#999999]"> real</span>
+      </p>
+      <p className={`mt-2 inline-flex items-center gap-1.5 font-sans text-xs ${tono.txt}`}>
+        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: tono.dot }} />
+        {estado}
       </p>
     </div>
   );
@@ -612,76 +754,6 @@ function CeldaResumen({ cell, parcial }: { cell: DayCell; parcial: boolean }) {
           "·"
         )}
       </span>
-    </div>
-  );
-}
-
-// ---------- Agregar evento (fila sintética hasta su primera celda) ----------
-
-function AddEventoCard({
-  disponibles,
-  filtro,
-  setFiltro,
-  onAdd,
-  onClose,
-}: {
-  disponibles: Disponible[];
-  filtro: string;
-  setFiltro: (v: string) => void;
-  onAdd: (e: Disponible) => void;
-  onClose: () => void;
-}) {
-  const matches = useMemo(() => {
-    const f = filtro.trim().toLowerCase();
-    const base = f
-      ? disponibles.filter(
-          (e) =>
-            e.eventoId.toLowerCase().includes(f) || e.nombre.toLowerCase().includes(f),
-        )
-      : disponibles;
-    return base.slice(0, 12);
-  }, [disponibles, filtro]);
-
-  return (
-    <div className="rounded-lg border border-[#E5E5E5] bg-white p-4">
-      <div className="flex items-center justify-between gap-3">
-        <input
-          autoFocus
-          value={filtro}
-          onChange={(e) => setFiltro(e.target.value)}
-          placeholder="Buscar evento por nombre o EventoID…"
-          className="w-full max-w-md rounded-lg border border-[#E5E5E5] px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
-        />
-        <button
-          onClick={onClose}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F5F5F5]"
-          aria-label="Cerrar"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-      <p className="mt-2 font-sans text-xs text-[#999999]">
-        El evento queda en la grilla al guardar su primera celda de plan.
-      </p>
-      <ul className="mt-3 grid grid-cols-1 gap-1 md:grid-cols-2">
-        {matches.map((e) => (
-          <li key={e.eventoId}>
-            <button
-              onClick={() => onAdd(e)}
-              className="w-full rounded-lg px-3 py-2 text-left font-sans text-sm text-[#333333] transition-colors hover:bg-[#FAFAFA]"
-            >
-              <span className="font-medium">{e.nombre || e.eventoId}</span>
-              <span className="ml-2 text-xs text-[#999999]">
-                {e.eventoId}
-                {e.fecha ? ` · ${e.fecha}` : ""}
-              </span>
-            </button>
-          </li>
-        ))}
-        {matches.length === 0 && (
-          <li className="px-3 py-2 font-sans text-sm text-[#999999]">Sin resultados</li>
-        )}
-      </ul>
     </div>
   );
 }
@@ -824,6 +896,399 @@ function Kpi({
           {hint ?? (tone === "neg" ? "sobre el plan" : "bajo el plan")}
         </p>
       )}
+    </div>
+  );
+}
+
+// ---------- Cargos extra CARDDA (pagos recurrentes de plataformas) ----------
+
+type CargoForm = { proveedor: string; detalle: string; metodo: MetodoCargo; monto: string; diaPago: string };
+const CARGO_VACIO: CargoForm = { proveedor: "", detalle: "", metodo: "mensual", monto: "", diaPago: "" };
+
+function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boolean }) {
+  const router = useRouter();
+  const [editId, setEditId] = useState<string | null>(null); // id en edición, "" = alta nueva, null = cerrado
+  const [form, setForm] = useState<CargoForm>(CARGO_VACIO);
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const total = useMemo(() => resumenCargos(cargos), [cargos]);
+
+  function abrirAlta() {
+    setEditId("");
+    setForm(CARGO_VACIO);
+    setMsg(null);
+  }
+  function abrirEdicion(c: CargoExtra) {
+    setEditId(c.id);
+    setForm({
+      proveedor: c.proveedor,
+      detalle: c.detalle ?? "",
+      metodo: (METODOS_CARGO as readonly string[]).includes(c.metodo) ? (c.metodo as MetodoCargo) : "mensual",
+      monto: String(c.montoUsd),
+      diaPago: c.diaPago ?? "",
+    });
+    setMsg(null);
+  }
+  function guardar() {
+    const monto = Number(form.monto.replace(/[$\s]/g, "").replace(",", "."));
+    if (!form.proveedor.trim()) return setMsg({ ok: false, text: "Falta el proveedor" });
+    if (!Number.isFinite(monto) || monto <= 0) return setMsg({ ok: false, text: "Monto inválido" });
+    start(async () => {
+      const res = await upsertCargoAction({
+        id: editId || undefined,
+        proveedor: form.proveedor,
+        detalle: form.detalle,
+        metodo: form.metodo,
+        montoUsd: monto,
+        diaPago: form.diaPago,
+      });
+      if (!res.ok) setMsg({ ok: false, text: res.error });
+      else {
+        setEditId(null);
+        setMsg(null);
+        router.refresh();
+      }
+    });
+  }
+  function borrar(id: string) {
+    start(async () => {
+      const res = await deleteCargoAction({ id });
+      if (!res.ok) setMsg({ ok: false, text: res.error });
+      else router.refresh();
+    });
+  }
+
+  const inputCls =
+    "rounded-lg border border-[#E5E5E5] px-3 py-2 font-sans text-sm text-[#333333] transition-colors focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]";
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="font-display text-lg font-bold text-[#333333]">Cargos extra CARDDA</h2>
+          <p className="font-sans text-xs text-[#666666]">
+            Pagos recurrentes de plataformas (DRIP, Adobe, Google Workspace, GPT…) normalizados
+            para presupuestar.
+          </p>
+        </div>
+        {canEdit && (
+          <button
+            onClick={abrirAlta}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-[#9F99F8] px-4 py-2 font-sans text-sm font-medium text-white transition-colors hover:bg-[#8780F0]"
+          >
+            <Plus className="h-4 w-4" /> Agregar proveedor
+          </button>
+        )}
+      </div>
+
+      {/* Resumen normalizado */}
+      <div className="grid grid-cols-2 gap-6 md:grid-cols-2">
+        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
+          <p className="font-sans text-xs text-[#666666]">Costo mensual (normalizado)</p>
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+            {fmtUsd(total.mensual, 0)}
+          </p>
+          <p className="mt-3 font-sans text-xs text-[#999999]">lo que conviene presupuestar por mes</p>
+        </div>
+        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
+          <p className="font-sans text-xs text-[#666666]">Costo semanal (normalizado)</p>
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+            {fmtUsd(total.semanal, 0)}
+          </p>
+          <p className="mt-3 font-sans text-xs text-[#999999]">promedio por semana</p>
+        </div>
+      </div>
+
+      {/* Form alta/edición */}
+      {canEdit && editId !== null && (
+        <div className="rounded-lg border border-[#E5E5E5] bg-white p-4">
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="flex flex-col gap-1 font-sans text-xs text-[#666666]">
+              Proveedor
+              <input
+                value={form.proveedor}
+                onChange={(e) => setForm((f) => ({ ...f, proveedor: e.target.value }))}
+                placeholder="DRIP, Adobe, Google Workspace…"
+                className={`${inputCls} w-48`}
+              />
+            </label>
+            <label className="flex flex-col gap-1 font-sans text-xs text-[#666666]">
+              Detalle
+              <input
+                value={form.detalle}
+                onChange={(e) => setForm((f) => ({ ...f, detalle: e.target.value }))}
+                placeholder="cuenta, plan, notas"
+                className={`${inputCls} w-48`}
+              />
+            </label>
+            <label className="flex flex-col gap-1 font-sans text-xs text-[#666666]">
+              Método
+              <select
+                value={form.metodo}
+                onChange={(e) => setForm((f) => ({ ...f, metodo: e.target.value as MetodoCargo }))}
+                className={inputCls}
+              >
+                {METODOS_CARGO.map((m) => (
+                  <option key={m} value={m}>
+                    {METODO_LABEL[m]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 font-sans text-xs text-[#666666]">
+              Monto USD
+              <input
+                value={form.monto}
+                onChange={(e) => setForm((f) => ({ ...f, monto: e.target.value }))}
+                inputMode="decimal"
+                placeholder="0.00"
+                className={`${inputCls} w-28 text-right tabular-nums`}
+              />
+            </label>
+            <label className="flex flex-col gap-1 font-sans text-xs text-[#666666]">
+              Día de pago
+              <input
+                value={form.diaPago}
+                onChange={(e) => setForm((f) => ({ ...f, diaPago: e.target.value }))}
+                placeholder="15 · 1 de marzo · lunes"
+                className={`${inputCls} w-40`}
+              />
+            </label>
+            <button
+              onClick={guardar}
+              disabled={pending}
+              className="rounded-lg bg-[#9F99F8] px-4 py-2 font-sans text-sm font-medium text-white transition-colors hover:bg-[#8780F0] disabled:opacity-60"
+            >
+              {editId ? "Guardar" : "Agregar"}
+            </button>
+            <button
+              onClick={() => setEditId(null)}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F5F5F5]"
+              aria-label="Cancelar"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            {msg && !msg.ok && <span className="font-sans text-xs text-[#ED75A0]">{msg.text}</span>}
+          </div>
+        </div>
+      )}
+
+      {/* Tabla de cargos */}
+      {cargos.length === 0 ? (
+        <p className="rounded-lg border border-[#E5E5E5] bg-white p-6 text-center font-sans text-sm text-[#999999]">
+          Sin cargos extra cargados{canEdit ? " — agregá el primero." : "."}
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-[#E5E5E5] bg-white">
+          <table className="w-full border-collapse font-sans text-sm">
+            <thead>
+              <tr className="text-xs text-[#666666]">
+                <th className="border-b border-[#E5E5E5] px-4 py-2 text-left font-medium">Proveedor</th>
+                <th className="border-b border-[#E5E5E5] px-4 py-2 text-left font-medium">Método</th>
+                <th className="border-b border-[#E5E5E5] px-4 py-2 text-right font-medium">Monto</th>
+                <th className="border-b border-[#E5E5E5] px-4 py-2 text-left font-medium">Día</th>
+                <th className="border-b border-[#E5E5E5] px-4 py-2 text-right font-medium">≈ Mensual</th>
+                {canEdit && <th className="border-b border-[#E5E5E5] px-4 py-2" />}
+              </tr>
+            </thead>
+            <tbody>
+              {cargos.map((c) => (
+                <tr key={c.id} className="transition-colors hover:bg-[#FAFAFA]">
+                  <td className="border-t border-[#E5E5E5] px-4 py-2">
+                    <span className="font-medium text-[#333333]">{c.proveedor}</span>
+                    {c.detalle && <p className="text-xs text-[#999999]">{c.detalle}</p>}
+                  </td>
+                  <td className="border-t border-[#E5E5E5] px-4 py-2 text-[#666666]">
+                    {METODO_LABEL[c.metodo as MetodoCargo] ?? c.metodo}
+                  </td>
+                  <td className="border-t border-[#E5E5E5] px-4 py-2 text-right tabular-nums text-[#333333]">
+                    {fmtUsd(c.montoUsd)}
+                  </td>
+                  <td className="border-t border-[#E5E5E5] px-4 py-2 text-[#999999]">{c.diaPago || "—"}</td>
+                  <td className="border-t border-[#E5E5E5] px-4 py-2 text-right tabular-nums text-[#666666]">
+                    {fmtUsd(costoMensual(c), 0)}
+                    <span className="block text-[11px] text-[#BBBBBB]">{fmtUsd(costoSemanal(c), 0)}/sem</span>
+                  </td>
+                  {canEdit && (
+                    <td className="border-t border-[#E5E5E5] px-4 py-2 text-right">
+                      <div className="inline-flex gap-1">
+                        <button
+                          onClick={() => abrirEdicion(c)}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-[#666666] hover:bg-[#F0F0F0]"
+                          aria-label="Editar"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={() => borrar(c.id)}
+                          disabled={pending}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-[#666666] hover:bg-[#FCEBEB] hover:text-[#ED75A0]"
+                          aria-label="Quitar"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------- Facturación histórica (Cardda) ----------
+
+function FacturacionHistorica({
+  consumo,
+  fee,
+}: {
+  consumo: CarddaConsumoRow[];
+  fee: CarddaFeeRow[];
+}) {
+  const meses = useMemo<FacturacionMes[]>(() => buildFacturacion(consumo, fee), [consumo, fee]);
+  const resumen = useMemo(() => resumenFacturacion(meses), [meses]);
+
+  if (meses.length === 0) {
+    return (
+      <div className="flex flex-col gap-4">
+        <div>
+          <h2 className="font-display text-lg font-bold text-[#333333]">Facturación histórica (Cardda)</h2>
+          <p className="font-sans text-xs text-[#666666]">
+            Lo realmente cobrado a la tarjeta Cardda con que se pagan los ads.
+          </p>
+        </div>
+        <p className="rounded-lg border border-[#E5E5E5] bg-white p-6 text-center font-sans text-sm text-[#999999]">
+          Sin facturación cargada todavía.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h2 className="font-display text-lg font-bold text-[#333333]">Facturación histórica (Cardda)</h2>
+        <p className="max-w-3xl font-sans text-xs text-[#666666]">
+          Lo realmente <span className="text-[#333333]">cobrado a la tarjeta Cardda</span> (solo
+          cargos aprobados, en USD por fecha). Es distinto del gasto declarado de las cuentas de
+          ads de arriba: acá manda el cargo real a la tarjeta.
+        </p>
+      </div>
+
+      {/* KPIs */}
+      <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
+        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
+          <p className="font-sans text-xs text-[#666666]">Consumo tarjeta (histórico)</p>
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+            {fmtUsd(resumen.consumoTotal, 0)}
+          </p>
+          <p className="mt-3 font-sans text-xs text-[#999999]">todos los comercios, aprobado</p>
+        </div>
+        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
+          <p className="font-sans text-xs text-[#666666]">Fee de Cardda (histórico)</p>
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+            {fmtUsd(resumen.feeTotal, 0)}
+          </p>
+          <p className="mt-3 font-sans text-xs text-[#999999]">costo del servicio Cardda</p>
+        </div>
+        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
+          <p className="font-sans text-xs text-[#666666]">
+            Consumo {resumen.ultimoPeriodo ? fmtPeriodo(resumen.ultimoPeriodo) : "último mes"}
+          </p>
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+            {fmtUsd(resumen.consumoUltimoMes, 0)}
+          </p>
+          <p className="mt-3 font-sans text-xs text-[#999999]">último mes con datos</p>
+        </div>
+        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
+          <p className="font-sans text-xs text-[#666666]">
+            Fee {resumen.ultimoPeriodo ? fmtPeriodo(resumen.ultimoPeriodo) : "último mes"}
+          </p>
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+            {fmtUsd(resumen.feeUltimoMes, 0)}
+          </p>
+          <p className="mt-3 font-sans text-xs text-[#999999]">fee del último mes</p>
+        </div>
+      </div>
+
+      {/* Tabla mensual por canal + fee */}
+      <div className="overflow-x-auto rounded-lg border border-[#E5E5E5] bg-white">
+        <table className="w-full border-collapse font-sans text-sm">
+          <thead>
+            <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA] text-xs text-[#666666]">
+              <th className="px-4 py-3 text-left font-medium">Período</th>
+              {CANALES_FACT.map((c) => (
+                <th key={c} className="px-4 py-3 text-right font-medium">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span
+                      className="h-2 w-2 rounded-full"
+                      style={{ backgroundColor: CANAL_COLORS[CANAL_FACT_LABEL[c]] }}
+                    />
+                    {CANAL_FACT_LABEL[c]}
+                  </span>
+                </th>
+              ))}
+              <th className="px-4 py-3 text-right font-medium text-[#333333]">Consumo total</th>
+              <th className="px-4 py-3 text-right font-medium">Fee Cardda</th>
+            </tr>
+          </thead>
+          <tbody>
+            {meses.map((m) => (
+              <tr key={m.periodo} className="border-b border-[#F0F0F0] last:border-0 hover:bg-[#FAFAFA]">
+                <td className="px-4 py-2.5 text-left font-medium text-[#333333]">{fmtPeriodo(m.periodo)}</td>
+                {CANALES_FACT.map((c) => (
+                  <td key={c} className="px-4 py-2.5 text-right tabular-nums text-[#666666]">
+                    {m[c] > 0 ? fmtUsd(m[c], 0) : "·"}
+                  </td>
+                ))}
+                <td
+                  className="px-4 py-2.5 text-right font-medium tabular-nums text-[#333333]"
+                  title={`CLP ${m.consumoClp.toLocaleString("es-CL", { maximumFractionDigits: 0 })}`}
+                >
+                  {fmtUsd(m.consumoUsd, 0)}
+                </td>
+                <td className="px-4 py-2.5 text-right tabular-nums text-[#666666]">
+                  {m.feeUsd > 0 ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      {fmtUsd(m.feeUsd, 0)}
+                      {m.feeStatus === "draft" && (
+                        <span className="rounded-full bg-[#FBF3D6] px-1.5 py-0.5 text-[10px] text-[#B8890B]">
+                          borrador
+                        </span>
+                      )}
+                    </span>
+                  ) : (
+                    "·"
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="border-t border-[#E5E5E5] bg-[#FAFAFA] text-[#333333]">
+              <td className="px-4 py-3 text-left font-medium">Total histórico</td>
+              {CANALES_FACT.map((c) => (
+                <td key={c} className="px-4 py-3 text-right font-medium tabular-nums">
+                  {fmtUsd(resumen.porCanalTotal[c], 0)}
+                </td>
+              ))}
+              <td className="px-4 py-3 text-right font-bold tabular-nums">{fmtUsd(resumen.consumoTotal, 0)}</td>
+              <td className="px-4 py-3 text-right font-medium tabular-nums">{fmtUsd(resumen.feeTotal, 0)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+
+      <p className="font-sans text-xs text-[#999999]">
+        &ldquo;Otras&rdquo; agrupa SaaS y otros comercios (Drip, Adobe, Webflow, Workspace…) — se
+        solapa con los cargos extra de arriba. Meta = Facebook/Instagram; Google = solo Google Ads
+        (Workspace/Cloud caen en Otras); montos convertidos a USD con el tipo de cambio del día.
+      </p>
     </div>
   );
 }

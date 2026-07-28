@@ -16,6 +16,13 @@ type EventSelectorProps = {
   upcomingEvents: EventOption[];
 };
 
+// "Próximos" strip: a fixed 3-card window that scrolls to reach the rest, so
+// the top bar keeps its height no matter how many upcoming events there are.
+const UPCOMING_CARD_W = 140; // px — must match `w-[140px]` on each card
+const UPCOMING_GAP = 8; // px — must match `gap-2` on the scroller
+const UPCOMING_VISIBLE = 3;
+const UPCOMING_STEP = UPCOMING_CARD_W + UPCOMING_GAP;
+
 function BrutalSelect({
   value,
   options,
@@ -70,6 +77,123 @@ function BrutalSelect({
             </button>
           ))}
         </div>
+      )}
+    </div>
+  );
+}
+
+function UpcomingStrip({
+  events,
+  selected,
+  onPick,
+}: {
+  events: EventOption[];
+  selected: string;
+  onPick: (ev: EventOption) => void;
+}) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [atStart, setAtStart] = useState(true);
+  const [atEnd, setAtEnd] = useState(true);
+
+  // Arrow state follows the real scroll offset, so wheel/trackpad/swipe count
+  // too — not just our own scrollBy calls.
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const update = () => {
+      setAtStart(el.scrollLeft <= 1);
+      setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 1);
+    };
+    update();
+    el.addEventListener("scroll", update, { passive: true });
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => {
+      el.removeEventListener("scroll", update);
+      ro.disconnect();
+    };
+  }, [events.length]);
+
+  // Keep the active event inside the window when the selection came from
+  // somewhere else (dropdown, `?event=` in the URL).
+  useEffect(() => {
+    const el = scroller.current;
+    if (!el) return;
+    const idx = events.findIndex((e) => e.eventoId === selected);
+    if (idx < 0) return;
+    const left = idx * UPCOMING_STEP;
+    if (
+      left < el.scrollLeft ||
+      left + UPCOMING_CARD_W > el.scrollLeft + el.clientWidth
+    ) {
+      el.scrollTo({ left, behavior: "smooth" });
+    }
+  }, [events, selected]);
+
+  function page(dir: 1 | -1) {
+    scroller.current?.scrollBy({
+      left: dir * UPCOMING_STEP * UPCOMING_VISIBLE,
+      behavior: "smooth",
+    });
+  }
+
+  const scrollable = events.length > UPCOMING_VISIBLE;
+  const arrowClass =
+    "border-2 border-black rounded-none bg-white text-black font-display text-xs leading-none px-2 py-2 cursor-pointer transition-colors duration-150 hover:bg-[#FFFF00] disabled:opacity-30 disabled:cursor-default disabled:hover:bg-white";
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="font-mono-data uppercase text-xs text-black mr-1">
+        {scrollable ? `Próximos · ${events.length}` : "Próximos"}
+      </span>
+      {scrollable && (
+        <button
+          type="button"
+          onClick={() => page(-1)}
+          disabled={atStart}
+          aria-label="Ver eventos anteriores"
+          className={arrowClass}
+        >
+          ◀
+        </button>
+      )}
+      <div
+        ref={scroller}
+        className="flex gap-2 overflow-x-auto overflow-y-hidden scrollbar-none snap-x snap-mandatory max-w-full"
+        style={{
+          width:
+            Math.min(events.length, UPCOMING_VISIBLE) * UPCOMING_STEP -
+            UPCOMING_GAP,
+        }}
+      >
+        {events.map((ev) => (
+          <button
+            key={ev.eventoId}
+            type="button"
+            onClick={() => onPick(ev)}
+            className={`w-[140px] shrink-0 snap-start border-2 border-black rounded-none font-mono-data text-xs px-3 py-1.5 cursor-pointer transition-colors duration-150 text-left ${
+              ev.eventoId === selected
+                ? "bg-black text-[#FFFF00] font-bold"
+                : "bg-white text-black hover:bg-[#FFFF00]"
+            }`}
+          >
+            <span className="block truncate">{ev.nombre}</span>
+            <span className="block text-[10px] opacity-60">
+              {ev.fechaEvento}
+            </span>
+          </button>
+        ))}
+      </div>
+      {scrollable && (
+        <button
+          type="button"
+          onClick={() => page(1)}
+          disabled={atEnd}
+          aria-label="Ver eventos siguientes"
+          className={arrowClass}
+        >
+          ▶
+        </button>
       )}
     </div>
   );
@@ -153,26 +277,11 @@ export default function EventSelector({
       </div>
 
       {upcomingEvents.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="font-mono-data uppercase text-xs text-black mr-1">
-            Próximos
-          </span>
-          {upcomingEvents.map((ev) => (
-            <button
-              key={ev.eventoId}
-              type="button"
-              onClick={() => handleUpcomingEventClick(ev)}
-              className={`border-2 border-black rounded-none font-mono-data text-xs px-3 py-1.5 cursor-pointer transition-colors duration-150 text-left ${
-                ev.eventoId === selected
-                  ? "bg-black text-[#FFFF00] font-bold"
-                  : "bg-white text-black hover:bg-[#FFFF00]"
-              }`}
-            >
-              <span className="block truncate max-w-[120px]">{ev.nombre}</span>
-              <span className="block text-[10px] opacity-60">{ev.fechaEvento}</span>
-            </button>
-          ))}
-        </div>
+        <UpcomingStrip
+          events={upcomingEvents}
+          selected={selected}
+          onPick={handleUpcomingEventClick}
+        />
       )}
     </div>
   );

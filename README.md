@@ -57,6 +57,7 @@ No hagas commit de secretos ni credenciales reales.
 - Prefiere patrones ya existentes en `app/`, `components/`, `lib/` y `db/`.
 - Separa lógica de datos en `lib/queries` o servicios cuando el patrón ya exista.
 - Valida inputs y permisos en server actions/API routes antes de tocar datos.
+- ⚠️ **Negocios internos GLOVOX** (`area_negocio='GLOVOX'` en `marts.finanzas_*`: sueldos y gasto administrativo, flag `es_interno_glovox`): SOLO pueden mostrarse en `/interno`, su dashboard exclusivo de acceso restringido. NINGÚN otro dashboard, query o export debe incluirlos — toda query nueva sobre esas vistas filtra `NOT es_interno_glovox` (o `es_produccion_propia` / área explícita). Regla aplicada a todos los dashboards existentes el 20-jul-2026.
 - Para cambios de schema, actualiza `db/schema.ts` y genera migración con Drizzle.
 - Para UI, mantén densidad, jerarquía y lenguaje visual consistente con el dashboard afectado.
 - Agrega o ejecuta pruebas/verificaciones proporcionales al riesgo: `npm run lint`, `npm run build` o scripts específicos.

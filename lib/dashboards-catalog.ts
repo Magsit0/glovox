@@ -231,6 +231,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentText: "text-white",
   },
   {
+    key: "interno",
+    pathPrefix: "/interno",
+    label: "Gasto interno",
+    appliesCountryScope: false,
+    sortOrder: 86,
+    title: "GASTO INTERNO",
+    description:
+      "Gasto interno GLOVOX (sueldos y administración): evolución por categoría, contenedores anuales por rubro, proveedores y detalle descargable. Data sensible — acceso restringido.",
+    icon: "building-2",
+    accentClass: "bg-[#607D8B]",
+    accentText: "text-white",
+  },
+  {
     key: "presupuesto",
     pathPrefix: "/presupuesto",
     label: "Presupuesto",

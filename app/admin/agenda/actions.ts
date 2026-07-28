@@ -17,7 +17,7 @@ interface ActorCtx {
 
 /**
  * Gate por ROL dentro de la action (defensa en profundidad: las server actions
- * son POSTs invocables aunque el middleware proteja la navegación). Lanza Error
+ * son POSTs invocables aunque el proxy proteja la navegación). Lanza Error
  * en vez de redirect() para devolver un ActionResult limpio.
  */
 async function requireAgendaAccess(): Promise<ActorCtx> {

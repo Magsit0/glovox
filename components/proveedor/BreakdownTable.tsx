@@ -23,8 +23,10 @@ interface Props {
   firstColLabel: string;
   metaColLabel?: string;
   rows: BreakdownRow[];
-  /** Si se define, la primera columna es link a /proveedor?<drillParam>=<key>. */
+  /** Si se define, la primera columna es link a <basePath>?<drillParam>=<key>. */
   drillParam?: string;
+  /** Ruta base del link de drill (default: /proveedor). */
+  basePath?: string;
   baseSearchParams?: Record<string, string | undefined>;
   /**
    * Datos para los botones de descarga (CSV + Excel). Se pasan como datos (no
@@ -77,6 +79,7 @@ export default function BreakdownTable({
   metaColLabel,
   rows,
   drillParam,
+  basePath = "/proveedor",
   baseSearchParams,
   csv,
   emptyText = "Sin datos para los filtros seleccionados.",
@@ -133,7 +136,7 @@ export default function BreakdownTable({
       if (v) params.set(k, v);
     }
     params.set(drillParam, key);
-    return `/proveedor?${params.toString()}`;
+    return `${basePath}?${params.toString()}`;
   }
 
   const maxGasto = sorted.reduce((m, r) => Math.max(m, r.gasto), 0);

@@ -14,6 +14,10 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { EtapaCampana } from "@/lib/inversion-medios/etapas";
+
+// Re-export para consumidores que ya importan EtapaCampana desde @/db/schema.
+export type { EtapaCampana };
 
 export const roleEnum = pgEnum("user_role", ["superadmin", "user"]);
 export const countryEnum = pgEnum("country", ["CL", "PE"]);
@@ -614,6 +618,53 @@ export type PlataformaMedios = (typeof PLATAFORMAS_MEDIOS)[number];
 
 export type InversionMediosDiario = typeof inversionMediosDiario.$inferSelect;
 export type NewInversionMediosDiario = typeof inversionMediosDiario.$inferInsert;
+
+// INVERSIÓN MEDIOS — Etapas de campaña por evento (pre-registro, awareness, fomo,
+// last call, día de evento… pueden ser más). Es una LISTA ORDENADA: el inicio de
+// una etapa es el fin de la anterior; la última corre hasta el fin del calendario.
+// Una fila por evento (patrón admin_agenda_notas: PK + jsonb). Pintan bandas de
+// color suave arriba del calendario en el drill. El color se deriva del índice.
+// El tipo EtapaCampana vive en un módulo CLIENT-SAFE (lo consume el drill cliente)
+// para no arrastrar Drizzle/BigQuery al bundle del navegador.
+export const inversionMediosEtapas = pgTable("inversion_medios_etapas", {
+  eventoId: text("evento_id").primaryKey(),
+  etapas: jsonb("etapas").$type<EtapaCampana[]>().notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  createdBy: uuid("created_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedBy: uuid("updated_by"),
+});
+
+export type InversionMediosEtapas = typeof inversionMediosEtapas.$inferSelect;
+
+// INVERSIÓN MEDIOS — Cargos extra (CARDDA): pagos recurrentes de plataformas/
+// herramientas (DRIP, Adobe, Google Workspace, GPT, etc.) que NO son inversión
+// en ads pero pesan en el presupuesto de medios. `metodo` define la frecuencia;
+// el resumen normaliza cada cargo a costo mensual y semanal para presupuestar.
+// `diaPago` es texto libre (ej. "15", "1 de marzo", "lunes") solo informativo.
+// `metodo` ∈ METODOS_CARGO (definido en @/lib/inversion-medios/cargos, client-safe).
+export const cargosExtraPm = pgTable("cargos_extra_pm", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  proveedor: text("proveedor").notNull(),
+  detalle: text("detalle"),
+  metodo: text("metodo").notNull(), // anual | mensual | semanal | diario
+  montoUsd: doublePrecision("monto_usd").notNull(),
+  diaPago: text("dia_pago"),
+  activo: boolean("activo").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  createdBy: uuid("created_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+  updatedBy: uuid("updated_by"),
+});
+export type CargoExtra = typeof cargosExtraPm.$inferSelect;
 
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Country = (typeof countryEnum.enumValues)[number];

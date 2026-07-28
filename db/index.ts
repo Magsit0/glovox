@@ -6,7 +6,7 @@ import * as schema from "./schema";
 // Driver serverless de Neon (WebSocket Pool). A diferencia de postgres-js, no
 // mantiene un socket TCP long-lived que Neon recicla al suspender el compute
 // (la causa de los `write CONNECTION_CLOSED` en dev). En runtime Node —el que
-// usa el middleware y los route handlers— hay que proveerle el WebSocket.
+// usa el proxy y los route handlers— hay que proveerle el WebSocket.
 neonConfig.webSocketConstructor = ws;
 
 // Accept DATABASE_URL or POSTGRES_URL (Neon Vercel integration uses either).

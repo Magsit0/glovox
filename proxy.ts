@@ -8,7 +8,7 @@ import { NextResponse } from "next/server";
 /** Paths always accessible to any logged-in user. */
 const PUBLIC_PATHS = ["/", "/login"];
 
-export default auth((req) => {
+export const proxy = auth((req) => {
   const isLoggedIn = !!req.auth;
   const { pathname } = req.nextUrl;
   const isLoginPage = pathname === "/login";
@@ -82,9 +82,10 @@ export default auth((req) => {
 });
 
 export const config = {
-  // Middleware necesita Node.js runtime para escribir a Postgres
-  // (postgres-js no es compatible con Edge).
-  runtime: "nodejs",
+  // `proxy` corre siempre en Node.js runtime (no es configurable: declarar
+  // `runtime` acá lanza error). Eso es justo lo que necesitamos para escribir
+  // a Postgres desde logDashboardAccess — postgres-js no corre en Edge.
+  //
   // Keep api/auth excluded from matcher so NextAuth handles OAuth callbacks natively.
   // Other /api/ routes are excluded inside the callback above.
   matcher: ["/((?!api/auth|_next/static|_next/image|favicon.ico|.*\\.svg|.*\\.png|.*\\.jpg|.*\\.jpeg|.*\\.webp|.*\\.ico).*)"],

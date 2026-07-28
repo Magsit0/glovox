@@ -339,7 +339,6 @@ export async function getUpcomingEvents(scope?: Scope): Promise<EventOption[]> {
     GROUP BY c.EventoID
     HAVING fecha_evento >= FORMAT_DATE('%Y-%m-%d', CURRENT_DATE())
     ORDER BY fecha_evento ASC
-    LIMIT 5
   `,
     t.params,
   );

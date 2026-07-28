@@ -7,7 +7,7 @@ export default async function GovernanceLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Defensa en profundidad: el middleware ya exige sesión, y para no-superadmin
+  // Defensa en profundidad: el proxy ya exige sesión, y para no-superadmin
   // canAccessPath("/governance") es falso. Esto cubre cualquier bypass.
   await requireSuperadmin();
 

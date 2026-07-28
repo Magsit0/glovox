@@ -5,10 +5,15 @@ import { getCategoriaEventos, getEventInfo } from "@/lib/queries/ticketing";
 import {
   buildDrillGrid,
   getBudgetPmMap,
+  getCarddaConsumoMensual,
+  getCarddaFeeMensual,
+  getCargosExtra,
+  getEtapas,
   getNoAtribuidoDiario,
   getPlanDiarioEvento,
   getPlanDiarioRango,
   getPlanExtent,
+  getRealDesgloseEvento,
   getRealDiarioEvento,
   getRealDiarioRango,
   getRealExtentEvento,
@@ -121,18 +126,15 @@ export default async function InversionMediosPage({
     return { eventoId: id, nombre: c.nombre, fecha: c.fecha };
   });
 
-  const [budgetPm, totales] = await Promise.all([
+  const [budgetPm, totales, cargos, carddaConsumo, carddaFee] = await Promise.all([
     getBudgetPmMap(ids),
     getTotalesEvento(ids),
+    getCargosExtra(),
+    getCarddaConsumoMensual(),
+    getCarddaFeeMensual(),
   ]);
 
   const grid = mergeGrid({ eventos, from: desde, to: hasta, plan, real, budgetPm });
-
-  // Eventos del catálogo sin fila todavía (picker para empezar a planificarlos).
-  const enGrid = new Set(ids);
-  const disponibles = catalogo
-    .filter((e) => !enGrid.has(e.eventoId))
-    .map((e) => ({ eventoId: e.eventoId, nombre: e.nombre, fecha: e.fecha }));
 
   return (
     <InversionMediosPanel
@@ -141,9 +143,11 @@ export default async function InversionMediosPage({
       grid={grid}
       totales={Object.fromEntries(totales)}
       noAtribuido={noAtribuido}
-      disponibles={disponibles}
       realMaxFecha={realMaxFecha}
       hoy={hoy}
+      cargos={cargos}
+      carddaConsumo={carddaConsumo}
+      carddaFee={carddaFee}
       canEdit={canEdit}
     />
   );
@@ -164,31 +168,35 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
     );
   }
 
-  // Ventana del evento: inicio de venta → fecha del evento, expandida por lo
-  // que exista FUERA de esa heurística tanto en plan como en gasto real (si no,
-  // los totales del drill no cuadrarían con el header de la grilla).
+  // Ventana del calendario del evento:
+  //  - LÍMITE SUPERIOR = la fecha declarada del evento (categoriaEvento.Fecha),
+  //    SIEMPRE (haya o no plan/gasto). Se extiende más allá SOLO si hay plan o
+  //    gasto pasada esa fecha. Sin fecha declarada, cae al último dato / hoy.
+  //  - LÍMITE INFERIOR = inicio de venta o primer dato; si no hay nada, hoy
+  //    (así el calendario va de hoy → fecha del evento aunque esté vacío).
   const hoy = hoyISO();
   const [planAll, realExtent] = await Promise.all([
     getPlanDiarioEvento(eventoId),
     getRealExtentEvento(eventoId),
   ]);
-  const fechas = planAll.map((p) => p.fecha).sort();
-  let from = info.fechaInicioVenta || info.fechaEvento || hoy;
-  let to = info.fechaEvento || hoy;
-  if (fechas.length > 0) {
-    if (fechas[0] < from) from = fechas[0];
-    if (fechas[fechas.length - 1] > to) to = fechas[fechas.length - 1];
-  }
-  if (realExtent) {
-    if (realExtent.min < from) from = realExtent.min;
-    if (realExtent.max > to) to = realExtent.max;
-  }
-  if (to < hoy && !info.fechaEvento) to = hoy;
-  if (from > to) [from, to] = [to, from];
+  const planFechas = planAll.map((p) => p.fecha).sort();
+  const orden = (arr: (string | undefined)[]) => arr.filter((x): x is string => !!x).sort();
+  const mins = orden([planFechas[0], realExtent?.min]);
+  const maxs = orden([planFechas[planFechas.length - 1], realExtent?.max]);
+  const dataMin = mins[0];
+  const dataMax = maxs[maxs.length - 1];
 
-  const [real, budgetPm] = await Promise.all([
+  let to = info.fechaEvento || dataMax || hoy;
+  if (dataMax && dataMax > to) to = dataMax; // plan/gasto pasada la fecha → extiende
+  let from = info.fechaInicioVenta || dataMin || hoy;
+  if (dataMin && dataMin < from) from = dataMin;
+  if (from > to) from = to; // evento pasado sin datos → colapsa a su fecha
+
+  const [real, budgetPm, etapas, desgloseRows] = await Promise.all([
     getRealDiarioEvento(eventoId, from, to),
     getBudgetPmMap([eventoId]),
+    getEtapas(eventoId),
+    getRealDesgloseEvento(eventoId, from, to),
   ]);
 
   const drill = buildDrillGrid({
@@ -211,6 +219,8 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
       realMaxFecha={realMaxFecha}
       hoy={hoy}
       canEdit={canEdit}
+      etapas={etapas}
+      desgloseRows={desgloseRows}
     />
   );
 }
