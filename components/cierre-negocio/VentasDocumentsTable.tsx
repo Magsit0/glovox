@@ -68,6 +68,22 @@ export default function VentasDocumentsTable({ ventas }: Props) {
     });
   }, [sorted, clienteFilter, descFilter]);
 
+  // Totales sobre TODOS los documentos filtrados (no solo la página visible):
+  // la paginación ("Mostrar N más") es solo de despliegue, no debe achicar el total.
+  // Neto = afecto + exento (ver nota en el render de cada fila) — así Neto + IVA = Total.
+  // Va antes del early return: los hooks deben correr en el mismo orden siempre.
+  const totales = useMemo(() => {
+    let neto = 0;
+    let iva = 0;
+    let total = 0;
+    for (const v of filtered) {
+      neto += Number(v.monto_neto_atribuible ?? 0) + Number(v.monto_exento_atribuible ?? 0);
+      iva += Number(v.monto_iva_atribuible ?? 0);
+      total += Number(v.monto_total_atribuible ?? 0);
+    }
+    return { neto, iva, total };
+  }, [filtered]);
+
   if (sorted.length === 0) {
     return (
       <article className="rounded-lg border border-[#E5E5E5] bg-white p-6">
@@ -83,21 +99,6 @@ export default function VentasDocumentsTable({ ventas }: Props) {
 
   const hiddenCount = showAll ? 0 : Math.max(0, filtered.length - INITIAL_LIMIT);
   const isFiltered = clienteFilter.size > 0 || descFilter.size > 0;
-
-  // Totales sobre TODOS los documentos filtrados (no solo la página visible):
-  // la paginación ("Mostrar N más") es solo de despliegue, no debe achicar el total.
-  // Neto = afecto + exento (ver nota en el render de cada fila) — así Neto + IVA = Total.
-  const totales = useMemo(() => {
-    let neto = 0;
-    let iva = 0;
-    let total = 0;
-    for (const v of filtered) {
-      neto += Number(v.monto_neto_atribuible ?? 0) + Number(v.monto_exento_atribuible ?? 0);
-      iva += Number(v.monto_iva_atribuible ?? 0);
-      total += Number(v.monto_total_atribuible ?? 0);
-    }
-    return { neto, iva, total };
-  }, [filtered]);
 
   return (
     <article className="flex flex-col gap-3 rounded-lg border border-[#E5E5E5] bg-white p-6">

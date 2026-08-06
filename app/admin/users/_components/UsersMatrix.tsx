@@ -35,6 +35,10 @@ const COUNTRY_OPTIONS: { value: string; label: string }[] = [
   { value: "PE", label: "🇵🇪 PE" },
 ];
 
+// Celda de encabezado inmovilizada: fondo opaco propio (el bg del <tr> no viaja
+// con una celda sticky) + hairline inferior en la celda, no en el <tr>.
+const HEAD_CELL = "border-b border-[#E5E5E5] bg-[#FAFAFA]";
+
 export function UsersMatrix({
   users,
   catalog,
@@ -94,22 +98,30 @@ export function UsersMatrix({
         />
       ) : null}
 
-      <div className="overflow-x-auto rounded-lg border border-[#E5E5E5] bg-white">
-        <table className="w-full border-collapse font-sans text-sm">
+      {/* Scroll en ambos ejes con encabezado y columna Email inmovilizados.
+          border-separate: con border-collapse los bordes de las celdas sticky
+          no viajan con la celda al hacer scroll. */}
+      <div className="max-h-[600px] overflow-auto rounded-lg border border-[#E5E5E5] bg-white">
+        <table className="w-full border-separate border-spacing-0 font-sans text-sm">
           <thead>
-            <tr className="bg-[#FAFAFA] text-left text-xs uppercase tracking-wide text-[#666666]">
-              <th className="px-4 py-3">Email</th>
-              <th className="px-4 py-3">Rol</th>
-              <th className="px-4 py-3">País</th>
+            <tr className="text-left text-xs uppercase tracking-wide text-[#666666]">
+              <th className={`sticky left-0 top-0 z-30 min-w-[220px] border-r ${HEAD_CELL} px-4 py-3`}>
+                Email
+              </th>
+              <th className={`sticky top-0 z-20 ${HEAD_CELL} px-4 py-3`}>Rol</th>
+              <th className={`sticky top-0 z-20 ${HEAD_CELL} px-4 py-3`}>País</th>
               {catalog.map((d) => (
-                <th key={d.key} className="px-2 py-3 text-center">
+                <th
+                  key={d.key}
+                  className={`sticky top-0 z-20 ${HEAD_CELL} px-2 py-3 text-center`}
+                >
                   <div className="text-[10px] font-semibold leading-tight">
                     {d.label}
                   </div>
                 </th>
               ))}
-              <th className="px-4 py-3">Estado</th>
-              <th className="px-4 py-3"></th>
+              <th className={`sticky top-0 z-20 ${HEAD_CELL} px-4 py-3`}>Estado</th>
+              <th className={`sticky top-0 z-20 ${HEAD_CELL} px-4 py-3`}></th>
             </tr>
           </thead>
           <tbody>
@@ -146,6 +158,9 @@ function UserMatrixRow({
   const isSuperadmin = user.role === "superadmin";
   const isRevoked = !!user.revokedAt;
   const granted = new Set(user.dashboardKeys);
+  // Con border-separate el divisor de fila va en cada celda (el <tr> no pinta
+  // borde) y el fondo tambien, porque la celda Email es sticky.
+  const cell = `border-b border-[#E5E5E5] ${isRevoked ? "bg-[#FAFAFA]" : "bg-white"}`;
 
   const toggleDashboard = (key: string) => {
     if (isSuperadmin) return; // superadmin tiene acceso implícito
@@ -156,14 +171,14 @@ function UserMatrixRow({
   };
 
   return (
-    <tr
-      className={`border-t border-[#E5E5E5] ${
-        isRevoked ? "bg-[#FAFAFA] text-[#999999]" : ""
-      }`}
-    >
-      <td className="px-4 py-3 font-medium">{user.email}</td>
+    <tr className={isRevoked ? "text-[#999999]" : ""}>
+      <td
+        className={`sticky left-0 z-10 whitespace-nowrap border-r ${cell} px-4 py-3 font-medium`}
+      >
+        {user.email}
+      </td>
 
-      <td className="px-4 py-3">
+      <td className={`${cell} px-4 py-3`}>
         <select
           value={user.role}
           disabled={disabled || isMe || isRevoked}
@@ -177,7 +192,7 @@ function UserMatrixRow({
         </select>
       </td>
 
-      <td className="px-4 py-3">
+      <td className={`${cell} px-4 py-3`}>
         <select
           value={user.country ?? ""}
           disabled={disabled || isRevoked}
@@ -200,7 +215,7 @@ function UserMatrixRow({
       </td>
 
       {catalog.map((d) => (
-        <td key={d.key} className="px-2 py-3 text-center">
+        <td key={d.key} className={`${cell} px-2 py-3 text-center`}>
           <input
             type="checkbox"
             checked={isSuperadmin || granted.has(d.key)}
@@ -212,7 +227,7 @@ function UserMatrixRow({
         </td>
       ))}
 
-      <td className="px-4 py-3">
+      <td className={`${cell} px-4 py-3`}>
         {isRevoked ? (
           <span className="inline-flex rounded-full bg-[#FAFAFA] px-2 py-0.5 text-xs text-[#999999]">
             Revocado
@@ -224,7 +239,7 @@ function UserMatrixRow({
         )}
       </td>
 
-      <td className="px-4 py-3 text-right">
+      <td className={`${cell} px-4 py-3 text-right`}>
         {isMe ? (
           <span className="text-xs text-[#999999]">tú</span>
         ) : isRevoked ? (

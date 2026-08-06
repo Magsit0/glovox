@@ -7,6 +7,7 @@ import {
   Wallet,
   Zap,
   Folder,
+  TrendingUp,
   type LucideIcon,
 } from "lucide-react";
 
@@ -24,6 +25,7 @@ export const GROUP_ICON_MAP: Record<string, LucideIcon> = {
   zap: Zap,
   folder: Folder,
   "building-2": Building2,
+  "trending-up": TrendingUp,
 };
 
 export const FALLBACK_GROUP_ICON: LucideIcon = Ticket;

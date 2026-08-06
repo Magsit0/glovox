@@ -40,6 +40,12 @@ interface Props {
 
 const LAYOUT_TRANSITION = { layout: { duration: 0.35, ease: [0.4, 0, 0.2, 1] as const } };
 
+// Selección especial "Todos": muestra el listado completo del área, sin agrupar.
+// No choca con las llaves reales (RUT normalizado, "__sin_rut__", nombre de
+// ejecutivo o categoría) ni con la key del botón de volver ("__volver__").
+const TODOS_KEY = "__all__";
+const TODOS_COLOR = "#9F99F8";
+
 export default function GrupoNav({
   area,
   eyebrowBase,
@@ -52,7 +58,10 @@ export default function GrupoNav({
   const startMode = initialMode && modes.some((m) => m.key === initialMode) ? initialMode : firstMode;
   const startGroups = modes.find((m) => m.key === startMode)?.groups ?? [];
   const startSelected =
-    initialSelected && startGroups.some((g) => g.key === initialSelected) ? initialSelected : null;
+    initialSelected &&
+    (initialSelected === TODOS_KEY || startGroups.some((g) => g.key === initialSelected))
+      ? initialSelected
+      : null;
 
   const [mode, setMode] = useState(startMode);
   const [selected, setSelected] = useState<string | null>(startSelected);
@@ -61,10 +70,16 @@ export default function GrupoNav({
   const groups = currentMode?.groups ?? [];
   const colorByKey = new Map(groups.map((g, i) => [g.key, seriesColor(i)] as const));
   const isOpen = selected !== null;
-  const selectedInfo = groups.find((g) => g.key === selected);
-  const filteredRows = isOpen
-    ? items.filter((it) => it.keys[mode] === selected).map((it) => it.row)
-    : [];
+  const isTodos = selected === TODOS_KEY;
+  const selectedInfo = isTodos
+    ? { key: TODOS_KEY, title: "Todos los negocios", subtitle: "", count: items.length }
+    : groups.find((g) => g.key === selected);
+  // "Todos" no filtra: pasa el listado completo del área tal como llegó.
+  const filteredRows = !isOpen
+    ? []
+    : isTodos
+      ? items.map((it) => it.row)
+      : items.filter((it) => it.keys[mode] === selected).map((it) => it.row);
 
   // Refleja el estado del selector en la URL SIN re-render (history.replaceState):
   // conserva la animación y hace que el listado sea direccionable, para que
@@ -161,7 +176,7 @@ export default function GrupoNav({
         <AnimatePresence initial={false}>
           {isOpen && (
             <motion.button
-              key="__todas__"
+              key="__volver__"
               type="button"
               layout
               transition={LAYOUT_TRANSITION}
@@ -172,10 +187,54 @@ export default function GrupoNav({
               className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#333333] bg-white px-4 py-2 font-sans text-xs font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA]"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
-              Todas
+              Volver
             </motion.button>
           )}
         </AnimatePresence>
+
+        {/* "Todos" primero: atajo al listado completo del área, sin agrupar. */}
+        <motion.button
+          key={TODOS_KEY}
+          type="button"
+          layout
+          transition={LAYOUT_TRANSITION}
+          onClick={() => chooseGroup(TODOS_KEY)}
+          style={
+            isOpen && isTodos
+              ? { backgroundColor: TODOS_COLOR, borderColor: TODOS_COLOR }
+              : { borderColor: TODOS_COLOR }
+          }
+          className={
+            isOpen
+              ? `inline-flex shrink-0 items-center gap-2 rounded-full border border-l-2 px-4 py-2 font-sans text-xs font-medium transition-colors ${
+                  isTodos ? "text-white" : "bg-white text-[#333333] hover:bg-[#FAFAFA]"
+                }`
+              : "flex min-h-[120px] flex-col justify-between gap-3 rounded-lg border border-l-2 border-[#E5E5E5] bg-white p-6 text-left transition-colors hover:bg-[#FAFAFA] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+          }
+        >
+          {isOpen ? (
+            <>
+              <span className="whitespace-nowrap">Todos</span>
+              <span className={isTodos ? "text-white/80" : "text-[#999999]"}>{items.length}</span>
+            </>
+          ) : (
+            <>
+              <span
+                className="inline-block h-2.5 w-2.5 rounded-full"
+                style={{ backgroundColor: TODOS_COLOR }}
+              />
+              <div className="flex flex-col gap-1">
+                <span className="line-clamp-2 font-display text-lg font-bold leading-tight tracking-tight text-[#333333]">
+                  Todos
+                </span>
+                <span className="font-sans text-xs text-[#666666]">Sin agrupar</span>
+              </div>
+              <span className="font-sans text-xs text-[#999999]">
+                {items.length} negocio{items.length === 1 ? "" : "s"}
+              </span>
+            </>
+          )}
+        </motion.button>
 
         {groups.map((g) => {
           const color = colorByKey.get(g.key) ?? seriesColor(0);

@@ -27,6 +27,7 @@ import {
   Truck,
   Sandwich,
   Folder,
+  TrendingUp,
   Pencil,
   GripVertical,
   Check,
@@ -83,6 +84,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   sandwich: Sandwich,
   folder: Folder,
   "building-2": Building2,
+  "trending-up": TrendingUp,
 };
 
 const TITLE_MAX = 80;

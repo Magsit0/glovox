@@ -83,6 +83,16 @@ export const MARKETING_GROUP: DashboardGroup = {
       accentText: "text-black",
     },
     {
+      key: "marketing.curvas",
+      label: "CURVAS DE VENTA",
+      path: "/marketing/curvas",
+      description:
+        "Curvas de compra acumulada alineadas por días de anticipación: compara ediciones, familias y temporadas entre sí.",
+      icon: "trending-up",
+      accentClass: "bg-[#EF8C34]",
+      accentText: "text-white",
+    },
+    {
       key: "paid-media",
       label: "PAID MEDIA",
       path: "/paid-media",

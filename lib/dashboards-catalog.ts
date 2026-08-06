@@ -67,6 +67,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentText: "text-black",
   },
   {
+    key: "marketing.curvas",
+    pathPrefix: "/marketing/curvas",
+    label: "Curvas de venta",
+    appliesCountryScope: true,
+    sortOrder: 25,
+    title: "CURVAS DE VENTA",
+    description:
+      "Curvas de compra acumulada por evento, edición, familia y temporada, alineadas por días de compra anticipada.",
+    icon: "trending-up",
+    accentClass: "bg-[#EF8C34]",
+    accentText: "text-white",
+  },
+  {
     key: "cierre-mensual",
     pathPrefix: "/cierre-mensual",
     label: "Cierre mensual",

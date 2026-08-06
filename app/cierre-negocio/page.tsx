@@ -43,6 +43,10 @@ const AREA_LABELS: Record<AreaKey, string> = {
   otros: "Otros",
 };
 
+// Pseudo-área "todos": no es un bucket, es el listado completo sin filtrar.
+const AREA_TODOS = "todos";
+const TODOS_LABEL = "Todos los negocios";
+
 function isAreaKey(value: string | undefined): value is AreaKey {
   return (
     value === "produccion" ||
@@ -191,14 +195,37 @@ function listadoHref(from: string | undefined): string {
   return "/cierre-negocio";
 }
 
-// Bucket de área (produccion|btl|otros) leído del ?area= de la URL del listado
-// de origen. null si no viene o no es válido.
-function areaFromUrl(from: string | undefined): AreaKey | null {
+function fromParams(from: string | undefined): URLSearchParams | null {
   if (!from) return null;
   const q = from.indexOf("?");
   if (q < 0) return null;
-  const a = new URLSearchParams(from.slice(q + 1)).get("area") ?? undefined;
+  return new URLSearchParams(from.slice(q + 1));
+}
+
+// Bucket de área (produccion|btl|otros) leído del ?area= de la URL del listado
+// de origen. null si no viene o no es válido.
+function areaFromUrl(from: string | undefined): AreaKey | null {
+  const a = fromParams(from)?.get("area") ?? undefined;
   return isAreaKey(a) ? a : null;
+}
+
+// Alcance de la navegación anterior/siguiente = el mismo conjunto que mostraba
+// el listado de origen. "global" = vista Todos (?area=todos, sin filtrar);
+// "area" = listado del área sin agrupar (card "Todos" de GrupoNav, que escribe
+// el centinela en el slot del grupo); "grupo" = un cliente/ejecutivo/categoría.
+type NeighborScope = "global" | "area" | "grupo";
+
+// Debe calzar con TODOS_KEY de components/cierre-negocio/GrupoNav.tsx.
+const GRUPO_TODOS = "__all__";
+
+function neighborScope(from: string | undefined): NeighborScope {
+  const p = fromParams(from);
+  if (!p) return "grupo";
+  if (p.get("area") === AREA_TODOS) return "global";
+  const sinAgrupar = ["cliente", "ejecutivo", "categoria"].some(
+    (k) => p.get(k) === GRUPO_TODOS,
+  );
+  return sinAgrupar ? "area" : "grupo";
 }
 
 // Opciones del selector acotadas al bucket de área (para que dentro de un
@@ -215,9 +242,7 @@ function optionsForArea(
 // IGUAL que el listado (ver initialMode): ?group= si es válido; si no, la sola
 // presencia de ?ejecutivo= fuerza "ejecutivo"; por defecto "cliente".
 function groupModeFromUrl(from: string | undefined): GroupBy {
-  if (!from) return "cliente";
-  const q = from.indexOf("?");
-  const params = q >= 0 ? new URLSearchParams(from.slice(q + 1)) : null;
+  const params = fromParams(from);
   const g = params?.get("group") ?? undefined;
   if (isGroupBy(g)) return g;
   if (params?.get("ejecutivo")) return "ejecutivo";
@@ -255,10 +280,12 @@ function neighborHref(neighborId: string, monto: MontoMode, from: string | undef
   return `/cierre-negocio?${params.toString()}`;
 }
 
-// Negocio anterior/siguiente DENTRO de la misma categoría (el mismo agrupamiento
-// que usó el listado), ordenado por id ascendente. La categoría se recalcula del
-// negocio actual (no del `from`) para ser robusta; sólo el modo cliente/ejecutivo
-// de BTL se toma del `from`. Falla-suave: si algo no está, devuelve sin vecinos.
+// Negocio anterior/siguiente dentro del MISMO conjunto que mostraba el listado
+// de origen (ver neighborScope): todo el universo en la vista Todos, toda el
+// área si el listado no estaba agrupado, o el grupo (categoría/cliente/ejecutivo)
+// cuando sí lo estaba. El grupo se recalcula del negocio actual (no del `from`)
+// para ser robusto; del `from` sale sólo el alcance y el modo cliente/ejecutivo.
+// Falla-suave: si algo no está, devuelve sin vecinos.
 async function computeNeighbors(args: {
   id: string;
   from: string | undefined;
@@ -267,39 +294,47 @@ async function computeNeighbors(args: {
 }): Promise<{ prev: EdgeNeighbor | null; next: EdgeNeighbor | null }> {
   const { id, from, monto, areaBucket } = args;
   const none = { prev: null, next: null };
-  if (!areaBucket) return none;
+  const scope = neighborScope(from);
+  if (!areaBucket && scope !== "global") return none;
 
   const all = await getAllNegociosAdmin();
   const current = all.find((r) => String(r.id) === String(id));
   if (!current) return none;
 
-  const areaRows = all
-    .filter((r) => areaBucketOf(r.area_negocio) === areaBucket)
-    .filter(esNegocioSeleccionable);
+  const selectables = all.filter(esNegocioSeleccionable);
 
   let peers: NegocioRow[];
-  if (areaBucket === "produccion") {
-    const catMap = await getCategoriaEventoMap();
-    const cat = categoriaDeNegocio(current, catMap);
-    peers = areaRows.filter((r) => categoriaDeNegocio(r, catMap) === cat);
-  } else if (areaBucket === "btl" || areaBucket === "corporativos") {
-    const mode = groupModeFromUrl(from);
-    const keyOf =
-      mode === "ejecutivo"
-        ? (r: NegocioRow) => ejecutivoKey(r.ejecutivo)
-        : (r: NegocioRow) => clienteKey(r.rut_cliente);
-    const key = keyOf(current);
-    peers = areaRows.filter((r) => keyOf(r) === key);
+  if (scope === "global") {
+    peers = selectables; // vista Todos: el universo completo, sin acotar.
   } else {
-    peers = areaRows; // "otros": sin subcategoría, toda el área.
+    const areaRows = selectables.filter(
+      (r) => areaBucketOf(r.area_negocio) === areaBucket,
+    );
+    if (scope === "area") {
+      peers = areaRows; // listado del área sin agrupar (card "Todos").
+    } else if (areaBucket === "produccion") {
+      const catMap = await getCategoriaEventoMap();
+      const cat = categoriaDeNegocio(current, catMap);
+      peers = areaRows.filter((r) => categoriaDeNegocio(r, catMap) === cat);
+    } else if (areaBucket === "btl" || areaBucket === "corporativos") {
+      const mode = groupModeFromUrl(from);
+      const keyOf =
+        mode === "ejecutivo"
+          ? (r: NegocioRow) => ejecutivoKey(r.ejecutivo)
+          : (r: NegocioRow) => clienteKey(r.rut_cliente);
+      const key = keyOf(current);
+      peers = areaRows.filter((r) => keyOf(r) === key);
+    } else {
+      peers = areaRows; // "otros": sin subcategoría, toda el área.
+    }
   }
 
   // Orden por número de evento GLO ASCENDENTE: "siguiente" (idx+1) es el GLO
   // mayor (GLO200 va después de GLO199) y "anterior" (idx-1) el menor. El id NO
   // sirve para ordenar (id y GLO divergen: id 8454→GLO194 pero id 8443→GLO197),
   // así que se ordena por GLO con el id sólo como desempate. Áreas sin GLO
-  // (btl/corp/otros): por id ascendente.
-  if (areaBucket === "produccion") {
+  // (btl/corp/otros) y la vista Todos (áreas mezcladas): por id ascendente.
+  if (scope !== "global" && areaBucket === "produccion") {
     peers.sort((a, b) => {
       const na = eventoNumOf(a.referencia);
       const nb = eventoNumOf(b.referencia);
@@ -340,6 +375,32 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
   const backToListado = listadoHref(from);
 
   if (!id) {
+    // Vista "Todos": el listado completo, sin acotar por área ni agrupar. Los 4
+    // buckets cubren todo el universo (lo no clasificado cae en "otros"), así
+    // que acá simplemente no se filtra nada.
+    if (area === AREA_TODOS) {
+      // El await va solo dentro del try: construir el JSX acá adentro no sirve
+      // (React no renderiza en el momento, así que el catch nunca vería un error
+      // de render) y la regla react-hooks/error-boundaries lo prohíbe.
+      let todos;
+      try {
+        todos = await getAllNegociosAdmin();
+      } catch (err) {
+        return (
+          <Shell>
+            <ListHeading label={TODOS_LABEL} />
+            <ErrorView message={errorMessage(err)} />
+          </Shell>
+        );
+      }
+      return (
+        <Shell>
+          <ListHeading label={TODOS_LABEL} />
+          <CierreTable rows={todos} />
+        </Shell>
+      );
+    }
+
     if (!isAreaKey(area)) {
       return (
         <Shell>
@@ -355,7 +416,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
     } catch (err) {
       return (
         <Shell>
-          <ListHeading area={area} />
+          <ListHeading label={AREA_LABELS[area]} />
           <ErrorView message={errorMessage(err)} />
         </Shell>
       );
@@ -412,7 +473,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
       } catch (err) {
         return (
           <Shell>
-            <ListHeading area={area} />
+            <ListHeading label={AREA_LABELS[area]} />
             <ErrorView message={errorMessage(err)} />
           </Shell>
         );
@@ -447,7 +508,7 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
 
     return (
       <Shell>
-        <ListHeading area={area} />
+        <ListHeading label={AREA_LABELS[area]} />
         <CierreTable rows={rows} />
       </Shell>
     );
@@ -484,10 +545,13 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
   }
 
   // El selector dentro del cierre solo muestra negocios de la MISMA área: bucket
-  // del ?area= de origen, o —si no viene— el del propio negocio.
-  const selectorBucket =
-    areaFromUrl(from) ??
-    (detail.negocio ? areaBucketOf(detail.negocio.area_negocio) : null);
+  // del ?area= de origen, o —si no viene— el del propio negocio. Excepción: si
+  // se llegó desde la vista Todos, el selector tampoco se acota (bucket null).
+  const vieneDeTodos = neighborScope(from) === "global";
+  const selectorBucket = vieneDeTodos
+    ? null
+    : areaFromUrl(from) ??
+      (detail.negocio ? areaBucketOf(detail.negocio.area_negocio) : null);
   const selectorOptions = optionsForArea(options, selectorBucket);
 
   // Navegación anterior/siguiente por los bordes (falla-suave: sin flechas).
@@ -686,6 +750,17 @@ function AreaChooser() {
     // ESQUEMA: 4 columnas verticales lado a lado (estilo glovox.io). El diseño
     // (imágenes de fondo por área, colores, hover) viene después.
     <section className="flex gap-2 sm:gap-3">
+      {/* "Todos" primero: atajo al listado completo. Relleno de marca (única
+          card con fill sólido acá) para leerse como acceso directo, no como área. */}
+      <Link
+        href={`/cierre-negocio?area=${AREA_TODOS}`}
+        className="group relative flex h-[70vh] flex-1 flex-col items-center justify-center gap-6 overflow-hidden rounded-lg bg-[#9F99F8] py-8 transition-colors duration-200 hover:bg-[#8780F0] focus:outline-none focus:ring-1 focus:ring-[#333333]"
+      >
+        <span className="h-14 w-px shrink-0 bg-white" />
+        <span className="flex max-h-[72%] items-center rotate-180 font-display text-2xl font-bold leading-tight tracking-tight text-white [writing-mode:vertical-rl]">
+          Todos
+        </span>
+      </Link>
       {areas.map((key, i) => (
         <Link
           key={key}
@@ -721,7 +796,7 @@ function UnabaseHeading() {
   );
 }
 
-function ListHeading({ area }: { area: AreaKey }) {
+function ListHeading({ label }: { label: string }) {
   return (
     <header className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-3">
@@ -740,7 +815,7 @@ function ListHeading({ area }: { area: AreaKey }) {
           Cambiar área
         </Link>
       </div>
-      <p className="font-sans text-xs text-[#666666]">Cierre negocio · {AREA_LABELS[area]}</p>
+      <p className="font-sans text-xs text-[#666666]">Cierre negocio · {label}</p>
       <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
         Cierre de negocio
       </h1>
