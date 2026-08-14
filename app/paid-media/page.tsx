@@ -8,10 +8,10 @@ import {
   getByAccount,
   getByAdset,
   getByCampaign,
+  getByCurrency,
   getByObjective,
   getByPlatform,
   getCampaignOptions,
-  getCurrencyOptions,
   getDaily,
   getDateRange,
   getKpis,
@@ -20,9 +20,10 @@ import {
   getByEvento,
   getOtrasCampanias,
   getEventoPrefixes,
+  parseDisplayCurrency,
+  type DisplayCurrency,
   type PaidMediaFilters,
   type Plataforma,
-  type CurrencyOption,
   type PlataformaOption,
 } from "@/lib/queries/paidMedia";
 import PaidMediaFilters_ from "@/components/paid-media/PaidMediaFilters";
@@ -35,13 +36,21 @@ import PaidMediaTabs, {
   type PaidMediaTabKey,
 } from "@/components/paid-media/PaidMediaTabs";
 import OverallTable from "@/components/paid-media/OverallTable";
-import { compactMoney, plataformaLabel } from "@/components/paid-media/format";
+import CurrencySwitch from "@/components/paid-media/CurrencySwitch";
+import { formatDate, plataformaLabel } from "@/components/paid-media/format";
 
+// La ruta NO debe cachearse mientras el mart pueda devolver `gasto_usd` NULL o
+// un tipo de cambio provisional: un `use cache` con `cacheLife` de horas
+// congelaría el número del día en curso y la corrección del pipeline de FX no
+// se propagaría hasta que expire. Si alguna vez se cachea, el `cacheLife` tiene
+// que ser menor que la distancia hasta la publicación del tipo de cambio, con
+// `cacheTag` invalidado cuando cambie MAX(fecha) de referencia.tipo_cambio.
 export const dynamic = "force-dynamic";
 
 interface PageProps {
   searchParams: Promise<{
     tab?: string;
+    moneda?: string;
     currency?: string;
     plataforma?: string | string[];
     prefix?: string;
@@ -81,44 +90,50 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const tab: PaidMediaTabKey = params.tab === "detalle" ? "detalle" : "overall";
 
-  // Las monedas viven separadas: el resto del dashboard no tiene sentido sin
-  // una elegida. Si no viene en la URL, agarro la de mayor gasto.
-  const currencies = await getCurrencyOptions();
-  if (currencies.length === 0) {
-    return (
-      <Shell>
-        <Heading />
-        <EmptyState message="La tabla paidMedia.ads_performance está vacía." />
-      </Shell>
-    );
-  }
-
-  const currency =
-    (params.currency && currencies.some((c) => c.currency === params.currency)
-      ? params.currency
-      : null) ?? currencies[0].currency;
-
   const from = params.from || undefined;
   const to = params.to || undefined;
   const plataformas = parsePlataformaList(params.plataforma);
+  // Moneda de DESPLIEGUE (no filtra datos, solo cambia la unidad). USD por
+  // defecto: es la unidad canónica del mart y la que compara cuentas de países
+  // distintos.
+  const moneda = parseDisplayCurrency(params.moneda);
+
+  // ── Canonicalización de la URL ───────────────────────────────────
+  // Va ANTES de cualquier query y FUERA de los try/catch de abajo: `redirect()`
+  // funciona lanzando un NEXT_REDIRECT, y esos catch lo tratarían como un error
+  // del dashboard, mostrando "NEXT_REDIRECT" en la pantalla de error en vez de
+  // navegar. Se resuelven las dos canonicalizaciones en un solo salto, porque
+  // con force-dynamic cada redirect vuelve a pagar auth() y todas las queries.
+  //
+  // `currency` es un parámetro MUERTO: el dashboard ya no filtra por moneda.
+  // Sigue viniendo en links compartidos por Slack y en bookmarks, así que se
+  // limpia de la URL en vez de ignorarse en silencio.
+  const sobraCurrency = params.currency != null;
+  const sobranPlataformas = tab === "overall" && plataformas.length > 1;
+  if (sobraCurrency || sobranPlataformas) {
+    const qs = new URLSearchParams();
+    if (tab === "detalle") qs.set("tab", "detalle");
+    if (moneda !== "USD") qs.set("moneda", moneda);
+    // El tab Overall es mono-plataforma (se elige con las PlatformPills): si la
+    // URL trae varias, canonicalizamos a la primera para que URL, datos y pill
+    // resaltada queden consistentes.
+    const platsCanon = tab === "overall" ? plataformas.slice(0, 1) : plataformas;
+    for (const p of platsCanon) qs.append("plataforma", p);
+    if (params.prefix) qs.set("prefix", params.prefix);
+    if (from) qs.set("from", from);
+    if (to) qs.set("to", to);
+    for (const p of parseStringList(params.account)) qs.append("account", p);
+    for (const p of parseStringList(params.campaign)) qs.append("campaign", p);
+    for (const p of parseStringList(params.adset)) qs.append("adset", p);
+    for (const p of parseStringList(params.objective)) qs.append("objective", p);
+    const s = qs.toString();
+    redirect(`/paid-media${s ? `?${s}` : ""}`);
+  }
+
   const plataforma = plataformas[0];
 
   // ── Tab Overall: resumen transversal por evento ──────────────────
   if (tab === "overall") {
-    // El tab Overall es mono-plataforma (se elige con las PlatformPills) y sus
-    // queries usan `plataforma` escalar. Si la URL llega con varias plataformas
-    // (p. ej. al volver desde el Detalle multi-select), canonicalizamos a la
-    // primera para que URL, datos y pill resaltada queden consistentes.
-    if (plataformas.length > 1) {
-      const qs = new URLSearchParams();
-      qs.set("tab", "overall");
-      qs.set("currency", currency);
-      qs.set("plataforma", plataformas[0]);
-      if (params.prefix) qs.set("prefix", params.prefix);
-      if (from) qs.set("from", from);
-      if (to) qs.set("to", to);
-      redirect(`/paid-media?${qs.toString()}`);
-    }
     let dateRange;
     let platforms;
     let prefixes: string[];
@@ -127,9 +142,9 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
     let otras;
     try {
       [dateRange, platforms, prefixes] = await Promise.all([
-        getDateRange(currency),
+        getDateRange(),
         getPlatformOptions(),
-        getEventoPrefixes({ currency, plataforma, from, to }),
+        getEventoPrefixes({ plataforma, from, to }, moneda),
       ]);
       // Familia de evento: default GLO (Chile). Si la URL trae una válida, manda;
       // si GLO no existe en el scope, cae a la de mayor gasto.
@@ -140,20 +155,14 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
             ? "GLO"
             : prefixes[0];
       [eventos, otras] = await Promise.all([
-        getByEvento({ currency, plataforma, prefix, from, to }),
-        getOtrasCampanias({ currency, plataforma, from, to }),
+        getByEvento({ plataforma, prefix, from, to }, moneda),
+        getOtrasCampanias({ plataforma, from, to }, moneda),
       ]);
     } catch (err) {
       return (
         <Shell>
           <Heading />
-          <PaidMediaTabs
-            active="overall"
-            currency={currency}
-            plataforma={plataforma}
-            from={from}
-            to={to}
-          />
+          <PaidMediaTabs active="overall" moneda={moneda} plataforma={plataforma} from={from} to={to} />
           <ErrorView message={errorMessage(err)} />
         </Shell>
       );
@@ -163,7 +172,7 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
         <Heading dateRange={dateRange} />
         <PaidMediaTabs
           active="overall"
-          currency={currency}
+          moneda={moneda}
           plataforma={plataforma}
           prefix={prefix}
           from={from}
@@ -171,18 +180,16 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
         />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex flex-col gap-3">
-            <CurrencyPills
-              currencies={currencies}
-              active={currency}
-              plataforma={plataforma}
-              prefix={prefix}
-              from={from}
-              to={to}
+            <CurrencySwitch
+              active={moneda}
+              hrefFor={(m) =>
+                overallHref({ moneda: m, plataforma, prefix, from, to })
+              }
             />
             <PlatformPills
               platforms={platforms}
               active={plataforma}
-              currency={currency}
+              moneda={moneda}
               prefix={prefix}
               from={from}
               to={to}
@@ -191,19 +198,20 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
           <PrefixPills
             prefixes={prefixes}
             active={prefix}
-            currency={currency}
+            moneda={moneda}
             plataforma={plataforma}
             from={from}
             to={to}
           />
         </div>
-        <OverallTable rows={eventos} currency={currency} />
+        <OverallTable rows={eventos} moneda={moneda} />
         <BreakdownTable
           title="Otras campañas"
-          subtitle="Campañas cuyo nombre no arranca con un EventoID reconocible — gasto que no quedó atribuido a un evento. Una fila por campaña. No se ve afectada por el filtro de familia."
+          subtitle="Campañas cuyo evento no mapea a ningún registro del catálogo — gasto que no quedó atribuido. Una fila por campaña. No responde al filtro de familia: por definición estas campañas no tienen familia conocida."
           columnLabel="Campaña"
-          rows={otras}
-          currency={currency}
+          rows={otras.rows}
+          moneda={moneda}
+          total={otras.total}
           scrollable
           emptyText="No hay campañas sin evento en este scope."
         />
@@ -218,7 +226,6 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
   const objectives = parseStringList(params.objective);
 
   const filters: PaidMediaFilters = {
-    currency,
     plataformas,
     accountIds,
     campaignIds,
@@ -235,6 +242,7 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
   let objectiveOptions;
   let dateRange;
   let kpis;
+  let porMoneda;
   let daily;
   let byPlatform;
   let byObjective;
@@ -250,6 +258,7 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
       objectiveOptions,
       dateRange,
       kpis,
+      porMoneda,
       daily,
       byPlatform,
       byObjective,
@@ -258,20 +267,23 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
       byAdset,
     ] = await Promise.all([
       getPlatformOptions(),
-      getAccountOptions(currency, plataformas),
-      getCampaignOptions(currency, accountIds),
-      getAdsetOptions(currency, campaignIds),
-      getObjectiveOptions(currency, plataformas),
-      getDateRange(currency),
-      getKpis(filters),
-      getDaily(filters),
+      getAccountOptions(plataformas),
+      getCampaignOptions(accountIds),
+      getAdsetOptions(campaignIds),
+      getObjectiveOptions(plataformas),
+      getDateRange(),
+      getKpis(filters, moneda),
+      getByCurrency(filters, moneda),
+      getDaily(filters, moneda),
       // El donut de plataformas solo aporta si hay 0 o 2+ plataformas: con
       // exactamente UNA seleccionada queda un único slice y no aporta nada.
-      plataformas.length === 1 ? Promise.resolve([]) : getByPlatform(filters),
-      getByObjective(filters),
-      getByAccount(filters),
-      getByCampaign(filters),
-      getByAdset(filters),
+      plataformas.length === 1
+        ? Promise.resolve({ rows: [], total: 0 })
+        : getByPlatform(filters, moneda),
+      getByObjective(filters, moneda),
+      getByAccount(filters, moneda),
+      getByCampaign(filters, moneda),
+      getByAdset(filters, moneda),
     ]);
   } catch (err) {
     return (
@@ -299,7 +311,8 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
   // searchParams que se pasan a los links de drill-down — no incluyen el
   // valor que el link mismo va a setear (lo agrega BreakdownTable).
   const baseQuery: Record<string, string | string[] | undefined> = {
-    currency,
+    tab: "detalle",
+    moneda: moneda === "USD" ? undefined : moneda,
     plataforma: plataformas,
     account: accountIds,
     campaign: campaignIds,
@@ -315,20 +328,23 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
 
       <PaidMediaTabs
         active="detalle"
-        currency={currency}
+        moneda={moneda}
         plataforma={plataformas}
         from={from}
         to={to}
       />
 
+      <CurrencySwitch
+        active={moneda}
+        hrefFor={(m) => detalleHref(m, params)}
+      />
+
       <PaidMediaFilters_
-        currencies={currencies}
         platforms={platforms}
         accounts={accounts}
         campaigns={campaignOptions}
         adsets={adsetOptions}
         objectives={objectiveOptions}
-        currency={currency}
         plataformas={plataformas}
         accountIds={accountIds}
         campaignIds={campaignIds}
@@ -339,7 +355,6 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
       />
 
       <ActiveContext
-        currency={currency}
         plataformas={plataformas.map(plataformaLabel)}
         accounts={selectedAccounts}
         campaigns={selectedCampaigns}
@@ -349,43 +364,44 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
         to={to ?? ""}
       />
 
-      <KpiRow kpis={kpis} currency={currency} />
+      <KpiRow kpis={kpis} porMoneda={porMoneda} moneda={moneda} />
 
-      <EvolucionChart rows={daily} currency={currency} />
+      <EvolucionChart rows={daily} moneda={moneda} />
 
-      {byPlatform.length > 0 && (
+      {byPlatform.rows.length > 0 && (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
           <MixDonut
             title="Mix por plataforma"
-            subtitle="Distribución del gasto entre Meta y Google."
-            rows={byPlatform}
-            currency={currency}
+            subtitle="Distribución del gasto en dólares entre Meta, Google y TikTok."
+            rows={byPlatform.rows}
+            moneda={moneda}
             labelIsPlataforma
           />
           <MixDonut
             title="Mix por objetivo"
-            subtitle="Distribución del gasto por objetivo de campaña."
-            rows={byObjective}
-            currency={currency}
+            subtitle="Distribución del gasto en dólares por objetivo de campaña."
+            rows={byObjective.rows}
+            moneda={moneda}
           />
         </div>
       )}
 
-      {byPlatform.length === 0 && (
+      {byPlatform.rows.length === 0 && (
         <MixDonut
           title="Mix por objetivo"
-          subtitle="Distribución del gasto por objetivo de campaña en la plataforma activa."
-          rows={byObjective}
-          currency={currency}
+          subtitle="Distribución del gasto en dólares por objetivo de campaña en la plataforma activa."
+          rows={byObjective.rows}
+          moneda={moneda}
         />
       )}
 
       <BreakdownTable
         title="Cuentas"
-        subtitle="Una fila por cuenta publicitaria, ordenada por gasto. Click para acotar el dashboard a esa cuenta."
+        subtitle="Una fila por cuenta publicitaria, ordenada por gasto en dólares. Cada cuenta factura en una sola moneda. Click para acotar el dashboard a esa cuenta."
         columnLabel="Cuenta"
-        rows={byAccount}
-        currency={currency}
+        rows={byAccount.rows}
+        moneda={moneda}
+        total={byAccount.total}
         drillParam="account"
         baseSearchParams={baseQuery}
         extraIsPlataforma
@@ -393,22 +409,26 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
 
       <BreakdownTable
         title="Campañas"
-        subtitle="Top 50 campañas dentro del scope actual. Click para acotar a esa campaña."
+        subtitle="Campañas dentro del scope actual, ordenadas por gasto en dólares. Click para acotar a esa campaña."
         columnLabel="Campaña"
-        rows={byCampaign}
-        currency={currency}
+        rows={byCampaign.rows}
+        moneda={moneda}
+        total={byCampaign.total}
         drillParam="campaign"
         baseSearchParams={baseQuery}
+        scrollable
       />
 
       <BreakdownTable
         title="Adsets"
-        subtitle="Top 50 adsets dentro del scope actual. Click para acotar a ese adset."
+        subtitle="Adsets dentro del scope actual, ordenados por gasto en dólares. Click para acotar a ese adset."
         columnLabel="Adset"
-        rows={byAdset}
-        currency={currency}
+        rows={byAdset.rows}
+        moneda={moneda}
+        total={byAdset.total}
         drillParam="adset"
         baseSearchParams={baseQuery}
+        scrollable
       />
     </Shell>
   );
@@ -422,7 +442,17 @@ function Shell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Heading({ dateRange }: { dateRange?: { min: string; max: string } }) {
+function Heading({
+  dateRange,
+}: {
+  dateRange?: { min: string; max: string; maxFx: string };
+}) {
+  // Si el tipo de cambio va por detrás de los datos de ads, el encabezado lo
+  // dice: prometer cobertura hasta `max` cuando la conversión solo llega hasta
+  // `maxFx` es exactamente lo que hace que el lector deje de confiar en el panel.
+  const fxAtrasado =
+    dateRange?.maxFx && dateRange?.max && dateRange.maxFx < dateRange.max;
+
   return (
     <header className="flex flex-col gap-2">
       <p className="font-sans text-xs text-[#666666]">Paid media</p>
@@ -430,40 +460,60 @@ function Heading({ dateRange }: { dateRange?: { min: string; max: string } }) {
         Social media ads
       </h1>
       <p className="font-sans text-sm text-[#666666]">
-        Rendimiento de campañas pagadas en Meta y Google: gasto, alcance, CTR,
-        CPC, CPM, conversiones y ROAS desglosado por plataforma, cuenta,
-        campaña y adset.
+        Rendimiento de campañas pagadas en Meta, Google y TikTok, consolidado en
+        dólares: gasto, alcance, CTR, CPC, CPM, conversiones y ROAS desglosado
+        por plataforma, cuenta, campaña y adset.
       </p>
       {dateRange?.min && dateRange?.max && (
         <p className="font-sans text-xs text-[#999999]">
-          Datos disponibles entre {dateRange.min} y {dateRange.max}.
+          Datos entre {formatDate(dateRange.min)} y {formatDate(dateRange.max)}.
+          {fxAtrasado ? (
+            <> Conversión a dólares disponible hasta {formatDate(dateRange.maxFx)}.</>
+          ) : null}{" "}
+          Cada día se convierte con el tipo de cambio de esa fecha, publicado por
+          el banco central de cada país; una vez publicado no vuelve a cambiar,
+          así que los totales de días cerrados quedan fijos.
         </p>
       )}
     </header>
   );
 }
 
-function EmptyState({ message }: { message: string }) {
-  return (
-    <section className="rounded-lg border border-[#E5E5E5] bg-white p-8">
-      <p className="font-display text-lg font-bold text-[#333333]">
-        Sin datos disponibles
-      </p>
-      <p className="mt-2 font-sans text-sm text-[#666666]">{message}</p>
-    </section>
-  );
+/**
+ * Href del tab Detalle cambiando solo la moneda. A diferencia del Overall, acá
+ * hay que preservar los drill-downs (cuenta/campaña/adset/objetivo), así que se
+ * reconstruye desde los searchParams crudos en vez de enumerar campos.
+ */
+function detalleHref(
+  moneda: DisplayCurrency,
+  params: Record<string, string | string[] | undefined>,
+): string {
+  const qs = new URLSearchParams();
+  qs.set("tab", "detalle");
+  // USD es el default: se omite de la URL para que los links queden limpios.
+  if (moneda !== "USD") qs.set("moneda", moneda);
+  for (const key of ["plataforma", "account", "campaign", "adset", "objective"]) {
+    const v = params[key];
+    for (const item of Array.isArray(v) ? v : v ? [v] : []) qs.append(key, item);
+  }
+  for (const key of ["from", "to"]) {
+    const v = params[key];
+    if (typeof v === "string" && v) qs.set(key, v);
+  }
+  return `/paid-media?${qs.toString()}`;
 }
 
 /** Construye un href del tab Overall preservando el scope global. */
 function overallHref(next: {
-  currency?: string;
+  moneda?: DisplayCurrency;
   plataforma?: string;
   prefix?: string;
   from?: string;
   to?: string;
 }): string {
   const params = new URLSearchParams();
-  if (next.currency) params.set("currency", next.currency);
+  // USD es el default: se omite de la URL para que los links queden limpios.
+  if (next.moneda && next.moneda !== "USD") params.set("moneda", next.moneda);
   if (next.plataforma) params.set("plataforma", next.plataforma);
   if (next.prefix) params.set("prefix", next.prefix);
   if (next.from) params.set("from", next.from);
@@ -477,60 +527,17 @@ const PILL_BASE =
 const PILL_ACTIVE = "border-[#9F99F8] bg-[#F0EFFE] text-[#9F99F8]";
 const PILL_IDLE = "border-[#E5E5E5] bg-white text-[#333333] hover:border-[#333333]";
 
-function CurrencyPills({
-  currencies,
-  active,
-  plataforma,
-  prefix,
-  from,
-  to,
-}: {
-  currencies: CurrencyOption[];
-  active: string;
-  plataforma?: string;
-  prefix?: string;
-  from?: string;
-  to?: string;
-}) {
-  if (currencies.length <= 1) return null;
-
-  return (
-    <section className="flex flex-wrap items-center gap-2">
-      <span className="w-16 font-sans text-xs text-[#666666]">Moneda</span>
-      {currencies.map((c) => {
-        const isActive = c.currency === active;
-        return (
-          <Link
-            key={c.currency}
-            // Cambiar de moneda mantiene plataforma/familia/fechas pero la moneda
-            // nueva manda — el scope de evento es por moneda.
-            href={overallHref({ currency: c.currency, plataforma, prefix, from, to })}
-            aria-current={isActive ? "true" : undefined}
-            className={`${PILL_BASE} ${isActive ? PILL_ACTIVE : PILL_IDLE}`}
-          >
-            {c.currency}
-            <span className="text-[#999999]">·</span>
-            <span className={isActive ? "text-[#9F99F8]" : "text-[#666666]"}>
-              {compactMoney(c.gasto, c.currency)}
-            </span>
-          </Link>
-        );
-      })}
-    </section>
-  );
-}
-
 function PlatformPills({
   platforms,
   active,
-  currency,
+  moneda,
   prefix,
   from,
   to,
 }: {
   platforms: PlataformaOption[];
   active?: string;
-  currency: string;
+  moneda: DisplayCurrency;
   prefix?: string;
   from?: string;
   to?: string;
@@ -542,7 +549,7 @@ function PlatformPills({
       <span className="w-16 font-sans text-xs text-[#666666]">Plataforma</span>
       {/* "Todas" limpia el filtro de plataforma. */}
       <Link
-        href={overallHref({ currency, prefix, from, to })}
+        href={overallHref({ moneda, prefix, from, to })}
         aria-current={!active ? "true" : undefined}
         className={`${PILL_BASE} ${!active ? PILL_ACTIVE : PILL_IDLE}`}
       >
@@ -553,7 +560,7 @@ function PlatformPills({
         return (
           <Link
             key={p.plataforma}
-            href={overallHref({ currency, plataforma: p.plataforma, prefix, from, to })}
+            href={overallHref({ moneda, plataforma: p.plataforma, prefix, from, to })}
             aria-current={isActive ? "true" : undefined}
             className={`${PILL_BASE} ${isActive ? PILL_ACTIVE : PILL_IDLE}`}
           >
@@ -606,14 +613,14 @@ function PrefixFlagBg({ prefix }: { prefix: string }) {
 function PrefixPills({
   prefixes,
   active,
-  currency,
+  moneda,
   plataforma,
   from,
   to,
 }: {
   prefixes: string[];
   active?: string;
-  currency: string;
+  moneda: DisplayCurrency;
   plataforma?: string;
   from?: string;
   to?: string;
@@ -628,7 +635,7 @@ function PrefixPills({
         return (
           <Link
             key={p}
-            href={overallHref({ currency, plataforma, prefix: p, from, to })}
+            href={overallHref({ moneda, plataforma, prefix: p, from, to })}
             aria-current={isActive ? "true" : undefined}
             className={`relative overflow-hidden ${PILL_BASE} ${
               isActive ? PILL_ACTIVE : PILL_IDLE

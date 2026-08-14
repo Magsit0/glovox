@@ -1,18 +1,20 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { EventoRow } from "@/lib/queries/paidMedia";
+import type { DisplayCurrency, EventoRow } from "@/lib/queries/paidMedia";
 import {
   compactMoney,
   formatInt,
-  formatMoney,
   formatRatio,
   formatRoas,
+  formatUnitCost,
+  formatMoney,
 } from "@/components/paid-media/format";
 
 interface Props {
   rows: EventoRow[];
-  currency: string;
+  /** Moneda en que se expresan los montos. */
+  moneda: DisplayCurrency;
   emptyText?: string;
 }
 
@@ -70,8 +72,8 @@ function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
 
 export default function OverallTable({
   rows,
-  currency,
-  emptyText = "Sin datos para la moneda seleccionada.",
+  moneda,
+  emptyText = "Sin datos en este scope.",
 }: Props) {
   const [sortKey, setSortKey] = useState<SortKey>("gasto");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
@@ -116,21 +118,22 @@ export default function OverallTable({
   }
 
   const maxBarGasto = sorted.reduce((m, r) => Math.max(m, r.gasto), 0);
+  const multiMoneda = rows.filter((r) => r.monedas.length > 1).length;
 
   const cols: { key: SortKey; label: string; align: "left" | "right" }[] = [
-    { key: "eventoId",     label: "EventoID",      align: "left" },
-    { key: "nombre",       label: "Evento",        align: "left" },
-    { key: "gasto",        label: "Gasto total",   align: "right" },
-    { key: "gastoMeta",    label: "Gasto Meta",    align: "right" },
-    { key: "gastoGoogle",  label: "Gasto Google",  align: "right" },
-    { key: "gastoTiktok",  label: "Gasto TikTok",  align: "right" },
-    { key: "impresiones",  label: "Impr.",         align: "right" },
-    { key: "clics",        label: "Clics",     align: "right" },
-    { key: "ctr",          label: "CTR",       align: "right" },
-    { key: "cpc",          label: "CPC",       align: "right" },
-    { key: "cpm",          label: "CPM",       align: "right" },
-    { key: "conversiones", label: "Conv.",     align: "right" },
-    { key: "roas",         label: "ROAS",      align: "right" },
+    { key: "eventoId",     label: "EventoID",     align: "left" },
+    { key: "nombre",       label: "Evento",       align: "left" },
+    { key: "gasto",        label: `Gasto ${moneda}`, align: "right" },
+    { key: "gastoMeta",    label: "Meta",         align: "right" },
+    { key: "gastoGoogle",  label: "Google",       align: "right" },
+    { key: "gastoTiktok",  label: "TikTok",       align: "right" },
+    { key: "impresiones",  label: "Impr.",        align: "right" },
+    { key: "clics",        label: "Clics",        align: "right" },
+    { key: "ctr",          label: "CTR",          align: "right" },
+    { key: "cpc",          label: "CPC",          align: "right" },
+    { key: "cpm",          label: "CPM",          align: "right" },
+    { key: "conversiones", label: "Conv.",        align: "right" },
+    { key: "roas",         label: "ROAS",         align: "right" },
   ];
 
   return (
@@ -140,9 +143,19 @@ export default function OverallTable({
           Resumen por evento
         </h2>
         <p className="font-sans text-sm text-[#666666]">
-          Una fila por evento, con el gasto y rendimiento de paid media agregado.
-          El evento se identifica por los primeros 6 caracteres del nombre de
-          campaña y se cruza con el catálogo de eventos para traer su nombre.
+          Una fila por evento, con el gasto consolidado y su
+          rendimiento de paid media. El evento sale del EventoID de la campaña y,
+          si viene vacío, de los primeros 6 caracteres del nombre de campaña.
+          {multiMoneda > 0 && (
+            <>
+              {" "}
+              {multiMoneda === 1
+                ? "Un evento suma"
+                : `${multiMoneda} eventos suman`}{" "}
+              inversión hecha en más de una moneda — antes solo se veía la mitad
+              en cada vista.
+            </>
+          )}
         </p>
       </header>
 
@@ -191,17 +204,30 @@ export default function OverallTable({
                       </span>
                     </td>
                     <td className="px-4 py-3 align-top">
-                      <span
-                        className="block max-w-[280px] truncate font-sans text-sm text-[#333333]"
-                        title={r.nombre}
-                      >
-                        {r.nombre}
-                      </span>
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span
+                          className="block max-w-[280px] truncate font-sans text-sm text-[#333333]"
+                          title={r.nombre}
+                        >
+                          {r.nombre}
+                        </span>
+                        {/* Marca de evento multi-moneda: es exactamente el caso
+                            que la consolidación vino a resolver, así que vale la
+                            pena poder identificarlo de un vistazo. */}
+                        {r.monedas.length > 1 && (
+                          <span
+                            className="font-sans text-[10px] text-[#666666]"
+                            title={`Inversión pagada en ${r.monedas.join(" y ")}`}
+                          >
+                            {r.monedas.join(" + ")}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3 text-right align-top tabular-nums">
                       <div className="flex flex-col items-end gap-1">
                         <span className="font-sans text-sm text-[#333333]">
-                          {compactMoney(r.gasto, currency)}
+                          {compactMoney(r.gasto)}
                         </span>
                         <span
                           className="h-1 w-24 overflow-hidden rounded-full bg-[#F0F0F0]"
@@ -212,31 +238,36 @@ export default function OverallTable({
                             style={{ width: `${barPct}%` }}
                           />
                         </span>
-                        <span
-                          className="font-sans text-[10px] text-[#999999]"
-                          title={formatMoney(r.gasto, currency)}
-                        >
-                          {formatMoney(r.gasto, currency)}
+                        <span className="font-sans text-[10px] text-[#999999]">
+                          {formatMoney(r.gasto, moneda)}
                         </span>
+                        {r.filasSinFx > 0 && (
+                          <span
+                            className="font-sans text-[10px] text-[#EF8C34]"
+                            title="Hay gasto de este evento sin tipo de cambio publicado; no está incluido en el monto."
+                          >
+                            sin FX
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td
                       className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]"
-                      title={r.gastoMeta > 0 ? formatMoney(r.gastoMeta, currency) : undefined}
+                      title={r.gastoMeta > 0 ? formatMoney(r.gastoMeta, moneda) : undefined}
                     >
-                      {r.gastoMeta > 0 ? compactMoney(r.gastoMeta, currency) : "—"}
+                      {r.gastoMeta > 0 ? compactMoney(r.gastoMeta) : "—"}
                     </td>
                     <td
                       className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]"
-                      title={r.gastoGoogle > 0 ? formatMoney(r.gastoGoogle, currency) : undefined}
+                      title={r.gastoGoogle > 0 ? formatMoney(r.gastoGoogle, moneda) : undefined}
                     >
-                      {r.gastoGoogle > 0 ? compactMoney(r.gastoGoogle, currency) : "—"}
+                      {r.gastoGoogle > 0 ? compactMoney(r.gastoGoogle) : "—"}
                     </td>
                     <td
                       className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]"
-                      title={r.gastoTiktok > 0 ? formatMoney(r.gastoTiktok, currency) : undefined}
+                      title={r.gastoTiktok > 0 ? formatMoney(r.gastoTiktok, moneda) : undefined}
                     >
-                      {r.gastoTiktok > 0 ? compactMoney(r.gastoTiktok, currency) : "—"}
+                      {r.gastoTiktok > 0 ? compactMoney(r.gastoTiktok) : "—"}
                     </td>
                     <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
                       {formatInt(r.impresiones)}
@@ -248,10 +279,10 @@ export default function OverallTable({
                       {formatRatio(r.ctr)}
                     </td>
                     <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
-                      {r.cpc > 0 ? formatMoney(r.cpc, currency) : "—"}
+                      {formatUnitCost(r.cpc, moneda)}
                     </td>
                     <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
-                      {r.cpm > 0 ? formatMoney(r.cpm, currency) : "—"}
+                      {formatUnitCost(r.cpm, moneda)}
                     </td>
                     <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
                       {formatInt(r.conversiones)}

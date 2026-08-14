@@ -2,7 +2,13 @@
 
 **Project:** `root-emissary-313321`
 
-All columns are nullable. All monetary values are in CLP.
+All columns are nullable.
+
+**Currency.** Most tables store CLP, but paid media does not: ad accounts bill in CLP, USD and BRL,
+so every row of `paidMedia.ads_performance` carries its own `currency`. Never `SUM(gasto)` across
+that table without grouping by currency — use the governed view `marts.paidmedia_ads_performance`,
+which converts each row to USD with the rate of that row's own date. See
+[Paid media & FX](#paid-media--fx) below.
 
 ---
 
@@ -54,7 +60,8 @@ const USERS  = `\`${P}.comunidadGlovox.users\``;
 - `users.rut` = `tickets.Rut` — buyer identity
 - `users.id` = `saleCheck.userId`, `resumenUsers.id`, `survey.userID`
 - `users.rut` = `action.rut`, `forms.Rut`
-- `tickets.EventoID` = `forms.EventoID`, `saleCheck.EventoID`
+- `tickets.EventoID` = `forms.EventoID`, `saleCheck.EventoID`, `categoriaEvento.EventoID`
+- `CAST(categoriaEvento.property_ga4 AS STRING)` = `google_analytics.utm.property_id`, `google_analytics.funnel.property_id` (the GA4 columns are STRING, `property_ga4` is INT64)
 
 ---
 
@@ -101,6 +108,37 @@ Core sales table. One row per ticket item.
 **Key filters used in dashboards:**
 - `Referido LIKE 'FF%' AND EsDevuelto = false` — active community referral sales
 - `CAST(REGEXP_EXTRACT(Referido, r'FF(\d+)') AS INT64)` — extract user ID from FF code
+
+---
+
+## glovox.categoriaEvento — 230 rows / 225 distinct EventoID
+
+Event catalog: classifies and groups every event, and links it to its GA4 property, goal and paid-media budget. Joined to `tickets` on `EventoID` by most dashboards.
+
+⚠️ **Not one row per event.** 230 rows for 225 distinct `EventoID`. Today the only duplicate is **`GLO042`, with 6 rows and 15,151 tickets** — so any `JOIN`/`LEFT JOIN tickets ON EventoID` against this table without aggregating first multiplies that event's ticket rows by 6 (inflated counts, revenue and people). Aggregate to one row per event before joining (`SELECT EventoID, ANY_VALUE(...) … GROUP BY EventoID`, as `lib/queries/curvas.ts` does in its `ev` CTE), or de-duplicate the source table. Several existing queries do join directly (`lib/queries/marketing.ts`, `lib/queries/ticketing.ts`, `lib/queries/onepager.ts`, `lib/queries/frees.ts`) — check before trusting a total that includes `GLO042`.
+
+| Column | Type | Notes |
+|---|---|---|
+| EventoID | STRING | → `tickets.EventoID` (e.g. `GLO174`). Not unique — see warning above |
+| NombreGlovox | STRING | Internal event name |
+| CategoriaEvento | STRING | Category **+ season** (e.g. `Piknic 25-26`, `FDS`, `GRID 26-27`) |
+| CategoriaEvento2 | STRING | Brand / family (e.g. `Piknic`, `After Piknic`, `Feria`, `Festival`, `Sundeck`, `Pase Temporada`) |
+| CategoriaEvento3 | STRING | Edition within the series (`Piknic 1`…`Piknic 9`, `Piknic Playa`, `After Piknic 4`); `Otro` for families that don't number editions |
+| UnabaseID | INT64 | Business id in Unabase |
+| Temporada | STRING | Season (`25-26`); NULL on older events |
+| CuentaIG | INT64 | Instagram account → `marketing.rrss_fllws.blog_id` |
+| property_ga4 | INT64 | GA4 property → `google_analytics.*.property_id` (cast to STRING to join) |
+| goalTickets | INT64 | Ticket goal (people, not transactions) |
+| budgetPm | INT64 | Paid media budget |
+| isCanceled | BOOL | Cancelled event |
+| venue | STRING | Venue |
+| Fecha | DATE | Event date. Dashboards that need a timestamp use `MAX(tickets.FechaEvento)` instead |
+| sold_out | BOOL | Event sold out |
+
+**Key filters used in dashboards:**
+- `isCanceled IS NOT TRUE` — exclude cancelled events
+- `EventoID LIKE 'GLO%'` / `LIKE 'GLP%'` — country scope (Chile / Perú)
+- `CategoriaEvento` / `CategoriaEvento2` / `CategoriaEvento3` / `Temporada` — chained event facets in `/marketing/curvas` and `/ticketing`
 
 ---
 
@@ -266,3 +304,77 @@ GA4-derived funnel step completion per event per day. One row per (date, evento_
 | landing_page | STRING | NULLABLE | Landing page associated with this step |
 | total_users | INTEGER | NULLABLE | Users who reached this step |
 | ingested_at | TIMESTAMP | REQUIRED | ETL load timestamp |
+
+---
+
+## Paid media & FX
+
+Three tables plus one governed view. Read the view, not the raw table.
+
+### `paidMedia.ads_performance` — 16,625 rows
+
+Raw daily ad performance, one row per (platform, date, adset). Partitioned by `fecha` (DAY),
+clustered by `(plataforma, account_id)`. **Multi-currency** — see the warning above.
+
+| Column | Type | Notes |
+|---|---|---|
+| plataforma | STRING | `meta` \| `google` \| `tiktok` |
+| fecha | DATE | Partition column |
+| account_id / account_name | STRING | Ad account. Currency is a property of the account — no account bills in two currencies |
+| currency | STRING | `CLP` (61.5M spend), `USD` (204.8K), `BRL` (1.6K) |
+| campaign_id / campaign_name | STRING | Meta encodes the EventoID in the first 6 chars of the name |
+| objective | STRING | e.g. `OUTCOME_SALES`, `PERFORMANCE_MAX` |
+| adset_id / adset_name | STRING | |
+| impresiones, clics, alcance | INT64 | `alcance` is **not additive** across accounts or platforms (Google reports NULL) |
+| gasto, valor_conversion | FLOAT64 | In `currency` |
+| ctr, cpc, cpm, roas | FLOAT64 | **Per-row ratios — never SUM or AVG these.** Recompute from the sums |
+| conversiones | FLOAT64 | Definitions differ per platform |
+| EventoID | STRING | Governed attribution. NULL on 7,039 of 16,625 rows |
+
+### `referencia.tipo_cambio` — 5,046 rows
+
+Daily FX to USD from central banks. **Dense**: weekends and holidays are filled with the last
+business-day value (`imputado = TRUE`). Covers 2022-01-01 onward for CLP, BRL and USD.
+
+| Column | Type | Notes |
+|---|---|---|
+| fecha | DATE | REQUIRED. Part of the upsert key |
+| currency | STRING | REQUIRED. `CLP` \| `BRL` \| `USD`. Part of the upsert key |
+| units_per_usd | FLOAT64 | Local units per 1 USD. `monto_usd = monto_local / units_per_usd` |
+| fuente | STRING | `BCCH_OBSERVADO` (Chile) \| `BCB_PTAX_CIERRE` (Brazil) \| `IDENTIDAD` (USD = 1.0) |
+| serie | STRING | Source series id, e.g. `F073.TCO.PRE.Z.D` |
+| imputado | BOOL | TRUE = carry-forward of the last business day |
+| loaded_at | TIMESTAMP | |
+
+⚠️ **`PEN` is not covered.** `lib/eventos-create.ts` assigns it to every Perú (GLP) event. Today
+nothing breaks because Perú spend runs through USD and CLP accounts, but the first advertising
+account in soles would produce `gasto_usd = NULL` permanently.
+
+⚠️ **Freshness.** The FX pipeline runs ~18:00 UTC and the ads pipeline ~13:10 UTC, so ad rows for
+the current day can briefly outrun the published rate. Consumers must treat `gasto_usd IS NULL` as
+"not yet convertible", never as zero.
+
+### `marts.paidmedia_ads_performance` — VIEW
+
+`ads_performance` LEFT JOINed to `tipo_cambio` on `(currency, fecha)`. Adds `gasto_usd`, `cpc_usd`,
+`cpm_usd`, `valor_conversion_usd`, `fx_units_per_usd`, `fx_imputado`. Defined in the
+**data-governance** repo (`schemas/bigquery/views/marts_paidmedia_ads_performance.sql`) — this repo
+has read-only credentials. Consumers: `/paid-media`, `/marketing/weekly`, `/inversion-medios`.
+
+Safe to aggregate: `gasto_usd`, `valor_conversion_usd`, `impresiones`, `clics`, `conversiones`.
+Never aggregate: `ctr`, `cpc`, `cpm`, `roas`, `cpc_usd`, `cpm_usd` (per-row ratios) or `alcance`.
+
+To express amounts in a currency other than USD, multiply the already-converted USD value by that
+currency's rate **for the same row's date** — not by a single average rate for the whole range.
+`lib/queries/paidMedia.ts` does this for its USD ↔ CLP switch.
+
+### `paidMedia.fx_rates` — RETIRED
+
+Flat 3-row table with no date column (CLP=900, BRL=5.4, USD=1), hand-edited in BigQuery. Replaced
+by `referencia.tipo_cambio`. Using it understated CLP spend by ~2% and overstated BRL by ~5.8%.
+No code reads it any more.
+
+### `paidMedia.campaign_event_map`
+
+Manual `campaign_id` → `EventoID` map. Google campaigns need it because their names do not encode
+the event; Meta does not.

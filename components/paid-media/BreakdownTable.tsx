@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import type { BreakdownRow } from "@/lib/queries/paidMedia";
+import type { BreakdownRow, DisplayCurrency } from "@/lib/queries/paidMedia";
 import {
   compactMoney,
   formatInt,
-  formatMoney,
   formatRatio,
   formatRoas,
+  formatUnitCost,
+  formatMoney,
   plataformaLabel,
 } from "@/components/paid-media/format";
 
@@ -20,7 +21,12 @@ export interface BreakdownTableProps {
   /** Encabezado de la segunda columna (p. ej. "Plataforma" o "Cuenta"). */
   extraLabel?: string;
   rows: BreakdownRow[];
-  currency: string;
+  /** Moneda en que se expresan los montos. */
+  moneda: DisplayCurrency;
+  /** Cardinalidad real del breakdown. Si supera a `rows.length`, la tabla lo
+   *  declara: consolidar llevó las campañas de 81 a 1.097 y callar el truncado
+   *  haría leer un top-200 como si fuera el universo completo. */
+  total?: number;
   /** Filtro al que apunta cada fila — convierte la primera columna en link. */
   drillParam?: "account" | "campaign" | "adset" | "plataforma" | "objective";
   /** searchParams base que cada link arrastra. */
@@ -82,7 +88,8 @@ export default function BreakdownTable({
   columnLabel,
   extraLabel,
   rows,
-  currency,
+  moneda,
+  total,
   drillParam,
   baseSearchParams,
   extraIsPlataforma = false,
@@ -147,12 +154,14 @@ export default function BreakdownTable({
     return `/paid-media?${params.toString()}`;
   }
 
-  // Cap visual: mostramos las primeras 50 filas — el query ya limita en 50.
+  // La barra se escala contra el máximo de lo que se está MOSTRANDO, no del
+  // universo: la query ya truncó por su LIMIT y el pie declara cuánto queda fuera.
   const maxBarGasto = sorted.reduce((m, r) => Math.max(m, r.gasto), 0);
+  const truncadas = typeof total === "number" ? total - rows.length : 0;
 
   const cols: { key: SortKey; label: string; align: "left" | "right" }[] = [
     { key: "label",        label: columnLabel,    align: "left" },
-    { key: "gasto",        label: "Gasto",        align: "right" },
+    { key: "gasto",        label: `Gasto ${moneda}`, align: "right" },
     { key: "impresiones",  label: "Impr.",        align: "right" },
     { key: "clics",        label: "Clics",        align: "right" },
     { key: "ctr",          label: "CTR",          align: "right" },
@@ -239,7 +248,7 @@ export default function BreakdownTable({
                     <td className="px-4 py-3 text-right align-top tabular-nums">
                       <div className="flex flex-col items-end gap-1">
                         <span className="font-sans text-sm text-[#333333]">
-                          {compactMoney(r.gasto, currency)}
+                          {compactMoney(r.gasto)}
                         </span>
                         <span
                           className="h-1 w-24 overflow-hidden rounded-full bg-[#F0F0F0]"
@@ -252,10 +261,18 @@ export default function BreakdownTable({
                         </span>
                         <span
                           className="font-sans text-[10px] text-[#999999]"
-                          title={formatMoney(r.gasto, currency)}
+                          title={formatMoney(r.gasto, moneda)}
                         >
-                          {formatMoney(r.gasto, currency)}
+                          {formatMoney(r.gasto, moneda)}
                         </span>
+                        {r.filasSinFx > 0 && (
+                          <span
+                            className="font-sans text-[10px] text-[#EF8C34]"
+                            title="Hay gasto de esta fila sin tipo de cambio publicado; no está incluido en el monto."
+                          >
+                            sin FX
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
@@ -268,10 +285,10 @@ export default function BreakdownTable({
                       {formatRatio(r.ctr)}
                     </td>
                     <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
-                      {r.cpc > 0 ? formatMoney(r.cpc, currency) : "—"}
+                      {formatUnitCost(r.cpc, moneda)}
                     </td>
                     <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
-                      {r.cpm > 0 ? formatMoney(r.cpm, currency) : "—"}
+                      {formatUnitCost(r.cpm, moneda)}
                     </td>
                     <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
                       {formatInt(r.conversiones)}
@@ -287,8 +304,14 @@ export default function BreakdownTable({
         </div>
       )}
 
-      {extraLabel && rows.length > 0 && (
+      {(extraLabel || truncadas > 0) && rows.length > 0 && (
         <p className="px-6 pb-4 font-sans text-xs text-[#999999]">
+          {truncadas > 0 && (
+            <>
+              Mostrando {formatInt(rows.length)} de {formatInt(total ?? 0)} por
+              gasto descendente.{extraLabel ? " " : ""}
+            </>
+          )}
           {extraLabel}
         </p>
       )}

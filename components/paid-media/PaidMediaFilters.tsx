@@ -5,21 +5,18 @@ import type {
   AccountOption,
   CampaignOption,
   AdsetOption,
-  CurrencyOption,
   PlataformaOption,
 } from "@/lib/queries/paidMedia";
 import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
-import { compactMoney, formatInt, plataformaLabel } from "@/components/paid-media/format";
+import { formatInt, plataformaLabel } from "@/components/paid-media/format";
 
 interface Props {
-  currencies: CurrencyOption[];
   platforms: PlataformaOption[];
   accounts: AccountOption[];
   campaigns: CampaignOption[];
   adsets: AdsetOption[];
   objectives: string[];
 
-  currency: string;
   plataformas: string[];
   accountIds: string[];
   campaignIds: string[];
@@ -29,37 +26,15 @@ interface Props {
   to: string;
 }
 
-const SelectCaret = () => (
-  <svg
-    viewBox="0 0 12 12"
-    className="pointer-events-none absolute right-3 h-3 w-3 text-[#999999]"
-    aria-hidden="true"
-  >
-    <path
-      d="M2 4l4 4 4-4"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      fill="none"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    />
-  </svg>
-);
-
-const SELECT_CLS =
-  "appearance-none rounded-lg border border-[#E5E5E5] bg-white py-2 pl-3 pr-9 font-sans text-sm text-[#333333] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]";
-
 const INPUT_CLS =
   "rounded-lg border border-[#E5E5E5] bg-white py-2 px-3 font-sans text-sm text-[#333333] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]";
 
 export default function PaidMediaFilters({
-  currencies,
   platforms,
   accounts,
   campaigns,
   adsets,
   objectives,
-  currency,
   plataformas,
   accountIds,
   campaignIds,
@@ -100,10 +75,15 @@ export default function PaidMediaFilters({
     value: p.plataforma,
     label: `${plataformaLabel(p.plataforma)} · ${formatInt(p.rows)}`,
   }));
+  // La moneda de la cuenta pasa a ser un metadato del selector: ya no filtra
+  // nada (todo se agrega en dólares), pero sigue siendo el dato que permite
+  // saber contra qué factura se reconcilia cada cuenta.
   const accountOptions = accounts.map((a) => ({
     value: a.accountId,
     label: a.accountName || a.accountId,
-    meta: plataformaLabel(a.plataforma),
+    meta: a.currency
+      ? `${plataformaLabel(a.plataforma)} · ${a.currency}`
+      : plataformaLabel(a.plataforma),
   }));
   const campaignOptions = campaigns.map((c) => ({
     value: c.campaignId,
@@ -118,36 +98,6 @@ export default function PaidMediaFilters({
 
   return (
     <section className="flex flex-wrap items-end gap-3">
-      {/* Moneda */}
-      <label className="flex flex-col gap-1">
-        <span className="font-sans text-xs text-[#666666]">Moneda</span>
-        <div className="relative inline-flex items-center">
-          <select
-            className={SELECT_CLS}
-            value={currency}
-            onChange={(e) =>
-              // Cambiar de moneda invalida el resto del scope (cuentas/campañas
-              // viven dentro de su moneda) — reseteamos los filtros dependientes.
-              update({
-                currency: e.target.value,
-                account: null,
-                campaign: null,
-                adset: null,
-                objective: null,
-              })
-            }
-            aria-label="Moneda"
-          >
-            {currencies.map((c) => (
-              <option key={c.currency} value={c.currency}>
-                {c.currency} · {compactMoney(c.gasto, c.currency)}
-              </option>
-            ))}
-          </select>
-          <SelectCaret />
-        </div>
-      </label>
-
       {/* Plataforma */}
       <StandardMultiFilter
         label="Plataforma"
@@ -236,10 +186,9 @@ export default function PaidMediaFilters({
         <button
           type="button"
           onClick={() => {
-            // Limpia todos los filtros menos la moneda — siempre necesitamos una.
-            // Preserva el tab activo para no rebotar de Detalle a Overall.
+            // Limpia todos los filtros. Preserva solo el tab activo, para no
+            // rebotar de Detalle a Overall.
             const next = new URLSearchParams();
-            next.set("currency", currency);
             const tab = searchParams.get("tab");
             if (tab) next.set("tab", tab);
             router.push(`/paid-media?${next.toString()}`);

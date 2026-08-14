@@ -97,7 +97,7 @@ export const MARKETING_GROUP: DashboardGroup = {
       label: "PAID MEDIA",
       path: "/paid-media",
       description:
-        "Rendimiento de social media ads: gasto, alcance, CTR, CPC, CPM, conversiones y ROAS por plataforma, campaña y adset.",
+        "Rendimiento de social media ads consolidado en dólares o pesos: gasto, CTR, CPC, CPM, conversiones y ROAS por plataforma, campaña y adset.",
       icon: "target",
       accentClass: "bg-[#4267B2]",
       accentText: "text-white",

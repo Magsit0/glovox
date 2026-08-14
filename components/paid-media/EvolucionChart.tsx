@@ -24,14 +24,15 @@ import {
   compactMoney,
   formatDate,
   formatInt,
-  formatMoney,
   formatRatio,
+  formatMoney,
 } from "@/components/paid-media/format";
-import type { DailyRow } from "@/lib/queries/paidMedia";
+import type { DailyRow, DisplayCurrency } from "@/lib/queries/paidMedia";
 
 interface Props {
   rows: DailyRow[];
-  currency: string;
+  /** Moneda en que se expresan los montos. */
+  moneda: DisplayCurrency;
 }
 
 type Metric = "gasto" | "impresiones" | "clics" | "conversiones";
@@ -50,23 +51,27 @@ interface TooltipEntry {
 type ChartDatum = {
   fecha: string;
   fechaLabel: string;
-  gasto: number;
+  /** `null` = ese día no tiene conversión a dólares. Recharts corta la serie
+   *  en vez de bajarla a cero, que es justamente lo que hay que evitar: una
+   *  caída al eje se lee como "no se invirtió". */
+  gasto: number | null;
   impresiones: number;
   clics: number;
   conversiones: number;
   ctr: number;
+  sinFx: boolean;
 };
 
 function ChartTooltip({
   active,
   payload,
   metric,
-  currency,
+  moneda,
 }: {
   active?: boolean;
   payload?: TooltipEntry[];
   metric: Metric;
-  currency: string;
+  moneda: DisplayCurrency;
 }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
@@ -74,7 +79,7 @@ function ChartTooltip({
   const mainLabel = METRICS.find((m) => m.id === metric)?.label ?? metric;
   const mainValue =
     metric === "gasto"
-      ? formatMoney(p.gasto, currency)
+      ? formatMoney(p.gasto, moneda)
       : metric === "impresiones"
         ? formatInt(p.impresiones)
         : metric === "clics"
@@ -98,11 +103,16 @@ function ChartTooltip({
         />
         {formatRatio(p.ctr)} CTR
       </p>
+      {p.sinFx && metric === "gasto" && (
+        <p className="mt-1 text-xs text-[#EF8C34]">
+          Sin tipo de cambio publicado para este día.
+        </p>
+      )}
     </div>
   );
 }
 
-export default function EvolucionChart({ rows, currency }: Props) {
+export default function EvolucionChart({ rows, moneda }: Props) {
   const [metric, setMetric] = useState<Metric>("gasto");
 
   const data: ChartDatum[] = useMemo(
@@ -115,10 +125,12 @@ export default function EvolucionChart({ rows, currency }: Props) {
         clics: r.clics,
         conversiones: r.conversiones,
         ctr: r.impresiones > 0 ? r.clics / r.impresiones : 0,
+        sinFx: r.filasSinFx > 0,
       })),
     [rows],
   );
 
+  const diasSinFx = data.filter((d) => d.sinFx).length;
   const mainColor = seriesColor(0);
   const ctrColor = seriesColor(2);
 
@@ -130,7 +142,19 @@ export default function EvolucionChart({ rows, currency }: Props) {
             Evolución diaria
           </h2>
           <p className="mt-1 font-sans text-sm text-[#666666]">
-            Serie diaria del KPI seleccionado y CTR como referencia.
+            Serie diaria del KPI seleccionado y CTR como referencia. El gasto va
+            en {moneda}, convertido con el tipo de cambio de cada día.
+            {diasSinFx > 0 && (
+              <>
+                {" "}
+                <span className="text-[#EF8C34]">
+                  {diasSinFx === 1
+                    ? "Un día queda cortado"
+                    : `${diasSinFx} días quedan cortados`}{" "}
+                  por falta de tipo de cambio.
+                </span>
+              </>
+            )}
           </p>
         </div>
         <div className="flex flex-wrap gap-1 rounded-lg border border-[#E5E5E5] bg-white p-1">
@@ -194,9 +218,7 @@ export default function EvolucionChart({ rows, currency }: Props) {
                 axisLine={false}
                 tick={axisTick}
                 tickFormatter={(v: number) =>
-                  metric === "gasto"
-                    ? compactMoney(v, currency)
-                    : compactInt(v)
+                  metric === "gasto" ? compactMoney(v) : compactInt(v)
                 }
               />
               <YAxis
@@ -208,7 +230,7 @@ export default function EvolucionChart({ rows, currency }: Props) {
                 tickFormatter={(v: number) => `${(v * 100).toFixed(1)}%`}
               />
               <Tooltip
-                content={<ChartTooltip metric={metric} currency={currency} />}
+                content={<ChartTooltip metric={metric} moneda={moneda} />}
                 cursor={{ stroke: "#E5E5E5" }}
               />
               <Legend {...legendProps} />
@@ -223,6 +245,9 @@ export default function EvolucionChart({ rows, currency }: Props) {
                 dot={false}
                 activeDot={{ r: 4 }}
                 animationDuration={400}
+                // Explícito: un día sin conversión tiene que dejar un hueco en
+                // la serie, no interpolarse como si el dato existiera.
+                connectNulls={false}
               />
               <Line
                 yAxisId="ctr"

@@ -2,7 +2,7 @@ import type { NegocioAggregate } from "@/lib/unabase/cierreNegocio";
 import type { VentaNegocioRow } from "@/lib/unabase/types";
 import { compactCurrency, formatCurrency, formatNumber } from "@/lib/unabase/formatting";
 import VentasDocumentsTable from "@/components/cierre-negocio/VentasDocumentsTable";
-import VentasItemsRadar from "@/components/cierre-negocio/VentasItemsRadar";
+import VentasItemsBar from "@/components/cierre-negocio/VentasItemsBar";
 
 interface Props {
   agg: NegocioAggregate;
@@ -137,10 +137,10 @@ export default function VentasSection({ agg, ventas }: Props) {
             </ul>
           </article>
 
-          <VentasItemsRadar rows={v.itemsDescripcion} />
+          <VentasItemsBar rows={v.itemsDescripcion} />
         </div>
       ) : (
-        <VentasItemsRadar rows={v.itemsDescripcion} />
+        <VentasItemsBar rows={v.itemsDescripcion} />
       )}
 
       <VentasDocumentsTable ventas={ventas} />

@@ -24,9 +24,9 @@ Este repo **CONSUME** datos; el repo hermano `../data-governance` los **PRODUCE*
 - App: Next.js, React, TypeScript, Tailwind, server/client components.
 - Datos: BigQuery, Postgres/Neon, Drizzle, Google Sheets y servicios externos puntuales.
 - Instalación: `npm install`
-- Desarrollo: `npm run dev`
+- Desarrollo: `npm run dev` (puerto 3000). Si el 3000 está tomado por el repo hermano `glovox-operaciones`, usa `npm run dev -- --port 3100`; [`.claude/launch.json`](.claude/launch.json) trae ambas configuraciones (`dev` y `dev-3100`).
 - Build: `npm run build`
-- Lint: `npm run lint`
+- Lint: `npm run lint` — ⚠️ desde Next 16 `next build` ya **no** corre ESLint (`next lint` fue removido en favor del CLI de ESLint), así que hay que correrlo aparte: un build verde no garantiza lint limpio.
 - Migraciones: `npm run db:generate`, `npm run db:migrate`, `npm run db:push`
 - Seeds/scripts: revisa los comandos `db:*`, `bq:*` y `test:*` en [`package.json`](package.json).
 
@@ -60,7 +60,7 @@ No hagas commit de secretos ni credenciales reales.
 - ⚠️ **Negocios internos GLOVOX** (`area_negocio='GLOVOX'` en `marts.finanzas_*`: sueldos y gasto administrativo, flag `es_interno_glovox`): SOLO pueden mostrarse en `/interno`, su dashboard exclusivo de acceso restringido. NINGÚN otro dashboard, query o export debe incluirlos — toda query nueva sobre esas vistas filtra `NOT es_interno_glovox` (o `es_produccion_propia` / área explícita). Regla aplicada a todos los dashboards existentes el 20-jul-2026.
 - Para cambios de schema, actualiza `db/schema.ts` y genera migración con Drizzle.
 - Para UI, mantén densidad, jerarquía y lenguaje visual consistente con el dashboard afectado.
-- Agrega o ejecuta pruebas/verificaciones proporcionales al riesgo: `npm run lint`, `npm run build` o scripts específicos.
+- Agrega o ejecuta pruebas/verificaciones proporcionales al riesgo: `npm run lint`, `npm run build` o scripts específicos. Los dos primeros no se sustituyen entre sí: el build no corre ESLint (ver "Stack y comandos").
 - Si tocas datos externos, deja claro qué dataset, tabla, hoja o permiso requiere el flujo.
 
 ## Estándar de filtros

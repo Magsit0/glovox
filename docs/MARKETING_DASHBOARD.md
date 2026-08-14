@@ -6,6 +6,8 @@ A diferencia del dashboard de Unabase (que es multipestaña y basado en contexto
 
 El punto de entrada principal es `app/marketing/weekly/page.tsx`.
 
+**Alcance de este documento:** cubre únicamente el dashboard `/marketing/weekly` ("VENTA DIARIA") — a eso apunta lo de "una sola página". El grupo MARKETING tiene además otros dashboards, cada uno con su propia ruta, queries y componentes. El más cercano a este es `/marketing/curvas` ("CURVAS DE VENTA", `app/marketing/curvas/page.tsx`), que compara la curva de compra acumulada de muchos eventos alineados por días de anticipación y sigue el manual de marca (`docs/STYLE_DASHBOARD.md`), no el diseño brutalista. Su contexto detallado vive en `app/marketing/curvas/CONTEXTO-PROMPT.md`.
+
 ---
 
 ## 1. Estructura de la Página y Paneles
@@ -62,7 +64,7 @@ El dashboard hace uso intensivo de un sistema de diseño propio y llamativo ("Br
 
 A diferencia de Unabase, el dashboard de Marketing no usa un gran React Context global. Se apoya fuertemente en **Server Components** de Next.js, obteniendo los datos de forma asíncrona componente por componente usando Promesas (`Promise.all`).
 
-*   **Consultas a Base de Datos:** Todas las queries están centralizadas en **`lib/queries/marketing.ts`**.
+*   **Consultas a Base de Datos:** Todas las queries de **este** dashboard (`/marketing/weekly`) están centralizadas en **`lib/queries/marketing.ts`**. El dashboard hermano `/marketing/curvas` NO usa ese archivo: sus consultas están en **`lib/queries/curvas.ts`** (`getCurvasEventOptions`, `getCurvasCompra`, `getCurvasTipoTicketOptions`) y toda la matemática de acumulado, agrupación, normalización y curva promedio en el módulo puro **`lib/marketing/curvas.ts`** (`buildCurvas`, `resumirCurvas`).
 *   **Explicación detallada de las Queries en `lib/queries/marketing.ts`:**
 
     *   `getEventList`: Extrae todos los eventos agrupados, devolviendo el ID, nombre, categoría, fecha del evento y la cantidad total de tickets vendidos. Sirve para alimentar el selector principal.
@@ -89,3 +91,4 @@ A diferencia de Unabase, el dashboard de Marketing no usa un gran React Context 
 *   **Para la estética base (Bordes, sombras, tarjetas brutales):** Modificar los componentes en `components/marketing/` (ej. `BrutalChartPanel.tsx`).
 *   **Para editar un gráfico o tabla específica:** Revisar dentro de `components/marketing/charts/`.
 *   **Para cambiar las fuentes de datos, arreglar un cálculo o agregar un campo:** `lib/queries/marketing.ts`.
+*   **Para el dashboard hermano "CURVAS DE VENTA" (`/marketing/curvas`):** página en `app/marketing/curvas/page.tsx`, filtros en `components/marketing/CurvasFilters.tsx`, gráfico en `components/marketing/charts/CurvasCompraChart.tsx`, queries en `lib/queries/curvas.ts` y el cálculo de las curvas en `lib/marketing/curvas.ts`. Comparte carpeta con los archivos de `/marketing/weekly` pero no comparte datos ni estética.

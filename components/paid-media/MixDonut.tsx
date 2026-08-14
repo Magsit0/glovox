@@ -2,12 +2,12 @@
 
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { seriesColor } from "@/lib/chart-colors";
-import type { BreakdownRow } from "@/lib/queries/paidMedia";
+import type { BreakdownRow, DisplayCurrency } from "@/lib/queries/paidMedia";
 import {
   compactMoney,
   formatInt,
-  formatMoney,
   formatRatio,
+  formatMoney,
   plataformaLabel,
 } from "@/components/paid-media/format";
 
@@ -15,7 +15,8 @@ interface Props {
   title: string;
   subtitle: string;
   rows: BreakdownRow[];
-  currency: string;
+  /** Moneda en que se expresan los montos. */
+  moneda: DisplayCurrency;
   /** Si true, formatea las etiquetas (meta/google) bonito. */
   labelIsPlataforma?: boolean;
   /** Texto cuando no hay datos. */
@@ -29,13 +30,13 @@ interface TooltipEntry {
 function ChartTooltip({
   active,
   payload,
-  currency,
   totalGasto,
+  moneda,
 }: {
   active?: boolean;
   payload?: TooltipEntry[];
-  currency: string;
   totalGasto: number;
+  moneda: DisplayCurrency;
 }) {
   if (!active || !payload?.length) return null;
   const p = payload[0].payload;
@@ -44,7 +45,7 @@ function ChartTooltip({
     <div className="rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] shadow-md">
       <p className="font-medium">{p._label}</p>
       <p className="mt-1 text-xs text-[#666666]">
-        {formatMoney(p.gasto, currency)} · {pct.toFixed(1)}%
+        {formatMoney(p.gasto, moneda)} · {pct.toFixed(1)}%
       </p>
       <p className="text-xs text-[#666666]">{formatInt(p.clics)} clics</p>
       <p className="text-xs text-[#666666]">CTR {formatRatio(p.ctr)}</p>
@@ -56,7 +57,7 @@ export default function MixDonut({
   title,
   subtitle,
   rows,
-  currency,
+  moneda,
   labelIsPlataforma = false,
   emptyText = "Sin datos para los filtros seleccionados.",
 }: Props) {
@@ -77,6 +78,7 @@ export default function MixDonut({
             impresiones: acc.impresiones + r.impresiones,
             clics: acc.clics + r.clics,
             conversiones: acc.conversiones + r.conversiones,
+            filasSinFx: acc.filasSinFx + r.filasSinFx,
           }),
           {
             key: "__rest__",
@@ -92,6 +94,7 @@ export default function MixDonut({
             cpc: 0,
             cpm: 0,
             roas: 0,
+            filasSinFx: 0,
           },
         ),
       ]
@@ -130,16 +133,16 @@ export default function MixDonut({
                 </Pie>
                 <Tooltip
                   content={
-                    <ChartTooltip currency={currency} totalGasto={totalGasto} />
+                    <ChartTooltip totalGasto={totalGasto} moneda={moneda} />
                   }
                 />
               </PieChart>
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
               <span className="font-display text-2xl font-bold leading-none text-[#333333]">
-                {compactMoney(totalGasto, currency)}
+                {compactMoney(totalGasto)}
               </span>
-              <span className="mt-1 font-sans text-xs text-[#999999]">gasto</span>
+              <span className="mt-1 font-sans text-xs text-[#999999]">gasto {moneda}</span>
             </div>
           </div>
 
@@ -151,7 +154,7 @@ export default function MixDonut({
                     Segmento
                   </th>
                   <th className="py-2 pr-4 text-right text-xs font-medium uppercase tracking-wide">
-                    Gasto
+                    Gasto {moneda}
                   </th>
                   <th className="py-2 text-right text-xs font-medium uppercase tracking-wide">
                     %
@@ -176,7 +179,7 @@ export default function MixDonut({
                       </span>
                     </td>
                     <td className="py-2 pr-4 text-right tabular-nums text-[#333333]">
-                      {compactMoney(r.gasto, currency)}
+                      {compactMoney(r.gasto)}
                     </td>
                     <td className="py-2 text-right tabular-nums text-[#666666]">
                       {totalGasto > 0

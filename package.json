@@ -15,7 +15,8 @@
     "db:seed": "dotenv -e .env.local -- tsx db/seed.ts",
     "db:normalize-marcas": "dotenv -e .env.local -- tsx db/scripts/normalize-marca-clientes.ts",
     "bq:seed-nombres": "dotenv -e .env.local -- tsx scripts/seed-nombres-genero.ts",
-    "test:optimizer": "tsx lib/ticketing-pricing/optimizer.checks.ts"
+    "test:optimizer": "tsx lib/ticketing-pricing/optimizer.checks.ts",
+    "test:paidmedia-fx": "dotenv -e .env.local -- tsx scripts/paidmedia-fx-parity.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.80",

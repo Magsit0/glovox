@@ -1,12 +1,14 @@
 import Link from "next/link";
+import type { DisplayCurrency } from "@/lib/queries/paidMedia";
 
 export type PaidMediaTabKey = "overall" | "detalle";
 
 interface Props {
   active: PaidMediaTabKey;
-  /** Params globales que se arrastran al cambiar de pestaña (moneda, plataforma,
-   *  familia de evento y rango de fechas son transversales a ambas vistas). */
-  currency: string;
+  /** Params globales que se arrastran al cambiar de pestaña (moneda de
+   *  despliegue, plataforma, familia de evento y rango de fechas son
+   *  transversales a ambas vistas). */
+  moneda?: DisplayCurrency;
   plataforma?: string | string[];
   prefix?: string;
   from?: string;
@@ -20,7 +22,7 @@ const TABS: { key: PaidMediaTabKey; label: string }[] = [
 
 export default function PaidMediaTabs({
   active,
-  currency,
+  moneda,
   plataforma,
   prefix,
   from,
@@ -28,7 +30,8 @@ export default function PaidMediaTabs({
 }: Props) {
   function hrefFor(key: PaidMediaTabKey): string {
     const params = new URLSearchParams();
-    if (currency) params.set("currency", currency);
+    // USD es el default: se omite de la URL para que los links queden limpios.
+    if (moneda && moneda !== "USD") params.set("moneda", moneda);
     const plataformas = Array.isArray(plataforma)
       ? plataforma.filter(Boolean)
       : plataforma

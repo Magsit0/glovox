@@ -212,7 +212,7 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     sortOrder: 25,
     title: "PAID MEDIA",
     description:
-      "Rendimiento de social media ads: gasto, alcance, CTR, CPC, CPM, conversiones y ROAS por plataforma, cuenta, campaña y adset.",
+      "Rendimiento de social media ads consolidado en dólares o pesos: gasto, CTR, CPC, CPM, conversiones y ROAS por plataforma, cuenta, campaña y adset.",
     icon: "target",
     accentClass: "bg-[#4267B2]",
     accentText: "text-white",

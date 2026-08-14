@@ -1,5 +1,4 @@
 interface Props {
-  currency: string;
   plataformas?: string[];
   accounts?: string[];
   campaigns?: string[];
@@ -11,11 +10,10 @@ interface Props {
 
 /**
  * Tira de contexto sobre los filtros activos — la idea es que el lector
- * entienda de un vistazo qué moneda/cuenta/campaña está mirando sin tener
- * que volver al filtro arriba.
+ * entienda de un vistazo qué cuenta/campaña está mirando sin tener que volver
+ * al filtro de arriba.
  */
 export default function ActiveContext({
-  currency,
   plataformas = [],
   accounts = [],
   campaigns = [],
@@ -25,7 +23,6 @@ export default function ActiveContext({
   to,
 }: Props) {
   const items: { label: string; value: string }[] = [];
-  items.push({ label: "Moneda", value: currency });
   addSelection(items, "Plataforma", plataformas);
   addSelection(items, "Cuenta", accounts);
   addSelection(items, "Campaña", campaigns);
@@ -37,6 +34,11 @@ export default function ActiveContext({
       value: from && to ? `${from} → ${to}` : from ? `desde ${from}` : `hasta ${to}`,
     });
   }
+
+  // Antes el chip de Moneda era incondicional y la lista nunca quedaba vacía.
+  // Sin él, un scope sin filtros dejaría una <section> sin hijos que igual
+  // aporta el gap de 32px del Shell: un hueco fantasma en la página.
+  if (items.length === 0) return null;
 
   return (
     <section className="flex flex-wrap items-center gap-2">

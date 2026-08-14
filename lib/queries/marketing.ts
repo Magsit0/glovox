@@ -7,16 +7,18 @@ import {
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 const TICKETS = `\`${P}.glovox.tickets\``;
-// Paid-media source. `ads_performance` replaces the old `generalAds` table: it has
-// no EventoID, multiple currencies, and combined Meta + Google rows. See
+// Paid-media source: the GOVERNED view, which carries the raw `ads_performance`
+// columns plus `gasto_usd` — converted with the exchange rate of each row's own
+// date, from `referencia.tipo_cambio`. It used to read the raw table and divide
+// by the flat `paidMedia.fx_rates` (CLP=900 for every date since 2023), which
+// drifted up to 11% against /paid-media on the same event. Rows still carry
+// multiple currencies and combined Meta + Google spend, with no EventoID — see
 // `attributedAds()` for how each row is tied back to an event.
-const ADS = `\`${P}.paidMedia.ads_performance\``;
+const ADS = `\`${P}.marts.paidmedia_ads_performance\``;
 // Maps a Google `campaign_id` to the EventoID(s) it funds (1 campaign -> many
 // events for season-long campaigns). Meta needs no map (EventoID is derived from
 // the campaign name). Populated manually in BigQuery.
 const CAMP_MAP = `\`${P}.paidMedia.campaign_event_map\``;
-// Per-currency USD conversion rates: `usd = gasto / units_per_usd`.
-const FX = `\`${P}.paidMedia.fx_rates\``;
 const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
 // Multi-network followers table (replaces the legacy `rrssFollowers`). Columns:
 // blog_id INT64, label STRING, network STRING, date DATE, delta_followers INT64,
@@ -65,7 +67,8 @@ const TICKET_TYPE_FILTER = `
 //             event only on days inside that event's sale window. A campaign mapped to
 //             overlapping events double-counts by design (agreed product decision).
 //
-// Spend is multi-currency (USD / CLP / BRL …); callers convert to USD via `fx_rates`.
+// Spend is multi-currency (USD / CLP / BRL …); the governed view already carries
+// `gasto_usd`, converted with each row's own date rate. Callers sum that column.
 
 // People-count weight per ticket row. Most rows are 1 person; FBM packs sell to
 // two people under a single ticket row, so they count as 2. Used by metrics that
@@ -105,7 +108,10 @@ function ticketPeriodCte(tSql: string): string {
 // Requires a `ticket_period` CTE in the same query. `windowMeta=true` also clips Meta
 // to the sale window (used by the time-series breakdown); false sums all Meta spend.
 function attributedAds(windowMeta: boolean): string {
-  const cols = `a.plataforma, a.fecha, a.campaign_id, a.campaign_name, a.currency, a.gasto, a.conversiones`;
+  // `gasto` stays for the per-currency native breakdown; `gasto_usd` is what
+  // every total and ratio sums. It is NULL when `referencia.tipo_cambio` has no
+  // rate for that date yet — SUM skips it rather than pretending it is zero.
+  const cols = `a.plataforma, a.fecha, a.campaign_id, a.campaign_name, a.currency, a.gasto, a.gasto_usd, a.conversiones`;
   return `
     SELECT ${cols}
     FROM ${ADS} a
@@ -191,7 +197,7 @@ export type CumulativeSalesRelativeRow = {
 export type CurrencySpend = {
   currency: string;
   spend: number; // raw amount in `currency`
-  spendUsd: number; // converted to USD via fx_rates
+  spendUsd: number; // converted with that row's own date rate (referencia.tipo_cambio)
 };
 
 export type PlatformSpend = {
@@ -404,9 +410,8 @@ export async function getEventKpis(
     ${ticketPeriodCte(t.sql)},
     ads_evt AS (${attributedAds(false)}),
     ad_stats AS (
-      SELECT SUM(e.gasto / COALESCE(f.units_per_usd, 1)) AS total_spend
+      SELECT SUM(e.gasto_usd) AS total_spend
       FROM ads_evt e
-      LEFT JOIN ${FX} f ON f.currency = e.currency
     ),
     event_meta AS (
       SELECT budgetPm, goalTickets
@@ -616,9 +621,8 @@ export async function getPaidMediaSummary(
         e.currency,
         e.gasto,
         e.conversiones,
-        e.gasto / COALESCE(f.units_per_usd, 1) AS gasto_usd
+        e.gasto_usd
       FROM ads_evt e
-      LEFT JOIN ${FX} f ON f.currency = e.currency
     ),
     by_currency AS (
       SELECT currency, ROUND(SUM(gasto), 2) AS spend, ROUND(SUM(gasto_usd), 2) AS spend_usd
@@ -1037,10 +1041,9 @@ export async function getCampaignBreakdown(
       FORMAT_DATE('%Y-%m-%d', e.fecha) AS date,
       e.campaign_name AS campaign,
       e.plataforma AS platform,
-      SUM(e.gasto / COALESCE(f.units_per_usd, 1)) AS spend,
+      SUM(e.gasto_usd) AS spend,
       SUM(e.conversiones) AS purchases
     FROM ads_evt e
-    LEFT JOIN ${FX} f ON f.currency = e.currency
     GROUP BY date, campaign, platform
     ORDER BY date, campaign
     `,
