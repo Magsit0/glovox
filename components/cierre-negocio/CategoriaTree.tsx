@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ChevronRight, FileText } from "lucide-react";
 import type {
   CategoriaNode,
+  CategoriaViewMode,
   ItemDetail,
   SubcategoriaNode,
 } from "@/lib/unabase/cierreNegocio";
@@ -11,6 +12,9 @@ import { compactCurrency, formatCurrency, formatNumber } from "@/lib/unabase/for
 
 interface Props {
   arbol: CategoriaNode[];
+  /** En "oficial" el nombre principal del item es el del catálogo (cuando el
+   *  seed lo resolvió) y el texto crudo del negocio baja a línea secundaria. */
+  modo?: CategoriaViewMode;
 }
 
 function avanceFor(presupuesto: number, gastoReal: number): number {
@@ -37,7 +41,7 @@ function diferenciaClass(diferencia: number): string {
   return "text-[#333333]";
 }
 
-export default function CategoriaTree({ arbol }: Props) {
+export default function CategoriaTree({ arbol, modo = "original" }: Props) {
   if (arbol.length === 0) {
     return (
       <article className="rounded-lg border border-[#E5E5E5] bg-white p-6">
@@ -71,14 +75,14 @@ export default function CategoriaTree({ arbol }: Props) {
 
       <ul>
         {arbol.map((cat) => (
-          <CategoryRow key={cat.categoria} node={cat} />
+          <CategoryRow key={cat.categoria} node={cat} modo={modo} />
         ))}
       </ul>
     </article>
   );
 }
 
-function CategoryRow({ node }: { node: CategoriaNode }) {
+function CategoryRow({ node, modo }: { node: CategoriaNode; modo: CategoriaViewMode }) {
   const [open, setOpen] = useState(false);
   const avance = avanceFor(node.presupuesto, node.gastoReal);
 
@@ -122,7 +126,7 @@ function CategoryRow({ node }: { node: CategoriaNode }) {
         className={`bg-[#FAFAFA] ${open ? "" : "hidden print:block"}`}
       >
         {node.subcategorias.map((sub) => (
-          <SubcategoryRow key={sub.subcategoria} node={sub} />
+          <SubcategoryRow key={sub.subcategoria} node={sub} modo={modo} />
         ))}
         {node.subcategorias.length === 0 && (
           <li className="px-4 py-3 pl-12 font-sans text-sm text-[#999999]">
@@ -134,7 +138,7 @@ function CategoryRow({ node }: { node: CategoriaNode }) {
   );
 }
 
-function SubcategoryRow({ node }: { node: SubcategoriaNode }) {
+function SubcategoryRow({ node, modo }: { node: SubcategoriaNode; modo: CategoriaViewMode }) {
   const [open, setOpen] = useState(false);
   const avance = avanceFor(node.presupuesto, node.gastoReal);
 
@@ -178,7 +182,7 @@ function SubcategoryRow({ node }: { node: SubcategoriaNode }) {
         className={`bg-white ${open ? "" : "hidden print:block"}`}
       >
         {node.items.map((it) => (
-          <ItemRow key={it.llave_item} item={it} />
+          <ItemRow key={it.llave_item} item={it} modo={modo} />
         ))}
         {node.items.length === 0 && (
           <li className="px-4 py-2.5 pl-16 font-sans text-sm text-[#999999]">
@@ -190,8 +194,15 @@ function SubcategoryRow({ node }: { node: SubcategoriaNode }) {
   );
 }
 
-function ItemRow({ item }: { item: ItemDetail }) {
+function ItemRow({ item, modo }: { item: ItemDetail; modo: CategoriaViewMode }) {
   const avance = avanceFor(item.presupuesto, item.gastoReal);
+  // Modo oficial: manda el nombre del catálogo (si el seed resolvió el ítem) y
+  // el texto crudo del negocio baja a línea secundaria. Modo original: el
+  // texto crudo manda, como siempre.
+  const esOficial = modo === "oficial" && item.itemOficial !== "";
+  const principal = esOficial ? item.itemOficial : item.item;
+  const secundario =
+    esOficial && item.itemOficial !== item.item ? item.item : "";
 
   return (
     <li
@@ -201,7 +212,12 @@ function ItemRow({ item }: { item: ItemDetail }) {
       <span className="flex min-w-0 items-center gap-2">
         <FileText className="h-3.5 w-3.5 shrink-0 text-[#999999]" aria-hidden="true" />
         <span className="flex min-w-0 flex-col">
-          <span className="truncate font-sans text-sm text-[#333333]">{item.item}</span>
+          <span className="truncate font-sans text-sm text-[#333333]">{principal}</span>
+          {secundario && (
+            <span className="truncate font-sans text-xs text-[#999999]" title="Texto original del negocio">
+              {secundario}
+            </span>
+          )}
           {item.descripcion && (
             <span className="truncate font-sans text-xs text-[#999999]">{item.descripcion}</span>
           )}

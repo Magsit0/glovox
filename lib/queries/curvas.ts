@@ -10,6 +10,10 @@
  * matemática de acumulado / agrupación / normalización vive en
  * `lib/marketing/curvas.ts`. Así el SQL queda simple y el cálculo es testeable.
  *
+ * El encadenamiento de los filtros es 100% del cliente: acá solo se entregan
+ * los dos universos que necesita (`getCurvasEventOptions` y
+ * `getCurvasTipoTicketMap`), sin aplicarles las facetas de evento.
+ *
  * Solo lectura. Todos los valores de usuario van por parámetros `@x`.
  */
 import { query } from "@/lib/bigquery";
@@ -57,10 +61,13 @@ export type CurvasFilters = {
 };
 
 /**
- * Clase de ticket. ESPEJO del `TICKET_TYPE_FILTER` de `lib/queries/marketing.ts`
- * para que la curva global sea comparable con la de venta diaria: "sin
- * cortesías" conserva VENTA + PASE TEMPORADA y descarta CORTESIA y MESA VIP
- * (ambas entran por `MedioPago='Otro'`).
+ * Clase de ticket. ESPEJO del CASE de `TICKET_TYPE_FILTER` de
+ * `lib/queries/marketing.ts` para que la curva global sea comparable con la de
+ * venta diaria: "sin cortesías" conserva VENTA + PASE TEMPORADA y descarta
+ * CORTESIA y MESA VIP (ambas entran por `MedioPago='Otro'`).
+ *
+ * Ojo: el espejo es solo el CASE. Allá viene pegado `AND EsDevuelto IS FALSE`;
+ * acá la devolución es un toggle aparte (ver `ticketConds`).
  */
 const CLASE_CASE = `
   CASE
@@ -73,7 +80,7 @@ const CLASE_CASE = `
 /**
  * Personas por fila de ticket. ESPEJO de `personasExpr` en
  * `lib/queries/marketing.ts`: los packs FBM se venden a dos personas en una
- * sola fila, así que cuentan 2. `catAlias` es la columna con CategoriaEvento.
+ * sola fila, así que cuentan 2. `catExpr` es la columna con CategoriaEvento.
  */
 function personasExpr(catExpr: string): string {
   return `CASE
@@ -85,18 +92,26 @@ function personasExpr(catExpr: string): string {
   END`;
 }
 
-/** Condiciones sobre `categoriaEvento` (alias `c`) + params. */
+/**
+ * Condiciones que definen el UNIVERSO de eventos (alias `c` de categoriaEvento):
+ * no cancelados y, si corresponde, del país pedido. El país se deriva del
+ * prefijo de EventoID (GLO=Chile, GLP=Perú): literal fijo, no entrada de
+ * usuario → seguro de interpolar.
+ */
+function universeConds(country: Country): string[] {
+  const conds = ["c.isCanceled IS NOT TRUE"];
+  if (country === "chile") conds.push("c.EventoID LIKE 'GLO%'");
+  if (country === "peru") conds.push("c.EventoID LIKE 'GLP%'");
+  return conds;
+}
+
+/** Universo + facetas de evento seleccionadas (alias `c`) + params. */
 function eventConds(filters: CurvasFilters): {
   conds: string[];
   params: Record<string, unknown>;
 } {
-  const conds: string[] = ["c.isCanceled IS NOT TRUE"];
+  const conds = universeConds(filters.country);
   const params: Record<string, unknown> = {};
-
-  // El país se deriva del prefijo de EventoID (GLO=Chile, GLP=Perú). Literal
-  // fijo, no entrada de usuario → seguro de interpolar.
-  if (filters.country === "chile") conds.push("c.EventoID LIKE 'GLO%'");
-  if (filters.country === "peru") conds.push("c.EventoID LIKE 'GLP%'");
 
   const facets: [keyof CurvasFilters, string, string][] = [
     ["categoriaEventos", "c.CategoriaEvento", "categoriaEventos"],
@@ -151,22 +166,36 @@ export type CurvaEventOption = {
 /**
  * Venta de un evento en un día relativo. `dias` = días de compra anticipada:
  * positivo antes del evento, 0 el día del evento, negativo después.
+ *
+ * `diasHoy` es el día relativo que corresponde a HOY para ese evento
+ * (`DATE_DIFF(fechaEvento, CURRENT_DATE())`). Marca hasta dónde la curva es
+ * observable: los días con `dias < diasHoy` todavía no ocurrieron. Positivo o
+ * cero = el evento sigue vendiendo; negativo = venta cerrada. Se repite en cada
+ * fila del evento (es constante) para que el corte use la misma aritmética de
+ * fechas que la curva y no haya desfase de zona horaria contra el cliente.
  */
 export type CurvaRow = {
   eventoId: string;
   dias: number;
+  diasHoy: number;
   tickets: number;
   personas: number;
   venta: number;
 };
 
+/** Un `TipoTicket` que vende un evento, con su volumen. */
+export type CurvaTipoTicketPar = {
+  eventoId: string;
+  tipoTicket: string;
+  tickets: number;
+};
+
 // ---------- Queries ----------
 
 /**
- * Universo de eventos para poblar las facetas. Independiente de los filtros
- * (las facetas se cruzan en el cliente para atenuar las combinaciones
- * imposibles). Solo eventos con tickets y con FechaEvento conocida: sin fecha
- * no hay día relativo y por lo tanto no hay curva.
+ * Universo de eventos para poblar las facetas. Independiente de los filtros: el
+ * encadenamiento entre facetas lo hace el cliente. Solo eventos con tickets y
+ * con FechaEvento conocida: sin fecha no hay día relativo y no hay curva.
  */
 export async function getCurvasEventOptions(
   country: Country = "all",
@@ -231,6 +260,7 @@ export async function getCurvasCompra(
     SELECT
       e.evento_id                                                       AS evento_id,
       DATE_DIFF(DATE(e.fecha_evento), DATE(t.FechaOrden), DAY)          AS dias,
+      ANY_VALUE(DATE_DIFF(DATE(e.fecha_evento), CURRENT_DATE(), DAY))   AS dias_hoy,
       COUNT(*)                                                          AS tickets,
       SUM(${personasExpr("e.categoria")})                               AS personas,
       SUM(t.Precio - IFNULL(t.Descuento, 0))                            AS venta
@@ -246,6 +276,7 @@ export async function getCurvasCompra(
   return rows.map((r) => ({
     eventoId: s(r.evento_id),
     dias: n(r.dias),
+    diasHoy: n(r.dias_hoy),
     tickets: n(r.tickets),
     personas: n(r.personas),
     venta: n(r.venta),
@@ -253,15 +284,21 @@ export async function getCurvasCompra(
 }
 
 /**
- * `TipoTicket` distintos del universo de eventos seleccionado por las facetas
- * de evento (no por el propio filtro de tipo, para que la lista no se vacíe a
- * sí misma). Cada evento nombra sus tipos a su manera: se devuelve la unión con
- * el conteo para ordenar el dropdown por relevancia.
+ * Mapa (evento → `TipoTicket` que vende, con volumen) de TODO el universo del
+ * país. NO aplica las facetas de evento ni el propio filtro de tipo: con este
+ * mapa el cliente encadena los filtros en las dos direcciones (las facetas de
+ * evento acotan la lista de tipos, y elegir un tipo acota los eventos) sin
+ * volver al servidor.
+ *
+ * Sí aplica los filtros de fila de ticket (comunidad, devoluciones, cortesías)
+ * para que los conteos que muestra el dropdown coincidan con lo que se grafica.
+ *
+ * Cada evento nombra sus tipos a su manera, así que el universo es grande en
+ * valores distintos pero chico en filas (~1.3k pares hoy).
  */
-export async function getCurvasTipoTicketOptions(
+export async function getCurvasTipoTicketMap(
   filters: CurvasFilters,
-): Promise<{ tipoTicket: string; tickets: number }[]> {
-  const ev = eventConds(filters);
+): Promise<CurvaTipoTicketPar[]> {
   const tk = ticketConds({ ...filters, tipoTickets: undefined });
 
   const rows = await query<Record<string, unknown>>(
@@ -270,22 +307,26 @@ export async function getCurvasTipoTicketOptions(
       SELECT c.EventoID AS evento_id
       FROM ${CATEGORY} c
       JOIN ${TICKETS} t ON t.EventoID = c.EventoID
-      WHERE ${ev.conds.join("\n        AND ")}
+      WHERE ${universeConds(filters.country).join("\n        AND ")}
       GROUP BY evento_id
       HAVING MAX(t.FechaEvento) IS NOT NULL
     )
-    SELECT t.TipoTicket AS tipo_ticket, COUNT(*) AS tickets
+    SELECT
+      t.EventoID   AS evento_id,
+      t.TipoTicket AS tipo_ticket,
+      COUNT(*)     AS tickets
     FROM ${TICKETS} t
     JOIN ev e ON e.evento_id = t.EventoID
     WHERE ${tk.conds.join("\n      AND ")}
       AND t.TipoTicket IS NOT NULL AND t.TipoTicket != ''
-    GROUP BY tipo_ticket
+    GROUP BY evento_id, tipo_ticket
     ORDER BY tickets DESC
     `,
-    { ...ev.params, ...tk.params },
+    tk.params,
   );
 
   return rows.map((r) => ({
+    eventoId: s(r.evento_id),
     tipoTicket: s(r.tipo_ticket),
     tickets: n(r.tickets),
   }));

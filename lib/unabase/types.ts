@@ -115,6 +115,11 @@ export interface NegocioItemRow {
   diferencia: number;
   porc_diferencia: string;
   llave_item: string;
+  // Tripleta oficial del catálogo (resuelta por el seed finanzas.unabase_item_map
+  // en marts.finanzas_presupuesto_items). "" cuando esa altura no resolvió.
+  categoria_oficial: string;
+  subcategoria_oficial: string;
+  item_oficial: string;
 }
 
 export interface DetalleGastoRow {
@@ -136,6 +141,9 @@ export interface DetalleGastoRow {
   item_sub_categoria: string;
   item_nombre: string;
   item_nombreGasto: string;
+  // Categoría oficial resuelta (herencia presupuesto → seed de ítems → seed de
+  // categorías). Se usa para imputar gastos huérfanos en el modo oficial.
+  categoria_oficial: string;
   item_text_negocio: string;
   item_tipo_documento: string;
   item_tipo_gasto: string;

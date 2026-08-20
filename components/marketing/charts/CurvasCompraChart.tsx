@@ -6,6 +6,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceDot,
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
@@ -32,6 +33,8 @@ interface Props {
   points: CurvaPoint[];
   series: CurvaSerie[];
   promedioKey: string | null;
+  /** Cuantas series cerradas promedia `promedioKey` (para la leyenda). */
+  promedioBase: number;
   minDias: number;
   maxDias: number;
   metric: CurvaMetric;
@@ -65,6 +68,7 @@ export default function CurvasCompraChart({
   points,
   series,
   promedioKey,
+  promedioBase,
   minDias,
   maxDias,
   metric,
@@ -94,6 +98,14 @@ export default function CurvasCompraChart({
     [points, desde, hasta],
   );
 
+  // El color se fija al orden de la tabla (el que ve el usuario), no al orden en
+  // que se dibujan las lineas: mas abajo las series en venta se renderizan al
+  // final para quedar ENCIMA, y eso no debe mover ningun color.
+  const colorByKey = useMemo(
+    () => new Map(series.map((s, i) => [s.key, seriesColor(i)])),
+    [series],
+  );
+
   const formatValue = (value: number): string => {
     if (normalizar) return `${unDecimal.format(value)}%`;
     if (metric === "venta") return `$${entero.format(Math.round(value))}`;
@@ -120,6 +132,34 @@ export default function CurvasCompraChart({
   const rangoCompleto = tA === tMin && tB === tMax;
   const leftPct = ((tA - tMin) / Math.max(1, tMax - tMin)) * 100;
   const rightPct = ((tB - tMin) / Math.max(1, tMax - tMin)) * 100;
+
+  // Las series en venta se dibujan AL FINAL para quedar encima: se cortan en la
+  // zona donde todas las curvas vienen bunched y quedaban tapadas.
+  const ordenRender = [
+    ...series.filter((s) => !s.enVenta),
+    ...series.filter((s) => s.enVenta),
+  ];
+
+  // recharts arma la leyenda con el orden de las <Line>, que arriba se altero
+  // por z-order. Se reordena al orden de la tabla (por volumen) con un content
+  // propio, y de paso se resaltan las series en venta.
+  const rankByKey = new Map(series.map((s, i) => [s.key, i]));
+  const enVentaKeys = new Set(series.filter((s) => s.enVenta).map((s) => s.key));
+
+  // Punto donde se corta cada curva en venta = su "hoy". Marcarlo evita que el
+  // corte se lea como un hueco de datos. Solo en la vista acumulada (la diaria
+  // no se trunca) y solo si el dia cae dentro de la ventana visible.
+  const cortes =
+    vista === "acumulado"
+      ? series.flatMap((s) => {
+          if (!s.enVenta) return [];
+          if (s.diasCorte > desde || s.diasCorte < hasta) return [];
+          const punto = visibles.find((p) => p.dias === s.diasCorte);
+          const y = punto?.[s.key];
+          if (y == null) return [];
+          return [{ key: s.key, x: s.diasCorte, y, color: colorByKey.get(s.key) ?? INK.subtle }];
+        })
+      : [];
 
   const sliderClass =
     "pointer-events-none absolute inset-0 h-6 w-full appearance-none bg-transparent " +
@@ -226,13 +266,46 @@ export default function CurvasCompraChart({
             cursor={{ stroke: SURFACE.divider }}
             content={
               <CurvasTooltip
-                series={series}
+                colorByKey={colorByKey}
                 promedioKey={promedioKey}
                 formatValue={formatValue}
               />
             }
           />
-          <Legend {...legendProps} />
+          <Legend
+            {...legendProps}
+            content={({ payload }: { payload?: readonly LegendEntry[] }) => (
+              <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1 pt-2">
+                {[...(payload ?? [])]
+                  .sort(
+                    (a, b) =>
+                      (rankByKey.get(String(a.dataKey)) ?? 999) -
+                      (rankByKey.get(String(b.dataKey)) ?? 999),
+                  )
+                  .map((e) => {
+                    const live = enVentaKeys.has(String(e.dataKey));
+                    return (
+                      <li
+                        key={String(e.dataKey)}
+                        className={`flex items-center gap-1.5 font-sans text-xs ${
+                          live ? "font-medium text-[#333333]" : "text-[#666666]"
+                        }`}
+                      >
+                        <span
+                          className="rounded-full"
+                          style={{
+                            backgroundColor: e.color,
+                            width: live ? 10 : 8,
+                            height: live ? 10 : 8,
+                          }}
+                        />
+                        {String(e.value ?? "")}
+                      </li>
+                    );
+                  })}
+              </ul>
+            )}
+          />
           <ReferenceLine
             x={0}
             stroke={INK.subtle}
@@ -245,14 +318,14 @@ export default function CurvasCompraChart({
               fill: INK.subtle,
             }}
           />
-          {series.map((s, i) => (
+          {ordenRender.map((s) => (
             <Line
               key={s.key}
               type={vista === "acumulado" ? "monotone" : "linear"}
               dataKey={s.key}
-              name={s.label}
-              stroke={seriesColor(i)}
-              strokeWidth={2}
+              name={s.enVenta ? `${s.label} · en venta` : s.label}
+              stroke={colorByKey.get(s.key) ?? INK.subtle}
+              strokeWidth={s.enVenta ? 3.5 : 2}
               dot={false}
               activeDot={{ r: 4 }}
               connectNulls={false}
@@ -263,7 +336,7 @@ export default function CurvasCompraChart({
             <Line
               type="monotone"
               dataKey={promedioKey}
-              name="Promedio de la selección"
+              name={`Promedio de ${promedioBase} cerradas`}
               stroke={INK.primary}
               strokeWidth={2.5}
               strokeDasharray="6 4"
@@ -273,11 +346,40 @@ export default function CurvasCompraChart({
               isAnimationActive={false}
             />
           )}
+          {cortes.map((c) => (
+            <ReferenceDot
+              key={`corte-${c.key}`}
+              x={c.x}
+              y={c.y}
+              r={5}
+              fill={c.color}
+              stroke={SURFACE.card}
+              strokeWidth={2}
+              label={
+                cortes.length <= 3
+                  ? {
+                      value: "hoy",
+                      position: "top",
+                      fontFamily: "var(--font-sans)",
+                      fontSize: 11,
+                      fill: c.color,
+                    }
+                  : undefined
+              }
+            />
+          ))}
         </LineChart>
       </ResponsiveContainer>
     </div>
   );
 }
+
+/** Lo que recharts pasa al `content` de la leyenda (payload readonly). */
+type LegendEntry = {
+  dataKey?: unknown;
+  value?: unknown;
+  color?: string;
+};
 
 type TooltipEntry = {
   dataKey?: string | number;
@@ -290,20 +392,19 @@ function CurvasTooltip({
   active,
   label,
   payload,
-  series,
+  colorByKey,
   promedioKey,
   formatValue,
 }: {
   active?: boolean;
   label?: number | string;
   payload?: TooltipEntry[];
-  series: CurvaSerie[];
+  colorByKey: Map<string, string>;
   promedioKey: string | null;
   formatValue: (v: number) => string;
 }) {
   if (!active || !payload?.length) return null;
 
-  const colorByKey = new Map(series.map((s, i) => [s.key, seriesColor(i)]));
   const rows = payload
     .filter((p) => p.value != null)
     .map((p) => ({

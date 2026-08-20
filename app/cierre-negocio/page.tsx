@@ -17,8 +17,7 @@ import { aggregateNegocio } from "@/lib/unabase/cierreNegocio";
 import NegocioSelector from "@/components/cierre-negocio/NegocioSelector";
 import NegocioHeader from "@/components/cierre-negocio/NegocioHeader";
 import KpiRow from "@/components/cierre-negocio/KpiRow";
-import CategoriaBreakdown from "@/components/cierre-negocio/CategoriaBreakdown";
-import CategoriaTree from "@/components/cierre-negocio/CategoriaTree";
+import CategoriaModePanel from "@/components/cierre-negocio/CategoriaModePanel";
 import GastosDocumentsTable from "@/components/cierre-negocio/GastosDocumentsTable";
 import TopProveedoresChart from "@/components/cierre-negocio/TopProveedoresChart";
 import OcStatusPanel from "@/components/cierre-negocio/OcStatusPanel";
@@ -594,6 +593,16 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
     detail.ventas,
     detail.ventasAggregate,
   );
+  // Misma agregación pero agrupada por la tripleta OFICIAL del catálogo
+  // (seed unabase_item_map). Solo cambia el desglose por categoría/árbol;
+  // KPIs, proveedores y ventas son idénticos en ambos modos.
+  const aggOficial = aggregateNegocio(
+    detail.items,
+    detail.gastos,
+    detail.ventas,
+    detail.ventasAggregate,
+    "oficial",
+  );
 
   const referencia = detail.negocio?.referencia?.trim() || `Negocio ${id}`;
   const pdfFilename = `Cierre ${id} - ${referencia}`;
@@ -654,11 +663,18 @@ export default async function CierreNegocioPage({ searchParams }: PageProps) {
           <MontoModeToggle value={monto} />
         </header>
         <KpiRow agg={agg} />
-        <CategoriaBreakdown
-          rows={agg.porCategoria}
-          itemsConOcByCategoria={agg.itemsConOcByCategoria}
+        <CategoriaModePanel
+          oficial={{
+            rows: aggOficial.porCategoria,
+            itemsConOcByCategoria: aggOficial.itemsConOcByCategoria,
+            arbol: aggOficial.arbol,
+          }}
+          original={{
+            rows: agg.porCategoria,
+            itemsConOcByCategoria: agg.itemsConOcByCategoria,
+            arbol: agg.arbol,
+          }}
         />
-        <CategoriaTree arbol={agg.arbol} />
         <GastosDocumentsTable gastos={detail.gastos} />
         <div
           data-pdf-grid="side-by-side"

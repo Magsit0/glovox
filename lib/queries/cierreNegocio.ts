@@ -210,7 +210,12 @@ const ITEMS_SQL = `
     gasto_real_item AS gasto_real,
     diferencia,
     CAST(porc_diferencia AS STRING) AS porc_diferencia,
-    llave_item
+    llave_item,
+    -- Tripleta oficial del catálogo (seed finanzas.unabase_item_map, resuelta
+    -- por la vista). Alimenta el modo "Oficial" del desglose por categoría.
+    IFNULL(categoria_oficial, '')    AS categoria_oficial,
+    IFNULL(subcategoria_oficial, '') AS subcategoria_oficial,
+    IFNULL(item_oficial, '')         AS item_oficial
   FROM ${PRESUPUESTO_ITEMS}
   WHERE CAST(negocio_id AS STRING) = @id
     AND NOT es_interno_glovox
@@ -238,6 +243,7 @@ const gastosSql = (monto: MontoMode) => `
     subcategoria_raw AS item_sub_categoria,
     item_nombre,
     item_nombre_gasto AS item_nombreGasto,
+    IFNULL(categoria_oficial, 'SIN CLASIFICAR') AS categoria_oficial,
     negocio_nombre AS item_text_negocio,
     tipo_documento_item AS item_tipo_documento,
     tipo_gasto_item AS item_tipo_gasto,

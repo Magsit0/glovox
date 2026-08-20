@@ -21,9 +21,18 @@ export interface ProveedorBreakdown {
   ruts: string[];
 }
 
+// Cómo se agrupan categorías/subcategorías en el desglose de gastos:
+// "oficial" usa la tripleta del catálogo (resuelta por el seed
+// finanzas.unabase_item_map); "original" usa los textos crudos del negocio.
+export type CategoriaViewMode = "oficial" | "original";
+
 export interface ItemDetail {
   llave_item: string;
   item: string;
+  // Ítem oficial del catálogo ("" si el seed no resolvió a nivel ítem). En el
+  // modo oficial se muestra como nombre principal y el texto crudo queda como
+  // línea secundaria.
+  itemOficial: string;
   descripcion: string;
   cantidad: number;
   presupuesto: number;
@@ -216,7 +225,9 @@ export function aggregateNegocio(
   gastos: DetalleGastoRow[],
   ventas: VentaNegocioRow[] = [],
   ventasPrecomputed?: VentasAggregateRaw,
+  modo: CategoriaViewMode = "original",
 ): NegocioAggregate {
+  const oficial = modo === "oficial";
   const totalVenta = items.reduce((sum, it) => sum + n(it.subtotal_venta), 0);
   const totalPresupuestoGasto = items.reduce(
     (sum, it) => sum + n(it.subtotal_gasto_pre),
@@ -238,7 +249,9 @@ export function aggregateNegocio(
     row.n += 1;
   }
 
-  // Detalle por item con su gasto real (sumado desde detalleGasto) y nº facturas
+  // Detalle por item con su gasto real (sumado desde detalleGasto) y nº facturas.
+  // En modo oficial la jerarquía viene de la tripleta del catálogo; el texto
+  // crudo del ítem se conserva siempre (es la línea real del negocio).
   type ItemWithCat = ItemDetail & { categoria: string; subcategoria: string };
   const itemDetailsRaw: ItemWithCat[] = items.map((it) => {
     const llave = s(it.llave_item);
@@ -246,10 +259,15 @@ export function aggregateNegocio(
     const data = gastoByLlave.get(llave);
     const gastoReal = data?.total ?? 0;
     return {
-      categoria: s(it.categoria) || SIN_CAT,
-      subcategoria: s(it.subcategoria) || SIN_SUB,
+      categoria: oficial
+        ? s(it.categoria_oficial) || SIN_CAT
+        : s(it.categoria) || SIN_CAT,
+      subcategoria: oficial
+        ? s(it.subcategoria_oficial) || SIN_SUB
+        : s(it.subcategoria) || SIN_SUB,
       llave_item: llave,
       item: s(it.item) || "(sin nombre)",
+      itemOficial: s(it.item_oficial),
       descripcion: s(it.descripcion),
       cantidad: n(it.cantidad),
       presupuesto,
@@ -321,6 +339,7 @@ export function aggregateNegocio(
     arr.push({
       llave_item: det.llave_item,
       item: det.item,
+      itemOficial: det.itemOficial,
       descripcion: det.descripcion,
       cantidad: det.cantidad,
       presupuesto: det.presupuesto,
@@ -332,7 +351,9 @@ export function aggregateNegocio(
 
   // Venta a nivel categoría (no asociada a items pero la guardamos por consistencia)
   for (const it of items) {
-    const categoria = s(it.categoria) || SIN_CAT;
+    const categoria = oficial
+      ? s(it.categoria_oficial) || SIN_CAT
+      : s(it.categoria) || SIN_CAT;
     ensureCat(categoria).venta += n(it.subtotal_venta);
   }
 
@@ -341,7 +362,9 @@ export function aggregateNegocio(
   for (const g of gastos) {
     const llave = s(g.llave_nv);
     if (itemByLlave.has(llave)) continue;
-    const categoria = s(g.item_categoria) || SIN_CAT;
+    const categoria = oficial
+      ? s(g.categoria_oficial) || SIN_CAT
+      : s(g.item_categoria) || SIN_CAT;
     ensureCat(categoria).gastoReal += n(g.costoempresa);
   }
 

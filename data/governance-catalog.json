@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-07-24T20:04:16.684700+00:00",
+  "generatedAt": "2026-08-18T19:47:09.754415+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -3180,9 +3180,10 @@
         "finanzas.unabase_catalogo"
       ],
       "consumers": [
-        "marts.finanzas_gastos"
+        "marts.finanzas_gastos",
+        "marts.finanzas_presupuesto_items"
       ],
-      "notes": "Seed: traduce el texto libre de categoría de los gastos (item_categoria/item_sub_categoria, ~815 variantes reales) a la categoría OFICIAL del catálogo (17) y su bucket de presupuesto (rollup fijo 17→7). Reemplaza los 3 mapeos divergentes que vivían en TypeScript (FDS_ALIAS_RAW de fds.ts, CATEGORIA_RULES de budget-forecast, nada en proveedor). Corregir un mapeo = editar la fila del CSV + `uv run python pipelines/finanzas/unabase/categoria_map.py`. alias_normalizado viene PRE-normalizado (normCat: sin acentos, MAYÚSCULAS, '&'→' Y ', solo alfanumérico).",
+      "notes": "Seed: traduce el texto libre de categoría de los gastos (item_categoria/item_sub_categoria, ~815 variantes reales) a la categoría OFICIAL del catálogo (17) y su bucket de presupuesto (rollup fijo 17→7). Reemplaza los 3 mapeos divergentes que vivían en TypeScript (FDS_ALIAS_RAW de fds.ts, CATEGORIA_RULES de budget-forecast, nada en proveedor). Corregir un mapeo = editar la fila del CSV + `uv run python pipelines/finanzas/unabase/categoria_map.py`. alias_normalizado viene PRE-normalizado (normCat: sin acentos, MAYÚSCULAS, '&'→' Y ', solo alfanumérico). Desde el 18-ago es el FALLBACK de la cascada de ítems (finanzas.unabase_item_map resuelve primero, a nivel tripleta).",
       "metrics": [
         "Traducción categoría cruda → oficial (17) → bucket presupuesto (7)"
       ],
@@ -3217,6 +3218,80 @@
           "type": "STRING",
           "mode": "NULLABLE",
           "description": "Comentario libre (regla que la generó, ambigüedades, etc.)."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga."
+        }
+      ]
+    },
+    {
+      "key": "finanzas.unabase_item_map",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "CSV manual — data/finanzas/unabase_item_map.csv (draft: scripts/genera_item_map_draft.py + capa curada unabase_item_map_manual.csv)",
+      "pipeline": "pipelines/finanzas/unabase/item_map.py",
+      "schema": "finanzas_unabase_item_map",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "truncate-load",
+      "frequency": "on-demand",
+      "owner": "@maximiliano",
+      "upstream": [
+        "finanzas.unabase_catalogo",
+        "finanzas.unabase_categoria_map"
+      ],
+      "consumers": [
+        "marts.finanzas_presupuesto_items",
+        "marts.finanzas_gastos"
+      ],
+      "notes": "Seed (18-ago-2026): traduce el texto libre del ÍTEM de presupuesto/gasto a la TRIPLETA oficial del catálogo (categoria_oficial → subcategoria_oficial → item_oficial; el nombre de ítem NO es llave: RRHH MONTAJISTAS vive en 5 ramas). Llave lógica (alias_categoria, alias_item) normCat-normalizada; alias_categoria vacío = regla genérica por ítem. Cascada en vistas: par → ítem genérico → categoria_map → SIN CLASIFICAR. El destino puede quedar a nivel subcategoría o categoría (cascada, no error); el loader valida que la tripleta EXISTA en unabase_catalogo. origen: catalogo (calce exacto) | propuesto (semántico, revisable) | manual. Cobertura 24-25 producción: 78% del monto mapeable a ítem/subcat, 95% con categoría. Corregir un mapeo = editar CSV (o capa manual) + `uv run python pipelines/finanzas/unabase/item_map.py`.",
+      "metrics": [],
+      "endpointLabel": "CSV manual — data/finanzas/unabase_item_map.csv (draft: scripts/genera_item_map_draft.py + capa curada unabase_item_map_manual.csv)",
+      "fields": [
+        {
+          "name": "alias_categoria",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Contexto: texto de categoría del negocio/gasto normalizado con normCat (sin acentos, MAYÚSCULAS, '&'→' Y ', solo alfanumérico con espacios colapsados). NULL = regla genérica solo por ítem (aplica en cualquier categoría cruda)."
+        },
+        {
+          "name": "alias_item",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Clave: texto del ítem (línea de presupuesto/gasto) normalizado con normCat. Junto con alias_categoria forma la llave lógica del seed (única)."
+        },
+        {
+          "name": "categoria_oficial",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Categoría oficial destino: una de las 17 top-level de finanzas.unabase_catalogo (ej: PRODUCCION SITE, OPERACIONES)."
+        },
+        {
+          "name": "subcategoria_oficial",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Subcategoría oficial destino dentro de categoria_oficial (tal como está escrita en el catálogo). NULL si el alias solo resuelve a nivel categoría."
+        },
+        {
+          "name": "item_oficial",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Ítem oficial destino (tal como está escrito en el catálogo). La tripleta (categoria, subcategoria, item) debe EXISTIR en finanzas.unabase_catalogo. NULL si el alias resuelve a nivel subcategoría o categoría (cascada)."
+        },
+        {
+          "name": "origen",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "De dónde salió la fila: catalogo (calce exacto normalizado contra el catálogo vigente) | propuesto (propuesta semántica, revisada por finanzas) | manual (agregada a mano)."
+        },
+        {
+          "name": "notas",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Comentario libre: regla que la generó, ambigüedades resueltas, monto de referencia, etc."
         },
         {
           "name": "loaded_at",
@@ -3584,6 +3659,30 @@
           "description": ""
         },
         {
+          "name": "utm_source_norm",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm_source canónico (mt/meta_venta_r → meta, gg → google, ig → instagram). Ver shared/utm.py"
+        },
+        {
+          "name": "utm_medium_norm",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Tipo de canal canónico: paid / organic / social / email / referral / directo"
+        },
+        {
+          "name": "utm_campaign_norm",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm_campaign en minúsculas (unifica duplicados tipo 660905_SCL vs 660905_scl)"
+        },
+        {
+          "name": "canal",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Agrupación lista para dashboards: meta_paid, google_paid, instagram_social, directo, sin_atribucion…"
+        },
+        {
           "name": "Email",
           "type": "STRING",
           "mode": "NULLABLE",
@@ -3719,7 +3818,19 @@
           "name": "TelefonoNominado",
           "type": "STRING",
           "mode": "NULLABLE",
-          "description": "booking_question 'teléfono / número de teléfono' (eventos nominales)"
+          "description": "booking_question 'phone number / teléfono / número de teléfono' por asistente (eventos nominales)"
+        },
+        {
+          "name": "PasaporteNominado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "booking_question 'Pasaporte' por asistente (extranjeros sin RUT)"
+        },
+        {
+          "name": "TelefonoComprador",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "booking_question de nivel orden (index -1) con el teléfono de quien compra. Único contacto telefónico en eventos no nominales."
         },
         {
           "name": "FechaNacimientoNominado",
@@ -4293,6 +4404,8 @@
         "finanzas.unabase_detalle_gasto",
         "finanzas.unabase_negocios",
         "finanzas.unabase_categoria_map",
+        "finanzas.unabase_item_map",
+        "marts.finanzas_presupuesto_items",
         "finanzas.unabase_gasto_dtc",
         "finanzas.gasto_proveedor_real"
       ],
@@ -4305,7 +4418,7 @@
         "slack-data-agent",
         "finanzas.reconciliacion_gasto_log"
       ],
-      "notes": "LA fuente canónica del GASTO a nivel línea. gasto_neto = item_costo_empresa (reconcilia exacto con costo_real del maestro); item_costo_real NO se expone (corrupto en 2.436 docs por bug de la API, error '# 53'). Modelo neto/impuesto/bruto: gasto_iva (aditivo), gasto_retencion_honorarios (contenida en el neto), gasto_bruto = neto + IVA. Categoría oficial (17) + bucket (7) resueltos vía el seed unabase_categoria_map. No elimina filas: universo por predicados (incluir_en_totales, es_produccion_propia...). nro_doc/nro_doc_folios (Nº DOC, ej '27861') vía LEFT JOIN a finanzas.unabase_gasto_dtc — NULL si el gasto aún no tiene documento. proveedor_real/proveedor_efectivo/flag_proveedor_reatribuido (17-jul): re-atribución de docs Riesco al proveedor real vía seed gasto_proveedor_real (solo gastos con rut Riesco, guard por negocio; doc-uniforme seguro o match por monto). proveedor declarado queda intacto — consumidores migran opt-in (/proveedor migrado). REGLA DE CONSUMO (20-jul): los negocios internos area 'GLOVOX' (es_interno_glovox: sueldos y gasto administrativo) SOLO se muestran en /interno; todo otro consumidor DEBE filtrar NOT es_interno_glovox.",
+      "notes": "LA fuente canónica del GASTO a nivel línea. gasto_neto = item_costo_empresa (reconcilia exacto con costo_real del maestro); item_costo_real NO se expone (corrupto en 2.436 docs por bug de la API, error '# 53'). Modelo neto/impuesto/bruto: gasto_iva (aditivo), gasto_retencion_honorarios (contenida en el neto), gasto_bruto = neto + IVA. ESTANDARIZACIÓN A ÍTEM (18-ago): tripleta oficial categoria_oficial/subcategoria_oficial/item_oficial resuelta en cascada — herencia desde la línea de presupuesto (join negocio+llave_item contra marts.finanzas_presupuesto_items; el gasto copia el texto del presupuesto en el 99,4% del monto), seed unabase_item_map sobre el texto propio, y fallback al seed unabase_categoria_map. categoria_oficial/bucket_presupuesto MEJORADOS EN EL SITIO (bucket derivado de la categoría resuelta); columnas nuevas item_mapeo y flag_item_sin_mapear; categoria_mapeo suma valores herencia_presupuesto/par/item. No elimina filas: universo por predicados (incluir_en_totales, es_produccion_propia...). nro_doc/nro_doc_folios (Nº DOC, ej '27861') vía LEFT JOIN a finanzas.unabase_gasto_dtc — NULL si el gasto aún no tiene documento. proveedor_real/proveedor_efectivo/flag_proveedor_reatribuido (17-jul): re-atribución de docs Riesco al proveedor real vía seed gasto_proveedor_real (solo gastos con rut Riesco, guard por negocio; doc-uniforme seguro o match por monto). proveedor declarado queda intacto — consumidores migran opt-in (/proveedor migrado). REGLA DE CONSUMO (20-jul): los negocios internos area 'GLOVOX' (es_interno_glovox: sueldos y gasto administrativo) SOLO se muestran en /interno; todo otro consumidor DEBE filtrar NOT es_interno_glovox.",
       "metrics": [
         "Gasto canónico por línea: gasto_neto / gasto_iva / gasto_bruto",
         "Retención de boletas de honorarios por línea",
@@ -4394,13 +4507,16 @@
       "owner": "@maximiliano",
       "upstream": [
         "marts.finanzas_negocio_items_arbol",
-        "finanzas.unabase_negocios"
+        "finanzas.unabase_negocios",
+        "finanzas.unabase_item_map",
+        "finanzas.unabase_categoria_map"
       ],
       "consumers": [
         "/cierre-negocio",
-        "/unabase/cierre-mensual"
+        "/unabase/cierre-mensual",
+        "marts.finanzas_gastos"
       ],
-      "notes": "Líneas HOJA del presupuesto, planas y listas para sumar (SUM ingenuo = correcto; los nodos TITULO/subcategoría duplican 2-3x). Resuelve el nombre de la subcategoría padre (self-join que cierreNegocio.ts y cierreMensual.ts re-implementaban). ⚠ gasto_real_item = imputación de Unabase por línea de presupuesto, NO reconcilia con el gasto documentado: para totales usar marts.finanzas_gastos.gasto_neto. Montos netos (sin IVA). REGLA DE CONSUMO (20-jul): los negocios internos area 'GLOVOX' (es_interno_glovox) SOLO se muestran en /interno; todo otro consumidor DEBE filtrar NOT es_interno_glovox.",
+      "notes": "Líneas HOJA del presupuesto, planas y listas para sumar (SUM ingenuo = correcto; los nodos TITULO/subcategoría duplican 2-3x). Resuelve el nombre de la subcategoría padre (self-join que cierreNegocio.ts y cierreMensual.ts re-implementaban). ESTANDARIZACIÓN A ÍTEM (18-ago): resuelve la tripleta oficial del catálogo por línea (categoria_oficial/subcategoria_oficial/item_oficial + item_mapeo + flag_item_sin_mapear) vía el seed unabase_item_map con fallback a unabase_categoria_map; marts.finanzas_gastos la HEREDA vía (negocio_id, llave_item) — el negocio manda. ⚠ gasto_real_item = imputación de Unabase por línea de presupuesto, NO reconcilia con el gasto documentado: para totales usar marts.finanzas_gastos.gasto_neto. Montos netos (sin IVA). REGLA DE CONSUMO (20-jul): los negocios internos area 'GLOVOX' (es_interno_glovox) SOLO se muestran en /interno; todo otro consumidor DEBE filtrar NOT es_interno_glovox.",
       "metrics": [
         "Presupuesto vs ejecución línea a línea (venta_presupuestada, gasto_presupuestado, gasto_real_item)"
       ],

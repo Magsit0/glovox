@@ -5,7 +5,7 @@ import type { Country } from "@/lib/queries/comunidad";
 import {
   getCurvasCompra,
   getCurvasEventOptions,
-  getCurvasTipoTicketOptions,
+  getCurvasTipoTicketMap,
   type CurvaComunidad,
   type CurvasFilters as CurvasQueryFilters,
 } from "@/lib/queries/curvas";
@@ -140,12 +140,12 @@ export default async function CurvasPage({ searchParams }: PageProps) {
 
   let events;
   let rows;
-  let tipoTicketOptions;
+  let tipoTicketMap;
   try {
-    [events, rows, tipoTicketOptions] = await Promise.all([
+    [events, rows, tipoTicketMap] = await Promise.all([
       getCurvasEventOptions(country),
       getCurvasCompra(filters),
-      getCurvasTipoTicketOptions(filters),
+      getCurvasTipoTicketMap(filters),
     ]);
   } catch (err) {
     return (
@@ -175,7 +175,11 @@ export default async function CurvasPage({ searchParams }: PageProps) {
 
   const fmtMetric = (v: number) =>
     metric === "venta" ? formatCurrency(v) : formatNumber(Math.round(v));
-  const fmtPct = (v: number) => `${v.toFixed(1)}%`;
+  const fmtPct = (v: number | null) => (v == null ? "—" : `${v.toFixed(1)}%`);
+  const fmtDias = (d: number) =>
+    d > 0 ? `${formatNumber(d)} d` : d === 0 ? "0 d" : `−${formatNumber(-d)} d`;
+
+  const hayCerrados = resumen.eventos > resumen.eventosEnVenta;
 
   const kpis = [
     {
@@ -183,30 +187,31 @@ export default async function CurvasPage({ searchParams }: PageProps) {
       value: formatNumber(resumen.eventos),
       caption:
         chart.seriesTotales > 0
-          ? `${formatNumber(chart.seriesTotales)} curvas por ${GROUP_LABEL[groupBy]}`
+          ? `${formatNumber(chart.seriesTotales)} curvas por ${GROUP_LABEL[groupBy]}` +
+            (resumen.eventosEnVenta > 0
+              ? ` · ${formatNumber(resumen.eventosEnVenta)} en venta`
+              : "")
           : "Sin datos",
     },
     {
-      label: `${METRIC_LABEL[metric]} total`,
+      label: `${METRIC_LABEL[metric]} vendido`,
       value: metric === "venta" ? compactCurrency(resumen.total) : formatNumber(resumen.total),
-      caption: metric === "venta" ? formatCurrency(resumen.total) : "Suma de la selección",
+      caption:
+        metric === "venta" ? formatCurrency(resumen.total) : "Suma de la selección",
     },
     {
       label: "Anticipación mediana",
-      value:
-        resumen.medianaDias == null
-          ? "—"
-          : resumen.medianaDias > 0
-            ? `${formatNumber(resumen.medianaDias)} d`
-            : resumen.medianaDias === 0
-              ? "0 d"
-              : `−${formatNumber(-resumen.medianaDias)} d`,
-      caption: "Día en que se alcanza el 50% de la venta",
+      value: resumen.medianaDias == null ? "—" : fmtDias(resumen.medianaDias),
+      caption: hayCerrados
+        ? "Día en que se alcanza el 50% · solo eventos cerrados"
+        : "Requiere al menos un evento con venta cerrada",
     },
     {
       label: "Venta anticipada",
-      value: fmtPct(resumen.pctAnticipado),
-      caption: `Día del evento ${fmtPct(resumen.pctDiaEvento)} · después ${fmtPct(resumen.pctPosterior)}`,
+      value: hayCerrados ? fmtPct(resumen.pctAnticipado) : "—",
+      caption: hayCerrados
+        ? `Día del evento ${fmtPct(resumen.pctDiaEvento)} · después ${fmtPct(resumen.pctPosterior)}`
+        : "Requiere al menos un evento con venta cerrada",
     },
   ];
 
@@ -216,7 +221,7 @@ export default async function CurvasPage({ searchParams }: PageProps) {
 
       <CurvasFilters
         events={events}
-        tipoTicketOptions={tipoTicketOptions}
+        tipoTicketMap={tipoTicketMap}
         country={country}
         countryLocked={countryLocked}
         comunidad={filters.comunidad}
@@ -258,11 +263,28 @@ export default async function CurvasPage({ searchParams }: PageProps) {
             y posterior).
             {normalizar && " Cada curva va como % de su propio total."}
           </p>
+          {chart.seriesEnVenta > 0 && (
+            <p className="mt-2 font-sans text-xs text-[#666666]">
+              {chart.seriesEnVenta === 1
+                ? "1 curva sigue vendiendo"
+                : `${formatNumber(chart.seriesEnVenta)} curvas siguen vendiendo`}
+              : se cortan en el día de hoy —los días posteriores todavía no ocurrieron— y su
+              total es parcial
+              {normalizar && ", así que su % está calculado sobre lo vendido hasta hoy"}.
+            </p>
+          )}
+          {chart.promedioKey && (
+            <p className="mt-1 font-sans text-xs text-[#666666]">
+              La curva promedio (línea negra segmentada) promedia solo las{" "}
+              {formatNumber(chart.promedioBase)} curvas con venta cerrada, para que sirva de
+              referencia estable.
+            </p>
+          )}
           {chart.seriesOcultas > 0 && (
             <p className="mt-2 font-sans text-xs text-[#EF8C34]">
               Se dibujan las {chart.series.length} curvas de mayor volumen de{" "}
-              {chart.seriesTotales}. Afina los filtros para ver el resto (la curva promedio sí
-              considera todas).
+              {chart.seriesTotales}. Afina los filtros para ver el resto (los KPIs y la curva
+              promedio sí consideran todas).
             </p>
           )}
         </header>
@@ -271,6 +293,7 @@ export default async function CurvasPage({ searchParams }: PageProps) {
           points={chart.points}
           series={chart.series}
           promedioKey={chart.promedioKey}
+          promedioBase={chart.promedioBase}
           minDias={chart.minDias}
           maxDias={chart.maxDias}
           metric={metric}
@@ -287,7 +310,8 @@ export default async function CurvasPage({ searchParams }: PageProps) {
             </h2>
             <p className="mt-1 font-sans text-sm text-[#666666]">
               Porcentaje del total de cada curva ya vendido a 30 y 7 días del evento, y al cierre
-              del día del evento.
+              del día del evento. Las curvas en venta no lo reportan: el total final todavía no
+              existe, así que el porcentaje no sería medible.
             </p>
           </header>
           <div className="overflow-x-auto">
@@ -320,7 +344,17 @@ export default async function CurvasPage({ searchParams }: PageProps) {
                     key={s.key}
                     className="border-b border-[#E5E5E5] transition-colors duration-150 last:border-b-0 hover:bg-[#FAFAFA]"
                   >
-                    <td className="px-4 py-3 font-sans text-sm text-[#333333]">{s.label}</td>
+                    <td className="px-4 py-3 font-sans text-sm text-[#333333]">
+                      <span className="flex items-center gap-2">
+                        <span>{s.label}</span>
+                        {s.enVenta && (
+                          <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-white px-2.5 py-1 font-sans text-xs font-medium text-[#333333]">
+                            <span className="h-1.5 w-1.5 rounded-full bg-[#F6C544]" />
+                            en venta
+                          </span>
+                        )}
+                      </span>
+                    </td>
                     <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#333333]">
                       {formatNumber(s.eventos)}
                     </td>
