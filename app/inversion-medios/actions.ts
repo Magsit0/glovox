@@ -1,8 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { canAccessPath } from "@/lib/permissions";
 import { db } from "@/db";
 import {
   auditLog,
@@ -26,16 +27,18 @@ interface ActorCtx {
 }
 
 /**
- * Gate por ROL dentro de cada action (defensa en profundidad: las server
- * actions son POSTs invocables aunque el layout de /admin proteja la
- * navegación con requireSuperadmin). Lanza Error para devolver ActionResult.
+ * Gate por GRANT del dashboard dentro de cada action (defensa en profundidad:
+ * las server actions son POSTs invocables directamente, sin pasar por el proxy
+ * ni por page.tsx). Editar exige el MISMO permiso que ver: quien tiene el grant
+ * de /inversion-medios puede escribir el plan — no hay perfil de edición
+ * aparte. Lanza Error para devolver ActionResult.
  */
 async function requireInversionMediosAccess(): Promise<ActorCtx> {
   const session = await auth();
   const email = session?.user?.email ?? "";
   if (!email) throw new Error("No autorizado");
-  if ((session?.user?.role ?? "user") !== "superadmin") {
-    throw new Error("Solo un superadmin puede editar la inversión en medios");
+  if (!canAccessPath(session?.user?.permissions ?? [], "/inversion-medios")) {
+    throw new Error("No tienes acceso a Control inversión PM");
   }
   return { email, userId: session?.user?.userId ?? null };
 }
@@ -61,7 +64,6 @@ const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 // eventos Fever (ej. 660905 = Bajo Cero 2026) — ambos existen en categoriaEvento.
 const EVENTO_RE = /^([A-Z]{2,4}\d{2,4}|\d{5,6})$/;
 const MAX_NOTA = 500;
-const MAX_BULK = 5000;
 
 function sanitizeMonto(v: unknown): number | null {
   const num = typeof v === "number" ? v : Number(v);
@@ -200,101 +202,6 @@ export async function deleteCellAction(input: {
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Error al borrar" };
-  }
-}
-
-/**
- * Upsert masivo (pegar un rango, distribuir un monto por semana, o el import
- * one-time de la hoja). Transaccional: todas las celdas o ninguna. Idempotente
- * por el unique (evento_id, fecha) — re-pegar no duplica.
- */
-export async function bulkUpsertAction(input: {
-  rows: { eventoId: string; fecha: string; plataforma: string; montoUsd: number; nota?: string }[];
-}): Promise<ActionResult<{ upserted: number }>> {
-  let ctx: ActorCtx;
-  try {
-    ctx = await requireInversionMediosAccess();
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
-  }
-  if (!Array.isArray(input.rows) || input.rows.length === 0) {
-    return { ok: false, error: "Sin filas para cargar" };
-  }
-  if (input.rows.length > MAX_BULK) {
-    return { ok: false, error: `Máximo ${MAX_BULK} celdas por carga` };
-  }
-
-  // Sanitizar todo ANTES de tocar la base.
-  const clean: {
-    eventoId: string;
-    fecha: string;
-    plataforma: string;
-    montoUsd: number;
-    nota: string | null;
-  }[] = [];
-  const seen = new Set<string>();
-  for (const r of input.rows) {
-    const eventoId = String(r.eventoId ?? "").trim().toUpperCase();
-    const fecha = String(r.fecha ?? "").trim();
-    const plataforma = sanitizePlataforma(r.plataforma);
-    const monto = sanitizeMonto(r.montoUsd);
-    if (!EVENTO_RE.test(eventoId)) return { ok: false, error: `EventoID inválido: "${r.eventoId}"` };
-    if (!FECHA_RE.test(fecha)) return { ok: false, error: `Fecha inválida: "${r.fecha}" (${eventoId})` };
-    if (!plataforma) return { ok: false, error: `Plataforma inválida: "${r.plataforma}" (${eventoId} ${fecha})` };
-    if (monto === null) return { ok: false, error: `Monto inválido en ${eventoId} ${fecha} ${plataforma}` };
-    const key = `${eventoId}|${fecha}|${plataforma}`;
-    if (seen.has(key)) continue; // dedup defensivo dentro del batch
-    seen.add(key);
-    clean.push({ eventoId, fecha, plataforma, montoUsd: monto, nota: sanitizeNota(r.nota) });
-  }
-
-  // Validar cada evento UNA vez contra categoriaEvento.
-  const eventoIds = Array.from(new Set(clean.map((r) => r.eventoId)));
-  for (const id of eventoIds) {
-    const eventoError = await validarEvento(id);
-    if (eventoError) return { ok: false, error: eventoError };
-  }
-
-  try {
-    await withNeonRetry(() =>
-      db.transaction(async (tx) => {
-        // delete-then-insert scopeado por (evento, plataforma): re-cargar Meta de
-        // un rango reemplaza SOLO Meta, no toca Google/TikTok de esos días.
-        const grupos = new Map<string, string[]>(); // "evento|plataforma" → fechas
-        for (const r of clean) {
-          const g = `${r.eventoId}|${r.plataforma}`;
-          if (!grupos.has(g)) grupos.set(g, []);
-          grupos.get(g)!.push(r.fecha);
-        }
-        for (const [g, fechas] of grupos) {
-          const [id, plat] = g.split("|");
-          await tx
-            .delete(inversionMediosDiario)
-            .where(
-              and(
-                eq(inversionMediosDiario.eventoId, id),
-                eq(inversionMediosDiario.plataforma, plat),
-                inArray(inversionMediosDiario.fecha, fechas),
-              ),
-            );
-        }
-        await tx.insert(inversionMediosDiario).values(
-          clean.map((r) => ({
-            ...r,
-            createdBy: ctx.userId,
-            updatedBy: ctx.userId,
-          })),
-        );
-      }),
-    );
-    await logAudit(ctx.userId, "inversionMedios.bulkUpsert", {
-      eventos: eventoIds,
-      celdas: clean.length,
-    });
-    revalidatePath("/inversion-medios");
-    return { ok: true, data: { upserted: clean.length } };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : "Error en la carga masiva" };
   }
 }
 

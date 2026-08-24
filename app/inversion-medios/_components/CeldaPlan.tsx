@@ -10,6 +10,10 @@ import { fmtUsd } from "./format";
  * Celda editable del drill por plataforma: plan editable (arriba) + real
  * read-only (abajo), para un (evento, fecha, plataforma). Draft local →
  * blur/Enter guarda. Vacío ≠ $0: vaciar la celda BORRA la fila del plan.
+ *
+ * Código de color de TODO el dashboard: PLAN en morado (#534AB7, el acento de
+ * esta ruta) y REAL en tinta (#333333). Sin foco el plan se muestra formateado
+ * ($46); al enfocar, el número crudo para editar.
  */
 export default function CeldaPlan({
   eventoId,
@@ -23,16 +27,19 @@ export default function CeldaPlan({
   cell: DrillDayCell;
   /** Día de hoy (real parcial) o futuro sin datos aún. */
   parcial: boolean;
-  /** false → celda read-only (usuario con grant pero sin rol superadmin). */
+  /** false → celda read-only. Hoy siempre true: el grant de lectura habilita editar. */
   canEdit?: boolean;
 }) {
   const router = useRouter();
   const saved = cell.plan;
   const [draft, setDraft] = useState<string | null>(null); // null = sin editar
+  const [focused, setFocused] = useState(false);
   const [pending, start] = useTransition();
   const [error, setError] = useState(false);
 
-  const shown = draft ?? (saved != null ? String(saved) : "");
+  // En reposo el plan se ve como moneda ($46); con foco, crudo para editar.
+  const shown =
+    draft ?? (saved != null ? (focused ? String(saved) : fmtUsd(saved, 0)) : "");
 
   function commit() {
     if (draft === null) return; // no se tocó
@@ -84,7 +91,11 @@ export default function CeldaPlan({
         <input
           value={shown}
           onChange={(e) => setDraft(e.target.value)}
-          onBlur={commit}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false);
+            commit();
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
             if (e.key === "Escape") setDraft(null);
@@ -93,23 +104,23 @@ export default function CeldaPlan({
           inputMode="decimal"
           placeholder="·"
           aria-label={`Plan ${plataforma} ${eventoId} ${cell.fecha}`}
-          className={`w-full rounded border bg-transparent px-1 py-0.5 text-center tabular-nums text-xs text-[#333333] transition-colors placeholder:text-[#E5E5E5] focus:border-[#9F99F8] focus:bg-white focus:outline-none ${
+          className={`w-full rounded border bg-transparent px-1 py-0.5 text-center tabular-nums text-xs font-medium text-[#534AB7] transition-colors placeholder:text-[#E5E5E5] focus:border-[#9F99F8] focus:bg-white focus:outline-none ${
             error ? "border-[#ED75A0]" : "border-transparent hover:border-[#E5E5E5]"
           } ${pending ? "opacity-50" : ""}`}
         />
       ) : (
         // Read-only: mismo lugar que el plan, sin input.
-        <span className="px-1 py-0.5 text-center tabular-nums text-xs text-[#333333]">
+        <span className="px-1 py-0.5 text-center tabular-nums text-xs font-medium text-[#534AB7]">
           {saved != null ? fmtUsd(saved, 0) : <span className="text-[#E5E5E5]">·</span>}
         </span>
       )}
       <span
-        className="mt-0.5 text-center tabular-nums text-[11px] leading-tight text-[#999999]"
+        className="mt-0.5 text-center tabular-nums text-[11px] leading-tight text-[#333333]"
         title={
           cell.real != null
-            ? `Real ${fmtUsd(cell.real)}${cell.fxImputado ? " · FX imputado (finde/feriado)" : ""}${parcial ? " · parcial" : ""}`
+            ? `Real ${fmtUsd(cell.real)}${cell.fxImputado ? " · FX imputado (último disponible)" : ""}${parcial ? " · parcial" : ""}`
             : cell.sinFx
-              ? "Hay gasto en moneda sin tipo de cambio a USD"
+              ? "Hay gasto en una moneda sin NINGÚN tipo de cambio conocido (no se pudo convertir ni con el último FX disponible)"
               : ""
         }
       >
@@ -119,12 +130,11 @@ export default function CeldaPlan({
             <span className="font-medium text-[#EF8C34]">+sin FX</span>
           </>
         ) : cell.real != null && cell.real > 0 ? (
-          <>
-            {fmtUsd(cell.real, 0)}
-            {parcial ? "…" : ""}
-          </>
+          // Sin sufijo "…" para el día parcial: se leía como monto truncado.
+          // El aviso "parcial" vive en el tooltip (title de arriba).
+          fmtUsd(cell.real, 0)
         ) : (
-          "·"
+          <span className="text-[#E5E5E5]">·</span>
         )}
       </span>
     </div>

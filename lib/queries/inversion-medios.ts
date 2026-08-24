@@ -17,9 +17,43 @@ const P = process.env.BIGQUERY_PROJECT_ID;
 // Mart gobernado: paidMedia.ads_performance + EventoID (derivado por el
 // productor desde campaign_name) + montos en USD por fecha vía
 // referencia.tipo_cambio. Este panel es su PRIMER consumidor — acá NO se
-// re-deriva EventoID ni FX (eso es exactamente lo que el mart gobierna).
+// re-deriva EventoID. El FX tampoco, con UNA excepción acotada: ver REAL_BASE
+// (carry-forward del último FX conocido para el gasto de HOY que el mart aún
+// deja sin convertir).
 const MART = `\`${P}.marts.paidmedia_ads_performance\``;
 const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
+
+// Carry-forward de FX del lado del CONSUMIDOR (decisión 2026-08-24): el mart
+// deja `gasto_usd` NULL cuando el tipo de cambio del día aún no existe (en la
+// práctica, SOLO el día en curso — el FX se publica después). Antes ese gasto
+// se mostraba como hueco ("+sin FX"); ahora se convierte acá con el ÚLTIMO
+// fx_units_per_usd conocido de esa moneda (mismo criterio de carry-forward que
+// el mart usa para findes/feriados) y se marca `fx_carry` → la UI lo funde con
+// `fx_imputado`. El mart NO se toca (sigue read-only y gobernando el FX final:
+// cuando llega el FX real del día, la conversión del mart reemplaza a esta).
+// `base` expone las MISMAS columnas del mart con `gasto_usd` ya efectivo.
+const REAL_BASE = `
+  WITH fx_last AS (
+    SELECT currency, fx_units_per_usd
+    FROM (
+      SELECT
+        currency,
+        fx_units_per_usd,
+        ROW_NUMBER() OVER (PARTITION BY currency ORDER BY fecha DESC) AS rn
+      FROM ${MART}
+      WHERE fx_units_per_usd IS NOT NULL AND currency IS NOT NULL
+    )
+    WHERE rn = 1
+  ),
+  base AS (
+    SELECT
+      m.* EXCEPT (gasto_usd),
+      COALESCE(m.gasto_usd, SAFE_DIVIDE(m.gasto, f.fx_units_per_usd)) AS gasto_usd,
+      (m.gasto_usd IS NULL AND IFNULL(m.gasto, 0) > 0 AND f.fx_units_per_usd IS NOT NULL) AS fx_carry
+    FROM ${MART} m
+    LEFT JOIN fx_last f ON f.currency = m.currency
+  )
+`;
 // Marts gobernados de facturación Cardda (la tarjeta que paga los ads y SaaS):
 // consumo real de la tarjeta por mes×canal y fee mensual de Cardda, ambos ya
 // convertidos a USD por fecha vía referencia.tipo_cambio. Producidos por
@@ -69,11 +103,13 @@ export type RealDiarioRow = {
   /** Gasto en una plataforma FUERA de meta/google/tiktok (4º canal, NULL, …).
    *  Garantiza meta+google+tiktok+otras == gastoUsd (la partición cierra). */
   otrasUsd: number;
-  /** Algún FX del día vino de carry-forward (finde/feriado). */
+  /** Algún FX del día vino de carry-forward (finde/feriado del mart, o el
+   *  último FX disponible aplicado acá para el gasto de hoy — REAL_BASE). */
   fxImputado: boolean;
-  /** Filas con gasto en moneda local SIN conversión a USD (gap visible, no $0). */
+  /** Filas con gasto local que NI SIQUIERA el carry-forward pudo convertir
+   *  (moneda sin ningún FX conocido). Residual, en la práctica 0. */
   filasSinFx: number;
-  /** Por plataforma: ¿hay gasto local sin FX? (solo lo puebla el drill). */
+  /** Por plataforma: ¿hay gasto local inconvertible? (solo lo puebla el drill). */
   metaSinFx?: boolean;
   googleSinFx?: boolean;
   tiktokSinFx?: boolean;
@@ -186,15 +222,16 @@ export async function getPlanExtent(): Promise<{ min: string; max: string } | nu
 /**
  * Gasto real diario en USD por evento dentro del rango, para TODOS los
  * EventoID que existen en categoriaEvento (el resto vive en "no atribuido").
- * `gasto_usd` viene NULL cuando la moneda no tiene FX (gap VISIBLE por diseño
- * del mart): se agrega por separado (`filas_sin_fx`) y NUNCA se cuenta como $0.
+ * `gasto_usd` efectivo sale de REAL_BASE: lo convertido por el mart, más el
+ * gasto de hoy convertido acá con el último FX disponible (marcado imputado).
+ * Solo queda en `filas_sin_fx` lo que no tiene NINGÚN FX conocido (~0 filas).
  */
 export async function getRealDiarioRango(
   from: string,
   to: string,
 ): Promise<RealDiarioRow[]> {
   const rows = await query<Record<string, unknown>>(
-    `
+    `${REAL_BASE}
     SELECT
       m.EventoID                                              AS evento_id,
       FORMAT_DATE('%Y-%m-%d', m.fecha)                        AS fecha,
@@ -205,9 +242,9 @@ export async function getRealDiarioRango(
       -- Residual: cualquier plataforma fuera de las tres (o NULL) → la
       -- partición meta+google+tiktok+otras == gasto_usd cierra siempre.
       SUM(IF(m.plataforma IN ('meta','google','tiktok'), 0, m.gasto_usd)) AS otras_usd,
-      LOGICAL_OR(IFNULL(m.fx_imputado, FALSE))                AS fx_imputado,
+      LOGICAL_OR(IFNULL(m.fx_imputado, FALSE) OR m.fx_carry)  AS fx_imputado,
       COUNTIF(m.gasto_usd IS NULL AND IFNULL(m.gasto, 0) > 0) AS filas_sin_fx
-    FROM ${MART} m
+    FROM base m
     WHERE m.fecha BETWEEN DATE(@from) AND DATE(@to)
       AND m.EventoID IS NOT NULL
       -- Mismo predicado que getCategoriaEventos (isCanceled IS NOT TRUE): un
@@ -246,7 +283,7 @@ export async function getRealDiarioEvento(
   to: string,
 ): Promise<RealDiarioRow[]> {
   const rows = await query<Record<string, unknown>>(
-    `
+    `${REAL_BASE}
     SELECT
       m.EventoID                                              AS evento_id,
       FORMAT_DATE('%Y-%m-%d', m.fecha)                        AS fecha,
@@ -255,12 +292,12 @@ export async function getRealDiarioEvento(
       SUM(IF(m.plataforma = 'google', m.gasto_usd, 0))        AS google_usd,
       SUM(IF(m.plataforma = 'tiktok', m.gasto_usd, 0))        AS tiktok_usd,
       SUM(IF(m.plataforma IN ('meta','google','tiktok'), 0, m.gasto_usd)) AS otras_usd,
-      LOGICAL_OR(IFNULL(m.fx_imputado, FALSE))                AS fx_imputado,
+      LOGICAL_OR(IFNULL(m.fx_imputado, FALSE) OR m.fx_carry)  AS fx_imputado,
       COUNTIF(m.gasto_usd IS NULL AND IFNULL(m.gasto, 0) > 0) AS filas_sin_fx,
       COUNTIF(m.plataforma = 'meta'   AND m.gasto_usd IS NULL AND IFNULL(m.gasto,0) > 0) AS meta_sinfx,
       COUNTIF(m.plataforma = 'google' AND m.gasto_usd IS NULL AND IFNULL(m.gasto,0) > 0) AS google_sinfx,
       COUNTIF(m.plataforma = 'tiktok' AND m.gasto_usd IS NULL AND IFNULL(m.gasto,0) > 0) AS tiktok_sinfx
-    FROM ${MART} m
+    FROM base m
     WHERE m.EventoID = @eventoId
       AND m.fecha BETWEEN DATE(@from) AND DATE(@to)
     GROUP BY evento_id, fecha
@@ -295,7 +332,7 @@ export async function getNoAtribuidoDiario(
   to: string,
 ): Promise<NoAtribuidoRow[]> {
   const rows = await query<Record<string, unknown>>(
-    `
+    `${REAL_BASE}
     SELECT
       FORMAT_DATE('%Y-%m-%d', fecha)                      AS fecha,
       SUM(gasto_usd)                                      AS gasto_usd,
@@ -304,7 +341,7 @@ export async function getNoAtribuidoDiario(
       SUM(IF(plataforma = 'tiktok', gasto_usd, 0))        AS tiktok_usd,
       SUM(IF(plataforma IN ('meta','google','tiktok'), 0, gasto_usd)) AS otras_usd,
       COUNTIF(gasto_usd IS NULL AND IFNULL(gasto, 0) > 0) AS filas_sin_fx
-    FROM ${MART} m
+    FROM base m
     WHERE fecha BETWEEN DATE(@from) AND DATE(@to)
       AND (
         m.EventoID IS NULL
@@ -328,6 +365,54 @@ export async function getNoAtribuidoDiario(
     tiktokUsd: n(r.tiktok_usd),
     otrasUsd: n(r.otras_usd),
     filasSinFx: n(r.filas_sin_fx),
+  }));
+}
+
+export type NoAtribuidoCampanaDia = {
+  plataforma: string;
+  campaignName: string;
+  fecha: string; // YYYY-MM-DD
+  gastoUsd: number;
+};
+
+/**
+ * Gasto DIARIO por campaña del grupo "no atribuido" dentro del rango. Mismo
+ * predicado que getNoAtribuidoDiario (mantener en sync): EventoID NULL o sin
+ * match no-cancelado en categoriaEvento. Alimenta las sub-filas desplegables
+ * de la fila "No atribuido" en la matriz (el cliente agrupa por campaña, se
+ * queda con las de mayor gasto y agrega el resto en una fila "otras").
+ */
+export async function getNoAtribuidoCampanasDiario(
+  from: string,
+  to: string,
+): Promise<NoAtribuidoCampanaDia[]> {
+  const rows = await query<Record<string, unknown>>(
+    `${REAL_BASE}
+    SELECT
+      IFNULL(m.plataforma, '(null)')           AS plataforma,
+      IFNULL(m.campaign_name, '(sin nombre)')  AS campaign_name,
+      FORMAT_DATE('%Y-%m-%d', m.fecha)         AS fecha,
+      SUM(m.gasto_usd)                         AS gasto_usd
+    FROM base m
+    WHERE m.fecha BETWEEN DATE(@from) AND DATE(@to)
+      AND (
+        m.EventoID IS NULL
+        OR NOT EXISTS (
+          SELECT 1 FROM ${CATEGORY} c
+          WHERE c.EventoID = m.EventoID AND c.isCanceled IS NOT TRUE
+        )
+      )
+    GROUP BY plataforma, campaign_name, fecha
+    HAVING gasto_usd > 0
+    ORDER BY fecha
+    `,
+    { from, to },
+  );
+  return rows.map((r) => ({
+    plataforma: s(r.plataforma),
+    campaignName: s(r.campaign_name),
+    fecha: s(r.fecha),
+    gastoUsd: n(r.gasto_usd),
   }));
 }
 
@@ -519,14 +604,14 @@ export async function getRealDesgloseEvento(
   { fecha: string; plataforma: string; objective: string; campaignName: string; gastoUsd: number }[]
 > {
   const rows = await query<Record<string, unknown>>(
-    `
+    `${REAL_BASE}
     SELECT
       FORMAT_DATE('%Y-%m-%d', fecha) AS fecha,
       plataforma                     AS plataforma,
       IFNULL(objective, '')          AS objective,
       IFNULL(campaign_name, '')      AS campaign_name,
       SUM(gasto_usd)                 AS gasto_usd
-    FROM ${MART}
+    FROM base
     WHERE EventoID = @eventoId
       AND fecha BETWEEN DATE(@from) AND DATE(@to)
       AND gasto_usd > 0
@@ -677,9 +762,9 @@ export async function getTotalesEvento(
         .where(inArray(inversionMediosDiario.eventoId, eventoIds)),
     ),
     query<Record<string, unknown>>(
-      `
+      `${REAL_BASE}
       SELECT EventoID AS evento_id, SUM(gasto_usd) AS gasto_usd
-      FROM ${MART}
+      FROM base
       WHERE EventoID IN UNNEST(@eventoIds)
       GROUP BY evento_id
       `,

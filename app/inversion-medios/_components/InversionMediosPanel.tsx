@@ -11,12 +11,13 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { CalendarDays, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
 import type {
   CarddaConsumoRow,
   CarddaFeeRow,
   DayCell,
   EventoGridRow,
+  NoAtribuidoCampanaDia,
   NoAtribuidoRow,
 } from "@/lib/queries/inversion-medios";
 import type { CargoExtra } from "@/db/schema";
@@ -46,6 +47,8 @@ type Props = {
   /** Totales del evento COMPLETO (histórico), no solo del rango cargado. */
   totales: Record<string, { totalPlan: number; totalReal: number }>;
   noAtribuido: NoAtribuidoRow[];
+  /** Gasto diario por campaña del grupo "no atribuido" (sub-filas desplegables). */
+  noAtribuidoCampanas: NoAtribuidoCampanaDia[];
   realMaxFecha: string;
   hoy: string;
   cargos: CargoExtra[];
@@ -53,13 +56,16 @@ type Props = {
   carddaConsumo: CarddaConsumoRow[];
   /** Fee mensual de Cardda por período. */
   carddaFee: CarddaFeeRow[];
-  /** superadmin → puede editar los cargos extra. */
+  /** Habilita editar los cargos extra. Va con el grant del dashboard, no con el rol. */
   canEdit: boolean;
 };
 
 // Geometría fija de la grilla (box-border: el ancho incluye el borde).
 const COL_W = 64; // w-16
 const STICKY_W = 224; // w-56
+// Máximo de sub-filas individuales al desplegar "No atribuido" (el resto se
+// agrega en una fila "otras N campañas" para no inflar el DOM).
+const NA_MAX_FILAS = 20;
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 const DIAS_SEMANA = ["D", "L", "M", "M", "J", "V", "S"];
@@ -79,6 +85,7 @@ export default function InversionMediosPanel({
   grid,
   totales,
   noAtribuido,
+  noAtribuidoCampanas,
   realMaxFecha,
   hoy,
   cargos,
@@ -89,6 +96,11 @@ export default function InversionMediosPanel({
   const router = useRouter();
   // Resumen superior: KPIs globales o desglose por canal (mismo tramo visible).
   const [modo, setModo] = useState<"resumen" | "canal">("resumen");
+  // Listado de campañas "no atribuido" (desplegable desde su fila). naShown =
+  // cuántas van como fila individual; el resto vive agregado en "otras N" y se
+  // libera por tandas con "mostrar 20 más" (control del tamaño del DOM).
+  const [naOpen, setNaOpen] = useState(false);
+  const [naShown, setNaShown] = useState(NA_MAX_FILAS);
 
   const dias = useMemo(() => {
     const out: string[] = [];
@@ -122,6 +134,57 @@ export default function InversionMediosPanel({
     () => new Map(noAtribuido.map((r) => [r.fecha, r])),
     [noAtribuido],
   );
+
+  // Etiqueta del período CARGADO del calendario (desde–hasta) para los totales
+  // de las sub-filas — "en el rango" a secas resultaba ambiguo.
+  const rangoCargadoLabel = `${fmtDiaCorto(desde)} – ${fmtDiaCorto(hasta)}`;
+  const verMasNa = useCallback(() => setNaShown((n) => n + NA_MAX_FILAS), []);
+
+  // Sub-filas de "No atribuido": una por campaña (las de mayor gasto) + una
+  // fila agregada "otras N". Las individuales se liberan por tandas (naShown)
+  // para no inflar el DOM (187 campañas × ~200 columnas serían ~40k celdas de
+  // una vez); la partición top+otras == fila NA cierra siempre.
+  const naCamps = useMemo(() => {
+    const idx = new Map(dias.map((f, i) => [f, i]));
+    const acc = new Map<
+      string,
+      { plataforma: string; nombre: string; dias: number[]; total: number }
+    >();
+    for (const r of noAtribuidoCampanas) {
+      const col = idx.get(r.fecha);
+      if (col === undefined || !r.gastoUsd) continue;
+      const k = `${r.plataforma}|${r.campaignName}`;
+      if (!acc.has(k)) {
+        acc.set(k, {
+          plataforma: r.plataforma,
+          nombre: r.campaignName,
+          dias: new Array(dias.length).fill(0),
+          total: 0,
+        });
+      }
+      const a = acc.get(k)!;
+      a.dias[col] += r.gastoUsd;
+      a.total += r.gastoUsd;
+    }
+    const all = [...acc.values()].sort((a, b) => b.total - a.total);
+    const top = all.slice(0, naShown);
+    let resto: { nombre: string; dias: number[]; total: number; ocultas: number } | null = null;
+    if (all.length > naShown) {
+      const diasResto = new Array(dias.length).fill(0);
+      let total = 0;
+      for (const c of all.slice(naShown)) {
+        c.dias.forEach((v, i) => (diasResto[i] += v));
+        total += c.total;
+      }
+      resto = {
+        nombre: `otras ${all.length - naShown} campañas`,
+        dias: diasResto,
+        total,
+        ocultas: all.length - naShown,
+      };
+    }
+    return { top, resto, totalCampanas: all.length };
+  }, [noAtribuidoCampanas, dias, naShown]);
 
   // ---------- Viewport: qué tramo del calendario se está mirando ----------
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -183,9 +246,16 @@ export default function InversionMediosPanel({
   // ---------- Filas visibles: con plan o gasto en el tramo mirado ----------
   // Las filas NO se desmontan (se ocultan por CSS): desmontar descartaría una
   // edición en curso si su fila sale del tramo mientras se escribe.
+  // Un evento cuya fecha aún NO pasó al inicio del tramo se muestra SIEMPRE,
+  // tenga o no datos: su plan $0 es la alerta de que falta cargar presupuesto.
   const visibleIds = useMemo(() => {
     const out = new Set<string>();
+    const inicioTramo = dias[view.a] ?? "";
     rows.forEach((r, i) => {
+      if (r.fechaEvento && r.fechaEvento >= inicioTramo) {
+        out.add(r.eventoId);
+        return;
+      }
       const flags = dataIdx[i];
       for (let j = view.a; j <= view.b && j < flags.length; j++) {
         if (flags[j]) {
@@ -195,7 +265,7 @@ export default function InversionMediosPanel({
       }
     });
     return out;
-  }, [rows, dataIdx, view]);
+  }, [rows, dataIdx, view, dias]);
 
   // ---------- KPIs del tramo visible ----------
   const kpis = useMemo(() => {
@@ -354,13 +424,27 @@ export default function InversionMediosPanel({
   // Semanas del TRAMO VISIBLE: la card aparece cuando un día CON MONTO de la
   // semana entra en el viewport. Se mueve junto al calendario. Barato: filtra la
   // lista ya calculada por overlap de los índices con gasto/plan.
+  // Lunes de la semana de HOY, la siguiente y la subsiguiente (hoy ya viene en
+  // TZ Santiago). Sus cards se destacan en intensidad decreciente (100/50/25)
+  // para ver de un vistazo el gasto planificado que viene.
+  const lunesDestacados = useMemo(() => {
+    const d = new Date(`${hoy}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - ((d.getUTCDay() + 6) % 7));
+    const actual = d.toISOString().slice(0, 10);
+    d.setUTCDate(d.getUTCDate() + 7);
+    const siguiente = d.toISOString().slice(0, 10);
+    d.setUTCDate(d.getUTCDate() + 7);
+    const subsiguiente = d.toISOString().slice(0, 10);
+    return { actual, siguiente, subsiguiente };
+  }, [hoy]);
+
   const semanasVisibles = useMemo(
     () => semanas.filter((w) => w.idxMaxData >= view.a && w.idxMinData <= view.b),
     [semanas, view],
   );
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-10 sm:px-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="font-display text-3xl font-bold text-[#333333]">
@@ -424,8 +508,9 @@ export default function InversionMediosPanel({
         <CanalResumen canal={canal} rangoLabel={rangoLabel} noAtribuido={kpis.na} />
       )}
 
-      {/* Calendario */}
-      <div className="overflow-hidden rounded-lg border border-[#E5E5E5] bg-white">
+      {/* Calendario. `isolate`: contiene los sticky internos (z-10/20/30) en su
+          propio stacking context para que no pinten sobre la GroupNav (z-30). */}
+      <div className="isolate overflow-hidden rounded-lg border border-[#E5E5E5] bg-white">
         <div
           ref={scrollRef}
           onScroll={onScroll}
@@ -491,6 +576,16 @@ export default function InversionMediosPanel({
                 <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[#E5E5E5] bg-[#FAFAFA] px-4 py-2">
                   <span className="font-medium text-[#666666]">No atribuido</span>
                   <p className="text-xs text-[#999999]">campañas sin evento reconocible</p>
+                  {naCamps.totalCampanas > 0 && (
+                    <button
+                      onClick={() => setNaOpen((o) => !o)}
+                      className="mt-1 inline-flex items-center gap-1 font-sans text-xs font-medium text-[#534AB7] transition-colors hover:text-[#3F3796]"
+                      aria-expanded={naOpen}
+                    >
+                      {naOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                      {naOpen ? "ocultar campañas" : `ver campañas (${naCamps.totalCampanas})`}
+                    </button>
+                  )}
                 </td>
                 {dias.map((fecha) => {
                   const r = noAtribuidoByFecha.get(fecha);
@@ -504,6 +599,37 @@ export default function InversionMediosPanel({
                   );
                 })}
               </tr>
+              {/* Sub-filas: campañas del grupo "no atribuido", alineadas a los
+                  mismos días. Las de mayor gasto individuales + "otras N"
+                  agregada. Se ocultan (CSS) si no tienen gasto en el tramo
+                  mirado — misma mecánica que las filas de evento. */}
+              {naOpen &&
+                naCamps.top.map((c) => (
+                  <NaCampRow
+                    key={`${c.plataforma}|${c.nombre}`}
+                    nombre={c.nombre}
+                    dot={PLAT_DOT[c.plataforma] ?? "#B4B2A9"}
+                    dotTitle={PLAT_LABEL[c.plataforma] ?? c.plataforma}
+                    diasVals={c.dias}
+                    total={c.total}
+                    rango={rangoCargadoLabel}
+                    hidden={!c.dias.slice(view.a, view.b + 1).some((v) => v > 0)}
+                  />
+                ))}
+              {naOpen && naCamps.resto && (
+                <NaCampRow
+                  nombre={naCamps.resto.nombre}
+                  dot="#B4B2A9"
+                  dotTitle="Varias plataformas"
+                  diasVals={naCamps.resto.dias}
+                  total={naCamps.resto.total}
+                  rango={rangoCargadoLabel}
+                  // La fila agregada SIEMPRE se ve al expandir (aunque no tenga
+                  // gasto en el tramo): es donde vive el botón "mostrar más".
+                  hidden={false}
+                  onVerMas={verMasNa}
+                />
+              )}
             </tbody>
             <tfoot>
               <tr>
@@ -515,10 +641,10 @@ export default function InversionMediosPanel({
                     key={d.fecha}
                     className="sticky bottom-0 z-20 w-16 min-w-16 max-w-16 border-t border-[#E5E5E5] bg-white px-1 py-2 text-center tabular-nums text-xs"
                   >
-                    <span className="block text-[#333333]">
+                    <span className="block font-medium text-[#534AB7]">
                       {d.plan > 0 ? fmtUsd(d.plan, 0) : "·"}
                     </span>
-                    <span className="block text-[#999999]">
+                    <span className="block text-[#333333]">
                       {d.real > 0 ? fmtUsd(d.real, 0) : "·"}
                     </span>
                   </td>
@@ -566,7 +692,19 @@ export default function InversionMediosPanel({
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {semanasVisibles.map((w) => (
-              <SemanaCard key={w.inicio} w={w} />
+              <SemanaCard
+                key={w.inicio}
+                w={w}
+                destacada={
+                  w.inicio === lunesDestacados.actual
+                    ? "actual"
+                    : w.inicio === lunesDestacados.siguiente
+                      ? "siguiente"
+                      : w.inicio === lunesDestacados.subsiguiente
+                        ? "subsiguiente"
+                        : null
+                }
+              />
             ))}
           </div>
         </div>
@@ -579,7 +717,8 @@ export default function InversionMediosPanel({
       <FacturacionHistorica consumo={carddaConsumo} fee={carddaFee} />
 
       <p className="font-sans text-xs text-[#999999]">
-        Cada celda: plan total del día (arriba) y real (abajo). El plan se edita{" "}
+        Cada celda: <span className="font-medium text-[#534AB7]">plan</span> total del día (arriba, en
+        morado) y <span className="font-medium text-[#333333]">real</span> (abajo, en negro). El plan se edita{" "}
         <span className="text-[#333333]">por plataforma</span> abriendo el evento. El techo por
         evento es el budgetPm de la tabla madre (se edita en{" "}
         <Link href="/admin/eventos" className="underline hover:text-[#333333]">
@@ -593,10 +732,111 @@ export default function InversionMediosPanel({
   );
 }
 
+// ---------- Sub-fila de campaña "no atribuido" (dentro de la matriz) ----------
+
+const PLAT_DOT: Record<string, string> = {
+  meta: "#9F99F8",
+  google: "#B1D750",
+  tiktok: "#87DACD",
+};
+const PLAT_LABEL: Record<string, string> = {
+  meta: "Meta",
+  google: "Google",
+  tiktok: "TikTok",
+};
+
+/**
+ * Fila de campaña bajo "No atribuido": gasto real diario alineado a las mismas
+ * columnas del calendario. Read-only. El nombre completo va en el title (la
+ * columna sticky lo trunca). memo: el scroll actualiza `view` constantemente y
+ * estas filas solo cambian su flag `hidden`.
+ */
+const NaCampRow = memo(function NaCampRow({
+  nombre,
+  dot,
+  dotTitle,
+  diasVals,
+  total,
+  rango,
+  hidden,
+  onVerMas,
+}: {
+  nombre: string;
+  dot: string;
+  dotTitle: string;
+  diasVals: number[];
+  total: number;
+  /** Período CARGADO del calendario (desde–hasta), ej. "1 jun – 31 dic". */
+  rango: string;
+  hidden: boolean;
+  /** Solo la fila agregada "otras N": libera 20 filas individuales más. */
+  onVerMas?: () => void;
+}) {
+  return (
+    <tr className={`bg-[#FBFBFD] ${hidden ? "hidden" : ""}`}>
+      <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[#F0F0F0] bg-[#FBFBFD] py-1.5 pl-7 pr-3">
+        <span className="flex items-center gap-1.5 font-sans text-xs text-[#333333]">
+          <span
+            className="h-1.5 w-1.5 shrink-0 rounded-full"
+            style={{ backgroundColor: dot }}
+            title={dotTitle}
+          />
+          <span className="truncate" title={nombre}>
+            {nombre}
+          </span>
+        </span>
+        <p
+          className="pl-3 text-[11px] tabular-nums text-[#999999]"
+          title={`Gasto total de la campaña en el período cargado del calendario (${rango})`}
+        >
+          {fmtUsd(total, 0)} · {rango}
+        </p>
+        {onVerMas && (
+          <button
+            onClick={onVerMas}
+            className="mt-0.5 pl-3 font-sans text-[11px] font-medium text-[#534AB7] transition-colors hover:text-[#3F3796]"
+          >
+            mostrar 20 más
+          </button>
+        )}
+      </td>
+      {diasVals.map((v, i) => (
+        <td
+          key={i}
+          className="w-16 min-w-16 max-w-16 border-t border-[#F0F0F0] px-1 py-1.5 text-center tabular-nums text-[11px] text-[#666666]"
+        >
+          {v > 0 ? fmtUsd(v, 0) : <span className="text-[#E5E5E5]">·</span>}
+        </td>
+      ))}
+    </tr>
+  );
+});
+
 // ---------- Card de subtotal semanal ----------
+
+// Escala de destaque de las semanas que vienen: 100% → 50% → 25% del morado de
+// marca (#9F99F8 → tintes hacia blanco, como pide la guía: tinte, no opacidad).
+const DESTAQUE = {
+  actual: {
+    box: "border-[#9F99F8] shadow-sm ring-1 ring-[#9F99F8]",
+    chip: "bg-[#F0EFFE] text-[#534AB7]",
+    label: "Semana actual",
+  },
+  siguiente: {
+    box: "border-[#CFCCFB] ring-1 ring-[#CFCCFB]",
+    chip: "bg-[#F5F4FE] text-[#6E67C4]",
+    label: "Próxima semana",
+  },
+  subsiguiente: {
+    box: "border-[#E7E6FD]",
+    chip: "bg-[#FAFAFE] text-[#8F89D9]",
+    label: "En 2 semanas",
+  },
+} as const;
 
 function SemanaCard({
   w,
+  destacada,
 }: {
   w: {
     inicio: string;
@@ -609,6 +849,9 @@ function SemanaCard({
     futura: boolean;
     parcial: boolean;
   };
+  /** Destaque en intensidad decreciente: actual (100) → siguiente (50) →
+   *  subsiguiente (25). Tintes del morado de marca, no opacidades. */
+  destacada: "actual" | "siguiente" | "subsiguiente" | null;
 }) {
   // El semáforo compara real contra el plan TRANSCURRIDO (días ≤ real-al), no
   // contra el plan de toda la semana: así una semana futura con plan sembrado
@@ -628,10 +871,21 @@ function SemanaCard({
       : w.real > 0
         ? "gasto sin plan"
         : "sin plan";
+  // Intensidad del destaque: 100 (actual) / 50 (siguiente) / 25 (subsiguiente).
+  const nivel = destacada && DESTAQUE[destacada];
   return (
-    <div className="rounded-lg border border-[#E5E5E5] bg-white p-4">
-      <p className="font-sans text-xs text-[#666666]">
-        Semana del {fmtDiaCorto(w.inicioVista)} al {fmtDiaCorto(w.finVista)}
+    <div
+      className={`rounded-lg border bg-white p-4 ${nivel ? nivel.box : "border-[#E5E5E5]"}`}
+    >
+      <p className="flex flex-wrap items-center gap-1.5 font-sans text-xs text-[#666666]">
+        <span>
+          Semana del {fmtDiaCorto(w.inicioVista)} al {fmtDiaCorto(w.finVista)}
+        </span>
+        {nivel && (
+          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${nivel.chip}`}>
+            {nivel.label}
+          </span>
+        )}
         {w.parcial && !w.futura && (
           <span className="ml-1 text-[#999999]" title="La semana aún no cierra: el real está incompleto">
             (parcial)
@@ -696,6 +950,14 @@ const FilaEvento = memo(function FilaEvento({
           >
             Techo {ev.techoUsd != null ? fmtUsd(ev.techoUsd) : "—"}
           </span>
+          {totalPlanEvento === 0 && ev.fechaEvento && ev.fechaEvento >= hoy && (
+            <span
+              className="inline-flex items-center rounded-full bg-[#FAEEDA] px-2 py-0.5 font-medium text-[#854F0B]"
+              title="Evento sin presupuesto diario cargado — abre el evento y llena el plan por plataforma"
+            >
+              Sin plan
+            </span>
+          )}
           {pctReal != null && (
             <span
               className="inline-flex items-center gap-1 rounded-full border border-[#E5E5E5] bg-white px-2 py-0.5 font-medium text-[#333333]"
@@ -711,14 +973,20 @@ const FilaEvento = memo(function FilaEvento({
           )}
         </div>
         <p className="mt-1 text-xs tabular-nums text-[#999999]">
-          Plan {fmtUsd(totalPlanEvento, 0)} · Real {fmtUsd(totalRealEvento, 0)}
+          Plan <span className="font-medium text-[#534AB7]">{fmtUsd(totalPlanEvento, 0)}</span> · Real{" "}
+          <span className="font-medium text-[#333333]">{fmtUsd(totalRealEvento, 0)}</span>
         </p>
       </td>
       {ev.days.map((cell) => (
         <td
           key={cell.fecha}
+          title={cell.fecha === ev.fechaEvento ? "Día del evento" : undefined}
           className={`w-16 min-w-16 max-w-16 border-t border-[#E5E5E5] p-0 text-center align-top ${
-            cell.fecha === hoy ? "bg-[#F0EFFE]/40" : ""
+            cell.fecha === ev.fechaEvento
+              ? "bg-[#FAEEDA]"
+              : cell.fecha === hoy
+                ? "bg-[#F0EFFE]/40"
+                : ""
           }`}
         >
           <CeldaResumen cell={cell} parcial={cell.fecha === hoy || cell.fecha > realMaxFecha} />
@@ -733,12 +1001,18 @@ const FilaEvento = memo(function FilaEvento({
 function CeldaResumen({ cell, parcial }: { cell: DayCell; parcial: boolean }) {
   return (
     <div className="flex min-w-16 flex-col items-stretch px-0.5 py-1.5">
-      <span className="text-center tabular-nums text-xs text-[#333333]">
+      <span className="text-center tabular-nums text-xs font-medium text-[#534AB7]">
         {cell.plan != null ? fmtUsd(cell.plan, 0) : <span className="text-[#E5E5E5]">·</span>}
       </span>
       <span
-        className="mt-0.5 text-center tabular-nums text-[11px] leading-tight text-[#999999]"
-        title={cell.real != null ? `Real ${fmtUsd(cell.real)}` : cell.sinFx ? "gasto sin FX a USD" : ""}
+        className="mt-0.5 text-center tabular-nums text-[11px] leading-tight text-[#333333]"
+        title={
+          cell.real != null
+            ? `Real ${fmtUsd(cell.real)}${cell.fxImputado ? " · FX imputado (último disponible)" : ""}${parcial ? " · parcial (los ads llegan ~09:45)" : ""}`
+            : cell.sinFx
+              ? "Gasto en moneda sin ningún FX conocido"
+              : ""
+        }
       >
         {cell.sinFx ? (
           <>
@@ -746,12 +1020,11 @@ function CeldaResumen({ cell, parcial }: { cell: DayCell; parcial: boolean }) {
             <span className="font-medium text-[#EF8C34]">+sin FX</span>
           </>
         ) : cell.real != null && cell.real > 0 ? (
-          <>
-            {fmtUsd(cell.real, 0)}
-            {parcial ? "…" : ""}
-          </>
+          // Sin sufijo "…" para el día parcial (se leía como monto truncado);
+          // el aviso va en el title.
+          fmtUsd(cell.real, 0)
         ) : (
-          "·"
+          <span className="text-[#E5E5E5]">·</span>
         )}
       </span>
     </div>

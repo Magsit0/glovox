@@ -9,6 +9,7 @@ import {
   getCarddaFeeMensual,
   getCargosExtra,
   getEtapas,
+  getNoAtribuidoCampanasDiario,
   getNoAtribuidoDiario,
   getPlanDiarioEvento,
   getPlanDiarioRango,
@@ -59,15 +60,16 @@ export default async function InversionMediosPage({
   searchParams: SearchParams;
 }) {
   // Acceso por permiso de dashboard (no rol): superadmin ve todo; el resto
-  // necesita grant. La EDICIÓN sigue siendo superadmin-only (in-action).
+  // necesita grant. VER y EDITAR van con el MISMO grant — no hay perfil aparte.
   const session = await auth();
   if (!session?.user?.email) redirect("/login");
   if (!canAccessPath(session.user.permissions ?? [], "/inversion-medios")) {
     redirect("/?unauthorized=1");
   }
-  // La edición es superadmin-only (igual que las actions). Un usuario con grant
-  // pero sin rol ve el panel en READ-ONLY (sin inputs ni "rellenar rango").
-  const canEdit = (session.user.role ?? "user") === "superadmin";
+  // El grant que abre el panel también habilita la edición del plan: este es el
+  // tablero de trabajo del líder de Paid Media, y el acceso ya está acotado por
+  // el grant. Cada Server Action revalida el mismo grant server-side.
+  const canEdit = true;
   const sp = await searchParams;
 
   const evento = typeof sp.evento === "string" ? sp.evento.toUpperCase() : "";
@@ -108,17 +110,27 @@ export default async function InversionMediosPage({
 
   const catalogoById = new Map(catalogo.map((e) => [e.eventoId, e]));
 
-  const [plan, real, noAtribuido] = await Promise.all([
+  const [plan, real, noAtribuido, noAtribuidoCampanas] = await Promise.all([
     getPlanDiarioRango(desde, hasta),
     getRealDiarioRango(desde, hasta),
     getNoAtribuidoDiario(desde, hasta),
+    getNoAtribuidoCampanasDiario(desde, hasta),
   ]);
 
   // Filas del calendario: eventos de la tabla madre con plan y/o gasto en el
-  // rango cargado. La visibilidad FINA (según el tramo que se está mirando) la
-  // resuelve el cliente al hacer scroll.
+  // rango cargado, MÁS todos los eventos futuros del catálogo dentro del rango
+  // aunque aún no tengan nada — aparecer con plan $0 es la alerta de que falta
+  // cargar el presupuesto diario. La visibilidad FINA (según el tramo que se
+  // está mirando) la resuelve el cliente al hacer scroll.
+  const proximos = catalogo
+    .filter((e) => e.fecha && e.fecha >= hoy && e.fecha >= desde && e.fecha <= hasta)
+    .map((e) => e.eventoId);
   const ids = Array.from(
-    new Set([...plan.map((p) => p.eventoId), ...real.map((r) => r.eventoId)]),
+    new Set([
+      ...plan.map((p) => p.eventoId),
+      ...real.map((r) => r.eventoId),
+      ...proximos,
+    ]),
   ).filter((id) => catalogoById.has(id));
 
   const eventos: EventoMeta[] = ids.map((id) => {
@@ -143,6 +155,7 @@ export default async function InversionMediosPage({
       grid={grid}
       totales={Object.fromEntries(totales)}
       noAtribuido={noAtribuido}
+      noAtribuidoCampanas={noAtribuidoCampanas}
       realMaxFecha={realMaxFecha}
       hoy={hoy}
       cargos={cargos}
@@ -160,10 +173,12 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
   ]);
   if (!info) {
     return (
-      <div className="rounded-lg border border-[#E5E5E5] bg-white p-12 text-center">
-        <p className="font-sans text-sm text-[#999999]">
-          El evento {eventoId} no existe en categoriaEvento.
-        </p>
+      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-10 sm:px-8">
+        <div className="rounded-lg border border-[#E5E5E5] bg-white p-12 text-center">
+          <p className="font-sans text-sm text-[#999999]">
+            El evento {eventoId} no existe en categoriaEvento.
+          </p>
+        </div>
       </div>
     );
   }
@@ -214,8 +229,6 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
       fechaEvento={info.fechaEvento}
       techoUsd={budgetPm.get(eventoId) ?? null}
       drill={drill}
-      from={from}
-      to={to}
       realMaxFecha={realMaxFecha}
       hoy={hoy}
       canEdit={canEdit}
