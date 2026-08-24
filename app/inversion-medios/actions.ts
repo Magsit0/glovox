@@ -14,6 +14,7 @@ import {
   type EtapaCampana,
 } from "@/db/schema";
 import { METODOS_CARGO } from "@/lib/inversion-medios/cargos";
+import { SIN_TIPO, TIPOS_PLAN } from "@/lib/inversion-medios/tipos";
 import { withNeonRetry } from "@/lib/neon-retry";
 import { getEventInfo } from "@/lib/queries/ticketing";
 
@@ -84,6 +85,17 @@ function sanitizePlataforma(v: unknown): string | null {
 }
 
 /**
+ * Tipo de campaña del plan: debe ser uno de los planificables de esa
+ * plataforma (TIPOS_PLAN) o '' = "Sin tipo" (solo para editar/limpiar el plan
+ * histórico sin tipo). null = inválido.
+ */
+function sanitizeTipo(v: unknown, plataforma: string): string | null {
+  const t = String(v ?? "").trim();
+  if (t === SIN_TIPO) return SIN_TIPO;
+  return (TIPOS_PLAN[plataforma] ?? []).includes(t) ? t : null;
+}
+
+/**
  * Valida que el evento exista en glovox.categoriaEvento antes de escribir
  * (Neon no tiene FK contra BQ; sin este check una celda con typo crea un
  * evento fantasma que nunca cruza con el gasto real).
@@ -102,6 +114,8 @@ export async function upsertCellAction(input: {
   eventoId: string;
   fecha: string;
   plataforma: string;
+  /** Tipo de campaña ('' = "Sin tipo", el plan histórico). */
+  tipo: string;
   montoUsd: number;
   nota?: string;
 }): Promise<ActionResult> {
@@ -117,6 +131,8 @@ export async function upsertCellAction(input: {
   const plataforma = sanitizePlataforma(input.plataforma);
   if (!FECHA_RE.test(fecha)) return { ok: false, error: "Fecha inválida" };
   if (!plataforma) return { ok: false, error: "Plataforma inválida" };
+  const tipo = sanitizeTipo(input.tipo, plataforma);
+  if (tipo === null) return { ok: false, error: "Tipo de campaña inválido" };
   const monto = sanitizeMonto(input.montoUsd);
   if (monto === null) return { ok: false, error: "Monto inválido (USD ≥ 0)" };
   const nota = sanitizeNota(input.nota);
@@ -132,6 +148,7 @@ export async function upsertCellAction(input: {
           eventoId,
           fecha,
           plataforma,
+          tipo,
           montoUsd: monto,
           nota,
           createdBy: ctx.userId,
@@ -142,6 +159,7 @@ export async function upsertCellAction(input: {
             inversionMediosDiario.eventoId,
             inversionMediosDiario.fecha,
             inversionMediosDiario.plataforma,
+            inversionMediosDiario.tipo,
           ],
           // Si el caller no manda nota, se preserva la existente (editar solo
           // el monto no debe borrar la nota de la celda).
@@ -157,6 +175,7 @@ export async function upsertCellAction(input: {
       eventoId,
       fecha,
       plataforma,
+      tipo,
       montoUsd: monto,
     });
     revalidatePath("/inversion-medios");
@@ -171,6 +190,8 @@ export async function deleteCellAction(input: {
   eventoId: string;
   fecha: string;
   plataforma: string;
+  /** Tipo de campaña ('' = "Sin tipo"). */
+  tipo: string;
 }): Promise<ActionResult> {
   let ctx: ActorCtx;
   try {
@@ -184,6 +205,8 @@ export async function deleteCellAction(input: {
   if (!EVENTO_RE.test(eventoId)) return { ok: false, error: "EventoID inválido" };
   if (!FECHA_RE.test(fecha)) return { ok: false, error: "Fecha inválida" };
   if (!plataforma) return { ok: false, error: "Plataforma inválida" };
+  const tipo = sanitizeTipo(input.tipo, plataforma);
+  if (tipo === null) return { ok: false, error: "Tipo de campaña inválido" };
 
   try {
     await withNeonRetry(() =>
@@ -194,10 +217,11 @@ export async function deleteCellAction(input: {
             eq(inversionMediosDiario.eventoId, eventoId),
             eq(inversionMediosDiario.fecha, fecha),
             eq(inversionMediosDiario.plataforma, plataforma),
+            eq(inversionMediosDiario.tipo, tipo),
           ),
         ),
     );
-    await logAudit(ctx.userId, "inversionMedios.deleteCell", { eventoId, fecha, plataforma });
+    await logAudit(ctx.userId, "inversionMedios.deleteCell", { eventoId, fecha, plataforma, tipo });
     revalidatePath("/inversion-medios");
     return { ok: true };
   } catch (err) {

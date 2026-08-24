@@ -115,9 +115,11 @@ export function resumenFacturacion(meses: FacturacionMes[]): ResumenFacturacion 
 
 const MESES_ABBR = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 
-/** "2026-06" → "jun 2026" (etiqueta de período). */
+/** "2026-06" → "jun 2026" · "2026-06-15" (lunes ISO) → "sem 15 jun 2026". */
 export function fmtPeriodo(periodo: string): string {
-  const [y, m] = periodo.split("-").map(Number);
+  const partes = periodo.split("-").map(Number);
+  const [y, m, d] = partes;
   if (!y || !m || m < 1 || m > 12) return periodo;
+  if (partes.length === 3 && d) return `sem ${d} ${MESES_ABBR[m - 1]} ${y}`;
   return `${MESES_ABBR[m - 1]} ${y}`;
 }

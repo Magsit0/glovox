@@ -18,12 +18,15 @@ import { fmtUsd } from "./format";
 export default function CeldaPlan({
   eventoId,
   plataforma,
+  tipo,
   cell,
   parcial,
   canEdit = true,
 }: {
   eventoId: string;
   plataforma: string;
+  /** Tipo de campaña del plan ('' = "Sin tipo", el plan histórico). */
+  tipo: string;
   cell: DrillDayCell;
   /** Día de hoy (real parcial) o futuro sin datos aún. */
   parcial: boolean;
@@ -52,7 +55,7 @@ export default function CeldaPlan({
         return;
       }
       start(async () => {
-        const res = await deleteCellAction({ eventoId, fecha: cell.fecha, plataforma });
+        const res = await deleteCellAction({ eventoId, fecha: cell.fecha, plataforma, tipo });
         setError(!res.ok);
         if (res.ok) {
           router.refresh();
@@ -76,7 +79,7 @@ export default function CeldaPlan({
       return;
     }
     start(async () => {
-      const res = await upsertCellAction({ eventoId, fecha: cell.fecha, plataforma, montoUsd: num });
+      const res = await upsertCellAction({ eventoId, fecha: cell.fecha, plataforma, tipo, montoUsd: num });
       setError(!res.ok);
       if (res.ok) {
         router.refresh();
@@ -103,7 +106,7 @@ export default function CeldaPlan({
           disabled={pending}
           inputMode="decimal"
           placeholder="·"
-          aria-label={`Plan ${plataforma} ${eventoId} ${cell.fecha}`}
+          aria-label={`Plan ${plataforma}${tipo ? ` ${tipo}` : " sin tipo"} ${eventoId} ${cell.fecha}`}
           className={`w-full rounded border bg-transparent px-1 py-0.5 text-center tabular-nums text-xs font-medium text-[#534AB7] transition-colors placeholder:text-[#E5E5E5] focus:border-[#9F99F8] focus:bg-white focus:outline-none ${
             error ? "border-[#ED75A0]" : "border-transparent hover:border-[#E5E5E5]"
           } ${pending ? "opacity-50" : ""}`}

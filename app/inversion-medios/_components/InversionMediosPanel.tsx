@@ -12,6 +12,15 @@ import {
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip as ChartTooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import type {
   CarddaConsumoRow,
   CarddaFeeRow,
@@ -35,6 +44,7 @@ import {
   CANALES_FACT,
   fmtPeriodo,
   resumenFacturacion,
+  type CanalFact,
   type FacturacionMes,
 } from "@/lib/inversion-medios/facturacion";
 import { deleteCargoAction, upsertCargoAction } from "../actions";
@@ -54,6 +64,8 @@ type Props = {
   cargos: CargoExtra[];
   /** Consumo real de las tarjetas Cardda por mes×canal (facturación histórica). */
   carddaConsumo: CarddaConsumoRow[];
+  /** Consumo Cardda por SEMANA (lunes ISO)×canal — granularidad fina del bloque. */
+  carddaConsumoSem: CarddaConsumoRow[];
   /** Fee mensual de Cardda por período. */
   carddaFee: CarddaFeeRow[];
   /** Habilita editar los cargos extra. Va con el grant del dashboard, no con el rol. */
@@ -90,6 +102,7 @@ export default function InversionMediosPanel({
   hoy,
   cargos,
   carddaConsumo,
+  carddaConsumoSem,
   carddaFee,
   canEdit,
 }: Props) {
@@ -714,7 +727,7 @@ export default function InversionMediosPanel({
       <CargosExtra cargos={cargos} canEdit={canEdit} />
 
       {/* Facturación histórica: lo realmente cobrado a la tarjeta Cardda */}
-      <FacturacionHistorica consumo={carddaConsumo} fee={carddaFee} />
+      <FacturacionHistorica consumo={carddaConsumo} consumoSem={carddaConsumoSem} fee={carddaFee} />
 
       <p className="font-sans text-xs text-[#999999]">
         Cada celda: <span className="font-medium text-[#534AB7]">plan</span> total del día (arriba, en
@@ -1416,15 +1429,137 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
 
 // ---------- Facturación histórica (Cardda) ----------
 
+/**
+ * Evolución temporal del consumo Cardda como ÁREA APILADA por canal: el eje Y
+ * es el consumo total del período y cada plataforma es una banda del total —
+ * se lee cuánto pesa cada una y cómo varía respecto del total. X asciende en
+ * el tiempo (la tabla va desc; acá se invierte). Fill 15% + stroke 2px según
+ * la guía; el orden de apilado fija Meta abajo (la banda dominante).
+ */
+function FacturacionChart({ filas, gran }: { filas: FacturacionMes[]; gran: "mes" | "semana" }) {
+  const data = useMemo(
+    () =>
+      [...filas].reverse().map((m) => ({
+        periodo: m.periodo,
+        label: fmtPeriodo(m.periodo),
+        meta: Math.round(m.meta),
+        google: Math.round(m.google),
+        tiktok: Math.round(m.tiktok),
+        otras: Math.round(m.otras),
+        total: Math.round(m.consumoUsd),
+      })),
+    [filas],
+  );
+  if (data.length === 0) {
+    return (
+      <p className="rounded-lg border border-[#E5E5E5] bg-white p-6 text-center font-sans text-sm text-[#999999]">
+        Sin consumo para graficar.
+      </p>
+    );
+  }
+  return (
+    <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="font-sans text-sm text-[#333333]">
+          Consumo {gran === "mes" ? "mensual" : "semanal"} apilado por plataforma
+        </p>
+        <div className="flex flex-wrap items-center gap-3 font-sans text-xs text-[#666666]">
+          {CANALES_FACT.map((c) => (
+            <span key={c} className="inline-flex items-center gap-1.5">
+              <span
+                className="h-2 w-2 rounded-full"
+                style={{ backgroundColor: CANAL_COLORS[CANAL_FACT_LABEL[c]] }}
+              />
+              {CANAL_FACT_LABEL[c]}
+            </span>
+          ))}
+        </div>
+      </div>
+      <div className="mt-6 h-80">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
+            <CartesianGrid vertical={false} stroke="#F0F0F0" />
+            <XAxis
+              dataKey="label"
+              tickLine={false}
+              axisLine={{ stroke: "#E5E5E5" }}
+              tick={{ fontFamily: "var(--font-sans)", fontSize: 12, fill: "#999999" }}
+              minTickGap={24}
+            />
+            <YAxis
+              tickLine={false}
+              axisLine={false}
+              tick={{ fontFamily: "var(--font-sans)", fontSize: 12, fill: "#999999" }}
+              tickFormatter={(v: number) => (v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v}`)}
+              width={52}
+            />
+            <ChartTooltip content={<FacturacionTooltip />} cursor={{ stroke: "#E5E5E5" }} />
+            {/* Orden de apilado: Meta (dominante) abajo → Otras arriba. */}
+            {CANALES_FACT.map((c) => (
+              <Area
+                key={c}
+                type="monotone"
+                dataKey={c}
+                stackId="total"
+                stroke={CANAL_COLORS[CANAL_FACT_LABEL[c]]}
+                strokeWidth={2}
+                fill={CANAL_COLORS[CANAL_FACT_LABEL[c]]}
+                fillOpacity={0.15}
+              />
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+/** Tooltip del área apilada: dot + canal + monto, y el total del período. */
+function FacturacionTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: { dataKey?: string | number; value?: number | string; color?: string }[];
+  label?: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const total = payload.reduce((a, p) => a + (Number(p.value) || 0), 0);
+  return (
+    <div className="rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] shadow-md">
+      <p className="text-xs text-[#666666]">{label}</p>
+      {[...payload].reverse().map((p) => (
+        <p key={String(p.dataKey)} className="mt-1 flex items-center gap-1.5 tabular-nums">
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
+          {CANAL_FACT_LABEL[p.dataKey as CanalFact] ?? String(p.dataKey)}{" "}
+          <span className="ml-auto pl-3 font-medium">{fmtUsd(Number(p.value) || 0, 0)}</span>
+        </p>
+      ))}
+      <p className="mt-1.5 border-t border-[#F0F0F0] pt-1 text-xs text-[#666666]">
+        Total <span className="font-medium text-[#333333]">{fmtUsd(total, 0)}</span>
+      </p>
+    </div>
+  );
+}
+
 function FacturacionHistorica({
   consumo,
+  consumoSem,
   fee,
 }: {
   consumo: CarddaConsumoRow[];
+  consumoSem: CarddaConsumoRow[];
   fee: CarddaFeeRow[];
 }) {
   const meses = useMemo<FacturacionMes[]>(() => buildFacturacion(consumo, fee), [consumo, fee]);
   const resumen = useMemo(() => resumenFacturacion(meses), [meses]);
+  // Semanal: sin fee (el fee es una boleta MENSUAL; prorratearlo mentiría).
+  const semanas = useMemo<FacturacionMes[]>(() => buildFacturacion(consumoSem, []), [consumoSem]);
+  const [vista, setVista] = useState<"tabla" | "grafico">("tabla");
+  const [gran, setGran] = useState<"mes" | "semana">("mes");
+  const filas = gran === "mes" ? meses : semanas;
+  const conFee = gran === "mes"; // la columna Fee solo existe a nivel mes
 
   if (meses.length === 0) {
     return (
@@ -1489,11 +1624,64 @@ function FacturacionHistorica({
         </div>
       </div>
 
-      {/* Tabla mensual por canal + fee */}
-      <div className="overflow-x-auto rounded-lg border border-[#E5E5E5] bg-white">
+      {/* Controles: Tabla↔Gráfico y Mes↔Semana */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex overflow-hidden rounded-lg border border-[#E5E5E5] bg-white font-sans text-sm">
+          {(
+            [
+              ["tabla", "Tabla"],
+              ["grafico", "Gráfico"],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setVista(k)}
+              className={`px-4 py-2 transition-colors ${
+                vista === k
+                  ? "bg-[#F0EFFE] font-medium text-[#9F99F8]"
+                  : "text-[#666666] hover:bg-[#FAFAFA] hover:text-[#333333]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="flex overflow-hidden rounded-lg border border-[#E5E5E5] bg-white font-sans text-sm">
+          {(
+            [
+              ["mes", "Mes"],
+              ["semana", "Semana"],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setGran(k)}
+              className={`px-4 py-2 transition-colors ${
+                gran === k
+                  ? "bg-[#F0EFFE] font-medium text-[#9F99F8]"
+                  : "text-[#666666] hover:bg-[#FAFAFA] hover:text-[#333333]"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        {gran === "semana" && (
+          <span className="font-sans text-xs text-[#999999]">
+            semanas de lunes a domingo · el fee de Cardda es mensual (no se muestra por semana)
+          </span>
+        )}
+      </div>
+
+      {vista === "grafico" ? (
+        <FacturacionChart filas={filas} gran={gran} />
+      ) : (
+        <>
+      {/* Tabla por período×canal + fee (scrolleable, header sticky) */}
+      <div className="max-h-[440px] overflow-auto rounded-lg border border-[#E5E5E5] bg-white">
         <table className="w-full border-collapse font-sans text-sm">
           <thead>
-            <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA] text-xs text-[#666666]">
+            <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA] text-xs text-[#666666] [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:bg-[#FAFAFA]">
               <th className="px-4 py-3 text-left font-medium">Período</th>
               {CANALES_FACT.map((c) => (
                 <th key={c} className="px-4 py-3 text-right font-medium">
@@ -1507,11 +1695,11 @@ function FacturacionHistorica({
                 </th>
               ))}
               <th className="px-4 py-3 text-right font-medium text-[#333333]">Consumo total</th>
-              <th className="px-4 py-3 text-right font-medium">Fee Cardda</th>
+              {conFee && <th className="px-4 py-3 text-right font-medium">Fee Cardda</th>}
             </tr>
           </thead>
           <tbody>
-            {meses.map((m) => (
+            {filas.map((m) => (
               <tr key={m.periodo} className="border-b border-[#F0F0F0] last:border-0 hover:bg-[#FAFAFA]">
                 <td className="px-4 py-2.5 text-left font-medium text-[#333333]">{fmtPeriodo(m.periodo)}</td>
                 {CANALES_FACT.map((c) => (
@@ -1525,20 +1713,22 @@ function FacturacionHistorica({
                 >
                   {fmtUsd(m.consumoUsd, 0)}
                 </td>
-                <td className="px-4 py-2.5 text-right tabular-nums text-[#666666]">
-                  {m.feeUsd > 0 ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      {fmtUsd(m.feeUsd, 0)}
-                      {m.feeStatus === "draft" && (
-                        <span className="rounded-full bg-[#FBF3D6] px-1.5 py-0.5 text-[10px] text-[#B8890B]">
-                          borrador
-                        </span>
-                      )}
-                    </span>
-                  ) : (
-                    "·"
-                  )}
-                </td>
+                {conFee && (
+                  <td className="px-4 py-2.5 text-right tabular-nums text-[#666666]">
+                    {m.feeUsd > 0 ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        {fmtUsd(m.feeUsd, 0)}
+                        {m.feeStatus === "draft" && (
+                          <span className="rounded-full bg-[#FBF3D6] px-1.5 py-0.5 text-[10px] text-[#B8890B]">
+                            borrador
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      "·"
+                    )}
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
@@ -1551,11 +1741,15 @@ function FacturacionHistorica({
                 </td>
               ))}
               <td className="px-4 py-3 text-right font-bold tabular-nums">{fmtUsd(resumen.consumoTotal, 0)}</td>
-              <td className="px-4 py-3 text-right font-medium tabular-nums">{fmtUsd(resumen.feeTotal, 0)}</td>
+              {conFee && (
+                <td className="px-4 py-3 text-right font-medium tabular-nums">{fmtUsd(resumen.feeTotal, 0)}</td>
+              )}
             </tr>
           </tfoot>
         </table>
       </div>
+        </>
+      )}
 
       <p className="font-sans text-xs text-[#999999]">
         &ldquo;Otras&rdquo; agrupa SaaS y otros comercios (Drip, Adobe, Webflow, Workspace…) — se

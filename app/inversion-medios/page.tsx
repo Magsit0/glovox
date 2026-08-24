@@ -6,6 +6,7 @@ import {
   buildDrillGrid,
   getBudgetPmMap,
   getCarddaConsumoMensual,
+  getCarddaConsumoSemanal,
   getCarddaFeeMensual,
   getCargosExtra,
   getEtapas,
@@ -138,13 +139,15 @@ export default async function InversionMediosPage({
     return { eventoId: id, nombre: c.nombre, fecha: c.fecha };
   });
 
-  const [budgetPm, totales, cargos, carddaConsumo, carddaFee] = await Promise.all([
-    getBudgetPmMap(ids),
-    getTotalesEvento(ids),
-    getCargosExtra(),
-    getCarddaConsumoMensual(),
-    getCarddaFeeMensual(),
-  ]);
+  const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee] =
+    await Promise.all([
+      getBudgetPmMap(ids),
+      getTotalesEvento(ids),
+      getCargosExtra(),
+      getCarddaConsumoMensual(),
+      getCarddaConsumoSemanal(),
+      getCarddaFeeMensual(),
+    ]);
 
   const grid = mergeGrid({ eventos, from: desde, to: hasta, plan, real, budgetPm });
 
@@ -160,6 +163,7 @@ export default async function InversionMediosPage({
       hoy={hoy}
       cargos={cargos}
       carddaConsumo={carddaConsumo}
+      carddaConsumoSem={carddaConsumoSem}
       carddaFee={carddaFee}
       canEdit={canEdit}
     />
@@ -214,12 +218,8 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
     getRealDesgloseEvento(eventoId, from, to),
   ]);
 
-  const drill = buildDrillGrid({
-    from,
-    to,
-    plan: planAll.filter((p) => p.fecha >= from && p.fecha <= to),
-    real,
-  });
+  const planVentana = planAll.filter((p) => p.fecha >= from && p.fecha <= to);
+  const drill = buildDrillGrid({ from, to, plan: planVentana, real });
 
   return (
     <EventoDrill
@@ -229,6 +229,7 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
       fechaEvento={info.fechaEvento}
       techoUsd={budgetPm.get(eventoId) ?? null}
       drill={drill}
+      planRows={planVentana}
       realMaxFecha={realMaxFecha}
       hoy={hoy}
       canEdit={canEdit}

@@ -61,6 +61,10 @@ const REAL_BASE = `
 // tarjeta), distinta del GASTO declarado de ads que expone MART.
 const CARDDA_CONSUMO = `\`${P}.marts.cardda_consumo_mensual\``;
 const CARDDA_FEE = `\`${P}.marts.cardda_fee_mensual\``;
+// Crudo de transacciones Cardda + FX de referencia — SOLO para la granularidad
+// SEMANAL del consumo (el mart es mensual y no tiene hermano semanal).
+const CARDDA_TX = `\`${P}.cardda.card_transactions\``;
+const FX_REF = `\`${P}.referencia.tipo_cambio\``;
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -89,6 +93,8 @@ export type PlanDiarioRow = {
   eventoId: string;
   fecha: string; // YYYY-MM-DD
   plataforma: string; // meta | google | tiktok
+  /** Tipo de campaña (Ventas, Cobertura…). '' = "Sin tipo" (plan histórico). */
+  tipo: string;
   montoUsd: number;
   nota: string | null;
 };
@@ -168,6 +174,7 @@ export async function getPlanDiarioRango(
         eventoId: inversionMediosDiario.eventoId,
         fecha: inversionMediosDiario.fecha,
         plataforma: inversionMediosDiario.plataforma,
+        tipo: inversionMediosDiario.tipo,
         montoUsd: inversionMediosDiario.montoUsd,
         nota: inversionMediosDiario.nota,
       })
@@ -193,6 +200,7 @@ export async function getPlanDiarioEvento(
         eventoId: inversionMediosDiario.eventoId,
         fecha: inversionMediosDiario.fecha,
         plataforma: inversionMediosDiario.plataforma,
+        tipo: inversionMediosDiario.tipo,
         montoUsd: inversionMediosDiario.montoUsd,
         nota: inversionMediosDiario.nota,
       })
@@ -682,7 +690,9 @@ export function buildDrillGrid(args: {
   const hayOtras = args.real.some((r) => r.otrasUsd > 0);
   const plataformas = ["meta", "google", "tiktok", ...(hayOtras ? ["otras"] : [])] as const;
 
-  // plan[plataforma][fecha] (solo meta/google/tiktok son planificables)
+  // plan[plataforma][fecha] — SUMA todas las filas de la plataforma (con la
+  // dimensión tipo, cada plataforma-día puede tener varias: la fila del canal
+  // muestra el total; el detalle por tipo lo arma el cliente con planRows).
   const planKey = new Map<string, number>();
   for (const p of args.plan) {
     planKey.set(`${p.plataforma}|${p.fecha}`, (planKey.get(`${p.plataforma}|${p.fecha}`) ?? 0) + p.montoUsd);
@@ -817,6 +827,50 @@ export async function getCarddaConsumoMensual(): Promise<CarddaConsumoRow[]> {
       SUM(gasto_clp)        AS gasto_clp,
       SUM(n_transacciones)  AS n
     FROM ${CARDDA_CONSUMO}
+    GROUP BY periodo, canal
+    ORDER BY periodo, canal
+    `,
+  );
+  return rows.map((r) => ({
+    periodo: s(r.periodo),
+    canal: s(r.canal),
+    gastoUsd: n(r.gasto_usd),
+    gastoClp: n(r.gasto_clp),
+    n: n(r.n),
+  }));
+}
+
+/**
+ * Consumo de las tarjetas Cardda por SEMANA (lunes ISO) × canal, en USD por
+ * fecha. El mart gobernado es MENSUAL y no tiene hermano semanal, así que esta
+ * query agrega el crudo `cardda.card_transactions` ESPEJANDO las reglas del
+ * productor (validado el 2026-08-24 contra el mart, paridad exacta por canal
+ * en jun-2026 — scripts en scratchpad de esa sesión):
+ *   - solo status='approved';
+ *   - canal: meta = Facebook/Facebook Ads/Metapay · google = SOLO "Google Ads"
+ *     · tiktok = TikTok Ads/TikTok/Tiktok ("Tik Tok" con espacio queda en
+ *     otras, igual que en el mart) · resto → otras;
+ *   - USD = -monto_clp / units_per_usd(CLP, fecha) vía referencia.tipo_cambio
+ *     (monto_clp viene NEGATIVO para cargos; el signo se invierte para que un
+ *     reembolso reste). Si el productor cambia su mapping, actualizar acá.
+ */
+export async function getCarddaConsumoSemanal(): Promise<CarddaConsumoRow[]> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', DATE_TRUNC(t.fecha, WEEK(MONDAY))) AS periodo,
+      CASE
+        WHEN t.cleaned_merchant_name IN ('Facebook', 'Facebook Ads', 'Metapay') THEN 'meta'
+        WHEN t.cleaned_merchant_name = 'Google Ads' THEN 'google'
+        WHEN t.cleaned_merchant_name IN ('TikTok Ads', 'TikTok', 'Tiktok') THEN 'tiktok'
+        ELSE 'otras'
+      END                                        AS canal,
+      SUM(-t.monto_clp / fx.units_per_usd)       AS gasto_usd,
+      SUM(-t.monto_clp)                          AS gasto_clp,
+      COUNT(*)                                   AS n
+    FROM ${CARDDA_TX} t
+    LEFT JOIN ${FX_REF} fx ON fx.currency = 'CLP' AND fx.fecha = t.fecha
+    WHERE t.status = 'approved'
     GROUP BY periodo, canal
     ORDER BY periodo, canal
     `,

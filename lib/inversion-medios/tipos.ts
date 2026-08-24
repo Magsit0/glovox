@@ -12,6 +12,27 @@
  * aportaba era aislar RMKT, que ahora vive como sub-etiqueta (ver esRemarketing).
  */
 
+// ---------- Taxonomía PLANIFICABLE (fija, decisión 2026-08-24) ----------
+
+/** Etiqueta del plan histórico sin tipo (columna `tipo` = '' en Neon). */
+export const SIN_TIPO = "";
+export const SIN_TIPO_LABEL = "Sin tipo";
+
+/**
+ * Tipos de campaña PLANIFICABLES por plataforma — lista FIJA, espejo de la
+ * planilla del equipo y validada contra el gasto real (npm run audit:tipos:
+ * OBJ_MAP cubre el 100% del gasto y estos labels coinciden con los que emite
+ * tipoDeObjetivo). El presupuesto diario se carga a este nivel; el gasto real
+ * se clasifica solo (objective→OBJ_MAP) y los labels cruzan por igualdad.
+ * Un tipo real fuera de esta lista (ej. "App", "Shopping") se muestra en el
+ * drill como fila SOLO-LECTURA; para planificarlo, se agrega acá.
+ */
+export const TIPOS_PLAN: Record<string, readonly string[]> = {
+  meta: ["Ventas", "Cobertura", "Tráfico", "Interacción", "Formularios"],
+  google: ["P.Max", "Search", "YouTube", "Display", "Demand Gen"],
+  tiktok: ["Cobertura", "Tráfico"],
+};
+
 /** Fila cruda del mart: gasto real por (fecha, plataforma, objective, campaña). */
 export type DesgloseRow = {
   fecha: string; // YYYY-MM-DD

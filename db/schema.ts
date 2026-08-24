@@ -589,6 +589,13 @@ export const inversionMediosDiario = pgTable(
     eventoId: text("evento_id").notNull(),
     fecha: date("fecha").notNull(),
     plataforma: text("plataforma").notNull(),
+    // Tipo de campaña dentro de la plataforma (Ventas, Cobertura, Tráfico…).
+    // '' = "Sin tipo": el plan histórico cargado a nivel plataforma (antes de
+    // 2026-08-24 el plan no tenía tipo) queda acá hasta reasignarse a mano.
+    // La lista planificable por plataforma vive en TIPOS_PLAN
+    // (lib/inversion-medios/tipos.ts); el gasto real se clasifica desde
+    // `objective` con OBJ_MAP en el mismo módulo.
+    tipo: text("tipo").notNull().default(""),
     montoUsd: doublePrecision("monto_usd").notNull(),
     nota: text("nota"),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -601,11 +608,12 @@ export const inversionMediosDiario = pgTable(
     updatedBy: uuid("updated_by"),
   },
   (t) => [
-    // target del onConflictDoUpdate: una celda = un (evento, día, plataforma)
-    uniqueIndex("inversion_medios_diario_evento_fecha_plat_idx").on(
+    // target del onConflictDoUpdate: una celda = un (evento, día, plataforma, tipo)
+    uniqueIndex("inversion_medios_diario_evento_fecha_plat_tipo_idx").on(
       t.eventoId,
       t.fecha,
       t.plataforma,
+      t.tipo,
     ),
     index("inversion_medios_diario_evento_idx").on(t.eventoId),
     index("inversion_medios_diario_fecha_idx").on(t.fecha),

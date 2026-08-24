@@ -4,13 +4,24 @@ import { Fragment, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronRight, Plus, X } from "lucide-react";
-import type { DrillGrid, DrillPlataformaRow } from "@/lib/queries/inversion-medios";
+import type {
+  DrillGrid,
+  DrillPlataformaRow,
+  PlanDiarioRow,
+} from "@/lib/queries/inversion-medios";
 import {
   computeEtapaSegments,
   ETAPAS_DEFAULT,
   type EtapaCampana,
 } from "@/lib/inversion-medios/etapas";
-import { buildDesglose, type DesgloseRow, type TipoNode } from "@/lib/inversion-medios/tipos";
+import {
+  buildDesglose,
+  SIN_TIPO,
+  SIN_TIPO_LABEL,
+  TIPOS_PLAN,
+  type DesgloseRow,
+  type TipoNode,
+} from "@/lib/inversion-medios/tipos";
 import { saveEtapasAction } from "../actions";
 import CeldaPlan from "./CeldaPlan";
 import { fmtUsd } from "./format";
@@ -22,6 +33,8 @@ type Props = {
   fechaEvento: string;
   techoUsd: number | null;
   drill: DrillGrid;
+  /** Plan diario crudo (con tipo) de la ventana del drill — arma las filas de tipo. */
+  planRows: PlanDiarioRow[];
   realMaxFecha: string;
   hoy: string;
   /** false → drill read-only (sin inputs ni rellenar rango). Hoy siempre true:
@@ -86,6 +99,7 @@ export default function EventoDrill({
   fechaEvento,
   techoUsd,
   drill,
+  planRows,
   realMaxFecha,
   hoy,
   canEdit,
@@ -107,8 +121,69 @@ export default function EventoDrill({
   // plataforma (única clasificación); la corrida es client-side para que
   // expandir un canal no dispare un refetch.
   const desglose = useMemo(() => buildDesglose(dias, desgloseRows), [dias, desgloseRows]);
-  const [expCanal, setExpCanal] = useState<Set<string>>(new Set());
+  // Los canales parten EXPANDIDOS: la edición del plan vive en las filas de
+  // tipo, así que colapsado no se puede trabajar.
+  const [expCanal, setExpCanal] = useState<Set<string>>(
+    () => new Set(plataformas.map((p) => p.plataforma)),
+  );
   const [expTipo, setExpTipo] = useState<Set<string>>(new Set());
+
+  // Filas de TIPO por plataforma: los planificables (TIPOS_PLAN, orden fijo,
+  // SIEMPRE presentes — plan editable), más "Sin tipo" si hay plan histórico
+  // sin tipo, más los tipos con gasto real fuera de la lista (solo lectura).
+  // El real por tipo sale del desglose (objective→OBJ_MAP); los labels cruzan
+  // por igualdad con TIPOS_PLAN.
+  type FilaTipo = {
+    label: string; // lo que se muestra ("Ventas", "Sin tipo", "App"…)
+    tipoKey: string; // valor en Neon ('' para Sin tipo)
+    editable: boolean;
+    plan: (number | null)[]; // null = sin plan (≠ $0)
+    totalPlan: number;
+    realNode: TipoNode | null;
+  };
+  const filasTipo = useMemo(() => {
+    const diaIdx = new Map(dias.map((f, i) => [f, i]));
+    // plataforma → tipoKey → serie de plan
+    const planDe = new Map<string, Map<string, (number | null)[]>>();
+    for (const r of planRows) {
+      const col = diaIdx.get(r.fecha);
+      if (col === undefined) continue;
+      if (!planDe.has(r.plataforma)) planDe.set(r.plataforma, new Map());
+      const tipos = planDe.get(r.plataforma)!;
+      if (!tipos.has(r.tipo)) tipos.set(r.tipo, new Array(dias.length).fill(null));
+      const serie = tipos.get(r.tipo)!;
+      serie[col] = (serie[col] ?? 0) + r.montoUsd;
+    }
+    const out = new Map<string, FilaTipo[]>();
+    for (const p of plataformas) {
+      const planTipos = planDe.get(p.plataforma) ?? new Map<string, (number | null)[]>();
+      const realTipos = desglose.get(p.plataforma) ?? [];
+      const realDe = new Map(realTipos.map((t) => [t.tipo, t]));
+      const filas: FilaTipo[] = [];
+      const mk = (label: string, tipoKey: string, editable: boolean): FilaTipo => {
+        const plan = planTipos.get(tipoKey) ?? new Array(dias.length).fill(null);
+        return {
+          label,
+          tipoKey,
+          editable,
+          plan,
+          totalPlan: plan.reduce<number>((a, v) => a + (v ?? 0), 0),
+          realNode: realDe.get(label) ?? null,
+        };
+      };
+      // 1) planificables, en el orden fijo de la planilla
+      for (const t of TIPOS_PLAN[p.plataforma] ?? []) filas.push(mk(t, t, true));
+      // 2) plan histórico sin tipo (solo si existe)
+      if (planTipos.has(SIN_TIPO)) filas.push(mk(SIN_TIPO_LABEL, SIN_TIPO, true));
+      // 3) tipos con gasto real fuera de la lista (App, Shopping…) — solo lectura
+      const conocidos = new Set(filas.map((f) => f.label));
+      for (const t of realTipos) {
+        if (!conocidos.has(t.tipo)) filas.push({ ...mk(t.tipo, t.tipo, false), realNode: t });
+      }
+      out.set(p.plataforma, filas);
+    }
+    return out;
+  }, [plataformas, planRows, desglose, dias]);
   const toggleCanal = (p: string) =>
     setExpCanal((s) => {
       const n = new Set(s);
@@ -249,26 +324,23 @@ export default function EventoDrill({
             </thead>
             <tbody>
               {plataformas.flatMap((p) => {
-                const tipos = desglose.get(p.plataforma) ?? [];
+                const tipos = filasTipo.get(p.plataforma) ?? [];
                 const abierto = expCanal.has(p.plataforma);
                 const rows: React.ReactNode[] = [];
 
-                // Fila del CANAL (plan editable + real).
+                // Fila del CANAL: SUMA de sus tipos, solo lectura (la edición
+                // del plan vive en las filas de tipo).
                 rows.push(
                   <tr key={`canal-${p.plataforma}`} className="group">
                     <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#E5E5E5] bg-white px-4 py-2 align-top group-hover:bg-[#FAFAFA]">
                       <span className="inline-flex items-center gap-1.5 font-medium text-[#333333]">
-                        {tipos.length > 0 ? (
-                          <button
-                            onClick={() => toggleCanal(p.plataforma)}
-                            className="inline-flex h-4 w-4 items-center justify-center rounded text-[#999999] hover:bg-[#F0F0F0] hover:text-[#333333]"
-                            aria-label={abierto ? "Colapsar" : "Desagregar por tipo"}
-                          >
-                            {abierto ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                          </button>
-                        ) : (
-                          <span className="inline-block h-4 w-4" />
-                        )}
+                        <button
+                          onClick={() => toggleCanal(p.plataforma)}
+                          className="inline-flex h-4 w-4 items-center justify-center rounded text-[#999999] hover:bg-[#F0F0F0] hover:text-[#333333]"
+                          aria-label={abierto ? "Colapsar" : "Desagregar por tipo"}
+                        >
+                          {abierto ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                        </button>
                         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: PLAT_COLOR[p.label] }} />
                         {p.label}
                       </span>
@@ -287,9 +359,10 @@ export default function EventoDrill({
                         <CeldaPlan
                           eventoId={eventoId}
                           plataforma={p.plataforma}
+                          tipo={SIN_TIPO}
                           cell={cell}
                           parcial={cell.fecha === hoy || cell.fecha > realMaxFecha}
-                          canEdit={canEdit}
+                          canEdit={false}
                         />
                       </td>
                     ))}
@@ -302,15 +375,18 @@ export default function EventoDrill({
 
                 if (!abierto) return rows;
 
-                // Filas de TIPO (real only) + campañas al expandir.
-                for (const t of tipos) {
-                  const tk = `${p.plataforma}::${t.tipo}`;
+                // Filas de TIPO: plan EDITABLE por tipo + real clasificado.
+                for (const f of tipos) {
+                  const tk = `${p.plataforma}::${f.label}`;
                   const tAbierto = expTipo.has(tk);
+                  const campanas = f.realNode?.campanas ?? [];
+                  const totalReal = f.realNode?.total ?? 0;
+                  const totalRmkt = f.realNode?.totalRmkt ?? 0;
                   rows.push(
                     <tr key={`tipo-${tk}`} className="bg-[#FBFBFD]">
                       <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F0F0F0] bg-[#FBFBFD] py-1.5 pl-7 pr-3 align-top">
                         <span className="inline-flex items-center gap-1 text-xs text-[#333333]">
-                          {t.campanas.length > 0 ? (
+                          {campanas.length > 0 ? (
                             <button
                               onClick={() => toggleTipo(tk)}
                               className="inline-flex h-4 w-4 items-center justify-center rounded text-[#999999] hover:bg-[#F0F0F0] hover:text-[#333333]"
@@ -321,26 +397,60 @@ export default function EventoDrill({
                           ) : (
                             <span className="inline-block h-4 w-4" />
                           )}
-                          {t.tipo}
-                          <span className="text-[#BBBBBB]">· {fmtUsd(t.total, 0)}</span>
-                          {t.totalRmkt > 0 && (
-                            <span className="text-[10px] text-[#9F99F8]" title="Del total, en remarketing">
-                              rmkt {fmtUsd(t.totalRmkt, 0)}
+                          <span className={f.tipoKey === SIN_TIPO ? "italic text-[#999999]" : ""}>
+                            {f.label}
+                          </span>
+                          {!f.editable && (
+                            <span
+                              className="text-[10px] uppercase tracking-wide text-[#BBBBBB]"
+                              title="Tipo fuera de la lista planificable: solo gasto real"
+                            >
+                              real
+                            </span>
+                          )}
+                          {totalRmkt > 0 && (
+                            <span className="text-[10px] text-[#9F99F8]" title="Del total real, en remarketing">
+                              rmkt {fmtUsd(totalRmkt, 0)}
                             </span>
                           )}
                         </span>
+                        <p className="mt-0.5 pl-5 text-[11px] tabular-nums text-[#999999]">
+                          plan <span className="font-medium text-[#534AB7]">{fmtUsd(f.totalPlan, 0)}</span>{" "}
+                          · real <span className="font-medium text-[#333333]">{fmtUsd(totalReal, 0)}</span>
+                        </p>
                       </td>
                       {dias.map((fecha, i) => (
-                        <ReadCell key={fecha} value={t.dias[i]} hoy={fecha === hoy} />
+                        <td
+                          key={fecha}
+                          className={`w-16 min-w-16 max-w-16 border-t border-[#F0F0F0] p-0 text-center align-top ${
+                            fecha === hoy ? "bg-[#F0EFFE]/40" : ""
+                          }`}
+                        >
+                          <CeldaPlan
+                            eventoId={eventoId}
+                            plataforma={p.plataforma}
+                            tipo={f.tipoKey}
+                            cell={{
+                              fecha,
+                              plan: f.plan[i],
+                              real: f.realNode ? f.realNode.dias[i] : null,
+                              fxImputado: p.dias[i]?.fxImputado ?? false,
+                              sinFx: false,
+                            }}
+                            parcial={fecha === hoy || fecha > realMaxFecha}
+                            canEdit={canEdit && f.editable}
+                          />
+                        </td>
                       ))}
-                      <td className="border-l border-t border-[#F0F0F0] px-3 py-1.5 text-right align-top tabular-nums text-xs text-[#666666]">
-                        {fmtUsd(t.total)}
+                      <td className="border-l border-t border-[#F0F0F0] px-3 py-1.5 text-right align-top tabular-nums text-xs">
+                        <span className="block font-medium text-[#534AB7]">{fmtUsd(f.totalPlan)}</span>
+                        <span className="block text-[#333333]">{fmtUsd(totalReal)}</span>
                       </td>
                     </tr>,
                   );
                   if (tAbierto) {
-                    for (let ci = 0; ci < t.campanas.length; ci++) {
-                      const c = t.campanas[ci];
+                    for (let ci = 0; ci < campanas.length; ci++) {
+                      const c = campanas[ci];
                       rows.push(
                         <tr key={`camp-${tk}-${ci}`}>
                           <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 truncate border-r border-t border-[#F5F5F5] bg-white py-1 pl-12 pr-3 align-top text-[11px] text-[#999999]" title={c.nombre}>
@@ -385,13 +495,14 @@ export default function EventoDrill({
       </div>
 
       <p className="font-sans text-xs text-[#999999]">
-        En la fila de canal: <span className="font-medium text-[#534AB7]">plan editable</span> (arriba,
-        en morado) y <span className="font-medium text-[#333333]">gasto real</span> (abajo, en negro). El chevron desagrega el gasto real por tipo de campaña, y cada tipo se abre en
-        sus campañas. El presupuesto se planifica <span className="text-[#333333]">por plataforma y
-        día</span>; el corte por tipo y campaña es solo lectura (viene del gasto declarado). El tipo
-        sale del objetivo declarado en la plataforma; <span className="text-[#333333]">RMKT</span> es
-        una marca de la campaña y suma dentro de su tipo. El real de hoy es parcial (los datos de ads
-        llegan a las 09:45).
+        El presupuesto se planifica <span className="text-[#333333]">por tipo de campaña y día</span>:
+        en cada fila de tipo, <span className="font-medium text-[#534AB7]">plan editable</span> (arriba,
+        en morado) y <span className="font-medium text-[#333333]">gasto real</span> (abajo, en negro).
+        La fila del canal es la suma de sus tipos (solo lectura). El real se clasifica solo, desde el
+        objetivo declarado en la plataforma; <span className="text-[#333333]">RMKT</span> es una marca
+        de la campaña y suma dentro de su tipo. <span className="italic text-[#999999]">Sin tipo</span>{" "}
+        es el plan cargado antes del desglose — muévelo a su tipo (carga el monto en el tipo correcto y
+        vacía la celda de Sin tipo). El real de hoy es parcial (los datos de ads llegan a las 09:45).
       </p>
 
       <CampanasPorTipo plataformas={plataformas} desglose={desglose} />
