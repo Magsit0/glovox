@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-18T19:47:09.754415+00:00",
+  "generatedAt": "2026-08-26T15:38:25.564188+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -4043,7 +4043,7 @@
       "consumers": [
         "marts.finanzas_presupuesto_items"
       ],
-      "notes": "Presupuesto por negocio con jerarquía explícita (nivel + parent_key) para rearmar el árbol Categoría → Subcategoría → Ítem en los dashboards. Base de marts.finanzas_presupuesto_items (versión plana solo-hojas para sumar).",
+      "notes": "Presupuesto por negocio con jerarquía explícita (nivel + parent_key) para rearmar el árbol Categoría → Subcategoría → Ítem en los dashboards. Base de marts.finanzas_presupuesto_items (versión plana solo-hojas para sumar). 26-ago: `categoria` ahora se RESUELVE por posición cuando el campo crudo viene vacío (nombre del TITULO vía llave_titulo) — en negocios antiguos (~15k ítems de 593 negocios, ej. GLO122/FDS 23) el campo llegaba vacío y los ítems caían como Sin dato/SIN CATEGORÍA en /cierre-mensual y /cierre-negocio, y el seed de ítems perdía el contexto de categoría.",
       "metrics": [],
       "endpointLabel": "Vista BQ",
       "fields": []

@@ -1,7 +1,33 @@
 import { safeText, parseNumber } from "@/lib/unabase/formatting";
 import { parseDateFlexible } from "@/lib/unabase/dates";
 import { CLIENT_FIELD_CANDIDATES } from "@/lib/unabase/constants";
+import type { CategoriaViewMode } from "@/lib/unabase/cierreNegocio";
 import type { BusinessRow, ExpenseRow, RawRow } from "@/lib/unabase/types";
+
+// Etiquetas del modo "Catálogo oficial" (mismas de /cierre-negocio, para que
+// ambos dashboards cuenten la misma historia con los mismos nombres).
+const SIN_SUB_OFICIAL = "SIN SUBCATEGORÍA";
+
+/** Categoría de gasto de una línea según el modo de agrupación. */
+const catDeLinea = (row: RawRow, modo: CategoriaViewMode): string =>
+  modo === "oficial"
+    ? safeText(row.categoria_oficial ?? "SIN CLASIFICAR")
+    : safeText(row.categoria ?? row.itemNombreGasto ?? row.itemNombre);
+
+/** Subcategoría de gasto de una línea según el modo de agrupación. */
+const subDeLinea = (row: RawRow, modo: CategoriaViewMode): string => {
+  if (modo === "oficial") {
+    const sub = safeText(row.subcategoria_oficial);
+    return sub === "Sin dato" ? SIN_SUB_OFICIAL : sub;
+  }
+  return safeText(
+    row.subCategoria ??
+      row.subcategoria ??
+      row.clasificacionContable ??
+      row.itemNombreGasto ??
+      row.itemNombre,
+  );
+};
 
 const getField = (row: RawRow, key: string): unknown => row[key];
 
@@ -43,7 +69,10 @@ export const getAssistantsValue = (row: RawRow): number =>
     row.totalAsistentes ?? row.total_asistentes ?? row.asistentes ?? row.cantidad_asistentes,
   );
 
-export const normalizeExpenseRows = (rows: RawRow[]): ExpenseRow[] =>
+export const normalizeExpenseRows = (
+  rows: RawRow[],
+  modo: CategoriaViewMode = "original",
+): ExpenseRow[] =>
   rows.map((row, index) => ({
     rowIndex: index,
     key: getBusinessKey(row),
@@ -55,15 +84,13 @@ export const normalizeExpenseRows = (rows: RawRow[]): ExpenseRow[] =>
     cat1: safeText(row.CategoriaEvento),
     estado: safeText(row.estadonv ?? row.estado),
     principalCliente: getPrincipalClient(row),
-    categoriaGasto: safeText(row.categoria ?? row.itemNombreGasto ?? row.itemNombre),
-    subCategoria: safeText(
-      row.subCategoria ??
-        row.subcategoria ??
-        row.clasificacionContable ??
-        row.itemNombreGasto ??
-        row.itemNombre,
-    ),
-    itemGasto: safeText(row.item ?? row.itemNombreGasto ?? row.itemNombre ?? row.descripcion),
+    categoriaGasto: catDeLinea(row, modo),
+    subCategoria: subDeLinea(row, modo),
+    // El ítem oficial manda cuando el seed lo resolvió; el texto crudo es el fallback.
+    itemGasto:
+      modo === "oficial" && safeText(row.item_oficial) !== "Sin dato"
+        ? safeText(row.item_oficial)
+        : safeText(row.item ?? row.itemNombreGasto ?? row.itemNombre ?? row.descripcion),
     gasto: getExpenseValue(row),
     presupuesto: getBudgetValue(row),
     ingreso: getIncomeValue(row),
@@ -72,9 +99,15 @@ export const normalizeExpenseRows = (rows: RawRow[]): ExpenseRow[] =>
     fechaAsignacion: safeText(row.fechaAsignacion),
   }));
 
-type WorkingBusiness = Omit<BusinessRow, "margen" | "desviacion" | "margenPct" | "topCategoria">;
+type WorkingBusiness = Omit<
+  BusinessRow,
+  "margen" | "desviacion" | "margenPct" | "topCategoria" | "negocioIds"
+> & { negocioIdSet: Set<string> };
 
-export const aggregateBusinesses = (rows: RawRow[]): BusinessRow[] => {
+export const aggregateBusinesses = (
+  rows: RawRow[],
+  modo: CategoriaViewMode = "original",
+): BusinessRow[] => {
   const map = new Map<string, WorkingBusiness>();
 
   rows.forEach((row) => {
@@ -101,10 +134,15 @@ export const aggregateBusinesses = (rows: RawRow[]): BusinessRow[] => {
         categoriasGasto: {},
         subCategoriasGasto: {},
         documentos: 0,
+        negocioIdSet: new Set<string>(),
       });
     }
 
     const item = map.get(key)!;
+    // negocio_id real de la línea (external_id del SQL) para poder enlazar al
+    // informe /cierre-negocio, que se abre por id y no por EventoID.
+    const negocioId = safeText(row.external_id);
+    if (negocioId && negocioId !== "Sin dato") item.negocioIdSet.add(negocioId);
     const ingresoEvento = getIncomeValue(row);
     const facturadoEvento = getFacturadoValue(row);
     const asistentesEvento = getAssistantsValue(row);
@@ -128,16 +166,10 @@ export const aggregateBusinesses = (rows: RawRow[]): BusinessRow[] => {
       item.fechaAsignacion = safeText(row.fechaAsignacion);
     }
 
-    const cat = safeText(row.categoria ?? row.itemNombreGasto ?? row.itemNombre);
+    const cat = catDeLinea(row, modo);
     if (gastoLinea > 0) {
       item.categoriasGasto[cat] = (item.categoriasGasto[cat] || 0) + gastoLinea;
-      const subCat = safeText(
-        row.subCategoria ??
-          row.subcategoria ??
-          row.clasificacionContable ??
-          row.itemNombreGasto ??
-          row.itemNombre,
-      );
+      const subCat = subDeLinea(row, modo);
       const subKey = `${cat} › ${subCat}`;
       item.subCategoriasGasto[subKey] = (item.subCategoriasGasto[subKey] || 0) + gastoLinea;
     }
@@ -150,7 +182,15 @@ export const aggregateBusinesses = (rows: RawRow[]): BusinessRow[] => {
       const margenPct = item.ingreso ? margen / item.ingreso : 0;
       const topCategoria =
         Object.entries(item.categoriasGasto).sort((a, b) => b[1] - a[1])[0]?.[0] || "Sin gasto";
-      return { ...item, margen, desviacion, margenPct, topCategoria };
+      const { negocioIdSet, ...rest } = item;
+      return {
+        ...rest,
+        negocioIds: Array.from(negocioIdSet).sort(),
+        margen,
+        desviacion,
+        margenPct,
+        topCategoria,
+      };
     })
     .sort((a, b) => {
       const diff = parseDateFlexible(a.fechaAsignacion) - parseDateFlexible(b.fechaAsignacion);

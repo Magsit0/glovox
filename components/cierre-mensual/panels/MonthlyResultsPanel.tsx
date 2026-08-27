@@ -7,6 +7,7 @@ import { useDataset } from "@/components/cierre-mensual/context/DashboardContext
 import { compactCurrency, formatCurrency, formatNumber } from "@/lib/unabase/formatting";
 import { seriesColor } from "@/lib/chart-colors";
 import type { NegocioRow } from "@/lib/unabase/types";
+import CierreNegocioLink from "@/components/cierre-mensual/CierreNegocioLink";
 
 const MONTHS_ES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -309,7 +310,9 @@ export default function MonthlyResultsPanel() {
                               className="border-b border-[#E5E5E5] transition-colors last:border-0 hover:bg-[#FAFAFA]"
                             >
                               <td className="px-4 py-3 font-sans text-sm text-[#333333]">
-                                {n.referencia}
+                                <CierreNegocioLink negocioIds={[n.id]}>
+                                  {n.referencia}
+                                </CierreNegocioLink>
                               </td>
                               <td className="px-4 py-3 font-sans text-sm text-[#333333]">
                                 {n.cliente}

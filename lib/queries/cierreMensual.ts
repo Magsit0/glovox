@@ -45,6 +45,11 @@ export const cierreMensualSql = (monto: MontoMode) => `
     i.categoria,
     IFNULL(i.subcategoria, '') AS subcategoria,
     i.item,
+    -- Tripleta oficial del catálogo (seed finanzas.unabase_item_map, resuelta
+    -- por la vista). Alimenta el modo "Catálogo oficial" del dashboard.
+    IFNULL(i.categoria_oficial, 'SIN CLASIFICAR') AS categoria_oficial,
+    IFNULL(i.subcategoria_oficial, '') AS subcategoria_oficial,
+    IFNULL(i.item_oficial, '') AS item_oficial,
     i.descripcion,
     i.gasto_presupuestado AS subtotal_gasto_pre,
     i.gasto_real_item AS gasto_real,

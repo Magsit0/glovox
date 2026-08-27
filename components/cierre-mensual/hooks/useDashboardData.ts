@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   aggregateBusinesses,
   normalizeExpenseRows,
 } from "@/lib/unabase/normalization";
+import type { CategoriaViewMode } from "@/lib/unabase/cierreNegocio";
 import type { BusinessRow, ExpenseRow, RawRow } from "@/lib/unabase/types";
 
 interface DashboardDataResult {
@@ -26,9 +27,11 @@ async function fetchRaw(monto: "neto" | "bruto"): Promise<RawRow[]> {
 
 export function useDashboardData(
   monto: "neto" | "bruto" = "neto",
+  catalogo: CategoriaViewMode = "original",
 ): DashboardDataResult {
-  const [businessRows, setBusinessRows] = useState<BusinessRow[]>([]);
-  const [expenseRows, setExpenseRows] = useState<ExpenseRow[]>([]);
+  // Se retiene el RAW y la agrupación se deriva por modo (Oficial/Original):
+  // cambiar el toggle re-agrupa en memoria, sin refetch.
+  const [rawRows, setRawRows] = useState<RawRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,8 +44,7 @@ export function useDashboardData(
         setError(null);
         const raw = await fetchRaw(monto);
         if (cancelled) return;
-        setBusinessRows(aggregateBusinesses(raw));
-        setExpenseRows(normalizeExpenseRows(raw));
+        setRawRows(raw);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Error cargando datos");
@@ -56,6 +58,15 @@ export function useDashboardData(
       cancelled = true;
     };
   }, [monto]);
+
+  const businessRows = useMemo(
+    () => aggregateBusinesses(rawRows, catalogo),
+    [rawRows, catalogo],
+  );
+  const expenseRows = useMemo(
+    () => normalizeExpenseRows(rawRows, catalogo),
+    [rawRows, catalogo],
+  );
 
   return { businessRows, expenseRows, loading, error };
 }

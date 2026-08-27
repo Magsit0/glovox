@@ -53,3 +53,6 @@ ENTEL_THE_GRID_SYSTEM.html
 # Prompts de contexto por ruta (docs locales de trabajo, no se commitean).
 # Uno por dashboard en app/<ruta>/CONTEXTO-PROMPT.md + el indice app/CONTEXTO-PROMPT.md.
 CONTEXTO-PROMPT.md
+
+
+Consolidado Clases.pdf

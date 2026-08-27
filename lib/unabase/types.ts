@@ -20,6 +20,10 @@ export interface BusinessRow {
   categoriasGasto: Record<string, number>;
   subCategoriasGasto: Record<string, number>;
   documentos: number;
+  // negocio_id(s) agregados en esta fila. Normalmente 1 (108 de 110 eventos son
+  // 1:1); >1 cuando varios negocios comparten EventoID (GLO042, GLO176) — ahí no
+  // se puede enlazar a un informe único.
+  negocioIds: string[];
   margen: number;
   desviacion: number;
   margenPct: number;

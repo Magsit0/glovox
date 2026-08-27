@@ -2,6 +2,7 @@
 
 import { useMemo } from "react";
 import { useFilters } from "@/components/cierre-mensual/context/DashboardContext";
+import CierreNegocioLink from "@/components/cierre-mensual/CierreNegocioLink";
 import { compactCurrency } from "@/lib/unabase/formatting";
 import { sortRowsByFechaAsc } from "@/lib/unabase/dates";
 import type { BusinessRow } from "@/lib/unabase/types";
@@ -104,8 +105,9 @@ export default function SummaryBusinessTable() {
                     className={`${borderCls} transition-colors duration-150 hover:bg-[#FAFAFA]`}
                   >
                     <td className="px-4 py-3">
-                      <div className="font-medium text-[#333333]">{row.nombre}</div>
-                      <div className="font-sans text-xs text-[#999999]">{row.EventoID}</div>
+                      <CierreNegocioLink negocioIds={row.negocioIds} subtitle={row.EventoID}>
+                        {row.nombre}
+                      </CierreNegocioLink>
                     </td>
                     <td className="px-4 py-3 text-[#333333]">{row.estado}</td>
                     <td className="px-4 py-3 text-[#666666]">{row.fechaAsignacion}</td>

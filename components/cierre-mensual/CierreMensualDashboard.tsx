@@ -56,6 +56,8 @@ function DashboardBody() {
     setExpenseViewMode,
     selectedExpenseCategory,
     setSelectedExpenseCategory,
+    catalogoMode,
+    setCatalogoMode,
   } = useDashboard();
 
   const [activeTab, setActiveTab] = useState<Tab>("negocios");
@@ -150,7 +152,7 @@ function DashboardBody() {
         )}
       </section>
 
-      <nav className="flex flex-wrap gap-0 border-b border-[#E5E5E5]">
+      <nav className="flex flex-wrap items-center gap-0 border-b border-[#E5E5E5]">
         {TABS.map((t) => {
           const isActive = activeTab === t.key;
           return (
@@ -168,6 +170,35 @@ function DashboardBody() {
             </button>
           );
         })}
+        {/* Agrupación de las categorías de gasto (afecta resumen y detalle de
+            gasto; mismo esquema que /cierre-negocio, default catálogo oficial). */}
+        {activeTab !== "negocios" && (
+          <div className="mb-2 ml-auto inline-flex shrink-0 gap-1 rounded-lg border border-[#E5E5E5] bg-white p-0.5">
+            {(
+              [
+                { key: "oficial", label: "Catálogo oficial" },
+                { key: "original", label: "Original del negocio" },
+              ] as const
+            ).map((m) => {
+              const active = catalogoMode === m.key;
+              return (
+                <button
+                  key={m.key}
+                  type="button"
+                  onClick={() => setCatalogoMode(m.key)}
+                  aria-pressed={active}
+                  className={`rounded-md px-3 py-1 font-sans text-xs font-medium transition-colors ${
+                    active
+                      ? "bg-[#F0EFFE] text-[#9F99F8]"
+                      : "text-[#666666] hover:text-[#333333]"
+                  }`}
+                >
+                  {m.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
       </nav>
 
       {loading && <DashboardSkeleton />}

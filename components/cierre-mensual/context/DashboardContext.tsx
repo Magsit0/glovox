@@ -12,6 +12,7 @@ import { useSearchParams } from "next/navigation";
 import { useDashboardData } from "@/components/cierre-mensual/hooks/useDashboardData";
 import { useNegociosData } from "@/components/cierre-mensual/hooks/useNegociosData";
 import { montoModeFrom } from "@/components/montoMode";
+import type { CategoriaViewMode } from "@/lib/unabase/cierreNegocio";
 import type { BusinessRow, ExpenseRow, NegocioRow } from "@/lib/unabase/types";
 
 interface DataContextValue {
@@ -39,6 +40,10 @@ interface ExpenseUIContextValue {
   setExpenseViewMode: (mode: ExpenseViewMode) => void;
   selectedExpenseCategory: string | null;
   setSelectedExpenseCategory: (cat: string | null) => void;
+  // Agrupación de categorías de gasto: catálogo oficial (default, mismo
+  // esquema que /cierre-negocio) o textos originales del negocio.
+  catalogoMode: CategoriaViewMode;
+  setCatalogoMode: (mode: CategoriaViewMode) => void;
 }
 
 interface DateFilterContextValue {
@@ -56,7 +61,9 @@ const DateFilterContext = createContext<DateFilterContextValue | null>(null);
 export function DashboardProvider({ children }: { children: ReactNode }) {
   // Switch neto/bruto: se lee de la URL (?monto=bruto) y refetchea los datos.
   const monto = montoModeFrom(useSearchParams().get("monto"));
-  const { businessRows, expenseRows, loading, error } = useDashboardData(monto);
+  // Oficial/Original re-agrupa en memoria (mismo raw, sin refetch).
+  const [catalogoMode, setCatalogoMode] = useState<CategoriaViewMode>("oficial");
+  const { businessRows, expenseRows, loading, error } = useDashboardData(monto, catalogoMode);
   const {
     rows: negociosRows,
     loading: negociosLoading,
@@ -120,8 +127,10 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       setExpenseViewMode,
       selectedExpenseCategory: resolvedExpenseCategory,
       setSelectedExpenseCategory,
+      catalogoMode,
+      setCatalogoMode,
     }),
-    [expenseViewMode, resolvedExpenseCategory],
+    [expenseViewMode, resolvedExpenseCategory, catalogoMode],
   );
 
   const dateFilterValue = useMemo(
