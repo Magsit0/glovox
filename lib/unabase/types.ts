@@ -50,6 +50,17 @@ export interface ExpenseRow {
   facturado: number;
   asistentes: number;
   fechaAsignacion: string;
+  // Fecha de realización del negocio (puede ser "Sin dato"). La pestaña
+  // "Análisis financiero" imputa por esta fecha, con fallback a fechaAsignacion.
+  fechaNegocio: string;
+}
+
+// Gasto de estructura GLOVOX (pestaña "Análisis financiero" de /cierre-mensual):
+// total mensual del gasto interno (scope de /interno), SIN desglose — el dato
+// fino (sueldos) es sensible y este dashboard no exige ese grant.
+export interface EstructuraMensualRow {
+  mes: string; // YYYY-MM
+  gasto: number; // neto
 }
 
 export interface FilterDefinition {

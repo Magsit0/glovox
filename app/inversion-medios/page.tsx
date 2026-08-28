@@ -2,8 +2,10 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import { getCategoriaEventos, getEventInfo } from "@/lib/queries/ticketing";
+import { normDias, ultimoDiaEvento } from "@/lib/inversion-medios/evento";
 import {
   buildDrillGrid,
+  getAdsMetricasEvento,
   getBudgetPmMap,
   getCarddaConsumoMensual,
   getCarddaConsumoSemanal,
@@ -20,6 +22,8 @@ import {
   getRealDiarioRango,
   getRealExtentEvento,
   getRealMaxFecha,
+  getRendimientoTicketsEvento,
+  getSerieResultadoEvento,
   getTotalesEvento,
   mergeGrid,
   type EventoMeta,
@@ -136,7 +140,10 @@ export default async function InversionMediosPage({
 
   const eventos: EventoMeta[] = ids.map((id) => {
     const c = catalogoById.get(id)!;
-    return { eventoId: id, nombre: c.nombre, fecha: c.fecha };
+    // `dias` viaja hasta la fila para que el calendario marque TODOS los días del
+    // evento en ámbar, no solo el primero (Bocas Moradas dura 2, FDS 3, Yein
+    // Fonda 4). Ver lib/inversion-medios/evento.ts.
+    return { eventoId: id, nombre: c.nombre, fecha: c.fecha, dias: normDias(c.dias) };
   });
 
   const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee] =
@@ -188,9 +195,15 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
   }
 
   // Ventana del calendario del evento:
-  //  - LÍMITE SUPERIOR = la fecha declarada del evento (categoriaEvento.Fecha),
-  //    SIEMPRE (haya o no plan/gasto). Se extiende más allá SOLO si hay plan o
-  //    gasto pasada esa fecha. Sin fecha declarada, cae al último dato / hoy.
+  //  - LÍMITE SUPERIOR = el ÚLTIMO día del evento (categoriaEvento.Fecha +
+  //    `dias` - 1), SIEMPRE (haya o no plan/gasto). Se extiende más allá SOLO si
+  //    hay plan o gasto pasada esa fecha. Sin fecha declarada, cae al último
+  //    dato / hoy.
+  //    ⚠️ Antes el límite era la Fecha PELADA, o sea el PRIMER día. En un evento
+  //    multi-día futuro eso dejaba los días 2..n SIN COLUMNA y no se podía ni
+  //    planificar: GLO207 (Bocas Moradas 10, 2026-09-05, `dias`=2) no tenía el
+  //    06-09. En los pasados la columna existía solo por accidente, porque había
+  //    gasto ese día y `dataMax` estiraba la ventana.
   //  - LÍMITE INFERIOR = inicio de venta o primer dato; si no hay nada, hoy
   //    (así el calendario va de hoy → fecha del evento aunque esté vacío).
   const hoy = hoyISO();
@@ -205,18 +218,28 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
   const dataMin = mins[0];
   const dataMax = maxs[maxs.length - 1];
 
-  let to = info.fechaEvento || dataMax || hoy;
+  let to = ultimoDiaEvento(info.fechaEvento, info.dias) || dataMax || hoy;
   if (dataMax && dataMax > to) to = dataMax; // plan/gasto pasada la fecha → extiende
   let from = info.fechaInicioVenta || dataMin || hoy;
   if (dataMin && dataMin < from) from = dataMin;
   if (from > to) from = to; // evento pasado sin datos → colapsa a su fecha
 
-  const [real, budgetPm, etapas, desgloseRows] = await Promise.all([
-    getRealDiarioEvento(eventoId, from, to),
-    getBudgetPmMap([eventoId]),
-    getEtapas(eventoId),
-    getRealDesgloseEvento(eventoId, from, to),
-  ]);
+  // Las tres queries de rendimiento entran en esta MISMA ola y con la MISMA
+  // ventana [from, to] que el gasto: así `ads.gastoUsd` reconcilia al centavo
+  // con el stat "Invertido (real)" (verificado en 10 eventos) y los conteos de
+  // ticket no quedan con un scope distinto del dinero. Latencia medida en el
+  // peor caso (GLO198, 370 columnas): 637-973 ms, por debajo de la query más
+  // lenta de la ola, así que no necesita Suspense propio.
+  const [real, budgetPm, etapas, desgloseRows, ads, tickets, serieResultado] =
+    await Promise.all([
+      getRealDiarioEvento(eventoId, from, to),
+      getBudgetPmMap([eventoId]),
+      getEtapas(eventoId),
+      getRealDesgloseEvento(eventoId, from, to),
+      getAdsMetricasEvento(eventoId, from, to),
+      getRendimientoTicketsEvento(eventoId, from, to),
+      getSerieResultadoEvento(eventoId, from, to),
+    ]);
 
   const planVentana = planAll.filter((p) => p.fecha >= from && p.fecha <= to);
   const drill = buildDrillGrid({ from, to, plan: planVentana, real });
@@ -227,6 +250,7 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
       nombre={info.nombre}
       venue={info.venue}
       fechaEvento={info.fechaEvento}
+      diasEvento={normDias(info.dias)}
       techoUsd={budgetPm.get(eventoId) ?? null}
       drill={drill}
       planRows={planVentana}
@@ -235,6 +259,9 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
       canEdit={canEdit}
       etapas={etapas}
       desgloseRows={desgloseRows}
+      ads={ads}
+      tickets={tickets}
+      serieResultado={serieResultado}
     />
   );
 }

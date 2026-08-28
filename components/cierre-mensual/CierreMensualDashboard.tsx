@@ -25,15 +25,17 @@ import ExpenseMatrix from "@/components/cierre-mensual/charts/ExpenseMatrix";
 import ExpenseSubcategoryMatrix from "@/components/cierre-mensual/charts/ExpenseSubcategoryMatrix";
 import DashboardSkeleton from "@/components/cierre-mensual/skeleton/DashboardSkeleton";
 import MonthlyResultsPanel from "@/components/cierre-mensual/panels/MonthlyResultsPanel";
+import FinancieroTab from "@/components/cierre-mensual/financiero/FinancieroTab";
 import type { BusinessRow, NegocioRow } from "@/lib/unabase/types";
 import { formatNumber } from "@/lib/unabase/formatting";
 
-type Tab = "negocios" | "resumen" | "gasto";
+type Tab = "negocios" | "resumen" | "gasto" | "financiero";
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "negocios", label: "Resumen por área" },
   { key: "resumen", label: "Resumen ejecutivo" },
   { key: "gasto", label: "Detalle de gasto" },
+  { key: "financiero", label: "Análisis financiero" },
 ];
 
 export function CierreMensualDashboard() {
@@ -292,6 +294,8 @@ function DashboardBody() {
           <ExpenseSubcategoryTable />
         </motion.section>
       )}
+
+      {!loading && activeTab === "financiero" && <FinancieroTab />}
     </div>
   );
 }

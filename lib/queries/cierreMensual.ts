@@ -1,5 +1,5 @@
 import { query } from "@/lib/bigquery";
-import type { NegocioRow, RawRow } from "@/lib/unabase/types";
+import type { EstructuraMensualRow, NegocioRow, RawRow } from "@/lib/unabase/types";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 
@@ -10,6 +10,7 @@ const PRESUPUESTO_ITEMS = `\`${P}.marts.finanzas_presupuesto_items\``;
 const NEGOCIOS = `\`${P}.marts.finanzas_negocios\``;
 const CATEGORIA_EVENTO = `\`${P}.glovox.categoriaEvento\``;
 const CIERRE_EVENTOS = `\`${P}.ticketsAndAABB.cierreEventos\``;
+const GASTOS = `\`${P}.marts.finanzas_gastos\``;
 
 export type MontoMode = "neto" | "bruto";
 
@@ -217,6 +218,67 @@ export async function getNegociosRows(
   const clean = rawRows.map((row) => serializeRow(row) as unknown as NegocioRow);
 
   negociosCache = { data: clean, timestamp: Date.now() };
+  return { rows: clean, cached: false, cacheAgeSeconds: 0 };
+}
+
+// ---------------------------------------------------------------------------
+// Gasto de estructura GLOVOX (pestaña "Análisis financiero").
+//
+// Total mensual del gasto interno — sueldos, oficina, administración… — con el
+// MISMO scope base que /interno (`es_interno_glovox AND incluir_en_totales`
+// sobre marts.finanzas_gastos), pero SOLO el agregado por mes: sin categorías,
+// proveedores ni detalle, porque el dato fino es sensible (sueldos) y esta
+// ruta no exige el grant de /interno. Monto siempre neto (igual que el gasto
+// de eventos del presupuesto; el switch neto/bruto solo afecta el ingreso).
+// ---------------------------------------------------------------------------
+
+export const ESTRUCTURA_SQL = `
+  SELECT
+    FORMAT_DATE('%Y-%m', fecha) AS mes,
+    SUM(IFNULL(gasto_neto, 0)) AS gasto
+  FROM ${GASTOS}
+  WHERE es_interno_glovox
+    AND incluir_en_totales
+    AND fecha IS NOT NULL
+  GROUP BY mes
+  ORDER BY mes
+`;
+
+let estructuraCache: { data: EstructuraMensualRow[]; timestamp: number } | null = null;
+
+export interface EstructuraResult {
+  rows: EstructuraMensualRow[];
+  cached: boolean;
+  cacheAgeSeconds: number;
+}
+
+export async function getEstructuraMensual(
+  { timeoutMs = 22_000 }: { timeoutMs?: number } = {},
+): Promise<EstructuraResult> {
+  const now = Date.now();
+  if (estructuraCache && now - estructuraCache.timestamp < CACHE_TTL_MS) {
+    return {
+      rows: estructuraCache.data,
+      cached: true,
+      cacheAgeSeconds: Math.floor((now - estructuraCache.timestamp) / 1000),
+    };
+  }
+
+  const queryPromise = query<Record<string, unknown>>(ESTRUCTURA_SQL);
+  const timeoutPromise = new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error(`BigQuery tardó demasiado (>${Math.floor(timeoutMs / 1000)}s). Intentá de nuevo.`)),
+      timeoutMs,
+    ),
+  );
+
+  const rawRows = await Promise.race([queryPromise, timeoutPromise]);
+  const clean: EstructuraMensualRow[] = rawRows.map((row) => {
+    const r = serializeRow(row);
+    return { mes: String(r.mes ?? ""), gasto: Number(r.gasto) || 0 };
+  });
+
+  estructuraCache = { data: clean, timestamp: Date.now() };
   return { rows: clean, cached: false, cacheAgeSeconds: 0 };
 }
 

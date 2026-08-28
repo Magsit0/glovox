@@ -905,6 +905,10 @@ export type EventoOption = {
   nombre: string;
   venue: string;
   fecha: string; // categoriaEvento.Fecha (YYYY-MM-DD) o ""
+  /** Cuántos días dura el evento (categoriaEvento.dias). 1 salvo multi-día:
+   *  Bocas Moradas dura 2, FDS 3, Yein Fonda 4. Lo usa /inversion-medios para
+   *  marcar TODOS los días del evento en el calendario, no solo el primero. */
+  dias: number;
   country: "CL" | "PE" | "";
 };
 
@@ -922,7 +926,8 @@ export async function getCategoriaEventos(country: Country): Promise<EventoOptio
       EventoID                              AS evento_id,
       NombreGlovox                          AS nombre,
       venue                                 AS venue,
-      FORMAT_DATE('%Y-%m-%d', Fecha)        AS fecha
+      FORMAT_DATE('%Y-%m-%d', Fecha)        AS fecha,
+      dias                                  AS dias
     FROM ${CATEGORY}
     WHERE EventoID IS NOT NULL AND isCanceled IS NOT TRUE ${cond}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
@@ -935,6 +940,7 @@ export async function getCategoriaEventos(country: Country): Promise<EventoOptio
       nombre: s(r.nombre),
       venue: s(r.venue),
       fecha: s(r.fecha),
+      dias: r.dias == null ? 1 : n(r.dias),
       country: eventoId.startsWith("GLP") ? "PE" : eventoId.startsWith("GLO") ? "CL" : "",
     };
   });
@@ -948,7 +954,10 @@ export type EventInfo = {
   venue: string;
   capacidad: number | null; // glovox.venues.capacidad (cruce por nombre de venue)
   country: "CL" | "PE" | "";
-  fechaEvento: string; // categoriaEvento.Fecha (fallback tickets)
+  fechaEvento: string; // categoriaEvento.Fecha (fallback tickets) = PRIMER día
+  /** Cuántos días dura el evento (categoriaEvento.dias, 1 si no está). El evento
+   *  corre de `fechaEvento` a `fechaEvento + dias - 1`. */
+  dias: number;
   fechaInicioVenta: string; // MIN(FechaOrden) de tickets
 };
 
@@ -962,7 +971,7 @@ export async function getEventInfo(eventoId: string): Promise<EventInfo | null> 
   const rows = await query<Record<string, unknown>>(
     `
     WITH cat AS (
-      SELECT EventoID, NombreGlovox, venue, Fecha FROM ${CATEGORY}
+      SELECT EventoID, NombreGlovox, venue, Fecha, dias FROM ${CATEGORY}
       WHERE EventoID = @id
       QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
     )
@@ -970,6 +979,7 @@ export async function getEventInfo(eventoId: string): Promise<EventInfo | null> 
       c.EventoID                                       AS evento_id,
       c.NombreGlovox                                   AS nombre,
       c.venue                                          AS venue,
+      c.dias                                           AS dias,
       -- capacidad del venue: cruce de categoriaEvento.venue con glovox.venues
       (SELECT MAX(capacidad) FROM ${VENUES} v WHERE v.venue = c.venue) AS capacidad,
       FORMAT_DATE('%Y-%m-%d', DATE(MIN(t.FechaOrden))) AS inicio,
@@ -977,7 +987,7 @@ export async function getEventInfo(eventoId: string): Promise<EventInfo | null> 
       FORMAT_DATE('%Y-%m-%d', COALESCE(c.Fecha, DATE(MIN(t.FechaEvento)))) AS evento
     FROM cat c
     LEFT JOIN ${TICKETS} t ON t.EventoID = c.EventoID
-    GROUP BY c.EventoID, c.NombreGlovox, c.venue, c.Fecha
+    GROUP BY c.EventoID, c.NombreGlovox, c.venue, c.Fecha, c.dias
     `,
     { id: eventoId },
   );
@@ -991,6 +1001,7 @@ export async function getEventInfo(eventoId: string): Promise<EventInfo | null> 
     capacidad: r.capacidad == null ? null : n(r.capacidad),
     country,
     fechaEvento: s(r.evento),
+    dias: r.dias == null ? 1 : n(r.dias),
     fechaInicioVenta: s(r.inicio),
   };
 }

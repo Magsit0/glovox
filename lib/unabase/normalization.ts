@@ -97,6 +97,7 @@ export const normalizeExpenseRows = (
     facturado: getFacturadoValue(row),
     asistentes: getAssistantsValue(row),
     fechaAsignacion: safeText(row.fechaAsignacion),
+    fechaNegocio: safeText(row.fechaNegocio),
   }));
 
 type WorkingBusiness = Omit<

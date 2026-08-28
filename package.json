@@ -17,7 +17,8 @@
     "bq:seed-nombres": "dotenv -e .env.local -- tsx scripts/seed-nombres-genero.ts",
     "test:optimizer": "tsx lib/ticketing-pricing/optimizer.checks.ts",
     "test:paidmedia-fx": "dotenv -e .env.local -- tsx scripts/paidmedia-fx-parity.ts",
-    "audit:tipos": "dotenv -e .env.local -- tsx scripts/audit-tipos-campana.ts"
+    "audit:tipos": "dotenv -e .env.local -- tsx scripts/audit-tipos-campana.ts",
+    "audit:referido": "dotenv -e .env.local -- tsx scripts/audit-referido.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.80",

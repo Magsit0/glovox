@@ -5,10 +5,15 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import type {
+  AdsMetricasEvento,
   DrillGrid,
   DrillPlataformaRow,
   PlanDiarioRow,
+  SerieResultadoRow,
+  TicketsEvento,
 } from "@/lib/queries/inversion-medios";
+import { PM_PROPAGACION_MIN } from "@/lib/inversion-medios/rendimiento";
+import { esDiaEvento, tituloDiaEvento } from "@/lib/inversion-medios/evento";
 import {
   computeEtapaSegments,
   ETAPAS_DEFAULT,
@@ -24,13 +29,17 @@ import {
 } from "@/lib/inversion-medios/tipos";
 import { saveEtapasAction } from "../actions";
 import CeldaPlan from "./CeldaPlan";
-import { fmtUsd } from "./format";
+import RendimientoEvento from "./RendimientoEvento";
+import { compactInt, fmtUsd, formatInt } from "./format";
 
 type Props = {
   eventoId: string;
   nombre: string;
   venue: string;
+  /** PRIMER día del evento (categoriaEvento.Fecha). */
   fechaEvento: string;
+  /** Cuántos días dura. Un evento de 2 días marca DOS columnas, no una. */
+  diasEvento: number;
   techoUsd: number | null;
   drill: DrillGrid;
   /** Plan diario crudo (con tipo) de la ventana del drill — arma las filas de tipo. */
@@ -43,6 +52,12 @@ type Props = {
   etapas: EtapaCampana[];
   /** Gasto real crudo por (fecha, plataforma, objective, campaña) para el desglose. */
   desgloseRows: DesgloseRow[];
+  /** Numeradores de ads del evento en la ventana — alimentan los dos CPA. */
+  ads: AdsMetricasEvento;
+  /** Conteos de ticket + el estado del referido. */
+  tickets: TicketsEvento;
+  /** Serie diaria de resultado, para el bloque "Resultado del día". */
+  serieResultado: SerieResultadoRow[];
 };
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -97,6 +112,7 @@ export default function EventoDrill({
   nombre,
   venue,
   fechaEvento,
+  diasEvento,
   techoUsd,
   drill,
   planRows,
@@ -105,6 +121,9 @@ export default function EventoDrill({
   canEdit,
   etapas,
   desgloseRows,
+  ads,
+  tickets,
+  serieResultado,
 }: Props) {
   const { dias, plataformas, totalDia, totalPlan, totalReal } = drill;
 
@@ -121,12 +140,43 @@ export default function EventoDrill({
   // plataforma (única clasificación); la corrida es client-side para que
   // expandir un canal no dispare un refetch.
   const desglose = useMemo(() => buildDesglose(dias, desgloseRows), [dias, desgloseRows]);
-  // Los canales parten EXPANDIDOS: la edición del plan vive en las filas de
-  // tipo, así que colapsado no se puede trabajar.
-  const [expCanal, setExpCanal] = useState<Set<string>>(
-    () => new Set(plataformas.map((p) => p.plataforma)),
-  );
+  // Los canales parten CERRADOS (pedido del equipo, 2026-08-28). Antes arrancaban
+  // todos expandidos "para poder editar el plan", pero eso abría de entrada hasta
+  // 12 filas de tipo por evento y la sábana se leía como un muro: el primer
+  // pantallazo tiene que ser el resumen por canal, y se abre el canal en el que
+  // se va a trabajar.
+  const [expCanal, setExpCanal] = useState<Set<string>>(() => new Set());
   const [expTipo, setExpTipo] = useState<Set<string>>(new Set());
+
+  // Serie de resultado alineada a las columnas de día. El memo depende de
+  // [dias, serieResultado] y NUNCA del tramo mirado: recalcular al scrollear
+  // sobre hasta 474 columnas es justo lo que hay que evitar.
+  const serieCols = useMemo(() => {
+    const idx = new Map(dias.map((f, i) => [f, i]));
+    const mk = () => new Array<number | null>(dias.length).fill(null);
+    const tx = mk();
+    const pe = mk();
+    const pm = mk();
+    for (const r of serieResultado) {
+      const i = idx.get(r.fecha);
+      if (i === undefined) continue;
+      tx[i] = r.transacciones;
+      pe[i] = r.personas;
+      pm[i] = r.pmOrdenes;
+    }
+    return { tx, pe, pm };
+  }, [dias, serieResultado]);
+
+  // El bloque solo existe si hay tickets. Las filas 2 y 3 son condicionales:
+  // repetir una fila idéntica a lo largo de cientos de columnas, o pintar una de
+  // puros guiones, es peor que no tenerla (las dos unidades ya están SIEMPRE
+  // visibles en la card, que es donde la comparación tiene sentido).
+  const refInterpretable =
+    tickets.estado === "medible" && tickets.propagacionPct >= PM_PROPAGACION_MIN;
+  const hayFilaPersonas = tickets.personas !== tickets.transacciones;
+  const [expRes, setExpRes] = useState<boolean>(
+    () => refInterpretable || hayFilaPersonas,
+  );
 
   // Filas de TIPO por plataforma: los planificables (TIPOS_PLAN, orden fijo,
   // SIEMPRE presentes — plan editable), más "Sin tipo" si hay plan histórico
@@ -213,7 +263,10 @@ export default function EventoDrill({
           <p className="mt-1 font-sans text-sm text-[#666666]">
             {eventoId}
             {venue ? ` · ${venue}` : ""}
-            {fechaEvento ? ` · evento ${fechaEvento}` : ""} · plan por plataforma en USD
+            {fechaEvento
+              ? ` · evento ${fechaEvento}${diasEvento > 1 ? ` (${diasEvento} días)` : ""}`
+              : ""}{" "}
+            · plan por plataforma en USD
             {realMaxFecha ? ` · real al ${realMaxFecha}` : ""}
           </p>
         </div>
@@ -237,6 +290,12 @@ export default function EventoDrill({
           tone={pctReal != null && pctReal > 100 ? "neg" : undefined}
         />
       </div>
+
+      <RendimientoEvento
+        ads={ads}
+        tickets={tickets}
+        hoyEnRango={dias.length > 0 && dias[0] <= hoy && hoy <= dias[dias.length - 1]}
+      />
 
       {canEdit && <EtapasEditor eventoId={eventoId} etapas={etapas} />}
 
@@ -290,15 +349,17 @@ export default function EventoDrill({
                   const dia = Number(fecha.slice(8, 10));
                   const dow = new Date(`${fecha}T00:00:00Z`).getUTCDay();
                   const esHoy = fecha === hoy;
-                  const esDiaEvento = fecha === fechaEvento;
+                  // Todos los días del evento, no solo el primero: GLO197 gastó
+                  // $295 y vendió 326 tickets en su segundo día, sin marca.
+                  const diaEvento = esDiaEvento(fecha, fechaEvento, diasEvento);
                   const primerDia = dia === 1 || i === 0;
                   return (
                     <th
                       key={fecha}
                       style={{ top: hayEtapas ? BAND_H : 0 }}
-                      title={esDiaEvento ? "Día del evento" : undefined}
+                      title={diaEvento ? tituloDiaEvento(fecha, fechaEvento, diasEvento) : undefined}
                       className={`sticky z-20 w-16 min-w-16 max-w-16 border-b border-[#E5E5E5] px-0 py-1.5 text-center text-xs font-medium ${
-                        esDiaEvento
+                        diaEvento
                           ? "bg-[#FAEEDA] text-[#854F0B]"
                           : esHoy
                             ? "bg-[#F0EFFE] text-[#9F99F8]"
@@ -469,6 +530,85 @@ export default function EventoDrill({
                 }
                 return rows;
               })}
+
+              {/* ── Resultado del día ──────────────────────────────────────
+                  Tickets de la ticketera alineados a las MISMAS columnas de día
+                  que el gasto, bajo las bandas de etapa: es el cruce que esta
+                  vista existe para mostrar. Se ocultan por CSS (nunca se
+                  desmontan), igual que las filas del calendario.
+
+                  NO hay fila de CPA, ROAS ni conversiones por día: la plataforma
+                  imputa la conversión al día del CLIC, así que el CPA diario va
+                  de 0,15× a 14,52× el del evento. Tampoco de devueltos: la
+                  devolución no se puede fechar. */}
+              {tickets.tieneTickets && (
+                <>
+                  <tr className="bg-[#FAFAFA]">
+                    <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#E5E5E5] bg-[#FAFAFA] px-4 py-1.5 align-top">
+                      <button
+                        onClick={() => setExpRes((v) => !v)}
+                        className="inline-flex items-center gap-1 text-xs font-medium text-[#333333] hover:text-[#9F99F8]"
+                        title="Tickets vendidos por día de la orden. No hay CPA ni conversiones por día: la plataforma las imputa al día del clic, no al de la compra."
+                      >
+                        {expRes ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                        Resultado del día
+                      </button>
+                    </td>
+                    {dias.map((fecha) => (
+                      <td
+                        key={fecha}
+                        className={`w-16 min-w-16 max-w-16 border-t border-[#E5E5E5] bg-[#FAFAFA] p-0 ${
+                          fecha === hoy ? "bg-[#F9F9FF]" : ""
+                        }`}
+                      />
+                    ))}
+                    <td className="border-l border-t border-[#E5E5E5] bg-[#FAFAFA]" />
+                  </tr>
+
+                  <tr className={expRes ? "" : "hidden"}>
+                    <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F0F0F0] bg-white py-1 pl-7 pr-3 align-top text-[11px] text-[#666666]">
+                      Tickets vendidos
+                    </td>
+                    {dias.map((fecha, i) => (
+                      <ResultCell key={fecha} value={serieCols.tx[i]} hoy={fecha === hoy} />
+                    ))}
+                    <td className="border-l border-t border-[#F0F0F0] px-3 py-1 text-right align-top tabular-nums text-[11px] font-medium text-[#666666]">
+                      {formatInt(tickets.transacciones)}
+                    </td>
+                  </tr>
+
+                  {hayFilaPersonas && (
+                    <tr className={expRes ? "" : "hidden"}>
+                      <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F5F5F5] bg-white py-1 pl-7 pr-3 align-top text-[11px] text-[#999999]">
+                        Personas
+                      </td>
+                      {dias.map((fecha, i) => (
+                        <ResultCell key={fecha} value={serieCols.pe[i]} hoy={fecha === hoy} muted />
+                      ))}
+                      <td className="border-l border-t border-[#F5F5F5] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[#999999]">
+                        {formatInt(tickets.personas)}
+                      </td>
+                    </tr>
+                  )}
+
+                  {refInterpretable && (
+                    <tr className={expRes ? "" : "hidden"}>
+                      <td
+                        className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F5F5F5] bg-white py-1 pl-7 pr-3 align-top text-[11px] text-[#999999]"
+                        title="Órdenes que llegaron a la ticketera con una etiqueta PM_ de campaña de venta."
+                      >
+                        Órdenes con PM_
+                      </td>
+                      {dias.map((fecha, i) => (
+                        <ResultCell key={fecha} value={serieCols.pm[i]} hoy={fecha === hoy} muted />
+                      ))}
+                      <td className="border-l border-t border-[#F5F5F5] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[#999999]">
+                        {formatInt(tickets.pmOrdenes)}
+                      </td>
+                    </tr>
+                  )}
+                </>
+              )}
             </tbody>
             <tfoot>
               <tr>
@@ -502,7 +642,9 @@ export default function EventoDrill({
         objetivo declarado en la plataforma; <span className="text-[#333333]">RMKT</span> es una marca
         de la campaña y suma dentro de su tipo. <span className="italic text-[#999999]">Sin tipo</span>{" "}
         es el plan cargado antes del desglose — muévelo a su tipo (carga el monto en el tipo correcto y
-        vacía la celda de Sin tipo). El real de hoy es parcial (los datos de ads llegan a las 09:45).
+        vacía la celda de Sin tipo). El real de hoy es parcial (los datos de ads llegan a las 09:45). Las filas de{" "}
+        <span className="text-[#666666]">Resultado del día</span> van en gris y de una línea: son
+        tickets de la ticketera, no dinero, y se imputan al día de la orden.
       </p>
 
       <CampanasPorTipo plataformas={plataformas} desglose={desglose} />
@@ -626,6 +768,43 @@ function ReadCell({ value, hoy, muted }: { value: number; hoy: boolean; muted?: 
       } ${hoy ? "bg-[#F0EFFE]/40" : ""}`}
     >
       {value > 0 ? fmtUsd(value, 0) : <span className="text-[#E5E5E5]">·</span>}
+    </td>
+  );
+}
+
+/**
+ * Celda de la serie de resultado. Gemela de `ReadCell` pero de UNA línea y con
+ * TRES glifos con tres significados distintos, que es la razón de que no reuse
+ * `ReadCell`:
+ *   `—`  no hay dato para ese día (la ticketera no reportó nada)
+ *   `·`  hay dato y es CERO (día medido sin ventas)
+ *   `12` el conteo
+ * Confundir los dos primeros es lo que hace que un panel de conteos mienta.
+ */
+function ResultCell({
+  value,
+  hoy,
+  muted,
+}: {
+  value: number | null;
+  hoy: boolean;
+  muted?: boolean;
+}) {
+  return (
+    <td
+      className={`w-16 min-w-16 max-w-16 border-t px-1 py-1 text-center tabular-nums ${
+        muted
+          ? "border-[#F5F5F5] text-[11px] text-[#999999]"
+          : "border-[#F0F0F0] text-xs text-[#666666]"
+      } ${hoy ? "bg-[#F9F9FF]" : ""}`}
+    >
+      {value == null ? (
+        <span className="text-[#E5E5E5]">—</span>
+      ) : value > 0 ? (
+        compactInt(value)
+      ) : (
+        <span className="text-[#E5E5E5]">·</span>
+      )}
     </td>
   );
 }

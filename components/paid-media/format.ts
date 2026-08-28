@@ -14,27 +14,24 @@
  *  - USD → "$12,345.00"   (en-US, dos decimales)
  *  - CLP → "$12.345"      (es-CL, sin decimales)
  *  - BRL → "R$ 12.345,67" (pt-BR, dos decimales)
+ *
+ * ⚠️ Los formateadores NUMÉRICOS (conteos, ratios, costos unitarios) viven ahora
+ * en `lib/format/paid.ts`, porque `/inversion-medios` usa los mismos para sus
+ * métricas de rendimiento. Acá se re-exportan: ningún consumidor de esta ruta
+ * cambió de import. Lo que queda propio de este archivo es lo que depende de la
+ * MONEDA DE DESPLIEGUE, que es un concepto exclusivo de `/paid-media`.
  */
 import type { DisplayCurrency } from "@/lib/queries/paidMedia";
+import { formatter, localeForCurrency } from "@/lib/format/paid";
 
-const FMT_CACHE = new Map<string, Intl.NumberFormat>();
-
-function formatter(key: string, build: () => Intl.NumberFormat): Intl.NumberFormat {
-  const cached = FMT_CACHE.get(key);
-  if (cached) return cached;
-  const fmt = build();
-  FMT_CACHE.set(key, fmt);
-  return fmt;
-}
-
-function localeForCurrency(currency: string): { locale: string; decimals: number } {
-  switch (currency) {
-    case "CLP": return { locale: "es-CL", decimals: 0 };
-    case "USD": return { locale: "en-US", decimals: 2 };
-    case "BRL": return { locale: "pt-BR", decimals: 2 };
-    default:    return { locale: "en-US", decimals: 2 };
-  }
-}
+export {
+  compactInt,
+  div,
+  formatInt,
+  formatRatio,
+  formatRoas,
+  formatUnitCost,
+} from "@/lib/format/paid";
 
 /**
  * Monto en la moneda de despliegue, exacto. `null` significa "no convertido"
@@ -82,32 +79,6 @@ export function compactMoney(value: number | null | undefined): string {
   return `$${Math.round(value)}`;
 }
 
-/**
- * Costos unitarios (CPC, CPM, CPA). Precisión ADAPTATIVA porque las dos monedas
- * viven en órdenes de magnitud muy distintos: el CPC consolidado ronda 0,064 USD
- * —con dos decimales todas las cuentas se verían "$0.06" y el KPI dejaría de
- * discriminar— pero el mismo CPC en pesos son ~59 CLP, donde los decimales son
- * ruido. La regla es la misma en ambas: mostrar tres cifras significativas.
- */
-export function formatUnitCost(
-  value: number | null | undefined,
-  moneda: DisplayCurrency,
-): string {
-  if (value == null || !Number.isFinite(value) || value === 0) return "—";
-  const abs = Math.abs(value);
-  const decimals = abs >= 100 ? 0 : abs >= 1 ? 2 : 3;
-  const { locale } = localeForCurrency(moneda);
-  const fmt = formatter(`unit-${moneda}-${decimals}`, () =>
-    new Intl.NumberFormat(locale, {
-      style: "currency",
-      currency: moneda,
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    }),
-  );
-  return fmt.format(value);
-}
-
 /** Monto en la moneda de ORIGEN de la cuenta (puede ser BRL, que nunca es
  *  moneda de despliegue). Solo para la lista que permite reconciliar contra la
  *  factura de la plataforma — nunca para sumar entre monedas. */
@@ -132,33 +103,6 @@ export function formatFxRate(value: number, currency: string): string {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   }).format(value);
-}
-
-export function formatInt(value: number): string {
-  const fmt = formatter("int", () =>
-    new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 }),
-  );
-  return fmt.format(value || 0);
-}
-
-export function compactInt(value: number): string {
-  const num = value || 0;
-  const abs = Math.abs(num);
-  if (abs >= 1_000_000_000) return `${(num / 1_000_000_000).toFixed(1)}B`;
-  if (abs >= 1_000_000)     return `${(num / 1_000_000).toFixed(1)}M`;
-  if (abs >= 1_000)         return `${(num / 1_000).toFixed(0)}K`;
-  return `${Math.round(num)}`;
-}
-
-/** CTR viene del backend ya como ratio 0..1. */
-export function formatRatio(value: number, decimals = 2): string {
-  if (!Number.isFinite(value)) return "—";
-  return `${((value || 0) * 100).toFixed(decimals)}%`;
-}
-
-export function formatRoas(value: number): string {
-  if (!Number.isFinite(value) || value === 0) return "—";
-  return `${value.toFixed(2)}x`;
 }
 
 export function formatDate(iso: string): string {

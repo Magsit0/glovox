@@ -12,7 +12,7 @@ El punto de entrada principal es `app/cierre-mensual/page.tsx`, el cual simpleme
 
 ## 1. Las Pestañas (Tabs) y sus Gráficos / Paneles
 
-El dashboard se divide en **3 pestañas principales** (definidas en la constante `TABS` dentro de `components/cierre-mensual/CierreMensualDashboard.tsx`).
+El dashboard se divide en **4 pestañas principales** (definidas en la constante `TABS` dentro de `components/cierre-mensual/CierreMensualDashboard.tsx`).
 
 ### 🟦 Pestaña 1: "Resumen por área" (función `NegociosTab`)
 Muestra la salud financiera, metas y evolución centrada en el estado comercial de las áreas de negocio. Incluye filtro por rango de fecha (`useDateFilter`, contra `fecha_asignacion`) y un multiselect de área.
@@ -56,6 +56,19 @@ Un drill-down específico y profundo en la estructura de costos.
     *   *Componente:* `charts/ExpenseSubcategoryMatrix.tsx`
 *   **Tabla de Gastos por Subcategoría**:
     *   *Componente:* `panels/ExpenseSubcategoryTable.tsx`
+
+### 🟩 Pestaña 4: "Análisis financiero" (componente `FinancieroTab`)
+Aplica el método de análisis de estados financieros (análisis vertical, estado de resultados y devengo vs caja) a la data de cierres. Carpeta: `components/cierre-mensual/financiero/`.
+
+**Regla temporal propia:** cada negocio se imputa al período de su **fecha de realización** (devengo); si falta, cae a la fecha de asignación (chip de advertencia). Helpers `resolveFechaFinanciera` y de períodos en `lib/unabase/dates.ts`. Toggle de granularidad Mes/Trimestre/Año compartido por las tres secciones.
+
+*   **Estado de resultados** (KPIs + cascada + tabla por período): Ingresos → Gasto directo de eventos → Margen de contribución → **Gasto de estructura GLOVOX** → Resultado operacional.
+    *   *Componente:* `financiero/EstadoResultadosSection.tsx`
+    *   *Estructura:* total mensual del gasto interno (scope de `/interno`), **solo agregado y en neto, sin desglose** (dato sensible). Query `getEstructuraMensual` en `lib/queries/cierreMensual.ts` → `app/api/cierre-mensual/estructura/route.ts` → `hooks/useEstructuraData.ts`.
+*   **Análisis vertical (% del ingreso)**: tabla common-size con heatmap; corte "Por período" / "Por área"; top-8 categorías de gasto + "Otras".
+    *   *Componente:* `financiero/AnalisisVerticalSection.tsx`
+*   **Devengo vs caja**: KPIs de ciclo (venta/facturado/cobrado/por cobrar + DSO proxy), gráfico apilado por período, aging del saldo por cobrar y top-10 saldos con link al cierre del negocio. Usa `negociosRows` restringido al alcance filtrado (join por `negocioIds`).
+    *   *Componente:* `financiero/DevengoCajaSection.tsx`
 
 ---
 

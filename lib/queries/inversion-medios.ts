@@ -9,6 +9,7 @@ import {
   type EtapaCampana,
 } from "@/db/schema";
 import { query } from "@/lib/bigquery";
+import { PM_PROPAGACION_MIN } from "@/lib/inversion-medios/rendimiento";
 import { withNeonRetry } from "@/lib/neon-retry";
 
 export type { EtapaCampana };
@@ -65,6 +66,127 @@ const CARDDA_FEE = `\`${P}.marts.cardda_fee_mensual\``;
 // SEMANAL del consumo (el mart es mensual y no tiene hermano semanal).
 const CARDDA_TX = `\`${P}.cardda.card_transactions\``;
 const FX_REF = `\`${P}.referencia.tipo_cambio\``;
+
+// ─────────────────────── Métricas de rendimiento (Fase 1) ───────────────────
+// Fragmentos compartidos por las queries de resultado. Van acá, junto a MART /
+// CATEGORY / REAL_BASE, porque son la definición ÚNICA de cada concepto.
+
+const TICKETS = `\`${P}.glovox.tickets\``;
+
+/**
+ * Campañas de Ventas de Meta: la ÚNICA combinación plataforma×objetivo cuyas
+ * `conversiones` se comportan como compras reales (ticket implícito ÷ ticket real
+ * por orden = 1,03–1,29 en 11 eventos chilenos). Las de Google NO: la misma
+ * cuenta declara ~5 acciones por compra (GLO172 gastó $833 y reporta 1.861
+ * conversiones → CPA $0,45), así que un CPA "blended" quedaría contaminado.
+ * Con este alcance, 58 de 61 eventos del universo tienen CPA pixel y cubre
+ * $146.237 de $206.109 = 71,0% del gasto. Requiere el alias `m`.
+ */
+const META_VENTAS = `(m.plataforma = 'meta' AND m.objective = 'OUTCOME_SALES')`;
+
+/**
+ * Clase de ticket. ESPEJO EXACTO de TICKET_TYPE_FILTER
+ * (lib/queries/marketing.ts:51-59) con alias `t`, para que los conteos de este
+ * panel sean comparables con /marketing y /ticketing. Excluye CORTESIA (20,6% de
+ * las filas del universo, hasta 64,6% en GLP002) y MESA VIP; CONSERVA VENTA y
+ * PASE TEMPORADA.
+ */
+const CLASE_TICKET = `CASE
+  WHEN t.MedioPago = 'Otro' AND (LOWER(t.TipoTicket) LIKE '%pase%' OR LOWER(t.TipoTicket) LIKE '%pass%') THEN 'PASE TEMPORADA'
+  WHEN t.MedioPago = 'Otro' AND LOWER(t.TipoTicket) LIKE '%mesa%' THEN 'MESA VIP'
+  WHEN t.MedioPago = 'Otro' THEN 'CORTESIA'
+  ELSE 'VENTA' END`;
+const VENDIDO = `${CLASE_TICKET} IN ('VENTA','PASE TEMPORADA') AND t.EsDevuelto IS FALSE`;
+
+/**
+ * Ajuste de display ya vigente en el repo (lib/queries/marketing.ts:48). SIN
+ * esto la ventana de venta de GLO198 arranca el 2025-05-10 en vez del 2026-03-18
+ * (244 filas 'GENERAL DGTL' fechadas un año antes), la cobertura del esquema PM_
+ * cae a 74/366 y el evento de mayor gasto del panel se clasifica mal.
+ *
+ * TZ: `DATE(...)` SIN zona horaria, a propósito. `FechaOrden` guarda hora local
+ * ingenua etiquetada como UTC (la hora media cruda de la tarde no se mueve entre
+ * verano e invierno pese al cambio UTC-4 → UTC-3), y es lo que ya hace todo el
+ * repo (lib/queries/curvas.ts, lib/queries/ticketing.ts).
+ * `DATE(FechaOrden, 'America/Santiago')` movería de día un 5,12% de las filas.
+ * El `hoy` y los bordes del rango SÍ siguen en America/Santiago (page.tsx): esas
+ * son preguntas de reloj de pared, no de imputación de una orden a un día.
+ */
+const FECHA_ORDEN = `DATE(CASE
+  WHEN t.EventoID = 'GLO198' AND t.TipoTicket = 'GENERAL DGTL' THEN TIMESTAMP('2026-03-18')
+  ELSE t.FechaOrden END)`;
+
+/** Referido normalizado. El UPPER es OBLIGATORIO: FeverUp escribe los códigos en
+ *  MINÚSCULA (pm_mt_kv_conv, pm_mt_exp_conv, pm_gg_pmax_mix) y sin esto se pierde
+ *  toda la atribución de esa ticketera. */
+const PM_NORM = `UPPER(TRIM(COALESCE(t.Referido, '')))`;
+/** Pertenencia al esquema. REGEXP y no `LIKE 'PM_%'`: el `_` de LIKE es un
+ *  COMODÍN de un carácter y matchearía 'PMX…' en silencio. */
+const PM_IS = `REGEXP_CONTAINS(${PM_NORM}, r'^PM_')`;
+/**
+ * Código de campaña de VENTA. El mapeo es asimétrico a propósito: Meta lleva el
+ * objetivo en el segmento 4 (`_CONV`), Google lleva el TIPO en el segmento 3
+ * (`PMAX`) — en PM_GG_PMAX_MIX, 'MIX' no es un objetivo sino una mezcla de
+ * audiencias. Acotar a códigos de venta baja el denominador entre 0,5% y 10,6%
+ * según evento, y es lo que hace que numerador (gasto de Ventas) y denominador
+ * midan el mismo universo.
+ */
+const PM_VENTA = `(REGEXP_CONTAINS(${PM_NORM}, r'^PM_MT_[A-Z0-9]+_CONV$')
+  OR REGEXP_CONTAINS(${PM_NORM}, r'^PM_GG_(PMAX|SEARCH|SEA|SHOPPING)_'))`;
+/** Paid media que llegó SIN el prefijo: sufijo suelto, o adset_id de Meta crudo.
+ *  En 660905 son 1.077 tickets contra 6 con PM_ completo. */
+const PM_MUT = `(${PM_NORM} IN ('CONV','MIX','ALC','TRF','SEA')
+  OR REGEXP_CONTAINS(${PM_NORM}, r'^[0-9]{15,20}$'))`;
+
+/**
+ * Personas. REEMPLAZA a personasExpr (lib/queries/marketing.ts:83), que
+ * sobre-cuenta 2× en GLO165, GLO136 y GLO185: PuntoTicket YA emite una fila por
+ * persona ahí. La regla correcta no es la categoría del evento ni el nombre del
+ * ticket: es si la ticketera ya partió el pack, y eso se detecta por PARIDAD de
+ * filas por orden. Medido, la separación es absoluta — los eventos ya partidos
+ * tienen el 100% de sus órdenes con filas pares; los que no, entre 7% y 14%.
+ *
+ * Bonus: no toca `categoriaEvento`, así que no hay riesgo de fanout (230 filas
+ * para 225 EventoID, GLO042 con 6).
+ *
+ * El piso de 20 órdenes evita el falso positivo de GLP005/GLP006 ('SUPER VIP ALL
+ * NIGHT PACK 2', 1 sola orden: es un upgrade VIP, no un pack de 2 personas).
+ * Regex con [^0-9] en vez de \D: equivalente en re2 y evita el doble escape.
+ * Requiere el LEFT JOIN a `pack_split` con alias `ps`.
+ */
+const PERSONAS = `IF(UPPER(t.TipoTicket) LIKE '%PACK%'
+  AND REGEXP_CONTAINS(t.TipoTicket, r'(^|[^0-9])2([^0-9]|$)')
+  AND NOT IFNULL(ps.ya_partido, FALSE)
+  AND IFNULL(ps.ordenes_pack, 0) >= 20, 2, 1)`;
+
+const PACK_SPLIT_CTE = `pack_split AS (
+  SELECT EventoID, TipoTicket,
+    COUNTIF(MOD(n,2)=0) = COUNT(*) AS ya_partido,
+    COUNT(*)                       AS ordenes_pack
+  FROM (
+    SELECT t.EventoID, t.TipoTicket, t.OrdenID, COUNT(*) AS n
+    FROM ${TICKETS} t
+    WHERE UPPER(t.TipoTicket) LIKE '%PACK%'
+      AND REGEXP_CONTAINS(t.TipoTicket, r'(^|[^0-9])2([^0-9]|$)')
+      AND t.EsDevuelto IS FALSE
+    GROUP BY 1,2,3
+  ) GROUP BY EventoID, TipoTicket
+)`;
+
+/** Nacimiento del esquema PM_ por ticketera, DERIVADO del dato (no hardcodeado).
+ *  Medido: PuntoTicket 2026-02-25, TeleTicket 2026-03-10, FeverUp 2026-07-02.
+ *  Sirve para distinguir "no hubo venta por PM" de "el esquema no existía". */
+const PRIMER_PM_CTE = `primer_pm AS (
+  SELECT Ticketera, MIN(DATE(FechaOrden)) AS pm_desde
+  FROM ${TICKETS}
+  WHERE REGEXP_CONTAINS(UPPER(TRIM(COALESCE(Referido,''))), r'^PM_')
+  GROUP BY Ticketera
+)`;
+
+// El umbral del referido vive en el módulo CLIENT-SAFE, porque lo necesitan las
+// dos orillas: el SQL de abajo y el componente que decide si pinta los dos CPA.
+// Se re-exporta para que los consumidores de servidor no cambien de import.
+export { PM_PROPAGACION_MIN } from "@/lib/inversion-medios/rendimiento";
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -137,7 +259,9 @@ export type DayCell = {
 export type EventoGridRow = {
   eventoId: string;
   nombre: string;
-  fechaEvento: string; // categoriaEvento.Fecha o ""
+  fechaEvento: string; // categoriaEvento.Fecha o "" = PRIMER día
+  /** Cuántos días dura el evento. El calendario marca los `diasEvento` días. */
+  diasEvento: number;
   /** Clave del orden vertical: Fecha del evento, o el último día con datos si no tiene. */
   ordenFecha: string;
   /** Techo presupuestario = categoriaEvento.budgetPm (se edita en /admin/eventos). */
@@ -482,6 +606,8 @@ export type EventoMeta = {
   eventoId: string;
   nombre: string;
   fecha: string;
+  /** Cuántos días dura el evento (categoriaEvento.dias). 1 si no se sabe. */
+  dias: number;
 };
 
 export function listDays(from: string, to: string): string[] {
@@ -548,6 +674,7 @@ export function mergeGrid(args: {
       eventoId: ev.eventoId,
       nombre: ev.nombre,
       fechaEvento: ev.fecha,
+      diasEvento: ev.dias >= 1 ? ev.dias : 1,
       // Clave de orden: fecha del evento; sin Fecha → último día con datos.
       ordenFecha: ev.fecha || ultimaConDatos || "9999-12-31",
       techoUsd,
@@ -899,5 +1026,286 @@ export async function getCarddaFeeMensual(): Promise<CarddaFeeRow[]> {
     feeUsd: n(r.fee_usd),
     feeClp: n(r.fee_clp),
     fiscalInvoiceId: r.fiscal_invoice_id == null ? null : s(r.fiscal_invoice_id),
+  }));
+}
+
+// ═══════════ RENDIMIENTO DEL EVENTO (Fase 1) ════════════════════════════════
+// Tres queries que le agregan RESULTADO al panel, que hasta ahora solo mostraba
+// dinero. Todas acotadas a la MISMA ventana [from, to] del drill que el gasto,
+// para que los números se puedan enfrentar sin asimetrías de scope.
+
+/** Numeradores aditivos del mart para un evento. Ningún ratio: los calcula el
+ *  cliente desde estas sumas. */
+export type AdsMetricasEvento = {
+  gastoUsd: number;
+  impresiones: number;
+  clics: number;
+  conversiones: number;
+  valorUsd: number;
+  /** Numerador del CPA pixel: gasto de las campañas de Ventas de Meta. */
+  gastoVentasUsd: number;
+  /** Denominador del CPA pixel: las compras que declara ese pixel. */
+  conversionesVentas: number;
+  valorVentasUsd: number;
+  /** Para la nota de la UI: si Google declara conversiones, hay que decirlo. */
+  googleConversiones: number;
+};
+
+/**
+ * Métricas de ads del evento en la ventana del drill.
+ *
+ * ⚠️ Solo SUM() de columnas aditivas. Las columnas ctr/cpc/cpm/roas/cpc_usd/
+ * cpm_usd del mart son ratios POR FILA y además mezclan unidades entre
+ * plataformas: Google trae `ctr` como FRACCIÓN (0,6204) y Meta/TikTok como
+ * PORCENTAJE (1,764) — un factor 100 de error —, y `cpm`/`cpm_usd` son NULL en el
+ * 100% de las filas de Google. No se leen NUNCA.
+ *
+ * `alcance` tampoco se expone: es NULL en todo Google y no es aditivo en Meta
+ * (sumar el diario de GLO198 da frecuencia 1,24 en 65 días, imposible).
+ *
+ * Usa REAL_BASE y el mismo from/to del drill, así que `gastoUsd` reconcilia al
+ * centavo con el stat "Invertido (real)" que ya se muestra. Si difieren, la
+ * ventana se pasó mal.
+ */
+export async function getAdsMetricasEvento(
+  eventoId: string,
+  from: string,
+  to: string,
+): Promise<AdsMetricasEvento> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    ${REAL_BASE}
+    SELECT
+      SUM(m.gasto_usd)                                   AS gasto_usd,
+      SUM(m.impresiones)                                 AS impresiones,
+      SUM(m.clics)                                       AS clics,
+      SUM(m.conversiones)                                AS conversiones,
+      SUM(m.valor_conversion_usd)                        AS valor_usd,
+      SUM(IF(${META_VENTAS}, m.gasto_usd, 0))            AS gasto_ventas_usd,
+      SUM(IF(${META_VENTAS}, m.conversiones, 0))         AS conversiones_ventas,
+      SUM(IF(${META_VENTAS}, m.valor_conversion_usd, 0)) AS valor_ventas_usd,
+      SUM(IF(m.plataforma = 'google', m.conversiones, 0)) AS google_conversiones
+    FROM base m
+    WHERE m.EventoID = @eventoId
+      AND m.fecha BETWEEN DATE(@from) AND DATE(@to)
+    `,
+    { eventoId, from, to },
+  );
+  const r = rows[0] ?? {};
+  return {
+    gastoUsd: n(r.gasto_usd),
+    impresiones: n(r.impresiones),
+    clics: n(r.clics),
+    conversiones: n(r.conversiones),
+    valorUsd: n(r.valor_usd),
+    gastoVentasUsd: n(r.gasto_ventas_usd),
+    conversionesVentas: n(r.conversiones_ventas),
+    valorVentasUsd: n(r.valor_ventas_usd),
+    googleConversiones: n(r.google_conversiones),
+  };
+}
+
+/**
+ * Por qué el CPA referido de un evento no se puede leer. El ORDEN de la máquina
+ * de estados importa (ver el CASE en la query).
+ */
+export type EstadoReferido =
+  | "sin_datos_ticketera"
+  | "cero_vendidos"
+  | "pre_esquema"
+  | "sin_propagacion"
+  | "referido_mutilado"
+  | "sin_pm"
+  | "propagacion_baja"
+  | "medible";
+
+export type TicketsEvento = {
+  tieneTickets: boolean;
+  ticketera: string;
+  /** Conteos de la VENTANA del drill (mismo scope que el gasto). */
+  transacciones: number;
+  ordenes: number;
+  personas: number;
+  devueltas: number;
+  pmItems: number;
+  pmOrdenes: number;
+  pmPersonas: number;
+  /** De la historia COMPLETA — alimentan la máquina de estados y la nota. */
+  pmMutilado: number;
+  conReferido: number;
+  /** pmOrdenes / ordenes × 100, sobre la historia completa. */
+  propagacionPct: number;
+  ventaDesde: string;
+  ventaHasta: string;
+  pmDesdeTicketera: string;
+  goalTickets: number | null;
+  estado: EstadoReferido;
+};
+
+/**
+ * Conteos de ticket del evento + el estado del referido.
+ *
+ * Los conteos que se MUESTRAN salen de `win` (la ventana del drill). La historia
+ * completa (`hist`) alimenta solo la máquina de estados, que es donde hace falta:
+ * un evento cuya venta cerró antes de que existiera el esquema PM_ no es un
+ * evento "sin ventas por PM", y hay que decirlo distinto.
+ */
+export async function getRendimientoTicketsEvento(
+  eventoId: string,
+  from: string,
+  to: string,
+): Promise<TicketsEvento> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH ${PACK_SPLIT_CTE},
+    ${PRIMER_PM_CTE},
+    cat AS (
+      -- categoriaEvento tiene 230 filas para 225 EventoID (GLO042 con 6). Ninguno
+      -- está hoy en el universo del panel, pero el catálogo lo edita gente:
+      -- agregar SIEMPRE a una fila por evento antes de joinear.
+      SELECT EventoID, MAX(goalTickets) AS goal_tickets
+      FROM ${CATEGORY} WHERE EventoID = @eventoId GROUP BY EventoID
+    ),
+    hist AS (
+      SELECT
+        t.EventoID                                      AS evento_id,
+        ANY_VALUE(t.Ticketera)                          AS ticketera,
+        COUNTIF(${VENDIDO})                             AS tx_hist,
+        COUNT(DISTINCT IF(${VENDIDO}, t.OrdenID, NULL)) AS ord_hist,
+        COUNTIF(${VENDIDO} AND ${PM_IS})                AS pm_items_hist,
+        COUNT(DISTINCT IF(${VENDIDO} AND ${PM_VENTA}, t.OrdenID, NULL)) AS pm_ord_hist,
+        COUNTIF(${VENDIDO} AND ${PM_MUT})               AS pm_mutilado,
+        COUNTIF(${VENDIDO} AND ${PM_NORM} != '')        AS con_referido,
+        MIN(IF(${VENDIDO}, ${FECHA_ORDEN}, NULL))       AS venta_desde,
+        MAX(IF(${VENDIDO}, ${FECHA_ORDEN}, NULL))       AS venta_hasta
+      FROM ${TICKETS} t
+      WHERE t.EventoID = @eventoId
+      GROUP BY evento_id
+    ),
+    win AS (
+      SELECT
+        COUNTIF(${VENDIDO})                             AS transacciones,
+        COUNT(DISTINCT IF(${VENDIDO}, t.OrdenID, NULL)) AS ordenes,
+        SUM(IF(${VENDIDO}, ${PERSONAS}, 0))             AS personas,
+        COUNTIF(t.EsDevuelto IS TRUE)                   AS devueltas,
+        COUNTIF(${VENDIDO} AND ${PM_IS})                AS pm_items,
+        COUNT(DISTINCT IF(${VENDIDO} AND ${PM_VENTA}, t.OrdenID, NULL)) AS pm_ordenes,
+        SUM(IF(${VENDIDO} AND ${PM_VENTA}, ${PERSONAS}, 0)) AS pm_personas
+      FROM ${TICKETS} t
+      LEFT JOIN pack_split ps
+        ON ps.EventoID = t.EventoID AND ps.TipoTicket = t.TipoTicket
+      WHERE t.EventoID = @eventoId
+        AND ${FECHA_ORDEN} BETWEEN DATE(@from) AND DATE(@to)
+    )
+    SELECT
+      h.evento_id IS NOT NULL AS tiene_tickets,
+      h.ticketera,
+      w.transacciones, w.ordenes, w.personas, w.devueltas,
+      w.pm_items, w.pm_ordenes, w.pm_personas,
+      h.pm_mutilado, h.con_referido,
+      100 * SAFE_DIVIDE(h.pm_ord_hist, h.ord_hist) AS propagacion_pct,
+      CAST(h.venta_desde AS STRING) AS venta_desde,
+      CAST(h.venta_hasta AS STRING) AS venta_hasta,
+      CAST(p.pm_desde AS STRING)    AS pm_desde_ticketera,
+      c.goal_tickets,
+      CASE
+        -- El ORDEN importa. Las dos primeras son guardas contra fechas NULL.
+        -- 'sin_pm' va ANTES de cualquier chequeo de cobertura: con el orden
+        -- inverso, GLP007 y GLO193 (pm_ordenes = 0, $12.271 de gasto) salían
+        -- clasificados como cobertura parcial y el cliente los trataba como
+        -- medibles, dividiendo por cero.
+        WHEN h.evento_id IS NULL      THEN 'sin_datos_ticketera'
+        WHEN IFNULL(h.tx_hist, 0) = 0 THEN 'cero_vendidos'
+        WHEN h.venta_hasta < IFNULL(p.pm_desde, DATE '2026-02-25') THEN 'pre_esquema'
+        WHEN IFNULL(h.con_referido, 0) = 0 THEN 'sin_propagacion'
+        -- Mutilado se detecta por 'mutilado > pm', NO por 'pm = 0': con '= 0' el
+        -- evento 660905 se cuela como medible por sus 6 tickets buenos (contra
+        -- 1.077 sin prefijo) y produce un CPA de $1.063.
+        WHEN h.pm_mutilado > h.pm_items_hist THEN 'referido_mutilado'
+        WHEN IFNULL(h.pm_ord_hist, 0) = 0 THEN 'sin_pm'
+        WHEN 100 * SAFE_DIVIDE(h.pm_ord_hist, h.ord_hist) < ${PM_PROPAGACION_MIN}
+                                          THEN 'propagacion_baja'
+        ELSE 'medible'
+      END AS estado
+    FROM (SELECT @eventoId AS id) ids
+    LEFT JOIN hist h ON h.evento_id = ids.id
+    LEFT JOIN win  w ON TRUE
+    LEFT JOIN cat  c ON c.EventoID  = ids.id
+    LEFT JOIN primer_pm p ON p.Ticketera = h.ticketera
+    `,
+    { eventoId, from, to },
+  );
+  const r = rows[0] ?? {};
+  return {
+    tieneTickets: b(r.tiene_tickets),
+    ticketera: s(r.ticketera),
+    transacciones: n(r.transacciones),
+    ordenes: n(r.ordenes),
+    personas: n(r.personas),
+    devueltas: n(r.devueltas),
+    pmItems: n(r.pm_items),
+    pmOrdenes: n(r.pm_ordenes),
+    pmPersonas: n(r.pm_personas),
+    pmMutilado: n(r.pm_mutilado),
+    conReferido: n(r.con_referido),
+    propagacionPct: n(r.propagacion_pct),
+    ventaDesde: s(r.venta_desde),
+    ventaHasta: s(r.venta_hasta),
+    pmDesdeTicketera: s(r.pm_desde_ticketera),
+    goalTickets: r.goal_tickets == null ? null : n(r.goal_tickets),
+    estado: (s(r.estado) || "sin_datos_ticketera") as EstadoReferido,
+  };
+}
+
+/** Una fila por día con datos, alineable a las columnas del calendario. */
+export type SerieResultadoRow = {
+  fecha: string; // YYYY-MM-DD
+  transacciones: number;
+  personas: number;
+  pmOrdenes: number;
+};
+
+/**
+ * Serie diaria de resultado, para las filas del bloque "Resultado del día" de la
+ * sábana. Se imputa al día de la ORDEN, que es el único que la ticketera conoce.
+ *
+ * NO hay serie de CPA, ROAS ni conversiones por día, a propósito: la plataforma
+ * imputa la conversión al día del CLIC, así que el ratio entre el CPA de un día y
+ * el del evento va de 0,15 (p5) a 4,89 (p95) con máximo 14,52 sobre 884 días de
+ * 2026. Caso real: GLO203 el 2026-08-18 gastó $27,15 y reporta 370 conversiones
+ * → CPA $0,073. Un número así al lado del gasto del día es ruido, no señal.
+ *
+ * Tampoco hay serie de devueltos: `glovox.tickets` solo tiene el flag
+ * `EsDevuelto` y no cuándo se devolvió (el lag CreatedAt − FechaOrden es 0 días
+ * en todos los cuartiles), así que graficarla la pondría en el día equivocado.
+ */
+export async function getSerieResultadoEvento(
+  eventoId: string,
+  from: string,
+  to: string,
+): Promise<SerieResultadoRow[]> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH ${PACK_SPLIT_CTE}
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', ${FECHA_ORDEN})         AS fecha,
+      COUNTIF(${VENDIDO})                             AS transacciones,
+      SUM(IF(${VENDIDO}, ${PERSONAS}, 0))             AS personas,
+      COUNT(DISTINCT IF(${VENDIDO} AND ${PM_VENTA}, t.OrdenID, NULL)) AS pm_ordenes
+    FROM ${TICKETS} t
+    LEFT JOIN pack_split ps
+      ON ps.EventoID = t.EventoID AND ps.TipoTicket = t.TipoTicket
+    WHERE t.EventoID = @eventoId
+      AND ${FECHA_ORDEN} BETWEEN DATE(@from) AND DATE(@to)
+    GROUP BY fecha
+    ORDER BY fecha
+    `,
+    { eventoId, from, to },
+  );
+  return rows.map((r) => ({
+    fecha: s(r.fecha),
+    transacciones: n(r.transacciones),
+    personas: n(r.personas),
+    pmOrdenes: n(r.pm_ordenes),
   }));
 }

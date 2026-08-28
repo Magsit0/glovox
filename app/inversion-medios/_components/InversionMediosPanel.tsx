@@ -47,6 +47,7 @@ import {
   type CanalFact,
   type FacturacionMes,
 } from "@/lib/inversion-medios/facturacion";
+import { esDiaEvento, tituloDiaEvento } from "@/lib/inversion-medios/evento";
 import { deleteCargoAction, upsertCargoAction } from "../actions";
 import { fmtDiaCorto, fmtUsd } from "./format";
 
@@ -990,21 +991,27 @@ const FilaEvento = memo(function FilaEvento({
           <span className="font-medium text-[#333333]">{fmtUsd(totalRealEvento, 0)}</span>
         </p>
       </td>
-      {ev.days.map((cell) => (
-        <td
-          key={cell.fecha}
-          title={cell.fecha === ev.fechaEvento ? "Día del evento" : undefined}
-          className={`w-16 min-w-16 max-w-16 border-t border-[#E5E5E5] p-0 text-center align-top ${
-            cell.fecha === ev.fechaEvento
-              ? "bg-[#FAEEDA]"
-              : cell.fecha === hoy
-                ? "bg-[#F0EFFE]/40"
-                : ""
-          }`}
-        >
-          <CeldaResumen cell={cell} parcial={cell.fecha === hoy || cell.fecha > realMaxFecha} />
-        </td>
-      ))}
+      {ev.days.map((cell) => {
+        // TODOS los días del evento van en ámbar, no solo el primero: Bocas
+        // Moradas dura 2 días, FDS 3 y Yein Fonda 4, y esos días tienen gasto y
+        // venta reales. Ver lib/inversion-medios/evento.ts.
+        const diaEvento = esDiaEvento(cell.fecha, ev.fechaEvento, ev.diasEvento);
+        return (
+          <td
+            key={cell.fecha}
+            title={diaEvento ? tituloDiaEvento(cell.fecha, ev.fechaEvento, ev.diasEvento) : undefined}
+            className={`w-16 min-w-16 max-w-16 border-t border-[#E5E5E5] p-0 text-center align-top ${
+              diaEvento
+                ? "bg-[#FAEEDA]"
+                : cell.fecha === hoy
+                  ? "bg-[#F0EFFE]/40"
+                  : ""
+            }`}
+          >
+            <CeldaResumen cell={cell} parcial={cell.fecha === hoy || cell.fecha > realMaxFecha} />
+          </td>
+        );
+      })}
     </tr>
   );
 });
@@ -1363,7 +1370,7 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
       {/* Tabla de cargos */}
       {cargos.length === 0 ? (
         <p className="rounded-lg border border-[#E5E5E5] bg-white p-6 text-center font-sans text-sm text-[#999999]">
-          Sin cargos extra cargados{canEdit ? " — agregá el primero." : "."}
+          Sin cargos extra cargados{canEdit ? " — agrega el primero." : "."}
         </p>
       ) : (
         <div className="overflow-hidden rounded-lg border border-[#E5E5E5] bg-white">
