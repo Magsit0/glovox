@@ -62,7 +62,9 @@ function parseComunidad(v?: string): CurvaComunidad {
 }
 
 function parseMetric(v?: string): CurvaMetric {
-  return v === "personas" || v === "venta" ? v : "tickets";
+  // Default = personas (unidad canónica del dashboard, igual que /marketing/weekly).
+  // "tickets" = transacciones, hay que pedirlo explícitamente en la URL.
+  return v === "tickets" || v === "venta" ? v : "personas";
 }
 
 function parseGroupBy(v?: string): CurvaGroupBy {

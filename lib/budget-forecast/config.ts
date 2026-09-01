@@ -80,10 +80,10 @@ export type CategoriaPresupuesto = {
 /** Documento completo de un presupuesto (persistido en jsonb). */
 export type PresupuestoDoc = {
   eventoId: string; // EventoID de glovox.categoriaEvento (puede ser "")
-  asistentes: number | null; // asistentes esperados
+  asistentes: number | null; // asistentes esperados, en PERSONAS (default cierreEventos.TotalPersonasAsistentes)
   // --- Ingresos proyectados (todo BRUTO, IVA incluido) ---
-  ticketPerCapita: number | null; // venta de tickets / asistente (default cierreEventos)
-  fbPerCapita: number | null; // PerCapitaFFyBB (default cierreEventos)
+  ticketPerCapita: number | null; // venta de tickets / PERSONA (default cierreEventos.PerCapitaTicketsQuemadosPersonas)
+  fbPerCapita: number | null; // cierreEventos.PerCapitaFFyBBPersonas (por PERSONA, no por fila)
   ingresoMarcasOtros: number | null; // "Ingreso por marcas u otros" (manual, default 0)
   // --- Margen → techo ---
   marginMode: MarginMode;

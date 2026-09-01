@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-26T15:38:25.564188+00:00",
+  "generatedAt": "2026-09-01T13:50:37.815303+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -3104,13 +3104,16 @@
       "pipeline": "pipelines/finanzas/unabase/catalogo.py",
       "schema": "finanzas_unabase_catalogo",
       "assetType": "table",
-      "status": "governed_unconsumed",
+      "status": "governed",
       "loadPattern": "truncate-load",
       "frequency": "on-demand",
       "owner": "@maximiliano",
       "upstream": [],
-      "consumers": [],
-      "notes": "Catálogo contable de Unabase (Categoría → Sub-categoría → Ítem, con código y cuenta contable). No viene de la API: es un CSV maestro que se reemplaza a mano en data/finanzas/ y se recarga con `uv run python pipelines/finanzas/unabase/catalogo.py` (TRUNCATE+LOAD). El código no es único.",
+      "consumers": [
+        "/fds",
+        "glovox-produccion"
+      ],
+      "notes": "Catálogo contable de Unabase (Categoría → Sub-categoría → Ítem, con código y cuenta contable). No viene de la API: es un CSV maestro que se reemplaza a mano en data/finanzas/ y se recarga con `uv run python pipelines/finanzas/unabase/catalogo.py` (TRUNCATE+LOAD). El código no es único. Consumidor nuevo 28-ago: glovox-produccion lo baja entero (541 hojas con los tres niveles) al selector en cascada con el que se etiqueta cada TAREA de montaje — es lo que permite cruzar el plan de producción contra marts.finanzas_gastos sin tabla de traducción, porque las dos puntas hablan el mismo vocabulario. Ojo: si se agrega un ítem al CSV, aparece en el selector de tareas sin ningún despliegue.",
       "metrics": [],
       "endpointLabel": "CSV manual — data/finanzas/unabase_catalogo.csv",
       "fields": [
@@ -4416,7 +4419,8 @@
         "/cierre-negocio",
         "/interno",
         "slack-data-agent",
-        "finanzas.reconciliacion_gasto_log"
+        "finanzas.reconciliacion_gasto_log",
+        "glovox-produccion"
       ],
       "notes": "LA fuente canónica del GASTO a nivel línea. gasto_neto = item_costo_empresa (reconcilia exacto con costo_real del maestro); item_costo_real NO se expone (corrupto en 2.436 docs por bug de la API, error '# 53'). Modelo neto/impuesto/bruto: gasto_iva (aditivo), gasto_retencion_honorarios (contenida en el neto), gasto_bruto = neto + IVA. ESTANDARIZACIÓN A ÍTEM (18-ago): tripleta oficial categoria_oficial/subcategoria_oficial/item_oficial resuelta en cascada — herencia desde la línea de presupuesto (join negocio+llave_item contra marts.finanzas_presupuesto_items; el gasto copia el texto del presupuesto en el 99,4% del monto), seed unabase_item_map sobre el texto propio, y fallback al seed unabase_categoria_map. categoria_oficial/bucket_presupuesto MEJORADOS EN EL SITIO (bucket derivado de la categoría resuelta); columnas nuevas item_mapeo y flag_item_sin_mapear; categoria_mapeo suma valores herencia_presupuesto/par/item. No elimina filas: universo por predicados (incluir_en_totales, es_produccion_propia...). nro_doc/nro_doc_folios (Nº DOC, ej '27861') vía LEFT JOIN a finanzas.unabase_gasto_dtc — NULL si el gasto aún no tiene documento. proveedor_real/proveedor_efectivo/flag_proveedor_reatribuido (17-jul): re-atribución de docs Riesco al proveedor real vía seed gasto_proveedor_real (solo gastos con rut Riesco, guard por negocio; doc-uniforme seguro o match por monto). proveedor declarado queda intacto — consumidores migran opt-in (/proveedor migrado). REGLA DE CONSUMO (20-jul): los negocios internos area 'GLOVOX' (es_interno_glovox: sueldos y gasto administrativo) SOLO se muestran en /interno; todo otro consumidor DEBE filtrar NOT es_interno_glovox.",
       "metrics": [
@@ -4611,27 +4615,34 @@
       "key": "glovox.tickets",
       "area": "tickets",
       "source": "legacy",
-      "endpoint": null,
-      "pipeline": null,
+      "endpoint": "Detalle de tickets — PuntoTicket + TeleTicket + FeverUp unificados",
+      "pipeline": "schemas/bigquery/views/glovox_tickets.sql",
       "schema": null,
       "assetType": "table",
-      "status": "legacy_ungoverned",
-      "owner": null,
+      "status": "governed",
+      "loadPattern": "scheduled-query",
+      "frequency": "hourly",
+      "owner": "@maximiliano",
       "upstream": [],
       "consumers": [
         "/club",
         "/cierre-trimestral",
         "/frees",
         "/marketing/weekly",
+        "/marketing/curvas",
+        "/inversion-medios",
         "/onepager",
-        "/ticketing"
+        "/ticketing",
+        "/reportes/grid-kiki-jw",
+        "slack-data-agent",
+        "ticketsAndAABB.cierreEventos"
       ],
-      "notes": "LA tabla más crítica de la plataforma. Productor: DTS horario (info@glovox.cl) que fusiona PuntoTicket+TeleTicket+fever.order_items; aún sin versionar (11 DTS invisibles). Máxima prioridad de gobernar (P1 #7).",
+      "notes": "LA tabla más crítica de la plataforma. Productor: scheduled query 'UPDATE glovox.tickets' (config 69a95835-0000-2ee8-910e-582429adf63c, owner info@glovox.cl, región us) que corre CADA HORA y fusiona PuntoTicket+TeleTicket+fever.order_items con un UNION ALL POSICIONAL de 3 bloques. Versionada en schemas/bigquery/views/glovox_tickets.sql (7-ago). Ojo: el id que figuraba como 'scheduled_query_6a7eafda-...' es un job/run id, NO el config. CAMBIO 28-ago — PERSONAS POR TICKET: 5 columnas nuevas al final (PersonasNominal, PersonasNominalDetectado, PackYaPartido, RegimenRevisar, PersonasPorTicket) que resuelven el fenómeno '1 fila ≠ 1 persona'. Hay tickets tipo pack multi-persona que algunas ticketeras NO partieron en una fila por asistente; PuntoTicket cambió de régimen a partir de GLO197. INVARIANTE para todo consumidor: SUM(PersonasPorTicket) = personas/asistentes, COUNT(*) = transacciones/tickets emitidos. Difieren en 6 eventos (GLO181, GLO197, GLO202, GLO207, GLP005, GLP006), +3.932 personas. El régimen NO se deduce del nombre del ticket: se decide por la paridad de filas por orden dentro de cada evento×tipo, y solo un catálogo de 12 nombres sancionados puede multiplicar (compuerta). Un pack NUEVO queda en 1 persona hasta que se agregue al catálogo: vigílalo con el watchdog W4 (PersonasNominalDetectado > 1 AND PersonasNominal = 1), documentado en el .sql. Las fuentes NO traen columna de cantidad ni teléfono del comprador (schema verificado 28-ago). GOTCHA preexistente: mezcla monedas (CLP/PEN) sin columna currency.",
       "metrics": [
         "Ventas, cortesías y pases por evento",
         "Ticket promedio, asistentes, per cápita"
       ],
-      "endpointLabel": null,
+      "endpointLabel": "Detalle de tickets — PuntoTicket + TeleTicket + FeverUp unificados",
       "fields": []
     },
     {
@@ -4660,7 +4671,7 @@
         "/marketing/weekly",
         "slack-data-agent"
       ],
-      "notes": "Tabla DERIVADA precomputada que une TICKETS (glovox.tickets) + FF&BB (onfire.soldItems) + EXTRAS (glovoxticketing.extrasOnepager) + Paid Media (paidMedia.generalAds), agregada por evento. La produce el scheduled query semanal 'COR cierreEventos' (lunes 11:00, CREATE OR REPLACE TABLE) — productor antes invisible, ahora versionado en schemas/bigquery/ticketsAndAABB_cierreEventos.sql (22-jun). CAMBIO 22-jun: TotalVentaTICKETS pasó a ser solo el valor cara (Precio - Descuento); el cargo por servicio completo se separó al nuevo campo TotalCargoServicio. La consume también el slack-data-agent.",
+      "notes": "Tabla DERIVADA precomputada que une TICKETS (glovox.tickets) + FF&BB (onfire.soldItems) + EXTRAS (glovoxticketing.extrasOnepager) + Paid Media (paidMedia.generalAds), agregada por evento. La produce el scheduled query semanal 'COR cierreEventos' (lunes 11:00, CREATE OR REPLACE TABLE) — productor antes invisible, ahora versionado en schemas/bigquery/ticketsAndAABB_cierreEventos.sql (22-jun). CAMBIO 22-jun: TotalVentaTICKETS pasó a ser solo el valor cara (Precio - Descuento); el cargo por servicio completo se separó al nuevo campo TotalCargoServicio. La consume también el slack-data-agent. CAMBIO 28-ago — PERSONAS: los 4 bloques del UNION llevan QttyPersonas y QttyPersonasQuemadas al final, y el agregado expone 14 campos paralelos *Personas* (TotalPersonasVendidas/Nominadas/Asistentes con sus cortes VIP y GENERAL, PerCapitaFFyBB*Personas, PerCapitaTickets*Personas, GastoPMxPersona). Los campos viejos quedan INTACTOS: cuentan FILAS, así que TotalAsistentes son tickets quemados y NO personas. Eso infla los per-cápita justo en los eventos con packs (FDS 25: PerCapitaFFyBB baja de $38.127 a $29.247 al usar la versión persona). Migra los consumidores a los campos *Personas* y borra los viejos cuando no quede ninguno leyéndolos.",
       "metrics": [
         "Cierre por evento: ventas + AA&BB"
       ],
@@ -4894,9 +4905,10 @@
         "/ticketing",
         "/onepager",
         "/marketing/weekly",
-        "/cierre-trimestral"
+        "/cierre-trimestral",
+        "glovox-produccion"
       ],
-      "notes": "Dimensión clave. Hoy se materializa desde un Sheet vía la app; falta gobernar el flujo.",
+      "notes": "Dimensión clave. Hoy se materializa desde un Sheet vía la app; falta gobernar el flujo. Consumidor nuevo 28-ago: glovox-produccion (app de planificación de montaje) la usa como catálogo de eventos y toma Fecha/dias para posicionar la carta Gantt y calcular el corrimiento al clonar un plan — o sea que una fecha mal cargada en el Sheet ahora descuadra un cronograma de producción, no solo un reporte. Consume deduplicando con QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox)=1 por los duplicados conocidos (GLO042 x6).",
       "metrics": [],
       "endpointLabel": "Sync desde Google Sheets (glovox-data /admin/eventos)",
       "fields": []

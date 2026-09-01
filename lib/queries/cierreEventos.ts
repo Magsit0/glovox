@@ -30,7 +30,7 @@ export async function getCierreEvento(
     `
     SELECT
       EventoID         AS evento_id,
-      TotalAsistentes  AS total_asistentes,
+      TotalPersonasAsistentes  AS total_asistentes,
       CategoriaEvento2 AS categoria_evento_2
     FROM ${CIERRE}
     WHERE EventoID = @eventoId
@@ -58,7 +58,7 @@ export async function getCierreEventos(): Promise<CierreEventoRow[]> {
   const rows = await query<Record<string, unknown>>(`
     SELECT
       EventoID         AS evento_id,
-      TotalAsistentes  AS total_asistentes,
+      TotalPersonasAsistentes  AS total_asistentes,
       CategoriaEvento2 AS categoria_evento_2
     FROM ${CIERRE}
   `);

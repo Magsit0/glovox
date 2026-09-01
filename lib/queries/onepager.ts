@@ -159,9 +159,13 @@ export async function getOnepagerListadoKpis(): Promise<OnepagerListadoRow[]> {
         -- Mismo criterio "VENTA" usado en ticketsCte/baseCte: cualquier
         -- MedioPago distinto de 'Otro' es venta; con 'Otro' sólo cuenta si
         -- el TipoTicket contiene 'pase' (el resto son cortesías).
-        COUNTIF(
-          MedioPago != 'Otro'
-          OR LOWER(TipoTicket) LIKE '%pase%'
+        -- Comprados en PERSONAS (2026-09-01), no en filas. Antes era COUNTIF, y
+        -- un pase familiar de 4 contaba 1: la columna quedaba en otra unidad que
+        -- "Asistentes" (que son personas), así que restarlas NO daba las cortesías.
+        -- En GLO181: 4.969 filas contra 6.850 personas realmente compradas.
+        SUM(
+          IF(MedioPago != 'Otro' OR LOWER(TipoTicket) LIKE '%pase%',
+             PersonasPorTicket, 0)
         )                                                        AS tickets_comprados
       FROM ${TICKETS}
       GROUP BY EventoID
@@ -292,6 +296,12 @@ function ticketsCte() {
       COUNT(*)                                                AS Qtty,
       COUNTIF(a.EsQuemado IS TRUE)                           AS Qtty2,
       COUNTIF(a.EsQuemado IS FALSE)                          AS Qtty3,
+      -- Personas (2026-09-01): las mismas dos medidas ponderadas por
+      -- PersonasPorTicket. Qtty/Qtty2 siguen siendo FILAS y se conservan porque
+      -- el ranking de producto se mide en unidades vendidas. El % de Asistencia
+      -- usa el par de PERSONAS: mezclar unidades daba 108% en GLO181.
+      SUM(a.PersonasPorTicket)                                AS QttyPersonas,
+      SUM(IF(a.EsQuemado IS TRUE, a.PersonasPorTicket, 0))   AS Qtty2Personas,
       SUM(a.Precio - IFNULL(Descuento, 0))                   AS Venta,
       SUM(a.Precio - IFNULL(Descuento, 0)) * 0.15 * 0.55    AS Rebate,
       b.CategoriaEvento
@@ -325,6 +335,8 @@ function ffbbCte() {
       SUM(a.Cantidad)                                                       AS Qtty,
       0                                                                     AS Qtty2,
       0                                                                     AS Qtty3,
+      0                                                                     AS QttyPersonas,
+      0                                                                     AS Qtty2Personas,
       SUM(SubTotal)                                                         AS Venta,
       0                                                                     AS Rebate,
       b.CategoriaEvento
@@ -360,6 +372,8 @@ function baseCte() {
         END AS VipGral,
         a.EsDevuelto AS Devuelto, a.EsQuemado AS Quemado,
         COUNT(*) AS Qtty, COUNTIF(a.EsQuemado IS TRUE) AS Qtty2, COUNTIF(a.EsQuemado IS FALSE) AS Qtty3,
+        SUM(a.PersonasPorTicket) AS QttyPersonas,
+        SUM(IF(a.EsQuemado IS TRUE, a.PersonasPorTicket, 0)) AS Qtty2Personas,
         SUM(a.Precio - IFNULL(Descuento, 0)) AS Venta,
         SUM(a.Precio - IFNULL(Descuento, 0)) * 0.15 * 0.55 AS Rebate,
         b.CategoriaEvento
@@ -377,6 +391,7 @@ function baseCte() {
         a.Categoria AS Categoria, a.Producto AS TipoProducto, 'NA' AS VipGral,
         FALSE AS Devuelto, FALSE AS Quemado,
         SUM(a.Cantidad) AS Qtty, 0 AS Qtty2, 0 AS Qtty3,
+        0 AS QttyPersonas, 0 AS Qtty2Personas,
         SUM(SubTotal) AS Venta, 0 AS Rebate, b.CategoriaEvento
       FROM ${SOLD_ITEMS} a LEFT JOIN ${CATEGORY} b ON a.EventoID = b.EventoID
       WHERE a.EventoID = @eventoId
@@ -518,9 +533,18 @@ export async function getOnepagerTicketsAsistencia(
     ${ticketsCte()}
     SELECT
       ventaNoventa   AS venta_noventa,
-      SUM(Qtty)      AS qtty,
-      SUM(Qtty2)     AS qtty2
+      -- PERSONAS en ambos lados: el % de Asistencia es qtty2/qtty y mezclar
+      -- unidades daba 108,3% en GLO181 (más gente entrando que tickets emitidos).
+      -- Con el par de personas da 85,9%; con el par de filas daba 83,1%.
+      SUM(QttyPersonas)  AS qtty,
+      SUM(Qtty2Personas) AS qtty2
     FROM base
+    -- BUG ARREGLADO 2026-09-01: faltaba este filtro. El bloque FF&BB del CTE
+    -- marca ventaNoventa='VENTA', así que SUM(Qtty) metía los ítems de comida
+    -- en el denominador del % de Asistencia. En GLO181 el denominador daba
+    -- 50.190 (7.190 tickets + 43.000 empanadas y tragos) en vez de 7.190, o sea
+    -- el panel mostraba ~12% de asistencia en vez de ~86%.
+    WHERE Ingreso = 'TICKETS'
     GROUP BY ventaNoventa
     ORDER BY ventaNoventa
     `,

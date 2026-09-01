@@ -325,7 +325,7 @@ async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
       <BrutalKpiCard
-        label="Tickets Vendidos"
+        label="Personas"
         value={kpis.totalTickets}
         suffix={`/${kpis.goalTickets.toLocaleString("es-CL")} (${soldPct}%)`}
       />

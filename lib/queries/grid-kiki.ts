@@ -80,8 +80,12 @@ export async function getGridKikiAudiencia(): Promise<GridKikiAudiencia> {
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
-      COUNT(*)                                    AS asistentes,
-      COUNTIF(HoraQuemado < DATETIME(@corte))     AS audiencia21
+      -- Asistentes = PERSONAS, no filas: la columna PersonasPorTicket pesa los
+      -- packs multi-persona que la ticketera no partió en una fila por asistente.
+      -- Hoy los tres eventos comparados dan delta 0; esto es blindaje para cuando
+      -- entre uno con packs (en GLO181 la diferencia sería +30%).
+      SUM(PersonasPorTicket)                      AS asistentes,
+      SUM(IF(HoraQuemado < DATETIME(@corte), PersonasPorTicket, 0)) AS audiencia21
     FROM ${TICKETS}
     WHERE EventoID = @eventoId AND EsQuemado = TRUE
     `,
@@ -196,7 +200,7 @@ async function getAsistentesPorEvento(
 ): Promise<Record<string, number>> {
   const rows = await query<Record<string, unknown>>(
     `
-    SELECT EventoID AS evento_id, COUNT(*) AS asistentes
+    SELECT EventoID AS evento_id, SUM(PersonasPorTicket) AS asistentes
     FROM ${TICKETS}
     WHERE EventoID IN UNNEST(@eventoIds) AND EsQuemado = TRUE
     GROUP BY EventoID

@@ -77,20 +77,18 @@ const CLASE_CASE = `
     ELSE 'VENTA'
   END`;
 
-/**
- * Personas por fila de ticket. ESPEJO de `personasExpr` en
- * `lib/queries/marketing.ts`: los packs FBM se venden a dos personas en una
- * sola fila, así que cuentan 2. `catExpr` es la columna con CategoriaEvento.
+/*
+ * Personas: las cuenta la columna `glovox.tickets.PersonasPorTicket` (INT64),
+ * que dice cuántas PERSONAS representa cada fila (1 en casi todas, N en los
+ * packs que la ticketera no partió en una fila por asistente).
+ *
+ *   SUM(PersonasPorTicket) = personas / asistentes
+ *   COUNT(*)               = transacciones / tickets emitidos
+ *
+ * Reemplaza al `personasExpr` local (espejo del de `lib/queries/marketing.ts`,
+ * FBM + PACK + un 2 aislado), que sobre-contaba x2 los eventos donde la
+ * ticketera YA había partido el pack (GLO136, GLO146, GLO155, GLO165, GLO185).
  */
-function personasExpr(catExpr: string): string {
-  return `CASE
-    WHEN ${catExpr} = 'FBM'
-     AND UPPER(t.TipoTicket) LIKE '%PACK%'
-     AND REGEXP_CONTAINS(t.TipoTicket, r'(^|\\D)2(\\D|$)')
-    THEN 2
-    ELSE 1
-  END`;
-}
 
 /**
  * Condiciones que definen el UNIVERSO de eventos (alias `c` de categoriaEvento):
@@ -249,7 +247,7 @@ export async function getCurvasCompra(
     WITH ev AS (
       SELECT
         c.EventoID                    AS evento_id,
-        ANY_VALUE(c.CategoriaEvento)  AS categoria,
+        -- 'categoria' se cayo con personasExpr: era su unico consumidor.
         MAX(t.FechaEvento)            AS fecha_evento
       FROM ${CATEGORY} c
       JOIN ${TICKETS} t ON t.EventoID = c.EventoID
@@ -261,8 +259,10 @@ export async function getCurvasCompra(
       e.evento_id                                                       AS evento_id,
       DATE_DIFF(DATE(e.fecha_evento), DATE(t.FechaOrden), DAY)          AS dias,
       ANY_VALUE(DATE_DIFF(DATE(e.fecha_evento), CURRENT_DATE(), DAY))   AS dias_hoy,
+      -- 'tickets' = transacciones (opcion Tickets del toggle Metrica);
+      -- 'personas' = asistentes, via la columna PersonasPorTicket.
       COUNT(*)                                                          AS tickets,
-      SUM(${personasExpr("e.categoria")})                               AS personas,
+      SUM(t.PersonasPorTicket)                                          AS personas,
       SUM(t.Precio - IFNULL(t.Descuento, 0))                            AS venta
     FROM ${TICKETS} t
     JOIN ev e ON e.evento_id = t.EventoID
@@ -290,8 +290,12 @@ export async function getCurvasCompra(
  * evento acotan la lista de tipos, y elegir un tipo acota los eventos) sin
  * volver al servidor.
  *
- * Sí aplica los filtros de fila de ticket (comunidad, devoluciones, cortesías)
- * para que los conteos que muestra el dropdown coincidan con lo que se grafica.
+ * Sí aplica los filtros de fila de ticket (comunidad, devoluciones, cortesías),
+ * así que el dropdown acota el mismo universo que el gráfico. Ojo: el número
+ * gris de cada opción es siempre un conteo de TRANSACCIONES (filas), y el
+ * gráfico tiene un toggle de tres métricas (Tickets / Personas / Recaudación),
+ * así que solo coincide con la métrica por defecto, Tickets. Su fin es ordenar
+ * la lista por relevancia, no cuadrar con lo graficado.
  *
  * Cada evento nombra sus tipos a su manera, así que el universo es grande en
  * valores distintos pero chico en filas (~1.3k pares hoy).

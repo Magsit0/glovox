@@ -37,7 +37,7 @@ export const cierreMensualSql = (monto: MontoMode) => `
     SELECT
       EventoID,
       ANY_VALUE(NombreID) AS NombreID,
-      ANY_VALUE(totalAsistentes) AS totalAsistentes
+      ANY_VALUE(TotalPersonasAsistentes) AS totalAsistentes
     FROM ${CIERRE_EVENTOS}
     GROUP BY EventoID
   )

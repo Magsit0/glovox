@@ -170,7 +170,7 @@ const EVENTO_SQL = `
     SAFE_CAST(TotalVentaTICKETS AS FLOAT64) AS totalVentaTickets,
     SAFE_CAST(TotalCargoServicio AS FLOAT64) AS totalCargoServicio,
     SAFE_CAST(TotalVentaFFBB AS FLOAT64) AS totalVentaFfbb,
-    SAFE_CAST(TotalAsistentes AS FLOAT64) AS totalAsistentes
+    SAFE_CAST(TotalPersonasAsistentes AS FLOAT64) AS totalAsistentes
   FROM ${CIERRE_EVENTOS}
   WHERE CAST(EventoID AS STRING) = @eventoId
   LIMIT 1

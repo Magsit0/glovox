@@ -63,11 +63,11 @@ export type PerCapitaDefaults = {
   /** # eventos detrás de las sugerencias (1 si es histórico propio). */
   n: number;
   asistentes: number | null;
-  /** Venta de tickets por asistente (PerCapitaTicketsQuemados, incluye rebate). */
+  /** Venta de tickets por asistente (PerCapitaTicketsQuemadosPersonas, incluye rebate). */
   ticketPerCapita: number | null;
-  /** Ticket promedio: venta por ticket VENDIDO (PerCapitaTicketsVenta). Solo referencia. */
+  /** Ticket promedio: venta por ticket VENDIDO (PerCapitaTicketsVentaPersonas). Solo referencia. */
   ticketPromedio: number | null;
-  /** F&B por asistente (PerCapitaFFyBB). */
+  /** F&B por asistente (PerCapitaFFyBBPersonas). */
   fbPerCapita: number | null;
   /** Rangos min–max entre comparables (para mostrar incertidumbre). */
   ranges: {
@@ -90,10 +90,10 @@ async function getCierreOwn(eventoId: string): Promise<CierreRow | null> {
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
-      SAFE_CAST(TotalAsistentes AS FLOAT64)          AS asistentes,
-      SAFE_CAST(PerCapitaTicketsQuemados AS FLOAT64) AS pc_ticket,
-      SAFE_CAST(PerCapitaTicketsVenta AS FLOAT64)    AS pc_venta,
-      SAFE_CAST(PerCapitaFFyBB AS FLOAT64)           AS pc_fb
+      SAFE_CAST(TotalPersonasAsistentes AS FLOAT64)          AS asistentes,
+      SAFE_CAST(PerCapitaTicketsQuemadosPersonas AS FLOAT64) AS pc_ticket,
+      SAFE_CAST(PerCapitaTicketsVentaPersonas AS FLOAT64)    AS pc_venta,
+      SAFE_CAST(PerCapitaFFyBBPersonas AS FLOAT64)           AS pc_fb
     FROM ${CIERRE_EVENTOS}
     WHERE CAST(EventoID AS STRING) = @id
     LIMIT 1
@@ -130,21 +130,21 @@ async function getCierreComparablesAgg(refEventoIds: string[]): Promise<CierreAg
     `
     SELECT
       COUNT(*)                                        AS n,
-      AVG(SAFE_CAST(TotalAsistentes AS FLOAT64))      AS asistentes,
-      AVG(SAFE_CAST(PerCapitaTicketsQuemados AS FLOAT64)) AS pc_ticket,
-      MIN(SAFE_CAST(PerCapitaTicketsQuemados AS FLOAT64)) AS pc_ticket_min,
-      MAX(SAFE_CAST(PerCapitaTicketsQuemados AS FLOAT64)) AS pc_ticket_max,
+      AVG(SAFE_CAST(TotalPersonasAsistentes AS FLOAT64))      AS asistentes,
+      AVG(SAFE_CAST(PerCapitaTicketsQuemadosPersonas AS FLOAT64)) AS pc_ticket,
+      MIN(SAFE_CAST(PerCapitaTicketsQuemadosPersonas AS FLOAT64)) AS pc_ticket_min,
+      MAX(SAFE_CAST(PerCapitaTicketsQuemadosPersonas AS FLOAT64)) AS pc_ticket_max,
       -- Ticket promedio (venta por ticket vendido): solo referencia, no impulsa el cálculo.
-      AVG(IF(SAFE_CAST(PerCapitaTicketsVenta AS FLOAT64) > 0, SAFE_CAST(PerCapitaTicketsVenta AS FLOAT64), NULL)) AS pc_venta,
-      MIN(IF(SAFE_CAST(PerCapitaTicketsVenta AS FLOAT64) > 0, SAFE_CAST(PerCapitaTicketsVenta AS FLOAT64), NULL)) AS pc_venta_min,
-      MAX(IF(SAFE_CAST(PerCapitaTicketsVenta AS FLOAT64) > 0, SAFE_CAST(PerCapitaTicketsVenta AS FLOAT64), NULL)) AS pc_venta_max,
+      AVG(IF(SAFE_CAST(PerCapitaTicketsVentaPersonas AS FLOAT64) > 0, SAFE_CAST(PerCapitaTicketsVentaPersonas AS FLOAT64), NULL)) AS pc_venta,
+      MIN(IF(SAFE_CAST(PerCapitaTicketsVentaPersonas AS FLOAT64) > 0, SAFE_CAST(PerCapitaTicketsVentaPersonas AS FLOAT64), NULL)) AS pc_venta_min,
+      MAX(IF(SAFE_CAST(PerCapitaTicketsVentaPersonas AS FLOAT64) > 0, SAFE_CAST(PerCapitaTicketsVentaPersonas AS FLOAT64), NULL)) AS pc_venta_max,
       -- F&B: excluir eventos con venta F&B = 0 (F&B no capturado sesga a la baja)
-      AVG(IF(SAFE_CAST(TotalVentaFFBB AS FLOAT64) > 0, SAFE_CAST(PerCapitaFFyBB AS FLOAT64), NULL)) AS pc_fb,
-      MIN(IF(SAFE_CAST(TotalVentaFFBB AS FLOAT64) > 0, SAFE_CAST(PerCapitaFFyBB AS FLOAT64), NULL)) AS pc_fb_min,
-      MAX(IF(SAFE_CAST(TotalVentaFFBB AS FLOAT64) > 0, SAFE_CAST(PerCapitaFFyBB AS FLOAT64), NULL)) AS pc_fb_max
+      AVG(IF(SAFE_CAST(TotalVentaFFBB AS FLOAT64) > 0, SAFE_CAST(PerCapitaFFyBBPersonas AS FLOAT64), NULL)) AS pc_fb,
+      MIN(IF(SAFE_CAST(TotalVentaFFBB AS FLOAT64) > 0, SAFE_CAST(PerCapitaFFyBBPersonas AS FLOAT64), NULL)) AS pc_fb_min,
+      MAX(IF(SAFE_CAST(TotalVentaFFBB AS FLOAT64) > 0, SAFE_CAST(PerCapitaFFyBBPersonas AS FLOAT64), NULL)) AS pc_fb_max
     FROM ${CIERRE_EVENTOS}
     WHERE CAST(EventoID AS STRING) IN UNNEST(@ids)
-      AND SAFE_CAST(TotalAsistentes AS FLOAT64) > 0
+      AND SAFE_CAST(TotalPersonasAsistentes AS FLOAT64) > 0
     `,
     { ids: refEventoIds },
   );

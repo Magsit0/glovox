@@ -206,7 +206,7 @@ export default function CumulativeSalesComparisonChart({
           yAxisId="daily"
           dataKey="dailyMain"
           fill="#0000FF"
-          name="Tickets / día (principal)"
+          name="Personas / día (principal)"
           opacity={0.4}
         />
         {eventOrder.map((id, idx) => {

@@ -138,40 +138,13 @@ const PM_VENTA = `(REGEXP_CONTAINS(${PM_NORM}, r'^PM_MT_[A-Z0-9]+_CONV$')
 const PM_MUT = `(${PM_NORM} IN ('CONV','MIX','ALC','TRF','SEA')
   OR REGEXP_CONTAINS(${PM_NORM}, r'^[0-9]{15,20}$'))`;
 
-/**
- * Personas. REEMPLAZA a personasExpr (lib/queries/marketing.ts:83), que
- * sobre-cuenta 2× en GLO165, GLO136 y GLO185: PuntoTicket YA emite una fila por
- * persona ahí. La regla correcta no es la categoría del evento ni el nombre del
- * ticket: es si la ticketera ya partió el pack, y eso se detecta por PARIDAD de
- * filas por orden. Medido, la separación es absoluta — los eventos ya partidos
- * tienen el 100% de sus órdenes con filas pares; los que no, entre 7% y 14%.
- *
- * Bonus: no toca `categoriaEvento`, así que no hay riesgo de fanout (230 filas
- * para 225 EventoID, GLO042 con 6).
- *
- * El piso de 20 órdenes evita el falso positivo de GLP005/GLP006 ('SUPER VIP ALL
- * NIGHT PACK 2', 1 sola orden: es un upgrade VIP, no un pack de 2 personas).
- * Regex con [^0-9] en vez de \D: equivalente en re2 y evita el doble escape.
- * Requiere el LEFT JOIN a `pack_split` con alias `ps`.
- */
-const PERSONAS = `IF(UPPER(t.TipoTicket) LIKE '%PACK%'
-  AND REGEXP_CONTAINS(t.TipoTicket, r'(^|[^0-9])2([^0-9]|$)')
-  AND NOT IFNULL(ps.ya_partido, FALSE)
-  AND IFNULL(ps.ordenes_pack, 0) >= 20, 2, 1)`;
-
-const PACK_SPLIT_CTE = `pack_split AS (
-  SELECT EventoID, TipoTicket,
-    COUNTIF(MOD(n,2)=0) = COUNT(*) AS ya_partido,
-    COUNT(*)                       AS ordenes_pack
-  FROM (
-    SELECT t.EventoID, t.TipoTicket, t.OrdenID, COUNT(*) AS n
-    FROM ${TICKETS} t
-    WHERE UPPER(t.TipoTicket) LIKE '%PACK%'
-      AND REGEXP_CONTAINS(t.TipoTicket, r'(^|[^0-9])2([^0-9]|$)')
-      AND t.EsDevuelto IS FALSE
-    GROUP BY 1,2,3
-  ) GROUP BY EventoID, TipoTicket
-)`;
+// PERSONAS y PACK_SPLIT_CTE se eliminaron: el heurístico de paridad (detectar si
+// la ticketera ya había partido el pack, con piso de 20 órdenes) quedó obsoleto.
+// `glovox.tickets` trae hoy la columna `PersonasPorTicket` (INT64), que es la
+// fuente única de verdad para PERSONAS. Nueva invariante:
+//   SUM(t.PersonasPorTicket) = personas · COUNT(*) = transacciones.
+// Ojo: el heurístico marcaba el pack de GLO181 como "ya partido" y lo pesaba 1,
+// así que este panel subestimaba las personas de ese evento (7.190 → 9.071).
 
 /** Nacimiento del esquema PM_ por ticketera, DERIVADO del dato (no hardcodeado).
  *  Medido: PuntoTicket 2026-02-25, TeleTicket 2026-03-10, FeverUp 2026-07-02.
@@ -1157,8 +1130,7 @@ export async function getRendimientoTicketsEvento(
 ): Promise<TicketsEvento> {
   const rows = await query<Record<string, unknown>>(
     `
-    WITH ${PACK_SPLIT_CTE},
-    ${PRIMER_PM_CTE},
+    WITH ${PRIMER_PM_CTE},
     cat AS (
       -- categoriaEvento tiene 230 filas para 225 EventoID (GLO042 con 6). Ninguno
       -- está hoy en el universo del panel, pero el catálogo lo edita gente:
@@ -1184,16 +1156,17 @@ export async function getRendimientoTicketsEvento(
     ),
     win AS (
       SELECT
+        -- transacciones / ordenes / devueltas / pm_items / pm_ordenes siguen en
+        -- FILAS y ÓRDENES a propósito: son unidades de compra (pm_ordenes es el
+        -- denominador del CPA referido). Solo *_personas usa PersonasPorTicket.
         COUNTIF(${VENDIDO})                             AS transacciones,
         COUNT(DISTINCT IF(${VENDIDO}, t.OrdenID, NULL)) AS ordenes,
-        SUM(IF(${VENDIDO}, ${PERSONAS}, 0))             AS personas,
+        SUM(IF(${VENDIDO}, t.PersonasPorTicket, 0))     AS personas,
         COUNTIF(t.EsDevuelto IS TRUE)                   AS devueltas,
         COUNTIF(${VENDIDO} AND ${PM_IS})                AS pm_items,
         COUNT(DISTINCT IF(${VENDIDO} AND ${PM_VENTA}, t.OrdenID, NULL)) AS pm_ordenes,
-        SUM(IF(${VENDIDO} AND ${PM_VENTA}, ${PERSONAS}, 0)) AS pm_personas
+        SUM(IF(${VENDIDO} AND ${PM_VENTA}, t.PersonasPorTicket, 0)) AS pm_personas
       FROM ${TICKETS} t
-      LEFT JOIN pack_split ps
-        ON ps.EventoID = t.EventoID AND ps.TipoTicket = t.TipoTicket
       WHERE t.EventoID = @eventoId
         AND ${FECHA_ORDEN} BETWEEN DATE(@from) AND DATE(@to)
     )
@@ -1286,15 +1259,15 @@ export async function getSerieResultadoEvento(
 ): Promise<SerieResultadoRow[]> {
   const rows = await query<Record<string, unknown>>(
     `
-    WITH ${PACK_SPLIT_CTE}
     SELECT
       FORMAT_DATE('%Y-%m-%d', ${FECHA_ORDEN})         AS fecha,
+      -- transacciones = filas (debe cuadrar con la card "Tickets vendidos") y
+      -- pm_ordenes = ordenes (denominador del CPA referido). Solo 'personas'
+      -- pondera por PersonasPorTicket.
       COUNTIF(${VENDIDO})                             AS transacciones,
-      SUM(IF(${VENDIDO}, ${PERSONAS}, 0))             AS personas,
+      SUM(IF(${VENDIDO}, t.PersonasPorTicket, 0))     AS personas,
       COUNT(DISTINCT IF(${VENDIDO} AND ${PM_VENTA}, t.OrdenID, NULL)) AS pm_ordenes
     FROM ${TICKETS} t
-    LEFT JOIN pack_split ps
-      ON ps.EventoID = t.EventoID AND ps.TipoTicket = t.TipoTicket
     WHERE t.EventoID = @eventoId
       AND ${FECHA_ORDEN} BETWEEN DATE(@from) AND DATE(@to)
     GROUP BY fecha

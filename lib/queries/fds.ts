@@ -119,7 +119,7 @@ const EVENT_OPTIONS_SQL = `
     GROUP BY EventoID
   ),
   ce AS (
-    SELECT EventoID, MAX(TotalAsistentes) AS asistentes
+    SELECT EventoID, MAX(TotalPersonasAsistentes) AS asistentes
     FROM ${CIERRE_EVENTOS}
     WHERE EventoID IN (SELECT EventoID FROM fds)
     GROUP BY EventoID
@@ -216,7 +216,7 @@ const historicoSql = (monto: MontoMode) => `
     GROUP BY EventoID
   ),
   ce AS (
-    SELECT EventoID, MAX(TotalAsistentes) AS asistentes
+    SELECT EventoID, MAX(TotalPersonasAsistentes) AS asistentes
     FROM ${CIERRE_EVENTOS}
     WHERE EventoID IN (SELECT EventoID FROM fds)
     GROUP BY EventoID

@@ -266,7 +266,7 @@ export default function CurvasFilters({
     incluirDevueltos ||
     incluirCortesias ||
     groupBy !== "evento" ||
-    metric !== "tickets" ||
+    metric !== "personas" ||
     vista !== "acumulado" ||
     normalizar ||
     !promedio;
@@ -362,7 +362,7 @@ export default function CurvasFilters({
             { id: "personas", label: "Personas" },
             { id: "venta", label: "Recaudación" },
           ]}
-          onSelect={(id) => commit({ metrica: id === "tickets" ? null : id })}
+          onSelect={(id) => commit({ metrica: id === "personas" ? null : id })}
         />
         <Toggle<CurvaGroupBy>
           label="Una curva por"
