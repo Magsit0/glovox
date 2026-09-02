@@ -50,17 +50,18 @@ export type OnepagerFfbbConsumoRow = {
   qtty: number;
 };
 
+// Sin `rebate`: el rebate modelado (Venta × 15% × 55%) se retiró el 2026-09-02.
+// Ahora se calcula en page.tsx con el MISMO criterio que /cierre-negocio:
+// % imputado (rebate_config) × cargo por servicio real (cierreEventos).
 export type OnepagerIngresoRow = {
   ingreso: string;
   venta: number;
   qtty: number;
-  rebate: number;
 };
 
 export type OnepagerKpiRow = {
   totalVenta: number;
   totalQtty: number;
-  totalRebate: number;
   ventaTickets: number;
   ventaFfBb: number;
   ventaExtras: number;
@@ -106,6 +107,17 @@ export type OnepagerFfbbEvolucionRow = {
   puntoVenta: string;
   venta: number;
   qtty: number;
+};
+
+// Llegadas al evento (tickets quemados) por slot de 15 min × tipo (VENTA /
+// CORTESIA), en PERSONAS. Alimenta la curva de hora de llegada del panel
+// "Validación de asistencia".
+export type OnepagerLlegadaRow = {
+  slotIso: string; // YYYY-MM-DDTHH:MM:00 (hora local del evento)
+  slotLabel: string; // HH:MM (inicio del slot)
+  fecha: string; // YYYY-MM-DD
+  ventaNoventa: string;
+  personas: number;
 };
 
 
@@ -303,7 +315,6 @@ function ticketsCte() {
       SUM(a.PersonasPorTicket)                                AS QttyPersonas,
       SUM(IF(a.EsQuemado IS TRUE, a.PersonasPorTicket, 0))   AS Qtty2Personas,
       SUM(a.Precio - IFNULL(Descuento, 0))                   AS Venta,
-      SUM(a.Precio - IFNULL(Descuento, 0)) * 0.15 * 0.55    AS Rebate,
       b.CategoriaEvento
     FROM ${TICKETS} a
       LEFT JOIN ${CATEGORY} b ON a.EventoID = b.EventoID
@@ -338,7 +349,6 @@ function ffbbCte() {
       0                                                                     AS QttyPersonas,
       0                                                                     AS Qtty2Personas,
       SUM(SubTotal)                                                         AS Venta,
-      0                                                                     AS Rebate,
       b.CategoriaEvento
     FROM ${SOLD_ITEMS} a
       LEFT JOIN ${CATEGORY} b ON a.EventoID = b.EventoID
@@ -375,7 +385,6 @@ function baseCte() {
         SUM(a.PersonasPorTicket) AS QttyPersonas,
         SUM(IF(a.EsQuemado IS TRUE, a.PersonasPorTicket, 0)) AS Qtty2Personas,
         SUM(a.Precio - IFNULL(Descuento, 0)) AS Venta,
-        SUM(a.Precio - IFNULL(Descuento, 0)) * 0.15 * 0.55 AS Rebate,
         b.CategoriaEvento
       FROM ${TICKETS} a LEFT JOIN ${CATEGORY} b ON a.EventoID = b.EventoID
       WHERE a.EventoID = @eventoId
@@ -392,7 +401,7 @@ function baseCte() {
         FALSE AS Devuelto, FALSE AS Quemado,
         SUM(a.Cantidad) AS Qtty, 0 AS Qtty2, 0 AS Qtty3,
         0 AS QttyPersonas, 0 AS Qtty2Personas,
-        SUM(SubTotal) AS Venta, 0 AS Rebate, b.CategoriaEvento
+        SUM(SubTotal) AS Venta, b.CategoriaEvento
       FROM ${SOLD_ITEMS} a LEFT JOIN ${CATEGORY} b ON a.EventoID = b.EventoID
       WHERE a.EventoID = @eventoId
       GROUP BY EventoID, NombreID, FechaEvento, PuntoVenta, MedioPago,
@@ -412,7 +421,6 @@ export async function getOnepagerKpis(
     SELECT
       SUM(Venta)                                                       AS total_venta,
       SUM(CASE WHEN Ingreso = 'TICKETS' THEN Qtty ELSE 0 END)         AS total_qtty,
-      SUM(Rebate)                                                      AS total_rebate,
       SUM(CASE WHEN Ingreso = 'TICKETS' THEN Venta ELSE 0 END)        AS venta_tickets,
       SUM(CASE WHEN Ingreso = 'FFBB'   THEN Venta ELSE 0 END)        AS venta_ff_bb,
       SUM(CASE WHEN Ingreso NOT IN ('TICKETS','FFBB') THEN Venta ELSE 0 END) AS venta_extras
@@ -424,7 +432,6 @@ export async function getOnepagerKpis(
   return {
     totalVenta:   n(r.total_venta),
     totalQtty:    n(r.total_qtty),
-    totalRebate:  n(r.total_rebate),
     ventaTickets: n(r.venta_tickets),
     ventaFfBb:    n(r.venta_ff_bb),
     ventaExtras:  n(r.venta_extras),
@@ -440,8 +447,7 @@ export async function getOnepagerByIngreso(
     SELECT
       Ingreso   AS ingreso,
       SUM(Venta) AS venta,
-      SUM(Qtty)  AS qtty,
-      SUM(Rebate) AS rebate
+      SUM(Qtty)  AS qtty
     FROM base
     GROUP BY Ingreso
     ORDER BY venta DESC
@@ -452,7 +458,6 @@ export async function getOnepagerByIngreso(
     ingreso: s(r.ingreso),
     venta:   n(r.venta),
     qtty:    n(r.qtty),
-    rebate:  n(r.rebate),
   }));
 }
 
@@ -624,6 +629,57 @@ export async function getOnepagerFfbbEvolucion(
     puntoVenta: s(r.punto_venta),
     venta:      n(r.venta),
     qtty:       n(r.qtty),
+  }));
+}
+
+/**
+ * Curva de llegada: personas que entraron (EsQuemado) por slot de 15 min, según
+ * `HoraQuemado` (DATETIME en hora local — NO se convierte). Mismo criterio
+ * VENTA/CORTESIA y misma unidad (PersonasPorTicket) que la tabla de validación,
+ * así la suma de la curva cuadra con la columna "Asistentes".
+ */
+export async function getOnepagerLlegadas(
+  eventoId: string
+): Promise<OnepagerLlegadaRow[]> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH bucketed AS (
+      SELECT
+        DATETIME_SUB(
+          DATETIME_TRUNC(HoraQuemado, MINUTE),
+          INTERVAL MOD(EXTRACT(MINUTE FROM HoraQuemado), 15) MINUTE
+        )                                                     AS slot,
+        CASE
+          WHEN MedioPago = 'Otro' AND LOWER(TipoTicket) LIKE '%pase%' THEN 'VENTA'
+          WHEN MedioPago = 'Otro'                                     THEN 'CORTESIA'
+          ELSE 'VENTA'
+        END                                                   AS venta_noventa,
+        PersonasPorTicket                                     AS personas
+      FROM ${TICKETS}
+      WHERE EventoID = @eventoId
+        AND EsQuemado IS TRUE
+        AND HoraQuemado IS NOT NULL
+        -- Sentinels tipo 1900/0001 que a veces trae la ticketera.
+        AND EXTRACT(YEAR FROM HoraQuemado) BETWEEN 2015 AND 2100
+    )
+    SELECT
+      FORMAT_DATETIME('%Y-%m-%dT%H:%M:00', slot) AS slot_iso,
+      FORMAT_DATETIME('%H:%M', slot)             AS slot_label,
+      FORMAT_DATETIME('%Y-%m-%d', slot)          AS fecha,
+      venta_noventa,
+      SUM(personas)                              AS personas
+    FROM bucketed
+    GROUP BY slot, venta_noventa
+    ORDER BY slot
+    `,
+    { eventoId }
+  );
+  return rows.map((r) => ({
+    slotIso:      s(r.slot_iso),
+    slotLabel:    s(r.slot_label),
+    fecha:        s(r.fecha),
+    ventaNoventa: s(r.venta_noventa),
+    personas:     n(r.personas),
   }));
 }
 

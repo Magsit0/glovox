@@ -2,12 +2,15 @@
 
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import type { OnepagerIngresoRow } from "@/lib/queries/onepager";
-import { BRAND, INK } from "@/lib/chart-colors";
+import { BRAND, INK, seriesColor } from "@/lib/chart-colors";
 import { ChartTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
 
 // Cada fuente de ingreso mapeada a un acento de marca distinto (manual Glovox).
-const COLORS: Record<string, string> = {
+// REBATE = tinte del morado (seriesColor(6), anillo 1): es "hijo" de tickets.
+// Compartido con IngresosResumen para que cards, tabla y donut lean igual.
+export const INGRESO_COLORS: Record<string, string> = {
   TICKETS: BRAND.purple,
+  REBATE: seriesColor(6),
   FFBB: BRAND.green,
   MARCAS: BRAND.pink,
   "MESAS VIP": BRAND.teal,
@@ -15,12 +18,15 @@ const COLORS: Record<string, string> = {
   PRODUCTO: BRAND.yellow,
 };
 
-function getColor(ingreso: string) {
-  return COLORS[ingreso] ?? INK.subtle;
+export function getIngresoColor(ingreso: string) {
+  return INGRESO_COLORS[ingreso] ?? INK.subtle;
 }
+
+const getColor = getIngresoColor;
 
 function displayLabel(ingreso: string) {
   if (ingreso === "FFBB") return "FF&BB";
+  if (ingreso === "REBATE") return "Rebate";
   if (ingreso === "MARCAS") return "Marcas";
   if (ingreso === "MESAS VIP") return "Mesas VIP";
   if (ingreso === "MEDIOS") return "Medios";

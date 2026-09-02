@@ -9,6 +9,8 @@ import FfbbDetalleTable from "./FfbbDetalleTable";
 import FfbbEvolucionChart from "./FfbbEvolucionChart";
 import MarcaIngresosTable from "./MarcaIngresosTable";
 import MarcaIngresoFormSheet from "./MarcaIngresoFormSheet";
+import CostosTab from "./CostosTab";
+import FacturasTab from "./FacturasTab";
 import type {
   OnepagerTipoProductoRow,
   OnepagerFfbbCategoriaProductoRow,
@@ -16,6 +18,10 @@ import type {
   OnepagerFfbbEvolucionRow,
 } from "@/lib/queries/onepager";
 import type { MarcaClienteRow, MarcaIngresoRow } from "@/lib/queries/marca";
+import type {
+  OnepagerCostosEvento,
+  OnepagerFacturaRow,
+} from "@/lib/queries/onepagerCostos";
 
 type Props = {
   eventoId: string;
@@ -25,9 +31,11 @@ type Props = {
   ffbbEvolucion: OnepagerFfbbEvolucionRow[];
   marcaClientes: MarcaClienteRow[];
   marcaIngresos: MarcaIngresoRow[];
+  costos: OnepagerCostosEvento;
+  facturas: OnepagerFacturaRow[];
 };
 
-type Tab = "tickets" | "ffbb" | "marcas";
+type Tab = "tickets" | "ffbb" | "marcas" | "costos" | "facturacion";
 
 export default function DetalleTabs({
   eventoId,
@@ -37,6 +45,8 @@ export default function DetalleTabs({
   ffbbEvolucion,
   marcaClientes,
   marcaIngresos,
+  costos,
+  facturas,
 }: Props) {
   const [tab, setTab] = useState<Tab>("tickets");
   const [marcaSheetOpen, setMarcaSheetOpen] = useState(false);
@@ -45,6 +55,8 @@ export default function DetalleTabs({
     { key: "tickets", label: "Tickets" },
     { key: "ffbb", label: "FF&BB" },
     { key: "marcas", label: "Marcas" },
+    { key: "costos", label: "Costos" },
+    { key: "facturacion", label: "Facturación" },
   ];
 
   return (
@@ -130,6 +142,12 @@ export default function DetalleTabs({
             clientes={marcaClientes}
           />
         </BrutalChartPanel>
+      )}
+
+      {tab === "costos" && <CostosTab eventoId={eventoId} costos={costos} />}
+
+      {tab === "facturacion" && (
+        <FacturasTab eventoId={eventoId} facturas={facturas} />
       )}
     </div>
   );

@@ -53,6 +53,10 @@ export type OnepagerListadoTableRow = {
   ventaFfBb: number;
   ventaMarcas: number;
   asistentes: number | null;
+  // Unabase (marts.finanzas_gastos / finanzas_ventas), NETO. null = el evento no
+  // tiene negocio vigente con datos → se pinta "—" y no suma al total.
+  costos: number | null;
+  facturado: number | null;
 };
 
 type CategoriaAgg = {
@@ -64,6 +68,10 @@ type CategoriaAgg = {
   ventaMarcas: number;
   asistentes: number;
   asistentesKnown: boolean;
+  costos: number;
+  costosKnown: boolean;
+  facturado: number;
+  facturadoKnown: boolean;
 };
 
 function fmtClp(value: number) {
@@ -122,6 +130,8 @@ type Metric =
   | "comprados"
   | "ffbb"
   | "marcas"
+  | "costos"
+  | "facturado"
   | "asistentes";
 type SortMode = "fecha-asc" | "valor-desc";
 
@@ -131,6 +141,8 @@ const METRICS: { key: Metric; label: string }[] = [
   { key: "comprados",  label: "Comprados (#)" },
   { key: "ffbb",       label: "FF&BB" },
   { key: "marcas",     label: "Marcas" },
+  { key: "costos",     label: "Costos" },
+  { key: "facturado",  label: "Facturado" },
   { key: "asistentes", label: "Asistentes" },
 ];
 
@@ -146,13 +158,24 @@ function metricValue(r: OnepagerListadoTableRow, m: Metric): number {
       return r.ventaFfBb;
     case "marcas":
       return r.ventaMarcas;
+    case "costos":
+      return r.costos ?? 0;
+    case "facturado":
+      return r.facturado ?? 0;
     case "asistentes":
       return r.asistentes ?? 0;
   }
 }
 
 function isMetricCurrency(m: Metric): boolean {
-  return m === "total" || m === "tickets" || m === "ffbb" || m === "marcas";
+  return (
+    m === "total" ||
+    m === "tickets" ||
+    m === "ffbb" ||
+    m === "marcas" ||
+    m === "costos" ||
+    m === "facturado"
+  );
 }
 
 function fmtMetric(value: number, m: Metric): string {
@@ -306,6 +329,10 @@ export default function OnepagerListadoTable({
           ventaMarcas: 0,
           asistentes: 0,
           asistentesKnown: false,
+          costos: 0,
+          costosKnown: false,
+          facturado: 0,
+          facturadoKnown: false,
         };
         map.set(key, agg);
       }
@@ -317,6 +344,14 @@ export default function OnepagerListadoTable({
       if (r.asistentes != null) {
         agg.asistentes += r.asistentes;
         agg.asistentesKnown = true;
+      }
+      if (r.costos != null) {
+        agg.costos += r.costos;
+        agg.costosKnown = true;
+      }
+      if (r.facturado != null) {
+        agg.facturado += r.facturado;
+        agg.facturadoKnown = true;
       }
     }
     return Array.from(map.values()).sort(
@@ -393,6 +428,8 @@ export default function OnepagerListadoTable({
   const totalFfBb = filtered.reduce((a, r) => a + r.ventaFfBb, 0);
   const totalMarcas = filtered.reduce((a, r) => a + r.ventaMarcas, 0);
   const totalAsist = filtered.reduce((a, r) => a + (r.asistentes ?? 0), 0);
+  const totalCostos = filtered.reduce((a, r) => a + (r.costos ?? 0), 0);
+  const totalFacturado = filtered.reduce((a, r) => a + (r.facturado ?? 0), 0);
 
   // Rango de calor para la columna Total — relativo al subset visible.
   const eventosHeat = (() => {
@@ -429,6 +466,8 @@ export default function OnepagerListadoTable({
   const aggTotalFfBb = aggByCategoria.reduce((a, r) => a + r.ventaFfBb, 0);
   const aggTotalMarcas = aggByCategoria.reduce((a, r) => a + r.ventaMarcas, 0);
   const aggTotalAsist = aggByCategoria.reduce((a, r) => a + r.asistentes, 0);
+  const aggTotalCostos = aggByCategoria.reduce((a, r) => a + r.costos, 0);
+  const aggTotalFacturado = aggByCategoria.reduce((a, r) => a + r.facturado, 0);
   const aggTotalEventos = aggByCategoria.reduce((a, r) => a + r.eventos, 0);
 
   const compareActive = mode === "categorias";
@@ -578,6 +617,18 @@ export default function OnepagerListadoTable({
                     <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Total
                     </th>
+                    <th
+                      className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right"
+                      title="Gasto neto documentado en Unabase (marts.finanzas_gastos)"
+                    >
+                      Costos
+                    </th>
+                    <th
+                      className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right"
+                      title="Venta neta facturada en Unabase (marts.finanzas_ventas)"
+                    >
+                      Facturado
+                    </th>
                     <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Asistentes
                     </th>
@@ -626,6 +677,12 @@ export default function OnepagerListadoTable({
                         >
                           {fmtClp(total)}
                         </td>
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
+                          {r.costos != null ? fmtClp(r.costos) : "—"}
+                        </td>
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
+                          {r.facturado != null ? fmtClp(r.facturado) : "—"}
+                        </td>
                         <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right tabular-nums">
                           {r.asistentes != null
                             ? r.asistentes.toLocaleString("es-CL")
@@ -654,6 +711,12 @@ export default function OnepagerListadoTable({
                     </td>
                     <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {fmtClp(totalTickets + totalFfBb + totalMarcas)}
+                    </td>
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
+                      {fmtClp(totalCostos)}
+                    </td>
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
+                      {fmtClp(totalFacturado)}
                     </td>
                     <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold tabular-nums">
                       {totalAsist.toLocaleString("es-CL")}
@@ -687,6 +750,18 @@ export default function OnepagerListadoTable({
                     </th>
                     <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Total
+                    </th>
+                    <th
+                      className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right"
+                      title="Gasto neto documentado en Unabase (marts.finanzas_gastos)"
+                    >
+                      Costos
+                    </th>
+                    <th
+                      className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right"
+                      title="Venta neta facturada en Unabase (marts.finanzas_ventas)"
+                    >
+                      Facturado
                     </th>
                     <th className="bg-[#FAFAFA] font-sans text-xs font-medium uppercase tracking-wide text-[#666666] px-4 py-3 text-right">
                       Asistentes
@@ -726,6 +801,12 @@ export default function OnepagerListadoTable({
                         >
                           {fmtClp(total)}
                         </td>
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
+                          {r.costosKnown ? fmtClp(r.costos) : "—"}
+                        </td>
+                        <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right border-r border-[#E5E5E5] tabular-nums">
+                          {r.facturadoKnown ? fmtClp(r.facturado) : "—"}
+                        </td>
                         <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right tabular-nums">
                           {r.asistentesKnown
                             ? r.asistentes.toLocaleString("es-CL")
@@ -756,6 +837,12 @@ export default function OnepagerListadoTable({
                     </td>
                     <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
                       {fmtClp(aggTotalTickets + aggTotalFfBb + aggTotalMarcas)}
+                    </td>
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
+                      {fmtClp(aggTotalCostos)}
+                    </td>
+                    <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold border-r border-[#E5E5E5] tabular-nums">
+                      {fmtClp(aggTotalFacturado)}
                     </td>
                     <td className="font-sans text-sm text-[#333333] px-4 py-3 text-right font-bold tabular-nums">
                       {aggTotalAsist.toLocaleString("es-CL")}

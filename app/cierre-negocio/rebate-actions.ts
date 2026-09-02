@@ -10,7 +10,8 @@ export type ActionResult = { ok: true } | { ok: false; error: string };
 
 /**
  * Actualiza el % de rebate (cargo por servicio → ingreso Glovox) de un evento.
- * Editable desde la card "Rebate" del cierre de negocio.
+ * Editable desde la card "Rebate" del cierre de negocio Y del one-pager: ambos
+ * leen la misma fila de `rebate_config`, así que el % es uno solo por evento.
  *
  * No invalida el detailCache: el % se lee fresco en cada render de la página
  * (page.tsx → getRebatePorcentaje), así que basta el router.refresh() del editor.
@@ -23,8 +24,11 @@ export async function upsertRebatePctAction(input: {
   const email = session?.user?.email ?? "";
   if (!email) return { ok: false, error: "No autorizado" };
   const permissions = session?.user?.permissions ?? [];
-  if (!canAccessPath(permissions, "/cierre-negocio")) {
-    return { ok: false, error: "No autorizado para el cierre de negocio" };
+  if (
+    !canAccessPath(permissions, "/cierre-negocio") &&
+    !canAccessPath(permissions, "/onepager")
+  ) {
+    return { ok: false, error: "No autorizado para editar el rebate" };
   }
 
   const eventoId = (input.eventoId ?? "").trim().toUpperCase();
@@ -49,5 +53,6 @@ export async function upsertRebatePctAction(input: {
   }
 
   revalidatePath("/cierre-negocio");
+  revalidatePath("/onepager");
   return { ok: true };
 }
