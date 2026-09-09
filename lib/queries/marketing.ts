@@ -216,6 +216,13 @@ export type CommunityCount = {
   // Subset: number of PACK transactions counted (raw rows). Shown next to the
   // main number to surface that the "personas" figure is x2-weighted.
   packs: number;
+  // Net revenue of the same subset, same formula as EventKpiRow.totalRevenue
+  // (Precio - Descuento, service fee excluded) so the share over the event
+  // total is comparable.
+  revenue: number;
+  // Service fee of the same subset — the part `revenue` leaves out, shown as
+  // its own line just like the "Venta Tickets" card does with the event total.
+  cargoServicio: number;
 };
 
 export type SalesOriginRow = {
@@ -450,8 +457,10 @@ export async function getEventKpis(
 
 // Tickets attributed to "VentaComunidad" (the community sales channel) for the
 // event. Returns personas (SUM of PersonasPorTicket, matching the "Tickets
-// Vendidos" KPI) and the raw count of multi-person pack ROWS in that subset —
-// exposed so the UI can show "(N packs)" next to the personas number.
+// Vendidos" KPI), the raw count of multi-person pack ROWS in that subset —
+// exposed so the UI can show "(N packs)" next to the personas number — and the
+// net revenue + service fee of the subset, so the card can switch between
+// counting people and summing money.
 export async function getCommunityTicketsCount(
   eventoId: string,
   scope?: Scope,
@@ -463,7 +472,12 @@ export async function getCommunityTicketsCount(
       SUM(t.PersonasPorTicket) AS personas,
       -- 'packs' stays a ROW count (one pack sold = one transaction); only the
       -- predicate migrates: a pack row is now any row worth >1 person.
-      COUNTIF(t.PersonasPorTicket > 1) AS packs
+      COUNTIF(t.PersonasPorTicket > 1) AS packs,
+      -- Same net-revenue formula as getEventKpis.total_revenue: face value
+      -- minus discount, service fee excluded — and the fee on its own, also
+      -- mirroring getEventKpis.cargo_servicio.
+      SUM(t.Precio - COALESCE(t.Descuento, 0)) AS revenue,
+      SUM(t.CargoServicio) AS cargo_servicio
     FROM ${TICKETS} t
     WHERE t.EventoID = @eventoId
       AND t.VentaComunidad IS TRUE
@@ -472,7 +486,12 @@ export async function getCommunityTicketsCount(
     { eventoId, ...t.params }
   );
   const r = rows[0] ?? {};
-  return { personas: n(r.personas), packs: n(r.packs) };
+  return {
+    personas: n(r.personas),
+    packs: n(r.packs),
+    revenue: n(r.revenue),
+    cargoServicio: n(r.cargo_servicio),
+  };
 }
 
 /**

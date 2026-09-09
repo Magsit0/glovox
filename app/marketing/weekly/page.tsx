@@ -23,6 +23,7 @@ import EventSelector from "@/components/marketing/EventSelector";
 import CompareEventSelector from "@/components/marketing/CompareEventSelector";
 import TipoTicketFilter from "@/components/marketing/TipoTicketFilter";
 import BrutalKpiCard from "@/components/marketing/BrutalKpiCard";
+import CommunityKpiCard from "@/components/marketing/CommunityKpiCard";
 import BrutalChartPanel from "@/components/marketing/BrutalChartPanel";
 import BrutalHighlightPanel from "@/components/marketing/BrutalHighlightPanel";
 import CumulativeSalesComparisonChart from "@/components/marketing/charts/CumulativeSalesComparisonChart";
@@ -311,17 +312,17 @@ async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }
       ? (followers.delta / followers.initial) * 100
       : undefined;
 
-  // Community card: % over total tickets (both already counted as personas),
-  // and an inline "(N packs)" annotation when the event actually has FBM
-  // packs in the community subset.
-  const communityPct =
+  // Community card: share over the event total, one per unit the card can
+  // show. Personas over `totalTickets` (both counted as personas) and revenue
+  // over `totalRevenue` (both are Precio - Descuento, service fee excluded).
+  const communityPersonasPct =
     kpis.totalTickets > 0
       ? Math.round((community.personas / kpis.totalTickets) * 100)
       : 0;
-  const communityInline =
-    community.packs > 0
-      ? `(${community.packs.toLocaleString("es-CL")} pack${community.packs === 1 ? "" : "s"})`
-      : undefined;
+  const communityRevenuePct =
+    kpis.totalRevenue > 0
+      ? Math.round((community.revenue / kpis.totalRevenue) * 100)
+      : 0;
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
       <BrutalKpiCard
@@ -339,12 +340,13 @@ async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }
         }}
       />
       <BrutalKpiCard label="CPA Total Vendidos" value={kpis.cpa} formatType="usd" />
-      <BrutalKpiCard
-        label="Comunidad"
-        value={community.personas}
-        formatType="number"
-        inlineSuffix={communityInline}
-        secondary={{ label: "Del total", value: `${communityPct}%` }}
+      <CommunityKpiCard
+        personas={community.personas}
+        packs={community.packs}
+        revenue={community.revenue}
+        cargoServicio={fmtClpCompact(community.cargoServicio)}
+        personasPct={communityPersonasPct}
+        revenuePct={communityRevenuePct}
       />
       <BrutalKpiCard
         label="Instagram Followers Δ"

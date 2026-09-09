@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { animate } from "motion";
 
 type FormatType = "number" | "clp" | "clp-compact" | "usd" | "percent" | "integer";
@@ -45,6 +45,9 @@ type BrutalKpiCardProps = {
   // one line: initial on the left, arrow centered, final on the right.
   // Useful for KPIs where the main value is the delta itself (e.g. followers).
   progression?: { from: string; to: string };
+  // Optional control rendered on the label row, right-aligned — e.g. a unit
+  // switch. The card only reserves the slot; the caller owns the state.
+  action?: ReactNode;
 };
 
 export default function BrutalKpiCard({
@@ -56,6 +59,7 @@ export default function BrutalKpiCard({
   inlineSuffix,
   secondary,
   progression,
+  action,
 }: BrutalKpiCardProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const [displayed, setDisplayed] = useState("0");
@@ -84,9 +88,14 @@ export default function BrutalKpiCard({
 
   return (
     <div className="bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none p-4 flex flex-col gap-1 min-w-0">
-      <span className="font-mono-data uppercase text-xs text-black tracking-wide">
-        {label}
-      </span>
+      {/* `flex-wrap` so a narrow card drops the action below the label instead
+          of pushing it past the border. */}
+      <div className="flex flex-wrap items-center justify-between gap-x-2 gap-y-1 min-w-0">
+        <span className="font-mono-data uppercase text-xs text-black tracking-wide min-w-0">
+          {label}
+        </span>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
       {/* Main value + (optional) delta pill on the same row. The pill aligns to
           the value's baseline and parks on the right; the value still wraps
           freely thanks to `min-w-0` + `flex-1`. */}
