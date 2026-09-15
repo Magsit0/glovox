@@ -80,6 +80,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentText: "text-white",
   },
   {
+    key: "lacava",
+    pathPrefix: "/lacava",
+    label: "La Cava",
+    appliesCountryScope: false,
+    sortOrder: 27,
+    title: "LA CAVA · JUMBO",
+    description:
+      "Evolución de venta de tickets de La Cava (Jumbo): venta diaria, curvas por edición, tipos de ticket, medios de pago y montos.",
+    icon: "BottleWine",
+    accentClass: "bg-[#0F3D2A]",
+    accentText: "text-[#F5EEDC]",
+  },
+  {
     key: "cierre-mensual",
     pathPrefix: "/cierre-mensual",
     label: "Cierre mensual",

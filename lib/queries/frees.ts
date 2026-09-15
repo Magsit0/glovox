@@ -93,9 +93,20 @@ export type FreesCelebRow = {
   tsSeconds: number | null;
 };
 
+export type FreesCelebEvolutionRow = {
+  eventoId: string;
+  evento: string;
+  /** ISO yyyy-mm-dd; null si el evento no tiene fecha ni llegadas registradas. */
+  fecha: string | null;
+  conTicket: number;
+  asistieron: number;
+};
+
 export type FreesCelebData = {
   enLista: number;
   rows: FreesCelebRow[];
+  /** Solo se calcula en la vista global (sin filtro de evento); con evento va vacío. */
+  evolucion: FreesCelebEvolutionRow[];
 };
 
 export type FreesDashboardData = {
@@ -540,7 +551,24 @@ async function fetchCelebrities(eventoId?: string): Promise<FreesCelebData> {
       ORDER BY v.asistio DESC, v.hora_llegada DESC, v.mail
     `;
 
-  const [rows, countRows] = await Promise.all([
+  // Evolución global: una fila por evento con celebrities distintas con ticket
+  // y asistentes. Fecha primaria de categoriaEvento (muchos eventos no la
+  // tienen); fallback a la fecha de la primera llegada registrada — solo queda
+  // NULL en eventos sin fecha y sin ninguna asistencia.
+  const evolucionSql = `
+    SELECT
+      v.evento_id AS eventoId,
+      COALESCE(ANY_VALUE(ce.NombreGlovox), ANY_VALUE(v.evento_nombre), v.evento_id) AS evento,
+      CAST(COALESCE(ANY_VALUE(ce.Fecha), MIN(DATE(v.hora_llegada))) AS STRING) AS fecha,
+      COUNT(DISTINCT v.rut_norm) AS conTicket,
+      COUNT(DISTINCT IF(v.asistio, v.rut_norm, NULL)) AS asistieron
+    FROM ${CELEB_ASISTENCIA} v
+    LEFT JOIN ${CATEGORY} ce ON ce.EventoID = v.evento_id
+    GROUP BY v.evento_id
+    ORDER BY fecha NULLS LAST, eventoId
+  `;
+
+  const [rows, countRows, evolucionRows] = await Promise.all([
     query<Record<string, unknown>>(
       sql,
       eventoId ? { eventoId } : undefined,
@@ -548,10 +576,20 @@ async function fetchCelebrities(eventoId?: string): Promise<FreesCelebData> {
     query<Record<string, unknown>>(
       `SELECT COUNT(*) AS enLista FROM ${CELEBRITIES}`,
     ),
+    eventoId
+      ? Promise.resolve([] as Record<string, unknown>[])
+      : query<Record<string, unknown>>(evolucionSql),
   ]);
 
   return {
     enLista: n(countRows[0]?.enLista),
+    evolucion: evolucionRows.map((r) => ({
+      eventoId: s(r.eventoId),
+      evento: s(r.evento) || s(r.eventoId),
+      fecha: r.fecha == null ? null : s(r.fecha),
+      conTicket: n(r.conTicket),
+      asistieron: n(r.asistieron),
+    })),
     rows: rows.map((r) => {
       const estado = s(r.estado) as FreesCelebEstado;
       return {

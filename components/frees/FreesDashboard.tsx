@@ -13,6 +13,8 @@ import {
   CartesianGrid,
   Cell,
   Legend,
+  Line,
+  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
@@ -32,6 +34,7 @@ import {
 import type {
   FreesCategoryNode,
   FreesCelebData,
+  FreesCelebEvolutionRow,
   FreesCelebRow,
   FreesDashboardData,
   FreesEventOption,
@@ -332,11 +335,13 @@ function KpiCard({
 function Panel({
   title,
   subtitle,
+  actions,
   children,
   className = "",
 }: {
   title: string;
   subtitle?: string;
+  actions?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
 }) {
@@ -344,11 +349,14 @@ function Panel({
     <article
       className={`flex flex-col gap-6 rounded-lg border border-[#E5E5E5] bg-white p-6 ${className}`}
     >
-      <header className="flex flex-col gap-1">
-        <h2 className="font-display text-lg font-bold tracking-tight text-[#333333]">
-          {title}
-        </h2>
-        {subtitle && <p className="font-sans text-sm text-[#666666]">{subtitle}</p>}
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex flex-col gap-1">
+          <h2 className="font-display text-lg font-bold tracking-tight text-[#333333]">
+            {title}
+          </h2>
+          {subtitle && <p className="font-sans text-sm text-[#666666]">{subtitle}</p>}
+        </div>
+        {actions}
       </header>
       {children}
     </article>
@@ -1315,6 +1323,9 @@ function CelebritiesSection({
 }) {
   const hasEventoFilter = Boolean(eventoId);
   const [search, setSearch] = useState("");
+  const [evolucionVista, setEvolucionVista] = useState<"grafico" | "tabla">(
+    "grafico",
+  );
 
   const conTicket = useMemo(
     () => data.rows.filter((r) => r.estado !== "sin_ticket"),
@@ -1438,6 +1449,30 @@ function CelebritiesSection({
         </section>
       </div>
 
+      {!hasEventoFilter && (
+        <Panel
+          className="lg:col-span-12"
+          title="Evolución de asistencia"
+          subtitle="Celebrities con ticket y asistentes por evento, en orden cronológico."
+          actions={
+            <ViewSwitch
+              active={evolucionVista}
+              onChange={setEvolucionVista}
+              options={[
+                { key: "grafico", label: "Gráfico" },
+                { key: "tabla", label: "Tabla" },
+              ]}
+            />
+          }
+        >
+          {evolucionVista === "grafico" ? (
+            <CelebEvolutionChart rows={data.evolucion} />
+          ) : (
+            <CelebEvolutionTable rows={data.evolucion} />
+          )}
+        </Panel>
+      )}
+
       <Panel
         className="lg:col-span-12"
         title="Curva de llegadas"
@@ -1550,6 +1585,255 @@ function CelebritiesTable({
               );
             })}
           </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ViewSwitch<K extends string>({
+  active,
+  onChange,
+  options,
+}: {
+  active: K;
+  onChange: (key: K) => void;
+  options: { key: K; label: string }[];
+}) {
+  return (
+    <div
+      role="group"
+      aria-label="Modo de vista"
+      className="inline-flex gap-1 rounded-lg border border-[#E5E5E5] bg-white p-1"
+    >
+      {options.map((o) => {
+        const isActive = o.key === active;
+        return (
+          <button
+            key={o.key}
+            type="button"
+            onClick={() => onChange(o.key)}
+            aria-pressed={isActive}
+            className={`cursor-pointer rounded-md px-3 py-1 font-sans text-xs font-medium transition-colors ${
+              isActive
+                ? "bg-[#F0EFFE] text-[#9F99F8]"
+                : "text-[#666666] hover:text-[#333333]"
+            }`}
+          >
+            {o.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+const fechaCortaFormatter = new Intl.DateTimeFormat("es-CL", {
+  month: "short",
+  year: "2-digit",
+});
+const fechaLargaFormatter = new Intl.DateTimeFormat("es-CL", {
+  day: "numeric",
+  month: "short",
+  year: "numeric",
+});
+
+function parseIsoDate(iso: string): Date | null {
+  const d = new Date(`${iso}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function formatFechaCorta(iso: string): string {
+  const d = parseIsoDate(iso);
+  return d ? fechaCortaFormatter.format(d) : iso;
+}
+
+function formatFechaLarga(iso: string | null): string {
+  if (!iso) return "—";
+  const d = parseIsoDate(iso);
+  return d ? fechaLargaFormatter.format(d) : iso;
+}
+
+function CelebEvolutionChart({ rows }: { rows: FreesCelebEvolutionRow[] }) {
+  // Sin fecha no hay dónde ubicar el punto: solo pasa en eventos sin fecha en
+  // categoriaEvento y sin ninguna llegada (asistieron 0); quedan en la tabla.
+  const data = useMemo(() => rows.filter((r) => r.fecha != null), [rows]);
+
+  if (!data.length) {
+    return (
+      <div className="flex h-64 flex-col items-center justify-center gap-2 font-sans text-sm text-[#999999]">
+        <Inbox className="h-6 w-6" />
+        Sin datos
+      </div>
+    );
+  }
+
+  return (
+    <ResponsiveContainer width="100%" height={320}>
+      <LineChart data={data} margin={{ top: 8, right: 24, left: 8, bottom: 8 }}>
+        <CartesianGrid {...gridProps} vertical={false} />
+        <XAxis
+          dataKey="fecha"
+          tick={axisTick}
+          axisLine={{ stroke: SURFACE.divider }}
+          tickLine={false}
+          minTickGap={32}
+          tickFormatter={(v: string) => formatFechaCorta(v)}
+        />
+        <YAxis
+          tick={axisTick}
+          axisLine={false}
+          tickLine={false}
+          allowDecimals={false}
+        />
+        <Tooltip
+          cursor={{ stroke: SURFACE.divider }}
+          content={({ active, payload }) => {
+            const p = payload?.[0];
+            if (!p) return <ChartTooltip active={false} items={[]} />;
+            const row = p.payload as FreesCelebEvolutionRow;
+            return (
+              <ChartTooltip
+                active={active}
+                label={`${row.evento} · ${formatFechaLarga(row.fecha)}`}
+                items={[
+                  {
+                    name: "Con ticket",
+                    color: "#9F99F8",
+                    formatted: formatNumber(row.conTicket),
+                  },
+                  {
+                    name: "Asistieron",
+                    color: "#B1D750",
+                    formatted: formatNumber(row.asistieron),
+                  },
+                  {
+                    name: "Tasa de asistencia",
+                    color: "#999999",
+                    formatted: formatPercent(
+                      row.conTicket ? row.asistieron / row.conTicket : 0,
+                    ),
+                  },
+                ]}
+              />
+            );
+          }}
+        />
+        <Legend {...legendProps} />
+        <Line
+          type="monotone"
+          name="Con ticket"
+          dataKey="conTicket"
+          stroke="#9F99F8"
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4 }}
+          isAnimationActive
+          animationDuration={400}
+          animationEasing="ease-out"
+        />
+        <Line
+          type="monotone"
+          name="Asistieron"
+          dataKey="asistieron"
+          stroke="#B1D750"
+          strokeWidth={2}
+          dot={false}
+          activeDot={{ r: 4 }}
+          isAnimationActive
+          animationDuration={400}
+          animationEasing="ease-out"
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function CelebEvolutionTable({ rows }: { rows: FreesCelebEvolutionRow[] }) {
+  // La query llega en orden cronológico ascendente; la tabla se lee mejor con
+  // lo más reciente arriba (sin fecha al final).
+  const sorted = useMemo(
+    () =>
+      [...rows].sort((a, b) => {
+        if (a.fecha == null) return b.fecha == null ? 0 : 1;
+        if (b.fecha == null) return -1;
+        return b.fecha.localeCompare(a.fecha);
+      }),
+    [rows],
+  );
+
+  if (!sorted.length) {
+    return (
+      <div className="flex h-32 flex-col items-center justify-center gap-2 font-sans text-sm text-[#999999]">
+        <Inbox className="h-6 w-6" />
+        Sin datos
+      </div>
+    );
+  }
+
+  const totalConTicket = sorted.reduce((s, r) => s + r.conTicket, 0);
+  const totalAsistieron = sorted.reduce((s, r) => s + r.asistieron, 0);
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-[#E5E5E5]">
+      <div className="max-h-[480px] overflow-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
+              <Th>Evento</Th>
+              <Th>Fecha</Th>
+              <Th align="right">Con ticket</Th>
+              <Th align="right">Asistieron</Th>
+              <Th align="right">Tasa de asistencia</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {sorted.map((row) => (
+              <tr
+                key={row.eventoId}
+                className="border-b border-[#E5E5E5] transition-colors duration-150 hover:bg-[#FAFAFA]"
+              >
+                <td className="px-4 py-3 font-sans text-sm text-[#333333]">
+                  {row.evento}
+                </td>
+                <td className="px-4 py-3 font-sans text-sm text-[#666666]">
+                  {formatFechaLarga(row.fecha)}
+                </td>
+                <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#333333]">
+                  {formatNumber(row.conTicket)}
+                </td>
+                <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#333333]">
+                  {formatNumber(row.asistieron)}
+                </td>
+                <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#666666]">
+                  {formatPercent(
+                    row.conTicket ? row.asistieron / row.conTicket : 0,
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-[#FAFAFA]">
+              <td className="px-4 py-3 font-sans text-sm font-medium text-[#333333]">
+                Total
+              </td>
+              <td className="px-4 py-3 font-sans text-sm text-[#666666]">
+                {formatNumber(sorted.length)} eventos
+              </td>
+              <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#333333]">
+                {formatNumber(totalConTicket)}
+              </td>
+              <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#333333]">
+                {formatNumber(totalAsistieron)}
+              </td>
+              <td className="px-4 py-3 text-right font-sans text-sm font-medium tabular-nums text-[#666666]">
+                {formatPercent(
+                  totalConTicket ? totalAsistieron / totalConTicket : 0,
+                )}
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>

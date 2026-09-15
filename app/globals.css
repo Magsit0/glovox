@@ -18,6 +18,12 @@ body {
   font-family: var(--font-montserrat), system-ui, sans-serif;
 }
 
+/* Serif display del dashboard La Cava (/lacava). La variable la inyecta
+   next/font en app/lacava/layout.tsx; fuera de esa ruta cae al fallback. */
+.font-lacava {
+  font-family: var(--font-lacava), "Playfair Display", Georgia, serif;
+}
+
 /* Horizontal card strips scroll with arrows / swipe; the native bar would
    only add height inside the bordered bars. */
 @utility scrollbar-none {
