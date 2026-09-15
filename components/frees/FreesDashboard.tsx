@@ -31,6 +31,8 @@ import {
 } from "@/lib/chart-colors";
 import type {
   FreesCategoryNode,
+  FreesCelebData,
+  FreesCelebRow,
   FreesDashboardData,
   FreesEventOption,
   FreesGeneroCategory,
@@ -57,7 +59,7 @@ function formatPercent(v: number): string {
   return percentFormatter.format(v);
 }
 
-type Tab = "ticketType" | "categoria" | "genero";
+type Tab = "ticketType" | "categoria" | "genero" | "celebrities";
 
 const GENERO_COLORS: Record<string, string> = {
   Hombre: "#9F99F8",
@@ -81,6 +83,12 @@ const TABS: { key: Tab; label: string; description: string }[] = [
     label: "Detalle por categoría",
     description:
       "Distribución por género, hora de ingreso y detalle por categoría/recipient.",
+  },
+  {
+    key: "celebrities",
+    label: "Celebrities",
+    description:
+      "Asistencia del grupo Celebrities: quiénes tuvieron ticket y a qué hora llegaron.",
   },
 ];
 
@@ -113,6 +121,7 @@ export function FreesDashboard({
       case "categoria":
         return categoriaRows;
       case "genero":
+      case "celebrities":
         return [];
     }
   }, [tab, data.byTicketType, categoriaRows]);
@@ -193,6 +202,11 @@ export function FreesDashboard({
           <GeneroSection
             data={data.byGenero}
             ingresoRows={data.ingresoRows}
+            hasEventoFilter={Boolean(selectedEvent)}
+          />
+        ) : tab === "celebrities" ? (
+          <CelebritiesSection
+            data={data.celebrities}
             hasEventoFilter={Boolean(selectedEvent)}
           />
         ) : (
@@ -1265,6 +1279,241 @@ function GeneroTable({ categories }: { categories: FreesGeneroCategory[] }) {
                       </tr>
                     ))}
                 </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+const CELEB_ESTADO_META: Record<
+  FreesCelebRow["estado"],
+  { label: string; dot: string; text: string }
+> = {
+  asistio: { label: "Asistió", dot: "bg-[#B1D750]", text: "text-[#333333]" },
+  con_ticket: {
+    label: "No asistió",
+    dot: "bg-[#ED75A0]",
+    text: "text-[#666666]",
+  },
+  sin_ticket: {
+    label: "Sin ticket",
+    dot: "bg-[#999999]",
+    text: "text-[#999999]",
+  },
+};
+
+function CelebritiesSection({
+  data,
+  hasEventoFilter,
+}: {
+  data: FreesCelebData;
+  hasEventoFilter: boolean;
+}) {
+  const [search, setSearch] = useState("");
+
+  const conTicket = useMemo(
+    () => data.rows.filter((r) => r.estado !== "sin_ticket"),
+    [data.rows],
+  );
+  const asistencias = useMemo(
+    () => data.rows.filter((r) => r.estado === "asistio"),
+    [data.rows],
+  );
+  const celebritiesUnicas = useMemo(
+    () => new Set(conTicket.map((r) => r.rut)).size,
+    [conTicket],
+  );
+
+  const horaMediana = useMemo(() => {
+    const ts = asistencias
+      .map((r) => r.tsSeconds)
+      .filter((v): v is number => v != null);
+    if (!ts.length) return "—";
+    if (hasEventoFilter) return clockLabelFromSeconds(median(ts));
+    const minutes = ts.map((v) =>
+      Math.floor((((v % 86400) + 86400) % 86400) / 60),
+    );
+    return clockLabelFromMinutes(median(minutes));
+  }, [asistencias, hasEventoFilter]);
+
+  const bucketSeries = useMemo(() => {
+    const rows: FreesIngresoRow[] = asistencias
+      .filter((r) => r.tsSeconds != null)
+      .map((r) => ({
+        category: "",
+        recipient: "",
+        genero: "Sin clasificar" as const,
+        tsSeconds: r.tsSeconds as number,
+      }));
+    return aggregateByBucket(rows, hasEventoFilter ? "absolute" : "modulo");
+  }, [asistencias, hasEventoFilter]);
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return data.rows;
+    return data.rows.filter(
+      (r) =>
+        r.mail.toLowerCase().includes(q) ||
+        r.rut.toLowerCase().includes(q) ||
+        r.evento.toLowerCase().includes(q),
+    );
+  }, [data.rows, search]);
+
+  const tasaAsistencia = conTicket.length
+    ? asistencias.length / conTicket.length
+    : 0;
+
+  return (
+    <>
+      <div className="lg:col-span-12">
+        <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-5">
+          <KpiCard
+            label="Celebrities en lista"
+            value={formatNumber(data.enLista)}
+            sub="Lista curada (glovox_inputs.input_celebrities)"
+          />
+          <KpiCard
+            label={hasEventoFilter ? "Con ticket en el evento" : "Con ticket en ≥1 evento"}
+            value={formatNumber(
+              hasEventoFilter ? conTicket.length : celebritiesUnicas,
+            )}
+            sub={
+              hasEventoFilter
+                ? `${formatNumber(data.enLista - conTicket.length)} sin ticket`
+                : `${formatNumber(conTicket.length)} tickets otorgados en total`
+            }
+          />
+          <KpiCard
+            label={hasEventoFilter ? "Asistieron" : "Asistencias totales"}
+            value={formatNumber(asistencias.length)}
+            sub={
+              hasEventoFilter
+                ? `${formatNumber(conTicket.length - asistencias.length)} con ticket no asistieron`
+                : "Sumadas sobre todos los eventos"
+            }
+            delta="positive"
+          />
+          <KpiCard
+            label="Tasa de asistencia"
+            value={formatPercent(tasaAsistencia)}
+            sub={`${formatNumber(asistencias.length)} de ${formatNumber(conTicket.length)} con ticket`}
+            delta={tasaAsistencia >= 0.5 ? "positive" : "negative"}
+          />
+          <KpiCard
+            label="Hora mediana de llegada"
+            value={horaMediana}
+            sub={
+              asistencias.length > 0
+                ? `Mediana de ${formatNumber(asistencias.length)} llegadas`
+                : "Sin llegadas registradas"
+            }
+          />
+        </section>
+      </div>
+
+      <Panel
+        className="lg:col-span-12"
+        title="Curva de llegadas"
+        subtitle={
+          hasEventoFilter
+            ? "Llegadas de celebrities agregadas en bloques de 30 min."
+            : "Vista global: mezcla fechas de todos los eventos por hora-del-día."
+        }
+      >
+        <IngresoCurva data={bucketSeries} />
+      </Panel>
+
+      <Panel
+        className="lg:col-span-12"
+        title="Detalle por celebrity"
+        subtitle={
+          hasEventoFilter
+            ? "Toda la lista contra el evento seleccionado: ticket nominado, asistencia y hora de llegada."
+            : "Una fila por celebrity y evento con ticket. Elige un evento en el filtro superior para ver también quiénes quedaron sin ticket."
+        }
+      >
+        <div className="mb-4">
+          <input
+            type="search"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar por mail, RUT o evento..."
+            className="w-full max-w-sm rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none"
+          />
+        </div>
+        <CelebritiesTable rows={filteredRows} showEvento={!hasEventoFilter} />
+      </Panel>
+    </>
+  );
+}
+
+function CelebritiesTable({
+  rows,
+  showEvento,
+}: {
+  rows: FreesCelebRow[];
+  showEvento: boolean;
+}) {
+  if (!rows.length) {
+    return (
+      <div className="flex h-32 flex-col items-center justify-center gap-2 font-sans text-sm text-[#999999]">
+        <Inbox className="h-6 w-6" />
+        Sin datos
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-hidden rounded-lg border border-[#E5E5E5]">
+      <div className="max-h-[560px] overflow-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
+              <Th>Mail</Th>
+              <Th>RUT</Th>
+              {showEvento && <Th>Evento</Th>}
+              <Th>Tipo de ticket</Th>
+              <Th>Estado</Th>
+              <Th align="right">Hora de llegada</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => {
+              const meta = CELEB_ESTADO_META[row.estado];
+              return (
+                <tr
+                  key={`celeb-${row.rut}-${row.evento}-${i}`}
+                  className="border-b border-[#E5E5E5] transition-colors duration-150 hover:bg-[#FAFAFA]"
+                >
+                  <td className="px-4 py-3 font-sans text-sm text-[#333333]">
+                    {row.mail}
+                  </td>
+                  <td className="px-4 py-3 font-sans text-sm tabular-nums text-[#666666]">
+                    {row.rut}
+                  </td>
+                  {showEvento && (
+                    <td className="px-4 py-3 font-sans text-sm text-[#666666]">
+                      {row.evento}
+                    </td>
+                  )}
+                  <td className="px-4 py-3 font-sans text-sm text-[#666666]">
+                    {row.tipoTicket || "—"}
+                  </td>
+                  <td className={`px-4 py-3 font-sans text-sm ${meta.text}`}>
+                    <span className="inline-flex items-center gap-1.5">
+                      <span
+                        className={`h-1.5 w-1.5 shrink-0 rounded-full ${meta.dot}`}
+                      />
+                      {meta.label}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-right font-sans text-sm tabular-nums text-[#333333]">
+                    {row.horaLlegada ?? "—"}
+                  </td>
+                </tr>
               );
             })}
           </tbody>

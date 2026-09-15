@@ -11,11 +11,14 @@ import MarcaIngresosTable from "./MarcaIngresosTable";
 import MarcaIngresoFormSheet from "./MarcaIngresoFormSheet";
 import CostosTab from "./CostosTab";
 import FacturasTab from "./FacturasTab";
+import ValidacionAsistencia from "./ValidacionAsistencia";
 import type {
   OnepagerTipoProductoRow,
   OnepagerFfbbCategoriaProductoRow,
   OnepagerPuntoVentaRow,
   OnepagerFfbbEvolucionRow,
+  OnepagerAsistenciaRow,
+  OnepagerLlegadaRow,
 } from "@/lib/queries/onepager";
 import type { MarcaClienteRow, MarcaIngresoRow } from "@/lib/queries/marca";
 import type {
@@ -33,6 +36,8 @@ type Props = {
   marcaIngresos: MarcaIngresoRow[];
   costos: OnepagerCostosEvento;
   facturas: OnepagerFacturaRow[];
+  asistencia: OnepagerAsistenciaRow[];
+  llegadas: OnepagerLlegadaRow[];
 };
 
 type Tab = "tickets" | "ffbb" | "marcas" | "costos" | "facturacion";
@@ -47,6 +52,8 @@ export default function DetalleTabs({
   marcaIngresos,
   costos,
   facturas,
+  asistencia,
+  llegadas,
 }: Props) {
   const [tab, setTab] = useState<Tab>("tickets");
   const [marcaSheetOpen, setMarcaSheetOpen] = useState(false);
@@ -82,13 +89,16 @@ export default function DetalleTabs({
       </div>
 
       {tab === "tickets" && (
-        <BrutalChartPanel title="Tickets — Tipo Producto">
-          {ticketsByTipo.length === 0 ? (
-            <p className="font-sans text-sm text-[#999999]">Sin datos.</p>
-          ) : (
-            <TipoProductoChart data={ticketsByTipo} color="#9F99F8" />
-          )}
-        </BrutalChartPanel>
+        <div className="space-y-6">
+          <BrutalChartPanel title="Tickets — Tipo Producto">
+            {ticketsByTipo.length === 0 ? (
+              <p className="font-sans text-sm text-[#999999]">Sin datos.</p>
+            ) : (
+              <TipoProductoChart data={ticketsByTipo} color="#9F99F8" />
+            )}
+          </BrutalChartPanel>
+          <ValidacionAsistencia asistencia={asistencia} llegadas={llegadas} />
+        </div>
       )}
 
       {tab === "ffbb" && (

@@ -5,6 +5,8 @@ const CORTESIAS = `\`${P}.glovox.cortesias\``;
 const TICKETS = `\`${P}.glovox.tickets\``;
 const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
 const NOMBRES = `\`${P}.glovox.nombres_genero\``;
+const CELEBRITIES = `\`${P}.glovox_inputs.input_celebrities\``;
+const CELEB_ASISTENCIA = `\`${P}.marts.celebrities_asistencia\``;
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -79,6 +81,23 @@ export type FreesIngresoRow = {
   tsSeconds: number;
 };
 
+export type FreesCelebEstado = "asistio" | "con_ticket" | "sin_ticket";
+
+export type FreesCelebRow = {
+  mail: string;
+  rut: string;
+  evento: string;
+  tipoTicket: string;
+  estado: FreesCelebEstado;
+  horaLlegada: string | null;
+  tsSeconds: number | null;
+};
+
+export type FreesCelebData = {
+  enLista: number;
+  rows: FreesCelebRow[];
+};
+
 export type FreesDashboardData = {
   kpis: FreesKpis;
   byTicketType: FreesGroupRow[];
@@ -86,6 +105,7 @@ export type FreesDashboardData = {
   byCategory: FreesCategoryNode[];
   byGenero: FreesGeneroData;
   ingresoRows: FreesIngresoRow[];
+  celebrities: FreesCelebData;
 };
 
 export type FreesEventOption = {
@@ -472,20 +492,111 @@ async function fetchIngresoRows(
   });
 }
 
+/**
+ * Grupo Celebrities: lista curada en glovox_inputs.input_celebrities cruzada
+ * contra glovox.tickets por RUT nominado (vista marts.celebrities_asistencia).
+ *
+ * Con evento seleccionado: universo completo de la lista (LEFT JOIN), así se
+ * ve quién quedó sin ticket. Sin evento: solo filas con ticket, una por
+ * celebrity×evento, con el nombre del evento como etiqueta.
+ */
+async function fetchCelebrities(eventoId?: string): Promise<FreesCelebData> {
+  const TS_SECONDS = `
+    DATE_DIFF(EXTRACT(DATE FROM v.hora_llegada), DATE '1970-01-01', DAY) * 86400
+      + EXTRACT(HOUR FROM v.hora_llegada) * 3600
+      + EXTRACT(MINUTE FROM v.hora_llegada) * 60
+  `;
+
+  const sql = eventoId
+    ? `
+      SELECT
+        c.mail,
+        c.rut,
+        '' AS evento,
+        v.tipo_ticket AS tipoTicket,
+        CASE
+          WHEN v.rut_norm IS NULL THEN 'sin_ticket'
+          WHEN v.asistio THEN 'asistio'
+          ELSE 'con_ticket'
+        END AS estado,
+        FORMAT_DATETIME('%H:%M', v.hora_llegada) AS horaLlegada,
+        IF(v.hora_llegada IS NULL, NULL, ${TS_SECONDS}) AS tsSeconds
+      FROM ${CELEBRITIES} c
+      LEFT JOIN ${CELEB_ASISTENCIA} v
+        ON v.rut_norm = c.rut_norm AND v.evento_id = @eventoId
+      ORDER BY estado = 'asistio' DESC, v.hora_llegada ASC, c.mail
+    `
+    : `
+      SELECT
+        v.mail,
+        v.rut,
+        COALESCE(ce.NombreGlovox, v.evento_id) AS evento,
+        v.tipo_ticket AS tipoTicket,
+        IF(v.asistio, 'asistio', 'con_ticket') AS estado,
+        FORMAT_DATETIME('%H:%M', v.hora_llegada) AS horaLlegada,
+        IF(v.hora_llegada IS NULL, NULL, ${TS_SECONDS}) AS tsSeconds
+      FROM ${CELEB_ASISTENCIA} v
+      LEFT JOIN ${CATEGORY} ce ON ce.EventoID = v.evento_id
+      ORDER BY v.asistio DESC, v.hora_llegada DESC, v.mail
+    `;
+
+  const [rows, countRows] = await Promise.all([
+    query<Record<string, unknown>>(
+      sql,
+      eventoId ? { eventoId } : undefined,
+    ),
+    query<Record<string, unknown>>(
+      `SELECT COUNT(*) AS enLista FROM ${CELEBRITIES}`,
+    ),
+  ]);
+
+  return {
+    enLista: n(countRows[0]?.enLista),
+    rows: rows.map((r) => {
+      const estado = s(r.estado) as FreesCelebEstado;
+      return {
+        mail: s(r.mail),
+        rut: s(r.rut),
+        evento: s(r.evento),
+        tipoTicket: s(r.tipoTicket),
+        estado,
+        horaLlegada: r.horaLlegada == null ? null : s(r.horaLlegada),
+        tsSeconds: r.tsSeconds == null ? null : n(r.tsSeconds),
+      };
+    }),
+  };
+}
+
 export async function getFreesDashboardData(
   eventoId?: string,
 ): Promise<FreesDashboardData> {
-  const [kpis, byTicketType, byLinkType, byCategory, byGenero, ingresoRows] =
-    await Promise.all([
-      fetchKpis(eventoId),
-      fetchGroup("ticketType", eventoId),
-      fetchGroup("linkType", eventoId),
-      fetchCategoryTree(eventoId),
-      fetchGeneroTree(eventoId),
-      fetchIngresoRows(eventoId),
-    ]);
+  const [
+    kpis,
+    byTicketType,
+    byLinkType,
+    byCategory,
+    byGenero,
+    ingresoRows,
+    celebrities,
+  ] = await Promise.all([
+    fetchKpis(eventoId),
+    fetchGroup("ticketType", eventoId),
+    fetchGroup("linkType", eventoId),
+    fetchCategoryTree(eventoId),
+    fetchGeneroTree(eventoId),
+    fetchIngresoRows(eventoId),
+    fetchCelebrities(eventoId),
+  ]);
 
-  return { kpis, byTicketType, byLinkType, byCategory, byGenero, ingresoRows };
+  return {
+    kpis,
+    byTicketType,
+    byLinkType,
+    byCategory,
+    byGenero,
+    ingresoRows,
+    celebrities,
+  };
 }
 
 export async function getFreesEventList(): Promise<FreesEventOption[]> {

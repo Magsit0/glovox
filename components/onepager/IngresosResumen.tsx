@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import RebatePctEditor from "@/components/cierre-negocio/RebatePctEditor";
 import { INK } from "@/lib/chart-colors";
 import { brutoToNeto } from "@/lib/constants/tax";
@@ -27,6 +27,33 @@ type Props = {
   facturado: { neto: number; bruto: number; docs: number };
   asistentes: number | null;
 };
+
+// Card "Resultado del evento": misma presentación que la 4ª card del Resumen de
+// /cierre-negocio (ResumenKpis) — toggle $/%, punto de color por signo, la
+// resta visible debajo — pero con las cifras del evento: total ingresos netos
+// (las 7 fuentes) − costos netos Unabase.
+type ResultadoView = "utilidad" | "margen";
+
+const RESULTADO_VIEW_OPTIONS: { value: ResultadoView; label: string; title: string }[] = [
+  { value: "utilidad", label: "$", title: "Resultado (ingresos − costos)" },
+  { value: "margen", label: "%", title: "Margen (resultado ÷ ingresos)" },
+];
+
+const TONE_DOT = {
+  positive: "#B1D750",
+  negative: "#ED75A0",
+  neutral: "#999999",
+} as const;
+
+function toneOf(v: number): keyof typeof TONE_DOT {
+  if (v > 0) return "positive";
+  if (v < 0) return "negative";
+  return "neutral";
+}
+
+function pct(ratio: number): string {
+  return `${(ratio * 100).toFixed(1)}%`;
+}
 
 function compact(v: number): string {
   const abs = Math.abs(v);
@@ -93,11 +120,106 @@ function MetricCard({ m }: { m: Metric }) {
   );
 }
 
+function ResultadoCard({
+  ingresosNeto,
+  costosNeto,
+  sinCostos,
+}: {
+  ingresosNeto: number;
+  costosNeto: number;
+  /** true cuando el evento no tiene negocio vigente en Unabase → sin resultado. */
+  sinCostos: boolean;
+}) {
+  const [view, setView] = useState<ResultadoView>("utilidad");
+  const resultado = ingresosNeto - costosNeto;
+  const margenRatio = ingresosNeto !== 0 ? resultado / ingresosNeto : null;
+  const tone = toneOf(resultado);
+  const restaLine = `Ingresos ${fmtCompact(ingresosNeto)} − Costos ${fmtCompact(costosNeto)}`;
+
+  return (
+    <article className="flex h-full min-h-[148px] flex-col rounded-lg border border-[#E5E5E5] bg-white p-5">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-sans text-xs text-[#666666]">Resultado del evento</p>
+        {!sinCostos && (
+          <div
+            role="group"
+            aria-label="Resultado o margen"
+            className="inline-flex shrink-0 rounded-lg border border-[#E5E5E5] bg-white p-0.5"
+          >
+            {RESULTADO_VIEW_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                title={opt.title}
+                aria-pressed={view === opt.value}
+                onClick={() => setView(opt.value)}
+                className={`rounded-md px-2 py-0.5 font-sans text-[11px] font-medium transition-colors cursor-pointer ${
+                  view === opt.value
+                    ? "bg-[#F0EFFE] text-[#9F99F8]"
+                    : "text-[#666666] hover:text-[#333333]"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {sinCostos ? (
+        <>
+          <p className="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-[#333333]">
+            —
+          </p>
+          <p className="mt-auto pt-3 font-sans text-xs text-[#999999] truncate">
+            sin negocio vigente en Unabase
+          </p>
+        </>
+      ) : (
+        <>
+          <p
+            className="mt-2 font-display text-3xl font-bold leading-none tracking-tight text-[#333333] truncate"
+            title={view === "utilidad" ? `${fmtClp(resultado)} neto` : undefined}
+          >
+            {view === "utilidad"
+              ? fmtCompact(resultado)
+              : margenRatio != null
+                ? pct(margenRatio)
+                : "—"}
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <span
+              aria-hidden
+              className="inline-block h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: TONE_DOT[tone] }}
+            />
+            <span className="truncate font-sans text-xs text-[#666666]">
+              {view === "utilidad"
+                ? margenRatio != null
+                  ? `Margen ${pct(margenRatio)}`
+                  : "Sin ingresos para calcular margen"
+                : `Resultado ${fmtCompact(resultado)}`}
+            </span>
+          </div>
+          {view === "margen" && (
+            <span className="mt-2 inline-flex w-fit items-center rounded-md bg-[#FAFAFA] px-2 py-1 font-sans text-[11px] text-[#666666]">
+              Resultado ÷ Total ingresos
+            </span>
+          )}
+          <p className="mt-auto pt-3 font-sans text-xs text-[#999999] truncate" title={restaLine}>
+            {restaLine} · netos
+          </p>
+        </>
+      )}
+    </article>
+  );
+}
+
 /**
  * Resumen de ingresos del evento — mismas 7 fuentes y misma aritmética que el
  * bloque "Inputs externos" de /cierre-negocio (neto = bruto ÷ 1,19 para
  * tickets/FF&BB/rebate; imputaciones ya vienen neto+bruto), más el bloque
- * Unabase (costos y facturado, netos) para leer todo en la misma base.
+ * Unabase (costos, facturado y resultado, netos) para leer todo en la misma base.
  */
 export default function IngresosResumen({
   eventoId,
@@ -262,12 +384,17 @@ export default function IngresosResumen({
 
       <div className="flex flex-col gap-3">
         <p className="font-sans text-xs text-[#666666]">
-          Unabase — costos y facturación del negocio del evento
+          Unabase — costos, facturación y resultado del evento
         </p>
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
           {unabase.map((m) => (
             <MetricCard key={m.key} m={m} />
           ))}
+          <ResultadoCard
+            ingresosNeto={totalNeto}
+            costosNeto={costos.neto}
+            sinCostos={costos.negocios === 0}
+          />
         </div>
       </div>
     </section>
