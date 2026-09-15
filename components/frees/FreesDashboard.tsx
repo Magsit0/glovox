@@ -3,7 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ChevronRight, Inbox } from "lucide-react";
+import { ChevronRight, Download, Inbox } from "lucide-react";
 import { motion } from "motion/react";
 import {
   Area,
@@ -44,6 +44,7 @@ import type {
 } from "@/lib/queries/frees";
 import { FreesEventSelect } from "./FreesEventSelect";
 import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import { downloadCsv } from "@/components/proveedor/csv";
 
 const numberFormatter = new Intl.NumberFormat("es-CL");
 const percentFormatter = new Intl.NumberFormat("es-CL", {
@@ -207,7 +208,7 @@ export function FreesDashboard({
         ) : tab === "celebrities" ? (
           <CelebritiesSection
             data={data.celebrities}
-            hasEventoFilter={Boolean(selectedEvent)}
+            eventoId={selectedEvent}
           />
         ) : (
           <>
@@ -1307,11 +1308,12 @@ const CELEB_ESTADO_META: Record<
 
 function CelebritiesSection({
   data,
-  hasEventoFilter,
+  eventoId,
 }: {
   data: FreesCelebData;
-  hasEventoFilter: boolean;
+  eventoId: string;
 }) {
+  const hasEventoFilter = Boolean(eventoId);
   const [search, setSearch] = useState("");
 
   const conTicket = useMemo(
@@ -1365,6 +1367,28 @@ function CelebritiesSection({
   const tasaAsistencia = conTicket.length
     ? asistencias.length / conTicket.length
     : 0;
+
+  function handleDownload() {
+    downloadCsv(
+      `celebrities-${eventoId || "todos-los-eventos"}`,
+      [
+        "Mail",
+        "RUT",
+        ...(hasEventoFilter ? [] : ["Evento"]),
+        "Tipo de ticket",
+        "Estado",
+        "Hora de llegada",
+      ],
+      filteredRows.map((r) => [
+        r.mail,
+        r.rut,
+        ...(hasEventoFilter ? [] : [r.evento]),
+        r.tipoTicket,
+        CELEB_ESTADO_META[r.estado].label,
+        r.horaLlegada,
+      ]),
+    );
+  }
 
   return (
     <>
@@ -1435,7 +1459,7 @@ function CelebritiesSection({
             : "Una fila por celebrity y evento con ticket. Elige un evento en el filtro superior para ver también quiénes quedaron sin ticket."
         }
       >
-        <div className="mb-4">
+        <div className="mb-4 flex flex-wrap items-center gap-3">
           <input
             type="search"
             value={search}
@@ -1443,6 +1467,15 @@ function CelebritiesSection({
             placeholder="Buscar por mail, RUT o evento..."
             className="w-full max-w-sm rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none"
           />
+          <button
+            type="button"
+            onClick={handleDownload}
+            disabled={filteredRows.length === 0}
+            className="ml-auto inline-flex items-center gap-2 rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Download className="h-4 w-4" />
+            Descargar CSV
+          </button>
         </div>
         <CelebritiesTable rows={filteredRows} showEvento={!hasEventoFilter} />
       </Panel>

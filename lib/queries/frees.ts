@@ -600,17 +600,33 @@ export async function getFreesDashboardData(
 }
 
 export async function getFreesEventList(): Promise<FreesEventOption[]> {
+  // Orden: fecha del evento descendente (el más reciente primero). Fuente
+  // primaria categoriaEvento.Fecha; fallback a la FechaEvento de los tickets
+  // (18 de ~43 eventos no tienen Fecha en categoriaEvento). Sin fecha → al final.
+  // Las fechas de tickets se pre-agregan aparte para no inflar el COUNT de
+  // cortesías con el fan-out del join.
   const sql = `
+    WITH fechas_tickets AS (
+      SELECT EventoID, DATE(MAX(FechaEvento)) AS fecha
+      FROM ${TICKETS}
+      GROUP BY EventoID
+    )
     SELECT
       c.externalId                       AS evento_id,
       ANY_VALUE(ce.NombreGlovox)         AS nombre,
-      COUNT(*)                           AS total_cortesias
+      COUNT(*)                           AS total_cortesias,
+      COALESCE(
+        ANY_VALUE(ce.Fecha),
+        ANY_VALUE(ft.fecha)
+      )                                  AS fecha_evento
     FROM ${CORTESIAS} c
     LEFT JOIN ${CATEGORY} ce
       ON ce.EventoID = c.externalId
+    LEFT JOIN fechas_tickets ft
+      ON ft.EventoID = c.externalId
     WHERE c.externalId IS NOT NULL AND c.externalId != ''
     GROUP BY c.externalId
-    ORDER BY total_cortesias DESC
+    ORDER BY fecha_evento DESC NULLS LAST, total_cortesias DESC
   `;
   const rows = await query<Record<string, unknown>>(sql);
   return rows.map((r) => {
