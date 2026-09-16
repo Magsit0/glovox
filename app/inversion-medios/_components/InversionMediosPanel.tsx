@@ -461,10 +461,10 @@ export default function InversionMediosPanel({
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-10 sm:px-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="font-display text-3xl font-bold text-[#333333]">
+          <h1 className="font-display text-3xl font-bold text-[var(--ink)]">
             Inversión en medios
           </h1>
-          <p className="mt-1 font-sans text-sm text-[#666666]">
+          <p className="mt-1 font-sans text-sm text-[var(--ink-muted)]">
             Plan diario de publicidad digital (USD) vs gasto real por evento.
             Muévete libremente por el calendario: aparecen los eventos con presupuesto o
             gasto en el tramo que estás mirando
@@ -473,7 +473,7 @@ export default function InversionMediosPanel({
         </div>
         <div className="flex items-center gap-3">
           {/* Switch resumen ↔ por canal */}
-          <div className="flex overflow-hidden rounded-lg border border-[#E5E5E5] bg-white font-sans text-sm">
+          <div className="flex overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)] font-sans text-sm">
             {(
               [
                 ["resumen", "Resumen"],
@@ -485,8 +485,8 @@ export default function InversionMediosPanel({
                 onClick={() => setModo(k)}
                 className={`px-3 py-2 transition-colors ${
                   modo === k
-                    ? "bg-[#F0EFFE] font-medium text-[#9F99F8]"
-                    : "text-[#666666] hover:bg-[#FAFAFA] hover:text-[#333333]"
+                    ? "bg-[var(--purple-tint)] font-medium text-[#9F99F8]"
+                    : "text-[var(--ink-muted)] hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
                 }`}
               >
                 {label}
@@ -495,9 +495,9 @@ export default function InversionMediosPanel({
           </div>
           <button
             onClick={() => irA(hoy)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] transition-colors hover:border-[#333333]"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 py-2 font-sans text-sm text-[var(--ink)] transition-colors hover:border-[var(--ink)]"
           >
-            <CalendarDays className="h-4 w-4 text-[#666666]" /> Hoy
+            <CalendarDays className="h-4 w-4 text-[var(--ink-muted)]" /> Hoy
           </button>
         </div>
       </header>
@@ -524,7 +524,7 @@ export default function InversionMediosPanel({
 
       {/* Calendario. `isolate`: contiene los sticky internos (z-10/20/30) en su
           propio stacking context para que no pinten sobre la GroupNav (z-30). */}
-      <div className="isolate overflow-hidden rounded-lg border border-[#E5E5E5] bg-white">
+      <div className="isolate overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)]">
         <div
           ref={scrollRef}
           onScroll={onScroll}
@@ -533,9 +533,9 @@ export default function InversionMediosPanel({
           <table className="border-separate border-spacing-0 font-sans text-sm">
             <thead>
               <tr>
-                <th className="sticky left-0 top-0 z-30 w-56 min-w-56 max-w-56 border-b border-r border-[#E5E5E5] bg-[#FAFAFA] px-4 py-2 text-left text-xs font-medium text-[#666666]">
+                <th className="sticky left-0 top-0 z-30 w-56 min-w-56 max-w-56 border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-2 text-left text-xs font-medium text-[var(--ink-muted)]">
                   Evento
-                  <span className="block font-normal text-[#999999]">
+                  <span className="block font-normal text-[var(--ink-subtle)]">
                     {visibleIds.size} en el tramo visible
                   </span>
                 </th>
@@ -547,15 +547,15 @@ export default function InversionMediosPanel({
                   return (
                     <th
                       key={fecha}
-                      className={`sticky top-0 z-20 w-16 min-w-16 max-w-16 border-b border-[#E5E5E5] px-0 py-1.5 text-center text-xs font-medium ${
+                      className={`sticky top-0 z-20 w-16 min-w-16 max-w-16 border-b border-[var(--divider)] px-0 py-1.5 text-center text-xs font-medium ${
                         esHoy
-                          ? "bg-[#F0EFFE] text-[#9F99F8]"
+                          ? "bg-[var(--purple-tint)] text-[#9F99F8]"
                           : primerDia
-                            ? "bg-white text-[#333333]"
-                            : "bg-[#FAFAFA] text-[#666666]"
+                            ? "bg-[var(--surface)] text-[var(--ink)]"
+                            : "bg-[var(--surface-alt)] text-[var(--ink-muted)]"
                       } ${primerDia && i > 0 ? "border-l" : ""}`}
                     >
-                      <span className="block text-[10px] font-normal uppercase text-[#999999]">
+                      <span className="block text-[10px] font-normal uppercase text-[var(--ink-subtle)]">
                         {primerDia
                           ? `${MESES[Number(fecha.slice(5, 7)) - 1]} ${fecha.slice(2, 4)}`
                           : DIAS_SEMANA[dow]}
@@ -579,17 +579,17 @@ export default function InversionMediosPanel({
               ))}
               {visibleIds.size === 0 && (
                 <tr>
-                  <td className="sticky left-0 z-10 border-t border-r border-[#E5E5E5] bg-white px-4 py-8 text-sm text-[#999999]">
+                  <td className="sticky left-0 z-10 border-t border-r border-[var(--divider)] bg-[var(--surface)] px-4 py-8 text-sm text-[var(--ink-subtle)]">
                     Sin eventos con presupuesto o gasto en este tramo
                   </td>
-                  <td colSpan={dias.length} className="border-t border-[#E5E5E5]" />
+                  <td colSpan={dias.length} className="border-t border-[var(--divider)]" />
                 </tr>
               )}
               {/* Fila NO ATRIBUIDO: el gasto sin evento nunca desaparece */}
-              <tr className="bg-[#FAFAFA]">
-                <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[#E5E5E5] bg-[#FAFAFA] px-4 py-2">
-                  <span className="font-medium text-[#666666]">No atribuido</span>
-                  <p className="text-xs text-[#999999]">campañas sin evento reconocible</p>
+              <tr className="bg-[var(--surface-alt)]">
+                <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-2">
+                  <span className="font-medium text-[var(--ink-muted)]">No atribuido</span>
+                  <p className="text-xs text-[var(--ink-subtle)]">campañas sin evento reconocible</p>
                   {naCamps.totalCampanas > 0 && (
                     <button
                       onClick={() => setNaOpen((o) => !o)}
@@ -606,7 +606,7 @@ export default function InversionMediosPanel({
                   return (
                     <td
                       key={fecha}
-                      className="w-16 min-w-16 max-w-16 border-t border-[#E5E5E5] px-1 py-2 text-center tabular-nums text-xs text-[#666666]"
+                      className="w-16 min-w-16 max-w-16 border-t border-[var(--divider)] px-1 py-2 text-center tabular-nums text-xs text-[var(--ink-muted)]"
                     >
                       {r && r.gastoUsd > 0 ? fmtUsd(r.gastoUsd, 0) : "·"}
                     </td>
@@ -647,18 +647,18 @@ export default function InversionMediosPanel({
             </tbody>
             <tfoot>
               <tr>
-                <td className="sticky bottom-0 left-0 z-30 w-56 min-w-56 max-w-56 border-r border-t border-[#E5E5E5] bg-white px-4 py-2 text-xs font-medium text-[#333333]">
+                <td className="sticky bottom-0 left-0 z-30 w-56 min-w-56 max-w-56 border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 text-xs font-medium text-[var(--ink)]">
                   Total día (plan / real)
                 </td>
                 {totalesDia.map((d) => (
                   <td
                     key={d.fecha}
-                    className="sticky bottom-0 z-20 w-16 min-w-16 max-w-16 border-t border-[#E5E5E5] bg-white px-1 py-2 text-center tabular-nums text-xs"
+                    className="sticky bottom-0 z-20 w-16 min-w-16 max-w-16 border-t border-[var(--divider)] bg-[var(--surface)] px-1 py-2 text-center tabular-nums text-xs"
                   >
                     <span className="block font-medium text-[#534AB7]">
                       {d.plan > 0 ? fmtUsd(d.plan, 0) : "·"}
                     </span>
-                    <span className="block text-[#333333]">
+                    <span className="block text-[var(--ink)]">
                       {d.real > 0 ? fmtUsd(d.real, 0) : "·"}
                     </span>
                   </td>
@@ -668,18 +668,18 @@ export default function InversionMediosPanel({
           </table>
         </div>
         {/* Extender el calendario por los bordes */}
-        <div className="flex items-center justify-between border-t border-[#E5E5E5] bg-white px-4 py-2">
+        <div className="flex items-center justify-between border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2">
           <button
             onClick={() =>
               router.push(
                 `/inversion-medios?desde=${shiftMes(desde, -1, "inicio")}&hasta=${hasta}`,
               )
             }
-            className="inline-flex items-center gap-1 font-sans text-xs text-[#666666] transition-colors hover:text-[#333333]"
+            className="inline-flex items-center gap-1 font-sans text-xs text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
           >
             <ChevronLeft className="h-3 w-3" /> cargar {MESES[(Number(desde.slice(5, 7)) + 10) % 12]}
           </button>
-          <span className="font-sans text-xs text-[#999999]">
+          <span className="font-sans text-xs text-[var(--ink-subtle)]">
             {fmtDiaCorto(desde)} {desde.slice(0, 4)} → {fmtDiaCorto(hasta)} {hasta.slice(0, 4)}
           </span>
           <button
@@ -688,7 +688,7 @@ export default function InversionMediosPanel({
                 `/inversion-medios?desde=${desde}&hasta=${shiftMes(hasta, 1, "fin")}`,
               )
             }
-            className="inline-flex items-center gap-1 font-sans text-xs text-[#666666] transition-colors hover:text-[#333333]"
+            className="inline-flex items-center gap-1 font-sans text-xs text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
           >
             cargar {MESES[Number(hasta.slice(5, 7)) % 12]} <ChevronRight className="h-3 w-3" />
           </button>
@@ -699,8 +699,8 @@ export default function InversionMediosPanel({
       {semanasVisibles.length > 0 && (
         <div className="flex flex-col gap-3">
           <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <h2 className="font-display text-lg font-bold text-[#333333]">Subtotal por semana</h2>
-            <span className="font-sans text-xs text-[#999999]">
+            <h2 className="font-display text-lg font-bold text-[var(--ink)]">Subtotal por semana</h2>
+            <span className="font-sans text-xs text-[var(--ink-subtle)]">
               semanas del tramo visible ({rangoLabel}) · monto de la semana completa
             </span>
           </div>
@@ -730,12 +730,12 @@ export default function InversionMediosPanel({
       {/* Facturación histórica: lo realmente cobrado a la tarjeta Cardda */}
       <FacturacionHistorica consumo={carddaConsumo} consumoSem={carddaConsumoSem} fee={carddaFee} />
 
-      <p className="font-sans text-xs text-[#999999]">
+      <p className="font-sans text-xs text-[var(--ink-subtle)]">
         Cada celda: <span className="font-medium text-[#534AB7]">plan</span> total del día (arriba, en
-        morado) y <span className="font-medium text-[#333333]">real</span> (abajo, en negro). El plan se edita{" "}
-        <span className="text-[#333333]">por plataforma</span> abriendo el evento. El techo por
+        morado) y <span className="font-medium text-[var(--ink)]">real</span> (abajo, en negro). El plan se edita{" "}
+        <span className="text-[var(--ink)]">por plataforma</span> abriendo el evento. El techo por
         evento es el budgetPm de la tabla madre (se edita en{" "}
-        <Link href="/admin/eventos" className="underline hover:text-[#333333]">
+        <Link href="/admin/eventos" className="underline hover:text-[var(--ink)]">
           /admin/eventos
         </Link>
         ). El real de hoy es parcial (los datos de ads llegan a las 09:45). La atribución usa
@@ -788,8 +788,8 @@ const NaCampRow = memo(function NaCampRow({
 }) {
   return (
     <tr className={`bg-[#FBFBFD] ${hidden ? "hidden" : ""}`}>
-      <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[#F0F0F0] bg-[#FBFBFD] py-1.5 pl-7 pr-3">
-        <span className="flex items-center gap-1.5 font-sans text-xs text-[#333333]">
+      <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[var(--grid)] bg-[#FBFBFD] py-1.5 pl-7 pr-3">
+        <span className="flex items-center gap-1.5 font-sans text-xs text-[var(--ink)]">
           <span
             className="h-1.5 w-1.5 shrink-0 rounded-full"
             style={{ backgroundColor: dot }}
@@ -800,7 +800,7 @@ const NaCampRow = memo(function NaCampRow({
           </span>
         </span>
         <p
-          className="pl-3 text-[11px] tabular-nums text-[#999999]"
+          className="pl-3 text-[11px] tabular-nums text-[var(--ink-subtle)]"
           title={`Gasto total de la campaña en el período cargado del calendario (${rango})`}
         >
           {fmtUsd(total, 0)} · {rango}
@@ -817,9 +817,9 @@ const NaCampRow = memo(function NaCampRow({
       {diasVals.map((v, i) => (
         <td
           key={i}
-          className="w-16 min-w-16 max-w-16 border-t border-[#F0F0F0] px-1 py-1.5 text-center tabular-nums text-[11px] text-[#666666]"
+          className="w-16 min-w-16 max-w-16 border-t border-[var(--grid)] px-1 py-1.5 text-center tabular-nums text-[11px] text-[var(--ink-muted)]"
         >
-          {v > 0 ? fmtUsd(v, 0) : <span className="text-[#E5E5E5]">·</span>}
+          {v > 0 ? fmtUsd(v, 0) : <span className="text-[var(--divider)]">·</span>}
         </td>
       ))}
     </tr>
@@ -833,7 +833,7 @@ const NaCampRow = memo(function NaCampRow({
 const DESTAQUE = {
   actual: {
     box: "border-[#9F99F8] shadow-sm ring-1 ring-[#9F99F8]",
-    chip: "bg-[#F0EFFE] text-[#534AB7]",
+    chip: "bg-[var(--purple-tint)] text-[#534AB7]",
     label: "Semana actual",
   },
   siguiente: {
@@ -872,7 +872,7 @@ function SemanaCard({
   // pero sin gasto no se pinta verde "cumplida", sino gris "programada".
   const pct = w.planTrans > 0 ? (w.real / w.planTrans) * 100 : w.real > 0 ? 999 : 0;
   const tono = w.futura
-    ? { dot: "#CCCCCC", txt: "text-[#999999]" }
+    ? { dot: "#CCCCCC", txt: "text-[var(--ink-subtle)]" }
     : pct > 100
       ? { dot: "#ED75A0", txt: "text-[#ED75A0]" }
       : pct >= 85
@@ -889,9 +889,9 @@ function SemanaCard({
   const nivel = destacada && DESTAQUE[destacada];
   return (
     <div
-      className={`rounded-lg border bg-white p-4 ${nivel ? nivel.box : "border-[#E5E5E5]"}`}
+      className={`rounded-lg border bg-[var(--surface)] p-4 ${nivel ? nivel.box : "border-[var(--divider)]"}`}
     >
-      <p className="flex flex-wrap items-center gap-1.5 font-sans text-xs text-[#666666]">
+      <p className="flex flex-wrap items-center gap-1.5 font-sans text-xs text-[var(--ink-muted)]">
         <span>
           Semana del {fmtDiaCorto(w.inicioVista)} al {fmtDiaCorto(w.finVista)}
         </span>
@@ -901,17 +901,17 @@ function SemanaCard({
           </span>
         )}
         {w.parcial && !w.futura && (
-          <span className="ml-1 text-[#999999]" title="La semana aún no cierra: el real está incompleto">
+          <span className="ml-1 text-[var(--ink-subtle)]" title="La semana aún no cierra: el real está incompleto">
             (parcial)
           </span>
         )}
       </p>
-      <p className="mt-1.5 font-sans text-sm tabular-nums text-[#333333]">
+      <p className="mt-1.5 font-sans text-sm tabular-nums text-[var(--ink)]">
         <span className="font-display text-lg font-bold">{fmtUsd(w.plan, 0)}</span>
-        <span className="text-[#999999]"> plan</span>
+        <span className="text-[var(--ink-subtle)]"> plan</span>
         <span className="mx-1.5 text-[#CCCCCC]">·</span>
         <span className="font-display text-lg font-bold">{fmtUsd(w.real, 0)}</span>
-        <span className="text-[#999999]"> real</span>
+        <span className="text-[var(--ink-subtle)]"> real</span>
       </p>
       <p className={`mt-2 inline-flex items-center gap-1.5 font-sans text-xs ${tono.txt}`}>
         <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: tono.dot }} />
@@ -945,21 +945,21 @@ const FilaEvento = memo(function FilaEvento({
 
   return (
     <tr className={`group ${hidden ? "hidden" : ""}`}>
-      <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[#E5E5E5] bg-white px-4 py-2 align-top group-hover:bg-[#FAFAFA]">
+      <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 align-top group-hover:bg-[var(--surface-alt)]">
         <Link
           href={`/inversion-medios?evento=${ev.eventoId}`}
-          className="block truncate font-medium text-[#333333] hover:text-[#9F99F8]"
+          className="block truncate font-medium text-[var(--ink)] hover:text-[#9F99F8]"
           title={ev.nombre || ev.eventoId}
         >
           {ev.nombre || ev.eventoId}
         </Link>
-        <p className="text-xs text-[#999999]">
+        <p className="text-xs text-[var(--ink-subtle)]">
           {ev.eventoId}
           {ev.fechaEvento ? ` · ${ev.fechaEvento}` : ""}
         </p>
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
           <span
-            className="inline-flex items-center rounded-full border border-[#E5E5E5] bg-white px-2 py-0.5 font-medium text-[#333333]"
+            className="inline-flex items-center rounded-full border border-[var(--divider)] bg-[var(--surface)] px-2 py-0.5 font-medium text-[var(--ink)]"
             title="Techo = budgetPm de categoriaEvento (se edita en /admin/eventos)"
           >
             Techo {ev.techoUsd != null ? fmtUsd(ev.techoUsd) : "—"}
@@ -974,7 +974,7 @@ const FilaEvento = memo(function FilaEvento({
           )}
           {pctReal != null && (
             <span
-              className="inline-flex items-center gap-1 rounded-full border border-[#E5E5E5] bg-white px-2 py-0.5 font-medium text-[#333333]"
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--divider)] bg-[var(--surface)] px-2 py-0.5 font-medium text-[var(--ink)]"
               title={`Real histórico ${fmtUsd(totalRealEvento)} vs techo`}
             >
               <span
@@ -986,9 +986,9 @@ const FilaEvento = memo(function FilaEvento({
             </span>
           )}
         </div>
-        <p className="mt-1 text-xs tabular-nums text-[#999999]">
+        <p className="mt-1 text-xs tabular-nums text-[var(--ink-subtle)]">
           Plan <span className="font-medium text-[#534AB7]">{fmtUsd(totalPlanEvento, 0)}</span> · Real{" "}
-          <span className="font-medium text-[#333333]">{fmtUsd(totalRealEvento, 0)}</span>
+          <span className="font-medium text-[var(--ink)]">{fmtUsd(totalRealEvento, 0)}</span>
         </p>
       </td>
       {ev.days.map((cell) => {
@@ -1000,11 +1000,11 @@ const FilaEvento = memo(function FilaEvento({
           <td
             key={cell.fecha}
             title={diaEvento ? tituloDiaEvento(cell.fecha, ev.fechaEvento, ev.diasEvento) : undefined}
-            className={`w-16 min-w-16 max-w-16 border-t border-[#E5E5E5] p-0 text-center align-top ${
+            className={`w-16 min-w-16 max-w-16 border-t border-[var(--divider)] p-0 text-center align-top ${
               diaEvento
                 ? "bg-[#FAEEDA]"
                 : cell.fecha === hoy
-                  ? "bg-[#F0EFFE]/40"
+                  ? "bg-[var(--purple-tint)]/40"
                   : ""
             }`}
           >
@@ -1022,10 +1022,10 @@ function CeldaResumen({ cell, parcial }: { cell: DayCell; parcial: boolean }) {
   return (
     <div className="flex min-w-16 flex-col items-stretch px-0.5 py-1.5">
       <span className="text-center tabular-nums text-xs font-medium text-[#534AB7]">
-        {cell.plan != null ? fmtUsd(cell.plan, 0) : <span className="text-[#E5E5E5]">·</span>}
+        {cell.plan != null ? fmtUsd(cell.plan, 0) : <span className="text-[var(--divider)]">·</span>}
       </span>
       <span
-        className="mt-0.5 text-center tabular-nums text-[11px] leading-tight text-[#333333]"
+        className="mt-0.5 text-center tabular-nums text-[11px] leading-tight text-[var(--ink)]"
         title={
           cell.real != null
             ? `Real ${fmtUsd(cell.real)}${cell.fxImputado ? " · FX imputado (último disponible)" : ""}${parcial ? " · parcial (los ads llegan ~09:45)" : ""}`
@@ -1044,7 +1044,7 @@ function CeldaResumen({ cell, parcial }: { cell: DayCell; parcial: boolean }) {
           // el aviso va en el title.
           fmtUsd(cell.real, 0)
         ) : (
-          <span className="text-[#E5E5E5]">·</span>
+          <span className="text-[var(--divider)]">·</span>
         )}
       </span>
     </div>
@@ -1098,22 +1098,22 @@ function CanalResumen({
       </div>
 
       {/* Barra de composición + totales */}
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[#E5E5E5] bg-white p-4">
-        <p className="font-sans text-sm text-[#333333]">
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-4">
+        <p className="font-sans text-sm text-[var(--ink)]">
           Gasto real total{" "}
           <span className="font-display text-lg font-bold">{fmtUsd(canal.real)}</span>
           {pctEjec != null && (
-            <span className="ml-2 text-[#666666]">
+            <span className="ml-2 text-[var(--ink-muted)]">
               · {pctEjec.toFixed(0)}% del presupuesto
             </span>
           )}
           {noAtribuido > 0 && (
-            <span className="ml-2 text-[#999999]">
+            <span className="ml-2 text-[var(--ink-subtle)]">
               · incluye {fmtUsd(noAtribuido)} no atribuido
             </span>
           )}
         </p>
-        <div className="flex h-2.5 w-full max-w-sm overflow-hidden rounded-full bg-[#F0F0F0]">
+        <div className="flex h-2.5 w-full max-w-sm overflow-hidden rounded-full bg-[var(--grid)]">
           {canal.real > 0 &&
             canales.map((c) => (
               <div
@@ -1143,15 +1143,15 @@ function PlataformaCard({
   share: number;
 }) {
   return (
-    <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
-      <p className="inline-flex items-center gap-1.5 font-sans text-xs text-[#666666]">
+    <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6">
+      <p className="inline-flex items-center gap-1.5 font-sans text-xs text-[var(--ink-muted)]">
         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: color }} />
         {label}
       </p>
-      <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+      <p className="mt-2 font-display text-3xl font-bold leading-none text-[var(--ink)]">
         {value}
       </p>
-      <p className="mt-3 font-sans text-xs text-[#666666]">
+      <p className="mt-3 font-sans text-xs text-[var(--ink-muted)]">
         {share.toFixed(0)}% del gasto real
       </p>
     </div>
@@ -1172,13 +1172,13 @@ function Kpi({
   tone?: "pos" | "neg";
 }) {
   return (
-    <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
-      <p className="font-sans text-xs text-[#666666]">{label}</p>
-      <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+    <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6">
+      <p className="font-sans text-xs text-[var(--ink-muted)]">{label}</p>
+      <p className="mt-2 font-display text-3xl font-bold leading-none text-[var(--ink)]">
         {value}
       </p>
       {(hint || tone) && (
-        <p className="mt-3 inline-flex items-center gap-1.5 font-sans text-xs text-[#666666]">
+        <p className="mt-3 inline-flex items-center gap-1.5 font-sans text-xs text-[var(--ink-muted)]">
           {tone && (
             <span
               className={`h-1.5 w-1.5 rounded-full ${
@@ -1253,14 +1253,14 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
   }
 
   const inputCls =
-    "rounded-lg border border-[#E5E5E5] px-3 py-2 font-sans text-sm text-[#333333] transition-colors focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]";
+    "rounded-lg border border-[var(--divider)] px-3 py-2 font-sans text-sm text-[var(--ink)] transition-colors focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]";
 
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <h2 className="font-display text-lg font-bold text-[#333333]">Cargos extra CARDDA</h2>
-          <p className="font-sans text-xs text-[#666666]">
+          <h2 className="font-display text-lg font-bold text-[var(--ink)]">Cargos extra CARDDA</h2>
+          <p className="font-sans text-xs text-[var(--ink-muted)]">
             Pagos recurrentes de plataformas (DRIP, Adobe, Google Workspace, GPT…) normalizados
             para presupuestar.
           </p>
@@ -1277,27 +1277,27 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
 
       {/* Resumen normalizado */}
       <div className="grid grid-cols-2 gap-6 md:grid-cols-2">
-        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
-          <p className="font-sans text-xs text-[#666666]">Costo mensual (normalizado)</p>
-          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+        <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6">
+          <p className="font-sans text-xs text-[var(--ink-muted)]">Costo mensual (normalizado)</p>
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[var(--ink)]">
             {fmtUsd(total.mensual, 0)}
           </p>
-          <p className="mt-3 font-sans text-xs text-[#999999]">lo que conviene presupuestar por mes</p>
+          <p className="mt-3 font-sans text-xs text-[var(--ink-subtle)]">lo que conviene presupuestar por mes</p>
         </div>
-        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
-          <p className="font-sans text-xs text-[#666666]">Costo semanal (normalizado)</p>
-          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+        <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6">
+          <p className="font-sans text-xs text-[var(--ink-muted)]">Costo semanal (normalizado)</p>
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[var(--ink)]">
             {fmtUsd(total.semanal, 0)}
           </p>
-          <p className="mt-3 font-sans text-xs text-[#999999]">promedio por semana</p>
+          <p className="mt-3 font-sans text-xs text-[var(--ink-subtle)]">promedio por semana</p>
         </div>
       </div>
 
       {/* Form alta/edición */}
       {canEdit && editId !== null && (
-        <div className="rounded-lg border border-[#E5E5E5] bg-white p-4">
+        <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-4">
           <div className="flex flex-wrap items-end gap-3">
-            <label className="flex flex-col gap-1 font-sans text-xs text-[#666666]">
+            <label className="flex flex-col gap-1 font-sans text-xs text-[var(--ink-muted)]">
               Proveedor
               <input
                 value={form.proveedor}
@@ -1306,7 +1306,7 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
                 className={`${inputCls} w-48`}
               />
             </label>
-            <label className="flex flex-col gap-1 font-sans text-xs text-[#666666]">
+            <label className="flex flex-col gap-1 font-sans text-xs text-[var(--ink-muted)]">
               Detalle
               <input
                 value={form.detalle}
@@ -1315,7 +1315,7 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
                 className={`${inputCls} w-48`}
               />
             </label>
-            <label className="flex flex-col gap-1 font-sans text-xs text-[#666666]">
+            <label className="flex flex-col gap-1 font-sans text-xs text-[var(--ink-muted)]">
               Método
               <select
                 value={form.metodo}
@@ -1329,7 +1329,7 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 font-sans text-xs text-[#666666]">
+            <label className="flex flex-col gap-1 font-sans text-xs text-[var(--ink-muted)]">
               Monto USD
               <input
                 value={form.monto}
@@ -1339,7 +1339,7 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
                 className={`${inputCls} w-28 text-right tabular-nums`}
               />
             </label>
-            <label className="flex flex-col gap-1 font-sans text-xs text-[#666666]">
+            <label className="flex flex-col gap-1 font-sans text-xs text-[var(--ink-muted)]">
               Día de pago
               <input
                 value={form.diaPago}
@@ -1357,7 +1357,7 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
             </button>
             <button
               onClick={() => setEditId(null)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F5F5F5]"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--ink-muted)] hover:bg-[#F5F5F5]"
               aria-label="Cancelar"
             >
               <X className="h-4 w-4" />
@@ -1369,46 +1369,46 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
 
       {/* Tabla de cargos */}
       {cargos.length === 0 ? (
-        <p className="rounded-lg border border-[#E5E5E5] bg-white p-6 text-center font-sans text-sm text-[#999999]">
+        <p className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6 text-center font-sans text-sm text-[var(--ink-subtle)]">
           Sin cargos extra cargados{canEdit ? " — agrega el primero." : "."}
         </p>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-[#E5E5E5] bg-white">
+        <div className="overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)]">
           <table className="w-full border-collapse font-sans text-sm">
             <thead>
-              <tr className="text-xs text-[#666666]">
-                <th className="border-b border-[#E5E5E5] px-4 py-2 text-left font-medium">Proveedor</th>
-                <th className="border-b border-[#E5E5E5] px-4 py-2 text-left font-medium">Método</th>
-                <th className="border-b border-[#E5E5E5] px-4 py-2 text-right font-medium">Monto</th>
-                <th className="border-b border-[#E5E5E5] px-4 py-2 text-left font-medium">Día</th>
-                <th className="border-b border-[#E5E5E5] px-4 py-2 text-right font-medium">≈ Mensual</th>
-                {canEdit && <th className="border-b border-[#E5E5E5] px-4 py-2" />}
+              <tr className="text-xs text-[var(--ink-muted)]">
+                <th className="border-b border-[var(--divider)] px-4 py-2 text-left font-medium">Proveedor</th>
+                <th className="border-b border-[var(--divider)] px-4 py-2 text-left font-medium">Método</th>
+                <th className="border-b border-[var(--divider)] px-4 py-2 text-right font-medium">Monto</th>
+                <th className="border-b border-[var(--divider)] px-4 py-2 text-left font-medium">Día</th>
+                <th className="border-b border-[var(--divider)] px-4 py-2 text-right font-medium">≈ Mensual</th>
+                {canEdit && <th className="border-b border-[var(--divider)] px-4 py-2" />}
               </tr>
             </thead>
             <tbody>
               {cargos.map((c) => (
-                <tr key={c.id} className="transition-colors hover:bg-[#FAFAFA]">
-                  <td className="border-t border-[#E5E5E5] px-4 py-2">
-                    <span className="font-medium text-[#333333]">{c.proveedor}</span>
-                    {c.detalle && <p className="text-xs text-[#999999]">{c.detalle}</p>}
+                <tr key={c.id} className="transition-colors hover:bg-[var(--surface-alt)]">
+                  <td className="border-t border-[var(--divider)] px-4 py-2">
+                    <span className="font-medium text-[var(--ink)]">{c.proveedor}</span>
+                    {c.detalle && <p className="text-xs text-[var(--ink-subtle)]">{c.detalle}</p>}
                   </td>
-                  <td className="border-t border-[#E5E5E5] px-4 py-2 text-[#666666]">
+                  <td className="border-t border-[var(--divider)] px-4 py-2 text-[var(--ink-muted)]">
                     {METODO_LABEL[c.metodo as MetodoCargo] ?? c.metodo}
                   </td>
-                  <td className="border-t border-[#E5E5E5] px-4 py-2 text-right tabular-nums text-[#333333]">
+                  <td className="border-t border-[var(--divider)] px-4 py-2 text-right tabular-nums text-[var(--ink)]">
                     {fmtUsd(c.montoUsd)}
                   </td>
-                  <td className="border-t border-[#E5E5E5] px-4 py-2 text-[#999999]">{c.diaPago || "—"}</td>
-                  <td className="border-t border-[#E5E5E5] px-4 py-2 text-right tabular-nums text-[#666666]">
+                  <td className="border-t border-[var(--divider)] px-4 py-2 text-[var(--ink-subtle)]">{c.diaPago || "—"}</td>
+                  <td className="border-t border-[var(--divider)] px-4 py-2 text-right tabular-nums text-[var(--ink-muted)]">
                     {fmtUsd(costoMensual(c), 0)}
                     <span className="block text-[11px] text-[#BBBBBB]">{fmtUsd(costoSemanal(c), 0)}/sem</span>
                   </td>
                   {canEdit && (
-                    <td className="border-t border-[#E5E5E5] px-4 py-2 text-right">
+                    <td className="border-t border-[var(--divider)] px-4 py-2 text-right">
                       <div className="inline-flex gap-1">
                         <button
                           onClick={() => abrirEdicion(c)}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-[#666666] hover:bg-[#F0F0F0]"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--ink-muted)] hover:bg-[var(--grid)]"
                           aria-label="Editar"
                         >
                           <Pencil className="h-3.5 w-3.5" />
@@ -1416,7 +1416,7 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
                         <button
                           onClick={() => borrar(c.id)}
                           disabled={pending}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-[#666666] hover:bg-[#FCEBEB] hover:text-[#ED75A0]"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--ink-muted)] hover:bg-[#FCEBEB] hover:text-[#ED75A0]"
                           aria-label="Quitar"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -1459,18 +1459,18 @@ function FacturacionChart({ filas, gran }: { filas: FacturacionMes[]; gran: "mes
   );
   if (data.length === 0) {
     return (
-      <p className="rounded-lg border border-[#E5E5E5] bg-white p-6 text-center font-sans text-sm text-[#999999]">
+      <p className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6 text-center font-sans text-sm text-[var(--ink-subtle)]">
         Sin consumo para graficar.
       </p>
     );
   }
   return (
-    <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
+    <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
-        <p className="font-sans text-sm text-[#333333]">
+        <p className="font-sans text-sm text-[var(--ink)]">
           Consumo {gran === "mes" ? "mensual" : "semanal"} apilado por plataforma
         </p>
-        <div className="flex flex-wrap items-center gap-3 font-sans text-xs text-[#666666]">
+        <div className="flex flex-wrap items-center gap-3 font-sans text-xs text-[var(--ink-muted)]">
           {CANALES_FACT.map((c) => (
             <span key={c} className="inline-flex items-center gap-1.5">
               <span
@@ -1489,18 +1489,18 @@ function FacturacionChart({ filas, gran }: { filas: FacturacionMes[]; gran: "mes
             <XAxis
               dataKey="label"
               tickLine={false}
-              axisLine={{ stroke: "#E5E5E5" }}
-              tick={{ fontFamily: "var(--font-sans)", fontSize: 12, fill: "#999999" }}
+              axisLine={{ stroke: "var(--divider)" }}
+              tick={{ fontFamily: "var(--font-sans)", fontSize: 12, fill: "var(--ink-subtle)" }}
               minTickGap={24}
             />
             <YAxis
               tickLine={false}
               axisLine={false}
-              tick={{ fontFamily: "var(--font-sans)", fontSize: 12, fill: "#999999" }}
+              tick={{ fontFamily: "var(--font-sans)", fontSize: 12, fill: "var(--ink-subtle)" }}
               tickFormatter={(v: number) => (v >= 1000 ? `$${Math.round(v / 1000)}k` : `$${v}`)}
               width={52}
             />
-            <ChartTooltip content={<FacturacionTooltip />} cursor={{ stroke: "#E5E5E5" }} />
+            <ChartTooltip content={<FacturacionTooltip />} cursor={{ stroke: "var(--divider)" }} />
             {/* Orden de apilado: Meta (dominante) abajo → Otras arriba. */}
             {CANALES_FACT.map((c) => (
               <Area
@@ -1534,8 +1534,8 @@ function FacturacionTooltip({
   if (!active || !payload || payload.length === 0) return null;
   const total = payload.reduce((a, p) => a + (Number(p.value) || 0), 0);
   return (
-    <div className="rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] shadow-md">
-      <p className="text-xs text-[#666666]">{label}</p>
+    <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 py-2 font-sans text-sm text-[var(--ink)] shadow-md">
+      <p className="text-xs text-[var(--ink-muted)]">{label}</p>
       {[...payload].reverse().map((p) => (
         <p key={String(p.dataKey)} className="mt-1 flex items-center gap-1.5 tabular-nums">
           <span className="h-2 w-2 rounded-full" style={{ backgroundColor: p.color }} />
@@ -1543,8 +1543,8 @@ function FacturacionTooltip({
           <span className="ml-auto pl-3 font-medium">{fmtUsd(Number(p.value) || 0, 0)}</span>
         </p>
       ))}
-      <p className="mt-1.5 border-t border-[#F0F0F0] pt-1 text-xs text-[#666666]">
-        Total <span className="font-medium text-[#333333]">{fmtUsd(total, 0)}</span>
+      <p className="mt-1.5 border-t border-[var(--grid)] pt-1 text-xs text-[var(--ink-muted)]">
+        Total <span className="font-medium text-[var(--ink)]">{fmtUsd(total, 0)}</span>
       </p>
     </div>
   );
@@ -1572,12 +1572,12 @@ function FacturacionHistorica({
     return (
       <div className="flex flex-col gap-4">
         <div>
-          <h2 className="font-display text-lg font-bold text-[#333333]">Facturación histórica (Cardda)</h2>
-          <p className="font-sans text-xs text-[#666666]">
+          <h2 className="font-display text-lg font-bold text-[var(--ink)]">Facturación histórica (Cardda)</h2>
+          <p className="font-sans text-xs text-[var(--ink-muted)]">
             Lo realmente cobrado a la tarjeta Cardda con que se pagan los ads.
           </p>
         </div>
-        <p className="rounded-lg border border-[#E5E5E5] bg-white p-6 text-center font-sans text-sm text-[#999999]">
+        <p className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6 text-center font-sans text-sm text-[var(--ink-subtle)]">
           Sin facturación cargada todavía.
         </p>
       </div>
@@ -1587,9 +1587,9 @@ function FacturacionHistorica({
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <h2 className="font-display text-lg font-bold text-[#333333]">Facturación histórica (Cardda)</h2>
-        <p className="max-w-3xl font-sans text-xs text-[#666666]">
-          Lo realmente <span className="text-[#333333]">cobrado a la tarjeta Cardda</span> (solo
+        <h2 className="font-display text-lg font-bold text-[var(--ink)]">Facturación histórica (Cardda)</h2>
+        <p className="max-w-3xl font-sans text-xs text-[var(--ink-muted)]">
+          Lo realmente <span className="text-[var(--ink)]">cobrado a la tarjeta Cardda</span> (solo
           cargos aprobados, en USD por fecha). Es distinto del gasto declarado de las cuentas de
           ads de arriba: acá manda el cargo real a la tarjeta.
         </p>
@@ -1597,43 +1597,43 @@ function FacturacionHistorica({
 
       {/* KPIs */}
       <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
-        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
-          <p className="font-sans text-xs text-[#666666]">Consumo tarjeta (histórico)</p>
-          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+        <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6">
+          <p className="font-sans text-xs text-[var(--ink-muted)]">Consumo tarjeta (histórico)</p>
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[var(--ink)]">
             {fmtUsd(resumen.consumoTotal, 0)}
           </p>
-          <p className="mt-3 font-sans text-xs text-[#999999]">todos los comercios, aprobado</p>
+          <p className="mt-3 font-sans text-xs text-[var(--ink-subtle)]">todos los comercios, aprobado</p>
         </div>
-        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
-          <p className="font-sans text-xs text-[#666666]">Fee de Cardda (histórico)</p>
-          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+        <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6">
+          <p className="font-sans text-xs text-[var(--ink-muted)]">Fee de Cardda (histórico)</p>
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[var(--ink)]">
             {fmtUsd(resumen.feeTotal, 0)}
           </p>
-          <p className="mt-3 font-sans text-xs text-[#999999]">costo del servicio Cardda</p>
+          <p className="mt-3 font-sans text-xs text-[var(--ink-subtle)]">costo del servicio Cardda</p>
         </div>
-        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
-          <p className="font-sans text-xs text-[#666666]">
+        <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6">
+          <p className="font-sans text-xs text-[var(--ink-muted)]">
             Consumo {resumen.ultimoPeriodo ? fmtPeriodo(resumen.ultimoPeriodo) : "último mes"}
           </p>
-          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[var(--ink)]">
             {fmtUsd(resumen.consumoUltimoMes, 0)}
           </p>
-          <p className="mt-3 font-sans text-xs text-[#999999]">último mes con datos</p>
+          <p className="mt-3 font-sans text-xs text-[var(--ink-subtle)]">último mes con datos</p>
         </div>
-        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6">
-          <p className="font-sans text-xs text-[#666666]">
+        <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6">
+          <p className="font-sans text-xs text-[var(--ink-muted)]">
             Fee {resumen.ultimoPeriodo ? fmtPeriodo(resumen.ultimoPeriodo) : "último mes"}
           </p>
-          <p className="mt-2 font-display text-3xl font-bold leading-none text-[#333333]">
+          <p className="mt-2 font-display text-3xl font-bold leading-none text-[var(--ink)]">
             {fmtUsd(resumen.feeUltimoMes, 0)}
           </p>
-          <p className="mt-3 font-sans text-xs text-[#999999]">fee del último mes</p>
+          <p className="mt-3 font-sans text-xs text-[var(--ink-subtle)]">fee del último mes</p>
         </div>
       </div>
 
       {/* Controles: Tabla↔Gráfico y Mes↔Semana */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="flex overflow-hidden rounded-lg border border-[#E5E5E5] bg-white font-sans text-sm">
+        <div className="flex overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)] font-sans text-sm">
           {(
             [
               ["tabla", "Tabla"],
@@ -1645,15 +1645,15 @@ function FacturacionHistorica({
               onClick={() => setVista(k)}
               className={`px-4 py-2 transition-colors ${
                 vista === k
-                  ? "bg-[#F0EFFE] font-medium text-[#9F99F8]"
-                  : "text-[#666666] hover:bg-[#FAFAFA] hover:text-[#333333]"
+                  ? "bg-[var(--purple-tint)] font-medium text-[#9F99F8]"
+                  : "text-[var(--ink-muted)] hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
               }`}
             >
               {label}
             </button>
           ))}
         </div>
-        <div className="flex overflow-hidden rounded-lg border border-[#E5E5E5] bg-white font-sans text-sm">
+        <div className="flex overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)] font-sans text-sm">
           {(
             [
               ["mes", "Mes"],
@@ -1665,8 +1665,8 @@ function FacturacionHistorica({
               onClick={() => setGran(k)}
               className={`px-4 py-2 transition-colors ${
                 gran === k
-                  ? "bg-[#F0EFFE] font-medium text-[#9F99F8]"
-                  : "text-[#666666] hover:bg-[#FAFAFA] hover:text-[#333333]"
+                  ? "bg-[var(--purple-tint)] font-medium text-[#9F99F8]"
+                  : "text-[var(--ink-muted)] hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
               }`}
             >
               {label}
@@ -1674,7 +1674,7 @@ function FacturacionHistorica({
           ))}
         </div>
         {gran === "semana" && (
-          <span className="font-sans text-xs text-[#999999]">
+          <span className="font-sans text-xs text-[var(--ink-subtle)]">
             semanas de lunes a domingo · el fee de Cardda es mensual (no se muestra por semana)
           </span>
         )}
@@ -1685,10 +1685,10 @@ function FacturacionHistorica({
       ) : (
         <>
       {/* Tabla por período×canal + fee (scrolleable, header sticky) */}
-      <div className="max-h-[440px] overflow-auto rounded-lg border border-[#E5E5E5] bg-white">
+      <div className="max-h-[440px] overflow-auto rounded-lg border border-[var(--divider)] bg-[var(--surface)]">
         <table className="w-full border-collapse font-sans text-sm">
           <thead>
-            <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA] text-xs text-[#666666] [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:bg-[#FAFAFA]">
+            <tr className="border-b border-[var(--divider)] bg-[var(--surface-alt)] text-xs text-[var(--ink-muted)] [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:bg-[var(--surface-alt)]">
               <th className="px-4 py-3 text-left font-medium">Período</th>
               {CANALES_FACT.map((c) => (
                 <th key={c} className="px-4 py-3 text-right font-medium">
@@ -1701,27 +1701,27 @@ function FacturacionHistorica({
                   </span>
                 </th>
               ))}
-              <th className="px-4 py-3 text-right font-medium text-[#333333]">Consumo total</th>
+              <th className="px-4 py-3 text-right font-medium text-[var(--ink)]">Consumo total</th>
               {conFee && <th className="px-4 py-3 text-right font-medium">Fee Cardda</th>}
             </tr>
           </thead>
           <tbody>
             {filas.map((m) => (
-              <tr key={m.periodo} className="border-b border-[#F0F0F0] last:border-0 hover:bg-[#FAFAFA]">
-                <td className="px-4 py-2.5 text-left font-medium text-[#333333]">{fmtPeriodo(m.periodo)}</td>
+              <tr key={m.periodo} className="border-b border-[var(--grid)] last:border-0 hover:bg-[var(--surface-alt)]">
+                <td className="px-4 py-2.5 text-left font-medium text-[var(--ink)]">{fmtPeriodo(m.periodo)}</td>
                 {CANALES_FACT.map((c) => (
-                  <td key={c} className="px-4 py-2.5 text-right tabular-nums text-[#666666]">
+                  <td key={c} className="px-4 py-2.5 text-right tabular-nums text-[var(--ink-muted)]">
                     {m[c] > 0 ? fmtUsd(m[c], 0) : "·"}
                   </td>
                 ))}
                 <td
-                  className="px-4 py-2.5 text-right font-medium tabular-nums text-[#333333]"
+                  className="px-4 py-2.5 text-right font-medium tabular-nums text-[var(--ink)]"
                   title={`CLP ${m.consumoClp.toLocaleString("es-CL", { maximumFractionDigits: 0 })}`}
                 >
                   {fmtUsd(m.consumoUsd, 0)}
                 </td>
                 {conFee && (
-                  <td className="px-4 py-2.5 text-right tabular-nums text-[#666666]">
+                  <td className="px-4 py-2.5 text-right tabular-nums text-[var(--ink-muted)]">
                     {m.feeUsd > 0 ? (
                       <span className="inline-flex items-center gap-1.5">
                         {fmtUsd(m.feeUsd, 0)}
@@ -1740,7 +1740,7 @@ function FacturacionHistorica({
             ))}
           </tbody>
           <tfoot>
-            <tr className="border-t border-[#E5E5E5] bg-[#FAFAFA] text-[#333333]">
+            <tr className="border-t border-[var(--divider)] bg-[var(--surface-alt)] text-[var(--ink)]">
               <td className="px-4 py-3 text-left font-medium">Total histórico</td>
               {CANALES_FACT.map((c) => (
                 <td key={c} className="px-4 py-3 text-right font-medium tabular-nums">
@@ -1758,7 +1758,7 @@ function FacturacionHistorica({
         </>
       )}
 
-      <p className="font-sans text-xs text-[#999999]">
+      <p className="font-sans text-xs text-[var(--ink-subtle)]">
         &ldquo;Otras&rdquo; agrupa SaaS y otros comercios (Drip, Adobe, Webflow, Workspace…) — se
         solapa con los cargos extra de arriba. Meta = Facebook/Instagram; Google = solo Google Ads
         (Workspace/Cloud caen en Otras); montos convertidos a USD con el tipo de cambio del día.

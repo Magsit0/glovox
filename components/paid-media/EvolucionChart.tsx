@@ -13,6 +13,7 @@ import {
   YAxis,
 } from "recharts";
 import {
+  SURFACE,
   axisTick,
   gridProps,
   legendProps,
@@ -87,16 +88,16 @@ function ChartTooltip({
           : formatInt(p.conversiones);
 
   return (
-    <div className="rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] shadow-md">
+    <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 py-2 font-sans text-sm text-[var(--ink)] shadow-md">
       <p className="font-medium">{p.fechaLabel}</p>
-      <p className="mt-1 flex items-center gap-1.5 text-xs text-[#666666]">
+      <p className="mt-1 flex items-center gap-1.5 text-xs text-[var(--ink-muted)]">
         <span
           className="inline-block h-1.5 w-1.5 rounded-full"
           style={{ background: seriesColor(0) }}
         />
         {mainValue} {mainLabel.toLowerCase()}
       </p>
-      <p className="flex items-center gap-1.5 text-xs text-[#666666]">
+      <p className="flex items-center gap-1.5 text-xs text-[var(--ink-muted)]">
         <span
           className="inline-block h-1.5 w-1.5 rounded-full"
           style={{ background: seriesColor(2) }}
@@ -135,13 +136,13 @@ export default function EvolucionChart({ rows, moneda }: Props) {
   const ctrColor = seriesColor(2);
 
   return (
-    <article className="flex flex-col gap-6 rounded-lg border border-[#E5E5E5] bg-white p-6">
+    <article className="flex flex-col gap-6 rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6">
       <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h2 className="font-display text-lg font-bold tracking-tight text-[#333333]">
+          <h2 className="font-display text-lg font-bold tracking-tight text-[var(--ink)]">
             Evolución diaria
           </h2>
-          <p className="mt-1 font-sans text-sm text-[#666666]">
+          <p className="mt-1 font-sans text-sm text-[var(--ink-muted)]">
             Serie diaria del KPI seleccionado y CTR como referencia. El gasto va
             en {moneda}, convertido con el tipo de cambio de cada día.
             {diasSinFx > 0 && (
@@ -157,7 +158,7 @@ export default function EvolucionChart({ rows, moneda }: Props) {
             )}
           </p>
         </div>
-        <div className="flex flex-wrap gap-1 rounded-lg border border-[#E5E5E5] bg-white p-1">
+        <div className="flex flex-wrap gap-1 rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-1">
           {METRICS.map((m) => {
             const isActive = metric === m.id;
             return (
@@ -167,8 +168,8 @@ export default function EvolucionChart({ rows, moneda }: Props) {
                 onClick={() => setMetric(m.id)}
                 className={`rounded-md px-3 py-1.5 font-sans text-sm font-medium transition-colors ${
                   isActive
-                    ? "bg-[#F0EFFE] text-[#9F99F8]"
-                    : "text-[#666666] hover:text-[#333333]"
+                    ? "bg-[var(--purple-tint)] text-[#9F99F8]"
+                    : "text-[var(--ink-muted)] hover:text-[var(--ink)]"
                 }`}
               >
                 {m.label}
@@ -179,7 +180,7 @@ export default function EvolucionChart({ rows, moneda }: Props) {
       </header>
 
       {data.length === 0 ? (
-        <p className="py-8 text-center font-sans text-sm text-[#999999]">
+        <p className="py-8 text-center font-sans text-sm text-[var(--ink-subtle)]">
           Sin datos para los filtros seleccionados.
         </p>
       ) : (
@@ -199,7 +200,7 @@ export default function EvolucionChart({ rows, moneda }: Props) {
               <XAxis
                 dataKey="fecha"
                 tickLine={false}
-                axisLine={{ stroke: "#E5E5E5" }}
+                axisLine={{ stroke: SURFACE.divider }}
                 tick={axisTick}
                 interval="preserveStartEnd"
                 minTickGap={32}
@@ -231,7 +232,7 @@ export default function EvolucionChart({ rows, moneda }: Props) {
               />
               <Tooltip
                 content={<ChartTooltip metric={metric} moneda={moneda} />}
-                cursor={{ stroke: "#E5E5E5" }}
+                cursor={{ stroke: SURFACE.divider }}
               />
               <Legend {...legendProps} />
               <Area

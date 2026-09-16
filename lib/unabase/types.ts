@@ -241,6 +241,13 @@ export interface NegocioResumenRow {
   ventaBrutaDocumentada: number | null;
   ventaIvaDocumentada: number | null;
   docsVentaResumen: number | null;
+  /** Presupuesto de gasto (maestro Unabase, costo_presupuestado). Siempre neto. */
+  gastoPresupuestado: number | null;
+  /** Rollup de las líneas hoja del presupuesto, para contrastar con el maestro. */
+  presupuestoGastoItems: number | null;
+  lineasPresupuesto: number | null;
+  /** Utilidad esperada según el maestro (referencia frente a la calculada). */
+  utilidadPresupuestada: number | null;
   gastoReal: number | null;
   gastoNetoDocumentado: number | null;
   gastoBrutoDocumentado: number | null;

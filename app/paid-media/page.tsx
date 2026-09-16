@@ -19,7 +19,7 @@ import {
   getPlatformOptions,
   getByEvento,
   getOtrasCampanias,
-  getEventoPrefixes,
+  getPaisOptions,
   parseDisplayCurrency,
   type DisplayCurrency,
   type PaidMediaFilters,
@@ -37,6 +37,7 @@ import PaidMediaTabs, {
 } from "@/components/paid-media/PaidMediaTabs";
 import OverallTable from "@/components/paid-media/OverallTable";
 import CurrencySwitch from "@/components/paid-media/CurrencySwitch";
+import ThemeSwitch from "@/components/theme/ThemeSwitch";
 import { formatDate, plataformaLabel } from "@/components/paid-media/format";
 
 // La ruta NO debe cachearse mientras el mart pueda devolver `gasto_usd` NULL o
@@ -53,6 +54,7 @@ interface PageProps {
     moneda?: string;
     currency?: string;
     plataforma?: string | string[];
+    pais?: string;
     prefix?: string;
     account?: string | string[];
     campaign?: string | string[];
@@ -108,7 +110,17 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
   // `currency` es un parámetro MUERTO: el dashboard ya no filtra por moneda.
   // Sigue viniendo en links compartidos por Slack y en bookmarks, así que se
   // limpia de la URL en vez de ignorarse en silencio.
-  const sobraCurrency = params.currency != null;
+  // `prefix` es el filtro VIEJO (familia por prefijo de EventoID). Se traduce a
+  // país para no romper los links ya compartidos: GLO→CL y GLP→PE eran su
+  // intención, y el resto de los prefijos (los numéricos de Fever, GLB, PPR) no
+  // tienen equivalente — se descartan y la página cae al país por defecto.
+  const prefixLegacy: Record<string, string> = { GLO: "CL", GLP: "PE" };
+  const paisDeLegacy = params.prefix
+    ? prefixLegacy[params.prefix.toUpperCase()]
+    : undefined;
+  const paisParam = params.pais ?? paisDeLegacy;
+
+  const sobraCurrency = params.currency != null || params.prefix != null;
   const sobranPlataformas = tab === "overall" && plataformas.length > 1;
   if (sobraCurrency || sobranPlataformas) {
     const qs = new URLSearchParams();
@@ -119,7 +131,7 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
     // resaltada queden consistentes.
     const platsCanon = tab === "overall" ? plataformas.slice(0, 1) : plataformas;
     for (const p of platsCanon) qs.append("plataforma", p);
-    if (params.prefix) qs.set("prefix", params.prefix);
+    if (paisParam) qs.set("pais", paisParam);
     if (from) qs.set("from", from);
     if (to) qs.set("to", to);
     for (const p of parseStringList(params.account)) qs.append("account", p);
@@ -136,26 +148,33 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
   if (tab === "overall") {
     let dateRange;
     let platforms;
-    let prefixes: string[];
-    let prefix: string | undefined;
+    let paises: string[];
+    let pais: string | undefined;
     let eventos;
     let otras;
     try {
-      [dateRange, platforms, prefixes] = await Promise.all([
+      [dateRange, platforms, paises] = await Promise.all([
         getDateRange(),
         getPlatformOptions(),
-        getEventoPrefixes({ plataforma, from, to }, moneda),
+        getPaisOptions({ plataforma, from, to }, moneda),
       ]);
-      // Familia de evento: default GLO (Chile). Si la URL trae una válida, manda;
-      // si GLO no existe en el scope, cae a la de mayor gasto.
-      prefix =
-        params.prefix && prefixes.includes(params.prefix)
-          ? params.prefix
-          : prefixes.includes("GLO")
-            ? "GLO"
-            : prefixes[0];
+      // País del evento: default Chile. Si la URL trae uno válido, manda; si CL
+      // no existe en el scope, cae al de mayor gasto.
+      const pedido = paisParam?.toUpperCase();
+      pais =
+        pedido === PAIS_GLOBAL
+          ? PAIS_GLOBAL
+          : pedido && paises.includes(pedido)
+            ? pedido
+            : paises.includes("CL")
+              ? "CL"
+              : paises[0];
       [eventos, otras] = await Promise.all([
-        getByEvento({ plataforma, prefix, from, to }, moneda),
+        // En Global no se pasa país: la query no filtra y devuelve todo.
+        getByEvento(
+          { plataforma, pais: pais === PAIS_GLOBAL ? undefined : pais, from, to },
+          moneda,
+        ),
         getOtrasCampanias({ plataforma, from, to }, moneda),
       ]);
     } catch (err) {
@@ -169,35 +188,38 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
     }
     return (
       <Shell>
-        <Heading dateRange={dateRange} />
+        <Heading dateRange={dateRange} moneda={moneda} />
         <PaidMediaTabs
           active="overall"
           moneda={moneda}
           plataforma={plataforma}
-          prefix={prefix}
+          pais={pais}
           from={from}
           to={to}
         />
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex flex-col gap-3">
-            <CurrencySwitch
-              active={moneda}
-              hrefFor={(m) =>
-                overallHref({ moneda: m, plataforma, prefix, from, to })
-              }
-            />
+            <div className="flex flex-wrap items-center gap-4">
+              <CurrencySwitch
+                active={moneda}
+                hrefFor={(m) =>
+                  overallHref({ moneda: m, plataforma, pais, from, to })
+                }
+              />
+              <ThemeSwitch />
+            </div>
             <PlatformPills
               platforms={platforms}
               active={plataforma}
               moneda={moneda}
-              prefix={prefix}
+              pais={pais}
               from={from}
               to={to}
             />
           </div>
-          <PrefixPills
-            prefixes={prefixes}
-            active={prefix}
+          <PaisPills
+            paises={[...paises, PAIS_GLOBAL]}
+            active={pais}
             moneda={moneda}
             plataforma={plataforma}
             from={from}
@@ -324,7 +346,7 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
 
   return (
     <Shell>
-      <Heading dateRange={dateRange} />
+      <Heading dateRange={dateRange} moneda={moneda} />
 
       <PaidMediaTabs
         active="detalle"
@@ -334,10 +356,13 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
         to={to}
       />
 
-      <CurrencySwitch
-        active={moneda}
-        hrefFor={(m) => detalleHref(m, params)}
-      />
+      <div className="flex flex-wrap items-center gap-4">
+        <CurrencySwitch
+          active={moneda}
+          hrefFor={(m) => detalleHref(m, params)}
+        />
+        <ThemeSwitch />
+      </div>
 
       <PaidMediaFilters_
         platforms={platforms}
@@ -444,8 +469,10 @@ function Shell({ children }: { children: React.ReactNode }) {
 
 function Heading({
   dateRange,
+  moneda,
 }: {
   dateRange?: { min: string; max: string; maxFx: string };
+  moneda?: DisplayCurrency;
 }) {
   // Si el tipo de cambio va por detrás de los datos de ads, el encabezado lo
   // dice: prometer cobertura hasta `max` cuando la conversión solo llega hasta
@@ -455,18 +482,19 @@ function Heading({
 
   return (
     <header className="flex flex-col gap-2">
-      <p className="font-sans text-xs text-[#666666]">Paid media</p>
-      <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
+      <p className="font-sans text-xs text-[var(--ink-muted)]">Paid media</p>
+      <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[var(--ink)]">
         Social media ads
       </h1>
-      <p className="font-sans text-sm text-[#666666]">
+      <p className="font-sans text-sm text-[var(--ink-muted)]">
         Rendimiento de campañas pagadas en Meta, Google y TikTok, consolidado en
-        dólares: gasto, alcance, CTR, CPC, CPM, conversiones y ROAS desglosado
+        una sola moneda: gasto, CTR, CPC, CPM, conversiones y ROAS desglosado
         por plataforma, cuenta, campaña y adset.
       </p>
       {dateRange?.min && dateRange?.max && (
-        <p className="font-sans text-xs text-[#999999]">
-          Datos entre {formatDate(dateRange.min)} y {formatDate(dateRange.max)}.
+        <p className="font-sans text-xs text-[var(--ink-subtle)]">
+          Datos entre {formatDate(dateRange.min)} y {formatDate(dateRange.max)}
+          {moneda ? `, expresados en ${moneda}` : ""}.
           {fxAtrasado ? (
             <> Conversión a dólares disponible hasta {formatDate(dateRange.maxFx)}.</>
           ) : null}{" "}
@@ -507,7 +535,7 @@ function detalleHref(
 function overallHref(next: {
   moneda?: DisplayCurrency;
   plataforma?: string;
-  prefix?: string;
+  pais?: string;
   from?: string;
   to?: string;
 }): string {
@@ -515,30 +543,38 @@ function overallHref(next: {
   // USD es el default: se omite de la URL para que los links queden limpios.
   if (next.moneda && next.moneda !== "USD") params.set("moneda", next.moneda);
   if (next.plataforma) params.set("plataforma", next.plataforma);
-  if (next.prefix) params.set("prefix", next.prefix);
+  if (next.pais) params.set("pais", next.pais);
   if (next.from) params.set("from", next.from);
   if (next.to) params.set("to", next.to);
   const qs = params.toString();
   return `/paid-media${qs ? `?${qs}` : ""}`;
 }
 
+/** Nombre legible del país. Un código que no conozcamos se muestra tal cual. */
+const PAIS_LABEL: Record<string, string> = { CL: "Chile", PE: "Perú" };
+
+/** Valor centinela de la pill "Global": no filtra por país, muestra todos.
+ *  Es un valor explícito y no la ausencia del parámetro porque sin parámetro la
+ *  página cae al default (Chile), que es el comportamiento que ya tenía. */
+const PAIS_GLOBAL = "GLOBAL";
+
 const PILL_BASE =
   "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-sans text-xs font-medium transition-colors";
-const PILL_ACTIVE = "border-[#9F99F8] bg-[#F0EFFE] text-[#9F99F8]";
-const PILL_IDLE = "border-[#E5E5E5] bg-white text-[#333333] hover:border-[#333333]";
+const PILL_ACTIVE = "border-[#9F99F8] bg-[var(--purple-tint)] text-[#9F99F8]";
+const PILL_IDLE = "border-[var(--divider)] bg-[var(--surface)] text-[var(--ink)] hover:border-[var(--ink)]";
 
 function PlatformPills({
   platforms,
   active,
   moneda,
-  prefix,
+  pais,
   from,
   to,
 }: {
   platforms: PlataformaOption[];
   active?: string;
   moneda: DisplayCurrency;
-  prefix?: string;
+  pais?: string;
   from?: string;
   to?: string;
 }) {
@@ -546,10 +582,10 @@ function PlatformPills({
 
   return (
     <section className="flex flex-wrap items-center gap-2">
-      <span className="w-16 font-sans text-xs text-[#666666]">Plataforma</span>
+      <span className="w-16 font-sans text-xs text-[var(--ink-muted)]">Plataforma</span>
       {/* "Todas" limpia el filtro de plataforma. */}
       <Link
-        href={overallHref({ moneda, prefix, from, to })}
+        href={overallHref({ moneda, pais, from, to })}
         aria-current={!active ? "true" : undefined}
         className={`${PILL_BASE} ${!active ? PILL_ACTIVE : PILL_IDLE}`}
       >
@@ -560,7 +596,7 @@ function PlatformPills({
         return (
           <Link
             key={p.plataforma}
-            href={overallHref({ moneda, plataforma: p.plataforma, prefix, from, to })}
+            href={overallHref({ moneda, plataforma: p.plataforma, pais, from, to })}
             aria-current={isActive ? "true" : undefined}
             className={`${PILL_BASE} ${isActive ? PILL_ACTIVE : PILL_IDLE}`}
           >
@@ -572,10 +608,30 @@ function PlatformPills({
   );
 }
 
-/** Bandera sutil de fondo para las familias con país conocido (GLO=Chile,
- *  GLP=Perú). El resto de familias no llevan bandera. */
-function PrefixFlagBg({ prefix }: { prefix: string }) {
-  if (prefix === "GLO") {
+/**
+ * Bandera sutil de fondo del país.
+ *
+ * Se decide por `categoriaEvento.Pais` (CL / PE), no por el prefijo del
+ * EventoID: con el prefijo, los EventoID numéricos de Fever quedaban sin
+ * clasificar y cada uno se convertía en una "familia" de un solo evento.
+ *
+ * Cualquier valor que no sea CL ni PE va SIN bandera, a propósito: mejor una
+ * pill sin bandera que una bandera equivocada.
+ */
+/** Planeta de la pill Global. Va como icono en línea, no como fondo: no es una
+ *  bandera, es la ausencia de filtro por país. */
+function GlobeIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="relative h-3.5 w-3.5" aria-hidden="true" fill="none">
+      <circle cx="8" cy="8" r="6.2" stroke="currentColor" strokeWidth="1.3" />
+      <ellipse cx="8" cy="8" rx="2.6" ry="6.2" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M1.9 6h12.2M1.9 10h12.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function PaisFlagBg({ pais }: { pais: string }) {
+  if (pais === "CL") {
     return (
       <svg
         viewBox="0 0 9 6"
@@ -593,7 +649,7 @@ function PrefixFlagBg({ prefix }: { prefix: string }) {
       </svg>
     );
   }
-  if (prefix === "GLP") {
+  if (pais === "PE") {
     return (
       <svg
         viewBox="0 0 9 6"
@@ -610,39 +666,41 @@ function PrefixFlagBg({ prefix }: { prefix: string }) {
   return null;
 }
 
-function PrefixPills({
-  prefixes,
+function PaisPills({
+  paises,
   active,
   moneda,
   plataforma,
   from,
   to,
 }: {
-  prefixes: string[];
+  paises: string[];
   active?: string;
   moneda: DisplayCurrency;
   plataforma?: string;
   from?: string;
   to?: string;
 }) {
-  if (prefixes.length === 0) return null;
+  if (paises.length === 0) return null;
 
   return (
     <section className="flex flex-wrap items-center justify-end gap-2">
-      <span className="font-sans text-xs text-[#666666]">Familia</span>
-      {prefixes.map((p) => {
+      <span className="font-sans text-xs text-[var(--ink-muted)]">País</span>
+      {paises.map((p) => {
         const isActive = p === active;
         return (
           <Link
             key={p}
-            href={overallHref({ moneda, plataforma, prefix: p, from, to })}
+            href={overallHref({ moneda, plataforma, pais: p, from, to })}
             aria-current={isActive ? "true" : undefined}
             className={`relative overflow-hidden ${PILL_BASE} ${
               isActive ? PILL_ACTIVE : PILL_IDLE
             }`}
           >
-            <PrefixFlagBg prefix={p} />
-            <span className="relative">{p}</span>
+            {p === PAIS_GLOBAL ? <GlobeIcon /> : <PaisFlagBg pais={p} />}
+            <span className="relative">
+              {p === PAIS_GLOBAL ? "Global" : (PAIS_LABEL[p] ?? p)}
+            </span>
           </Link>
         );
       })}
@@ -652,9 +710,9 @@ function PrefixPills({
 
 function ErrorView({ message }: { message: string }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-[#ED75A0] bg-white p-6">
+    <div className="flex items-start gap-3 rounded-lg border border-[#ED75A0] bg-[var(--surface)] p-6">
       <span className="mt-1.5 inline-block h-2 w-2 rounded-full bg-[#ED75A0]" />
-      <p className="flex-1 font-sans text-sm text-[#333333]">{message}</p>
+      <p className="flex-1 font-sans text-sm text-[var(--ink)]">{message}</p>
     </div>
   );
 }

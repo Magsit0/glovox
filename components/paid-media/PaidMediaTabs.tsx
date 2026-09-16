@@ -10,7 +10,8 @@ interface Props {
    *  transversales a ambas vistas). */
   moneda?: DisplayCurrency;
   plataforma?: string | string[];
-  prefix?: string;
+  /** País del evento. Solo aplica al tab Overall. */
+  pais?: string;
   from?: string;
   to?: string;
 }
@@ -24,7 +25,7 @@ export default function PaidMediaTabs({
   active,
   moneda,
   plataforma,
-  prefix,
+  pais,
   from,
   to,
 }: Props) {
@@ -38,8 +39,8 @@ export default function PaidMediaTabs({
         ? [plataforma]
         : [];
     for (const item of plataformas) params.append("plataforma", item);
-    // La familia solo aplica al tab Overall.
-    if (prefix && key === "overall") params.set("prefix", prefix);
+    // El país solo aplica al tab Overall.
+    if (pais && key === "overall") params.set("pais", pais);
     if (from) params.set("from", from);
     if (to) params.set("to", to);
     // "overall" es el default de la página — no hace falta el param.
@@ -51,7 +52,7 @@ export default function PaidMediaTabs({
   return (
     <nav
       aria-label="Secciones de paid media"
-      className="flex items-end gap-1 border-b border-[#E5E5E5]"
+      className="flex items-end gap-1 border-b border-[var(--divider)]"
     >
       {TABS.map((t) => {
         const isActive = t.key === active;
@@ -61,8 +62,8 @@ export default function PaidMediaTabs({
             href={hrefFor(t.key)}
             className={`-mb-px inline-flex items-center px-4 py-2 font-sans text-sm transition-colors ${
               isActive
-                ? "border-b-2 border-[#9F99F8] font-medium text-[#333333]"
-                : "border-b-2 border-transparent text-[#666666] hover:text-[#333333]"
+                ? "border-b-2 border-[#9F99F8] font-medium text-[var(--ink)]"
+                : "border-b-2 border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]"
             }`}
             aria-current={isActive ? "page" : undefined}
           >

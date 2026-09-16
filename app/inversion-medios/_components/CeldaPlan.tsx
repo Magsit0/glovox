@@ -107,18 +107,18 @@ export default function CeldaPlan({
           inputMode="decimal"
           placeholder="·"
           aria-label={`Plan ${plataforma}${tipo ? ` ${tipo}` : " sin tipo"} ${eventoId} ${cell.fecha}`}
-          className={`w-full rounded border bg-transparent px-1 py-0.5 text-center tabular-nums text-xs font-medium text-[#534AB7] transition-colors placeholder:text-[#E5E5E5] focus:border-[#9F99F8] focus:bg-white focus:outline-none ${
-            error ? "border-[#ED75A0]" : "border-transparent hover:border-[#E5E5E5]"
+          className={`w-full rounded border bg-transparent px-1 py-0.5 text-center tabular-nums text-xs font-medium text-[#534AB7] transition-colors placeholder:text-[var(--divider)] focus:border-[#9F99F8] focus:bg-[var(--surface)] focus:outline-none ${
+            error ? "border-[#ED75A0]" : "border-transparent hover:border-[var(--divider)]"
           } ${pending ? "opacity-50" : ""}`}
         />
       ) : (
         // Read-only: mismo lugar que el plan, sin input.
         <span className="px-1 py-0.5 text-center tabular-nums text-xs font-medium text-[#534AB7]">
-          {saved != null ? fmtUsd(saved, 0) : <span className="text-[#E5E5E5]">·</span>}
+          {saved != null ? fmtUsd(saved, 0) : <span className="text-[var(--divider)]">·</span>}
         </span>
       )}
       <span
-        className="mt-0.5 text-center tabular-nums text-[11px] leading-tight text-[#333333]"
+        className="mt-0.5 text-center tabular-nums text-[11px] leading-tight text-[var(--ink)]"
         title={
           cell.real != null
             ? `Real ${fmtUsd(cell.real)}${cell.fxImputado ? " · FX imputado (último disponible)" : ""}${parcial ? " · parcial" : ""}`
@@ -137,7 +137,7 @@ export default function CeldaPlan({
           // El aviso "parcial" vive en el tooltip (title de arriba).
           fmtUsd(cell.real, 0)
         ) : (
-          <span className="text-[#E5E5E5]">·</span>
+          <span className="text-[var(--divider)]">·</span>
         )}
       </span>
     </div>

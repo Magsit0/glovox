@@ -26,6 +26,44 @@ const P = process.env.BIGQUERY_PROJECT_ID;
 const MART = `\`${P}.marts.paidmedia_ads_performance\``;
 const CAT = `\`${P}.glovox.categoriaEvento\``;
 const FX = `\`${P}.referencia.tipo_cambio\``;
+const TICKETS = `\`${P}.glovox.tickets\``;
+
+/**
+ * Tickets efectivamente vendidos por evento, en PERSONAS.
+ *
+ * Misma definicion que `/marketing/weekly` (TICKET_TYPE_FILTER) y
+ * `/inversion-medios` (VENDIDO), para que los tres paneles no se contradigan:
+ *  - Se cuentan VENTA y PASE TEMPORADA; se excluyen CORTESIA y MESA VIP, que no
+ *    son venta, y las devoluciones (`EsDevuelto`).
+ *  - La unidad es PERSONAS, no transacciones: `glovox.tickets.PersonasPorTicket`
+ *    vale 1 para la enorme mayoria de las filas y N para los packs que la
+ *    ticketera no partio en una fila por asistente. Es la unidad correcta acá
+ *    porque `categoriaEvento.goalTickets` tambien esta en personas — compararlo
+ *    contra `COUNT(*)` subestimaria el cumplimiento en los eventos con packs.
+ *
+ * NO se acota al rango de fechas del dashboard: ese rango filtra la INVERSION
+ * publicitaria, y la meta del evento es un total. "Tickets vendidos durante los
+ * dias que hubo campana" seria otra metrica, y no la comparable contra la meta.
+ */
+const TICKETS_VENDIDOS_CTE = `tickets AS (
+      SELECT
+        t.EventoID               AS evento_id,
+        SUM(t.PersonasPorTicket) AS personas,
+        -- Fecha del evento derivada de la venta, como respaldo de la del
+        -- catalogo. Se toma el MAX y no el MIN porque las filas de un mismo
+        -- evento traen fechas distintas cuando la jornada cruza medianoche.
+        DATE(MAX(t.FechaEvento)) AS fecha_evento
+      FROM ${TICKETS} t
+      WHERE CASE
+              WHEN t.MedioPago = 'Otro' AND (LOWER(t.TipoTicket) LIKE '%pase%' OR LOWER(t.TipoTicket) LIKE '%pass%') THEN 'PASE TEMPORADA'
+              WHEN t.MedioPago = 'Otro' AND LOWER(t.TipoTicket) LIKE '%mesa%' THEN 'MESA VIP'
+              WHEN t.MedioPago = 'Otro' THEN 'CORTESIA'
+              ELSE 'VENTA'
+            END IN ('VENTA', 'PASE TEMPORADA')
+        AND t.EsDevuelto IS FALSE
+        AND t.EventoID IS NOT NULL
+      GROUP BY t.EventoID
+    )`;
 
 /**
  * Moneda en que se DESPLIEGA el dashboard. No es un filtro: el scope de datos
@@ -119,7 +157,12 @@ export type PaidMediaFilters = {
   campaignIds?: string[];
   adsetIds?: string[];
   objectives?: string[];
-  prefix?: string; // familia de EventoID (3 chars: GLO, GLP, …) — solo tab Overall
+  /** País del evento (`CL`, `PE`), de `categoriaEvento.Pais` — solo tab Overall.
+   *  Reemplazó al filtro por "familia" (los 3 primeros chars del EventoID), que
+   *  no podía clasificar los EventoID numéricos de Fever (660905, 708092, …):
+   *  cada uno generaba una "familia" de un solo evento. El catálogo es la única
+   *  fuente de verdad del país; el prefijo del código nunca lo fue. */
+  pais?: string;
   from?: string; // YYYY-MM-DD
   to?: string;   // YYYY-MM-DD
 };
@@ -165,10 +208,49 @@ const EVENTO_ID_SQL = `COALESCE(NULLIF(TRIM(EventoID), ''), UPPER(LEFT(campaign_
  *  (GLO042 aparece 6 veces): un JOIN directo multiplicaría por 6 el gasto de
  *  ese evento. Hoy GLO042 no tiene inversión, así que el bug está latente. */
 const CAT_UNICO = `(
-    SELECT EventoID, ANY_VALUE(NombreGlovox) AS NombreGlovox
+    SELECT
+      EventoID,
+      ANY_VALUE(NombreGlovox) AS NombreGlovox,
+      ANY_VALUE(venue)        AS venue,
+      ANY_VALUE(goalTickets)  AS goalTickets,
+      ANY_VALUE(budgetPm)     AS budgetPm,
+      ANY_VALUE(Fecha)        AS Fecha,
+      ANY_VALUE(Pais)         AS Pais
     FROM ${CAT}
     GROUP BY EventoID
   )`;
+
+/**
+ * Presupuesto de paid media del evento, reexpresado a la moneda de despliegue.
+ * Es una expresion AGREGADA: se usa dentro del GROUP BY por evento.
+ *
+ * `categoriaEvento.budgetPm` esta SIEMPRE en dolares y NO tiene fecha: es una
+ * cifra de planificacion, no una transaccion, asi que no se puede convertir
+ * "con la tasa de su dia" como el gasto — no tiene dia.
+ *
+ * Se convierte con la TASA EFECTIVA DE LA PROPIA INVERSION del evento
+ * (gasto_disp / gasto_usd), y si el evento todavia no gasto nada se cae a la
+ * ultima tasa publicada. El motivo es que la fila tiene que cuadrar leida en
+ * horizontal: con una tasa unica para todos, GLO198 mostraba gasto 9,3M contra
+ * presupuesto 9,6M y a la vez "103,4% ejecutado" —porque gasto con el dolar mas
+ * barato que hoy—, y eso se lee como un error del panel aunque el porcentaje
+ * fuera el correcto.
+ *
+ * El costo de esta eleccion es que dos eventos con el MISMO presupuesto en
+ * dolares pueden mostrar montos distintos en pesos, segun cuando invirtieron.
+ * Es el precio de que cada fila cierre sola, y es mucho menos visible que la
+ * incoherencia que reemplaza.
+ */
+function presupuestoSql(moneda: DisplayCurrency): string {
+  if (moneda === "USD") return "ANY_VALUE(c.budgetPm)";
+  return `ANY_VALUE(c.budgetPm) * COALESCE(
+    SAFE_DIVIDE(SUM(base.gasto_disp), SUM(base.gasto_usd)),
+    (SELECT units_per_usd FROM ${FX}
+     WHERE currency = 'CLP' ORDER BY fecha DESC LIMIT 1)
+  )`;
+}
+
+const EJECUCION_SQL = `SAFE_DIVIDE(SUM(base.gasto_usd), ANY_VALUE(c.budgetPm))`;
 
 /**
  * Construye un CTE base `t` filtrado y los params correspondientes. Cada query
@@ -880,9 +962,44 @@ export type EventoRow = {
   roas: number;
   /** Monedas de origen del gasto de este evento. Con 2+ el evento estaba
    *  partido entre dos vistas del dashboard viejo y era imposible verlo entero:
-   *  son 12 eventos que suman el 29% del gasto atribuido. */
+   *  hoy son 14 eventos, ~29% del gasto atribuido. */
   monedas: string[];
   filasSinFx: number;
+
+  // ── Campos de referencia de `glovox.categoriaEvento` ──────────────────
+  // Se editan en /admin/eventos (Google Sheet → BQ). NO todos los eventos los
+  // tienen cargados: de los 70 eventos con gasto, 32 traen venue y 26 traen
+  // goalTickets/budgetPm. Por eso los tres son nullables y la UI pinta guion.
+
+  /** País del evento (`CL`, `PE`, …), de `categoriaEvento.Pais`. Cadena vacía
+   *  si el catálogo no lo tiene. */
+  pais: string;
+  /** Fecha del evento, `YYYY-MM-DD`. Manda `categoriaEvento.Fecha`; si el
+   *  catálogo no la tiene, se deriva de la venta (`MAX(tickets.FechaEvento)`),
+   *  que es lo que hacen el resto de los dashboards que necesitan un timestamp.
+   *  El catálogo solo cubre 39 de los 70 eventos con inversión; con el respaldo
+   *  suben a 66. `null` en los 4 que no tienen ninguna de las dos. */
+  fechaEvento: string | null;
+  /** `true` si la fecha salió del respaldo y no del catálogo. Las dos coinciden
+   *  en 32 de los 38 eventos que tienen ambas; las 6 que difieren lo hacen por
+   *  1–2 días, porque la jornada cruzó medianoche. */
+  fechaDerivada: boolean;
+  /** Recinto del evento. `null` si el catálogo no lo tiene. */
+  venue: string | null;
+  /** Tickets efectivamente vendidos, en PERSONAS (ver TICKETS_VENDIDOS_CTE).
+   *  Es el total del evento, NO se acota al rango de fechas del panel.
+   *  `null` si el EventoID no tiene ninguna venta en `glovox.tickets`. */
+  ticketsVendidos: number | null;
+  /** Meta de tickets (personas, no transacciones). `null` si no está cargada. */
+  goalTickets: number | null;
+  /** Techo presupuestario de paid media, en la MONEDA DE DESPLIEGUE.
+   *  El catálogo lo guarda en USD; en modo CLP se reexpresa con la última tasa
+   *  publicada (ver presupuestoSql). `null` si no está cargado. */
+  presupuesto: number | null;
+  /** Gasto sobre presupuesto, como ratio 0..1 (la UI lo formatea a %). Anclado
+   *  a USD para que no se mueva con el switch de moneda. `null` si el evento no
+   *  tiene presupuesto cargado. */
+  ejecucion: number | null;
 };
 
 /** Scope del tab Overall: plataforma + rango de fechas. No hereda los
@@ -948,16 +1065,17 @@ function eventoBaseCte(
  * GLP009…" cae en la familia "COP"— quedaba invisible bajo su familia real.
  */
 export async function getByEvento(
-  filters: Pick<PaidMediaFilters, "plataforma" | "prefix" | "from" | "to">,
+  filters: Pick<PaidMediaFilters, "plataforma" | "pais" | "from" | "to">,
   moneda: DisplayCurrency,
 ): Promise<EventoRow[]> {
   const { cte, params } = eventoBaseCte(filters, moneda);
-  const prefixCond = filters.prefix ? "AND UPPER(LEFT(c.EventoID, 3)) = @prefix" : "";
-  if (filters.prefix) params.prefix = filters.prefix;
+  const paisCond = filters.pais ? "AND UPPER(TRIM(c.Pais)) = @pais" : "";
+  if (filters.pais) params.pais = filters.pais;
 
   const rows = await query<Record<string, unknown>>(
     `
-    ${cte}
+    ${cte},
+    ${TICKETS_VENDIDOS_CTE}
     SELECT
       c.EventoID                                              AS evento_id,
       c.NombreGlovox                                          AS nombre,
@@ -976,10 +1094,25 @@ export async function getByEvento(
                   SUM(IF(base.gasto_disp IS NULL, 0, base.impresiones))) AS cpm,
       SAFE_DIVIDE(SUM(base.valor_conversion_usd), SUM(base.gasto_usd))    AS roas,
       ARRAY_AGG(DISTINCT base.currency IGNORE NULLS ORDER BY base.currency) AS monedas,
-      COUNTIF(base.gasto_disp IS NULL)                         AS filas_sin_fx
+      COUNTIF(base.gasto_disp IS NULL)                         AS filas_sin_fx,
+      -- Referencia del catalogo. Van por ANY_VALUE porque el GROUP BY es por
+      -- evento y el catalogo ya viene deduplicado a una fila por EventoID.
+      FORMAT_DATE('%Y-%m-%d',
+        COALESCE(ANY_VALUE(c.Fecha), ANY_VALUE(tk.fecha_evento)))  AS fecha_evento,
+      ANY_VALUE(c.Fecha) IS NULL
+        AND ANY_VALUE(tk.fecha_evento) IS NOT NULL                 AS fecha_derivada,
+      UPPER(TRIM(ANY_VALUE(c.Pais)))                           AS pais,
+      ANY_VALUE(c.venue)                                       AS venue,
+      ANY_VALUE(tk.personas)                                   AS tickets_vendidos,
+      ANY_VALUE(c.goalTickets)                                 AS goal_tickets,
+      ${presupuestoSql(moneda)}                                AS presupuesto,
+      ${EJECUCION_SQL}                                          AS ejecucion
     FROM base
     JOIN ${CAT_UNICO} c ON c.EventoID = base.evento_id
-    WHERE TRUE ${prefixCond}
+    -- LEFT: hay eventos con inversion que no registran venta en glovox.tickets
+    -- (EventoID numericos, eventos externos). Esos muestran guion, no cero.
+    LEFT JOIN tickets tk ON tk.evento_id = c.EventoID
+    WHERE TRUE ${paisCond}
     GROUP BY evento_id, nombre
     ORDER BY IFNULL(gasto, 0) DESC
     `,
@@ -1003,6 +1136,16 @@ export async function getByEvento(
     roas:               n(r.roas),
     monedas:            Array.isArray(r.monedas) ? r.monedas.map(s) : [],
     filasSinFx:         n(r.filas_sin_fx),
+    // `nOrNull`, no `n`: un evento sin meta cargada NO tiene meta de cero, y un
+    // presupuesto ausente no es un presupuesto agotado.
+    pais:               s(r.pais),
+    fechaEvento:        r.fecha_evento != null ? s(r.fecha_evento) : null,
+    fechaDerivada:      r.fecha_derivada === true,
+    venue:              r.venue != null && s(r.venue).trim() !== "" ? s(r.venue).trim() : null,
+    ticketsVendidos:    nOrNull(r.tickets_vendidos),
+    goalTickets:        nOrNull(r.goal_tickets),
+    presupuesto:        nOrNull(r.presupuesto),
+    ejecucion:          nOrNull(r.ejecucion),
   }));
 }
 
@@ -1076,12 +1219,19 @@ export async function getOtrasCampanias(
 }
 
 /**
- * Familias de EventoID presentes en el scope, tomadas de los primeros 3
- * caracteres del EventoID del catálogo: GLO (Chile), GLP (Perú), GLB, … Al
- * consolidar aparecen las 7 familias juntas (antes cada moneda mostraba un
- * subconjunto distinto). Ordenadas por gasto en dólares.
+ * Países presentes en el scope, de `categoriaEvento.Pais`, ordenados por gasto.
+ *
+ * Reemplaza al viejo `getEventoPrefixes`, que derivaba una "familia" de los 3
+ * primeros caracteres del EventoID. Esa heurística no podía clasificar los
+ * EventoID numéricos de Fever (660905, 708092, …): cada uno generaba una
+ * "familia" propia de un solo evento, y el filtro llegó a tener 9 pills de las
+ * que 3 eran un evento cada una.
+ *
+ * El país lo declara el catálogo, no el código del evento: el prefijo coincide
+ * casi siempre con el país pero no es su definición, y cuando ambos discrepan
+ * manda `Pais`. Hoy cubre el 100% de los eventos con inversión, sin nulos.
  */
-export async function getEventoPrefixes(
+export async function getPaisOptions(
   filters: Pick<PaidMediaFilters, "plataforma" | "from" | "to">,
   moneda: DisplayCurrency,
 ): Promise<string[]> {
@@ -1090,14 +1240,15 @@ export async function getEventoPrefixes(
     `
     ${cte}
     SELECT
-      UPPER(LEFT(c.EventoID, 3))     AS prefix,
+      UPPER(TRIM(c.Pais))             AS pais,
       SUM(IFNULL(base.gasto_disp, 0)) AS gasto
     FROM base
     JOIN ${CAT_UNICO} c ON c.EventoID = base.evento_id
-    GROUP BY prefix
+    WHERE c.Pais IS NOT NULL AND TRIM(c.Pais) != ''
+    GROUP BY pais
     ORDER BY gasto DESC
     `,
     params,
   );
-  return rows.map((r) => s(r.prefix)).filter(Boolean);
+  return rows.map((r) => s(r.pais)).filter(Boolean);
 }

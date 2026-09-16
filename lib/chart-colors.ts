@@ -9,18 +9,38 @@ export const BRAND = {
   orange: "#EF8C34",
 } as const;
 
+/**
+ * Neutros como VARIABLES CSS, no como hex.
+ *
+ * SVG resuelve `var(--x)` en `fill` y `stroke` igual que cualquier propiedad de
+ * color, asi que estos valores sirven tal cual en las props de recharts y siguen
+ * al tema sin que ningun chart se entere. En las rutas sin `data-theme` resuelven
+ * a los mismos hex de siempre, asi que los ~23 dashboards restantes no cambian.
+ *
+ * ⚠️ NO usar estos valores en operaciones de chroma-js (`chroma(...)`, escalas):
+ * chroma necesita un color concreto y `var(--x)` lo hace explotar. Para eso estan
+ * los `*_HEX` de abajo.
+ */
 export const INK = {
-  primary: "#333333",
-  muted: "#666666",
-  subtle: "#999999",
+  primary: "var(--ink)",
+  muted: "var(--ink-muted)",
+  subtle: "var(--ink-subtle)",
 } as const;
 
 export const SURFACE = {
+  canvas: "var(--surface-alt)",
+  card: "var(--surface)",
+  divider: "var(--divider)",
+  grid: "var(--grid)",
+  purpleTint: "var(--purple-tint)",
+} as const;
+
+/** Valores concretos del tema CLARO, para lo que necesite color real (chroma). */
+export const LIGHT_HEX = {
+  ink: "#333333",
   canvas: "#FAFAFA",
   card: "#FFFFFF",
   divider: "#E5E5E5",
-  grid: "#F0F0F0",
-  purpleTint: "#F0EFFE",
 } as const;
 
 export const STATUS = {
@@ -82,4 +102,5 @@ export const legendProps = {
   },
 };
 
-export const heatmapScale = chroma.scale([SURFACE.canvas, BRAND.purple]).mode("lab");
+// chroma necesita colores concretos: va con el hex claro, no con el token.
+export const heatmapScale = chroma.scale([LIGHT_HEX.canvas, BRAND.purple]).mode("lab");

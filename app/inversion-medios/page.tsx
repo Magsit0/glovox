@@ -185,8 +185,8 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
   if (!info) {
     return (
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-10 sm:px-8">
-        <div className="rounded-lg border border-[#E5E5E5] bg-white p-12 text-center">
-          <p className="font-sans text-sm text-[#999999]">
+        <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-12 text-center">
+          <p className="font-sans text-sm text-[var(--ink-subtle)]">
             El evento {eventoId} no existe en categoriaEvento.
           </p>
         </div>

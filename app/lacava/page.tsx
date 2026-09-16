@@ -13,11 +13,7 @@ import {
 } from "@/lib/queries/lacava";
 import { getCurvasCompra } from "@/lib/queries/curvas";
 import { buildCurvas } from "@/lib/marketing/curvas";
-import {
-  buildProyeccion,
-  factorJornadasDesdeTipos,
-  type Proyeccion,
-} from "@/lib/lacava/proyeccion";
+import { buildPlanTrayectorias } from "@/lib/lacava/proyeccion";
 import { formatCurrency, formatNumber } from "@/lib/unabase/formatting";
 import { LACAVA } from "@/components/lacava/theme";
 import LaCavaLogo from "@/components/lacava/LaCavaLogo";
@@ -26,11 +22,20 @@ import CurvasEdicionesChart, {
   type CurvaVariant,
 } from "@/components/lacava/CurvasEdicionesChart";
 import TiposTicketCard from "@/components/lacava/TiposTicketCard";
-import ProyeccionCard from "@/components/lacava/ProyeccionCard";
+import PlanVentaCard, { type PlanTarget } from "@/components/lacava/PlanVentaCard";
 import PreciosCard from "@/components/lacava/PreciosCard";
 import MediosPagoCard from "@/components/lacava/MediosPagoCard";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Compromisos comerciales por edición (card "Plan de venta"). Son METAS
+ * DECLARADAS por el negocio — no salidas del modelo — y así se presentan.
+ * El goalTickets de la hoja de eventos se muestra aparte como "Meta".
+ */
+const PLAN_VENTA: Record<string, { minimo: number; objetivo: number }> = {
+  GLO209: { minimo: 4500, objetivo: 5500 },
+};
 
 const compactClp = new Intl.NumberFormat("es-CL", {
   notation: "compact",
@@ -92,16 +97,14 @@ export default async function LaCavaPage({
     : defaultId;
   const evento = eventos.find((e) => e.eventoId === selectedId) as LaCavaEvento;
 
-  // Ancla de la proyección: la última edición realizada (la lista viene DESC).
-  const anchor = eventos.find((e) => e.diasParaEvento < 0) ?? null;
-
-  const [dias, tipos, precios, medios, curvaRows, tiposAnchor] = await Promise.all([
+  const [dias, tipos, precios, medios, curvaRows] = await Promise.all([
     getLaCavaVentaDiaria(selectedId),
     getLaCavaTipos(selectedId),
     getLaCavaPrecios(selectedId),
     getLaCavaMedios(selectedId),
     // Misma matemática que /marketing/curvas. Trae JUMBO (curvas del gráfico
-    // comparativo) + FBM (Bocas Moradas: los comparables de la proyección).
+    // comparativo) + FBM (Bocas Moradas: los comparables de las trayectorias
+    // del plan de venta).
     getCurvasCompra({
       country: "all",
       categoriaEventos: ["FBM", "JUMBO"],
@@ -109,25 +112,10 @@ export default async function LaCavaPage({
       incluirDevueltos: false,
       incluirCortesias: false,
     }),
-    anchor ? getLaCavaTipos(anchor.eventoId) : Promise.resolve([]),
   ]);
 
   const jumboIds = new Set(eventos.map((e) => e.eventoId));
   const rowsJumbo = curvaRows.filter((r) => jumboIds.has(r.eventoId));
-
-  // Proyección al día del evento: solo para una edición en venta, anclada en
-  // la edición cerrada anterior. La matemática vive en lib/lacava/proyeccion.
-  const proyeccion: Proyeccion | null =
-    evento.diasParaEvento >= 0 && anchor
-      ? buildProyeccion({
-          targetRows: curvaRows.filter((r) => r.eventoId === selectedId),
-          comparableRows: curvaRows.filter((r) => r.eventoId !== selectedId),
-          fechaEvento: evento.fechaEvento,
-          anchorTotal: anchor.personas,
-          factorJornadas: factorJornadasDesdeTipos(tipos, tiposAnchor),
-          goalTickets: evento.goalTickets || undefined,
-        })
-      : null;
 
   // Cuatro variantes precalculadas (métrica × escala) para que el toggle del
   // gráfico de curvas no vuelva al servidor.
@@ -172,6 +160,33 @@ export default async function LaCavaPage({
         };
       }),
   );
+
+  // Compromisos comerciales de la edición (si están definidos), con la meta
+  // de la hoja de eventos como tercer nivel.
+  const plan = PLAN_VENTA[selectedId];
+  const planTargets: PlanTarget[] = plan
+    ? [
+        { key: "minimo", label: "Mínimo", valor: plan.minimo, color: "#557F6B" },
+        { key: "objetivo", label: "Objetivo", valor: plan.objetivo, color: LACAVA.burdeos },
+        ...(evento.goalTickets > 0
+          ? [{ key: "meta", label: "Meta", valor: evento.goalTickets, color: LACAVA.dorado }]
+          : []),
+      ]
+    : [];
+
+  // Abanico del plan: trayectorias desde la venta real de hoy hacia cada
+  // compromiso, siguiendo la forma histórica de compra de los comparables.
+  const trayectorias =
+    plan && evento.diasParaEvento >= 0
+      ? buildPlanTrayectorias({
+          targetRows: curvaRows.filter((r) => r.eventoId === selectedId),
+          comparableRows: curvaRows.filter((r) => r.eventoId !== selectedId),
+          fechaEvento: evento.fechaEvento,
+          minimo: plan.minimo,
+          objetivo: plan.objetivo,
+          meta: evento.goalTickets || undefined,
+        })
+      : null;
 
   const metaPct =
     evento.goalTickets > 0
@@ -249,25 +264,21 @@ export default async function LaCavaPage({
         />
       </Card>
 
-      {/* Proyección al día del evento (solo ediciones en venta) */}
-      {proyeccion && (
+      {/* Plan de venta: compromisos comerciales declarados (vista cliente) */}
+      {planTargets.length > 0 && trayectorias?.disponible && (
         <Card
-          title="Proyección al día del evento"
-          subtitle="Escenarios de venta final según el comportamiento histórico de compra de Bocas Moradas y La Cava, recalibrados a diario con el ritmo real."
+          title="Plan de venta"
+          subtitle="Compromisos comerciales de la edición y avance real contra cada uno: banda entre el mínimo y la meta, trayectoria central hacia el objetivo."
         >
-          {proyeccion.disponible ? (
-            <ProyeccionCard
-              proyeccion={proyeccion}
-              goalTickets={evento.goalTickets || undefined}
-              anchorNombre={anchor?.nombre ?? ""}
-            />
-          ) : (
-            <p className="font-sans text-sm" style={{ color: LACAVA.tintaSutil }}>
-              {proyeccion.motivo}
-            </p>
-          )}
+          <PlanVentaCard
+            puntos={trayectorias.puntos}
+            base={trayectorias.base}
+            diasRestantes={trayectorias.diasRestantes}
+            targets={planTargets}
+          />
         </Card>
       )}
+
 
       {/* Curvas comparativas entre ediciones (como /marketing/curvas) */}
       <Card

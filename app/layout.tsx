@@ -27,7 +27,7 @@ export default async function RootLayout({
       lang="en"
       className={`${montserrat.variable} h-full antialiased`}
     >
-      <body className="h-full bg-[#FAFAFA] text-[#333333]">
+      <body className="h-full">
         <a
           href="#main-content"
           className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:rounded-lg focus:bg-[#333333] focus:px-4 focus:py-2 focus:text-sm focus:text-white focus:outline-none focus:ring-2 focus:ring-[#9F99F8]"

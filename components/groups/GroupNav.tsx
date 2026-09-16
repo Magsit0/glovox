@@ -25,8 +25,8 @@ interface Props {
  */
 const THEME = {
   brutalist: {
-    nav: "sticky top-0 z-30 flex items-center gap-3 border-b-2 border-black bg-white px-4 py-2.5 sm:px-8",
-    logo: "inline-flex shrink-0 items-center justify-center border-2 border-black bg-white p-1.5 transition-colors hover:bg-[#FFFF00]",
+    nav: "sticky top-0 z-30 flex items-center gap-3 border-b-2 border-black bg-[var(--surface)] px-4 py-2.5 sm:px-8",
+    logo: "inline-flex shrink-0 items-center justify-center border-2 border-black bg-[var(--surface)] p-1.5 transition-colors hover:bg-[#FFFF00]",
     title:
       "shrink-0 font-display text-sm font-black uppercase tracking-tight text-black transition-opacity hover:opacity-60 sm:text-base",
     tabs: "ml-auto flex items-center gap-1 overflow-x-auto",
@@ -38,16 +38,16 @@ const THEME = {
       "inline-flex items-center border-2 border-transparent px-3 py-1.5 text-black transition-colors hover:border-black hover:bg-[#FFFF00]",
   },
   glovox: {
-    nav: "sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-[#E5E5E5] bg-white px-4 sm:px-8",
-    logo: "inline-flex shrink-0 items-center justify-center rounded-full border border-[#E5E5E5] bg-white p-1.5 transition-colors hover:bg-[#FAFAFA]",
+    nav: "sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-[var(--divider)] bg-[var(--surface)] px-4 sm:px-8",
+    logo: "inline-flex shrink-0 items-center justify-center rounded-full border border-[var(--divider)] bg-[var(--surface)] p-1.5 transition-colors hover:bg-[var(--surface-alt)]",
     title:
-      "shrink-0 font-display text-base font-bold tracking-tight text-[#333333] transition-opacity hover:opacity-70",
+      "shrink-0 font-display text-base font-bold tracking-tight text-[var(--ink)] transition-opacity hover:opacity-70",
     tabs: "ml-auto flex items-stretch gap-1 self-stretch overflow-x-auto overflow-y-hidden",
     label: "whitespace-nowrap font-sans text-sm",
     tabActive:
-      "inline-flex items-center border-b-2 border-[#9F99F8] px-3 font-medium text-[#333333]",
+      "inline-flex items-center border-b-2 border-[#9F99F8] px-3 font-medium text-[var(--ink)]",
     tabInactive:
-      "inline-flex items-center border-b-2 border-transparent px-3 text-[#666666] transition-colors hover:text-[#333333]",
+      "inline-flex items-center border-b-2 border-transparent px-3 text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]",
   },
 } as const;
 

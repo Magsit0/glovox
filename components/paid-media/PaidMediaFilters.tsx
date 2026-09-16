@@ -27,7 +27,7 @@ interface Props {
 }
 
 const INPUT_CLS =
-  "rounded-lg border border-[#E5E5E5] bg-white py-2 px-3 font-sans text-sm text-[#333333] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]";
+  "rounded-lg border border-[var(--divider)] bg-[var(--surface)] py-2 px-3 font-sans text-sm text-[var(--ink)] transition-colors hover:border-[var(--ink)] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]";
 
 export default function PaidMediaFilters({
   platforms,
@@ -162,7 +162,7 @@ export default function PaidMediaFilters({
 
       {/* Rango de fechas */}
       <label className="flex flex-col gap-1">
-        <span className="font-sans text-xs text-[#666666]">Desde</span>
+        <span className="font-sans text-xs text-[var(--ink-muted)]">Desde</span>
         <input
           type="date"
           className={INPUT_CLS}
@@ -172,7 +172,7 @@ export default function PaidMediaFilters({
         />
       </label>
       <label className="flex flex-col gap-1">
-        <span className="font-sans text-xs text-[#666666]">Hasta</span>
+        <span className="font-sans text-xs text-[var(--ink-muted)]">Hasta</span>
         <input
           type="date"
           className={INPUT_CLS}
@@ -193,7 +193,7 @@ export default function PaidMediaFilters({
             if (tab) next.set("tab", tab);
             router.push(`/paid-media?${next.toString()}`);
           }}
-          className="flex items-center gap-1 px-2 py-2 font-sans text-sm text-[#666666] transition-colors hover:text-[#333333]"
+          className="flex items-center gap-1 px-2 py-2 font-sans text-sm text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
         >
           <svg viewBox="0 0 16 16" className="h-4 w-4" aria-hidden="true">
             <path

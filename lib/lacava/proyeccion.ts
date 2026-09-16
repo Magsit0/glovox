@@ -302,6 +302,93 @@ export function factorJornadasDesdeTipos(
   return clamp(1 / (1 - shareNuevas), 1, 1.5);
 }
 
+// ---------- Trayectorias del plan comercial ----------
+
+export type PuntoTrayectoria = {
+  fecha: string; // YYYY-MM-DD
+  dias: number;
+  realAcum: number | null;
+  /** Trayectoria hacia el objetivo comercial. */
+  objetivo: number | null;
+  /** [trayectoria al mínimo, trayectoria a la meta] — el abanico del plan. */
+  banda: [number, number] | null;
+};
+
+export type PlanTrayectorias =
+  | { disponible: false }
+  | {
+      disponible: true;
+      base: number;
+      diasRestantes: number;
+      puntos: PuntoTrayectoria[];
+    };
+
+/**
+ * Trayectorias hacia los compromisos comerciales (card "Plan de venta").
+ *
+ * NO es una proyección: cada curva es el camino que la venta debería seguir
+ * para aterrizar exactamente en el compromiso (mínimo / objetivo / meta),
+ * repartiendo lo que falta según la forma histórica de compra de los
+ * comparables (por eso se curva hacia el final, como una venta real, en vez
+ * de ser una recta). Sirve para leer de un vistazo si el acumulado real va
+ * por encima o por debajo del camino a cada compromiso.
+ */
+export function buildPlanTrayectorias(input: {
+  targetRows: CurvaRow[];
+  comparableRows: CurvaRow[];
+  fechaEvento: string;
+  minimo: number;
+  objetivo: number;
+  meta?: number;
+}): PlanTrayectorias {
+  const { targetRows, comparableRows, fechaEvento, minimo, objetivo, meta } = input;
+  if (targetRows.length === 0) return { disponible: false };
+  const diasHoy = targetRows[0].diasHoy;
+  if (diasHoy < 0) return { disponible: false };
+  const target = buildCurves(targetRows).get(targetRows[0].eventoId);
+  if (!target || target.total <= 0) return { disponible: false };
+  const comparables = [...buildCurves(comparableRows).values()].filter(
+    (c) => c.diasHoy < 0 && c.total > 0,
+  );
+  if (comparables.length < MIN_COMPARABLES) return { disponible: false };
+
+  const shape = shapeNormalizada(comparables);
+  const diasCola: number[] = [];
+  for (let d = diasHoy - 1; d >= 0; d--) diasCola.push(d);
+  const pesos = diasCola.map((d) => shape[d] ?? 0);
+  const sumaPesos = pesos.reduce((a, b) => a + b, 0);
+
+  const base = target.total;
+  const puntos: PuntoTrayectoria[] = [];
+  let acumReal = 0;
+  for (let d = target.primerDia; d >= diasHoy; d--) {
+    acumReal += target.daily.get(d) ?? 0;
+    const esHoy = d === diasHoy;
+    puntos.push({
+      fecha: addDias(fechaEvento, -d),
+      dias: d,
+      realAcum: Math.round(acumReal),
+      objetivo: esHoy ? Math.round(acumReal) : null,
+      banda: esHoy ? [Math.round(acumReal), Math.round(acumReal)] : null,
+    });
+  }
+  let fracAcum = 0;
+  diasCola.forEach((d, i) => {
+    // Sin forma (sin comparables abiertos en algún tramo) cae a reparto lineal.
+    fracAcum += sumaPesos > 0 ? pesos[i] / sumaPesos : 1 / diasCola.length;
+    const hacia = (x: number) =>
+      Math.round(base + Math.max(0, x - base) * fracAcum);
+    puntos.push({
+      fecha: addDias(fechaEvento, -d),
+      dias: d,
+      realAcum: null,
+      objetivo: hacia(objetivo),
+      banda: [hacia(minimo), hacia(meta ?? objetivo)],
+    });
+  });
+  return { disponible: true, base, diasRestantes: diasHoy, puntos };
+}
+
 // ---------- Modelo ----------
 
 export function buildProyeccion(input: BuildProyeccionInput): Proyeccion {

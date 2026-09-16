@@ -42,13 +42,13 @@ function ChartTooltip({
   const p = payload[0].payload;
   const pct = totalGasto > 0 ? (p.gasto / totalGasto) * 100 : 0;
   return (
-    <div className="rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] shadow-md">
+    <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 py-2 font-sans text-sm text-[var(--ink)] shadow-md">
       <p className="font-medium">{p._label}</p>
-      <p className="mt-1 text-xs text-[#666666]">
+      <p className="mt-1 text-xs text-[var(--ink-muted)]">
         {formatMoney(p.gasto, moneda)} · {pct.toFixed(1)}%
       </p>
-      <p className="text-xs text-[#666666]">{formatInt(p.clics)} clics</p>
-      <p className="text-xs text-[#666666]">CTR {formatRatio(p.ctr)}</p>
+      <p className="text-xs text-[var(--ink-muted)]">{formatInt(p.clics)} clics</p>
+      <p className="text-xs text-[var(--ink-muted)]">CTR {formatRatio(p.ctr)}</p>
     </div>
   );
 }
@@ -103,16 +103,16 @@ export default function MixDonut({
   const totalGasto = slices.reduce((a, r) => a + r.gasto, 0);
 
   return (
-    <article className="flex flex-col gap-6 rounded-lg border border-[#E5E5E5] bg-white p-6">
+    <article className="flex flex-col gap-6 rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6">
       <header>
-        <h2 className="font-display text-lg font-bold tracking-tight text-[#333333]">
+        <h2 className="font-display text-lg font-bold tracking-tight text-[var(--ink)]">
           {title}
         </h2>
-        <p className="mt-1 font-sans text-sm text-[#666666]">{subtitle}</p>
+        <p className="mt-1 font-sans text-sm text-[var(--ink-muted)]">{subtitle}</p>
       </header>
 
       {slices.length === 0 ? (
-        <p className="py-8 text-center font-sans text-sm text-[#999999]">{emptyText}</p>
+        <p className="py-8 text-center font-sans text-sm text-[var(--ink-subtle)]">{emptyText}</p>
       ) : (
         <div className="flex flex-col items-center gap-8 sm:flex-row">
           <div className="relative h-48 w-48 flex-shrink-0">
@@ -139,17 +139,17 @@ export default function MixDonut({
               </PieChart>
             </ResponsiveContainer>
             <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-              <span className="font-display text-2xl font-bold leading-none text-[#333333]">
+              <span className="font-display text-2xl font-bold leading-none text-[var(--ink)]">
                 {compactMoney(totalGasto)}
               </span>
-              <span className="mt-1 font-sans text-xs text-[#999999]">gasto {moneda}</span>
+              <span className="mt-1 font-sans text-xs text-[var(--ink-subtle)]">gasto {moneda}</span>
             </div>
           </div>
 
           <div className="flex-1 overflow-x-auto">
             <table className="w-full border-collapse font-sans text-sm">
               <thead>
-                <tr className="border-b border-[#E5E5E5] text-left text-[#666666]">
+                <tr className="border-b border-[var(--divider)] text-left text-[var(--ink-muted)]">
                   <th className="py-2 pr-4 text-xs font-medium uppercase tracking-wide">
                     Segmento
                   </th>
@@ -165,10 +165,10 @@ export default function MixDonut({
                 {slices.map((r, i) => (
                   <tr
                     key={r.key}
-                    className="border-b border-[#F0F0F0] last:border-b-0"
+                    className="border-b border-[var(--grid)] last:border-b-0"
                   >
                     <td className="py-2 pr-4">
-                      <span className="inline-flex items-center gap-2 text-[#333333]">
+                      <span className="inline-flex items-center gap-2 text-[var(--ink)]">
                         <span
                           className="inline-block h-1.5 w-1.5 rounded-full"
                           style={{ background: seriesColor(i) }}
@@ -178,10 +178,10 @@ export default function MixDonut({
                         </span>
                       </span>
                     </td>
-                    <td className="py-2 pr-4 text-right tabular-nums text-[#333333]">
+                    <td className="py-2 pr-4 text-right tabular-nums text-[var(--ink)]">
                       {compactMoney(r.gasto)}
                     </td>
-                    <td className="py-2 text-right tabular-nums text-[#666666]">
+                    <td className="py-2 text-right tabular-nums text-[var(--ink-muted)]">
                       {totalGasto > 0
                         ? `${((r.gasto / totalGasto) * 100).toFixed(1)}%`
                         : "—"}

@@ -133,13 +133,13 @@ export default function KpiRow({ kpis, porMoneda, moneda }: Props) {
         {cards.map((c) => (
           <article
             key={c.label}
-            className="flex flex-col rounded-lg border border-[#E5E5E5] bg-white p-6"
+            className="flex flex-col rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6"
           >
-            <p className="font-sans text-xs text-[#666666]">{c.label}</p>
-            <p className="mt-2 font-display text-4xl font-bold leading-none tracking-tight text-[#333333]">
+            <p className="font-sans text-xs text-[var(--ink-muted)]">{c.label}</p>
+            <p className="mt-2 font-display text-4xl font-bold leading-none tracking-tight text-[var(--ink)]">
               {c.value}
             </p>
-            <p className="mt-3 truncate font-sans text-xs text-[#666666]">
+            <p className="mt-3 truncate font-sans text-xs text-[var(--ink-muted)]">
               {c.caption}
             </p>
           </article>
@@ -158,12 +158,12 @@ export default function KpiRow({ kpis, porMoneda, moneda }: Props) {
  */
 function FxGapNotice({ gap }: { gap: PaidMediaKpis["gap"] }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-[#F6C544] bg-white p-4">
+    <div className="flex items-start gap-3 rounded-lg border border-[#F6C544] bg-[var(--surface)] p-4">
       <span
         className="mt-1.5 inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#F6C544]"
         aria-hidden="true"
       />
-      <p className="font-sans text-sm text-[#333333]">
+      <p className="font-sans text-sm text-[var(--ink)]">
         Hay gasto sin convertir porque todavía no se publica el tipo de cambio
         de esas fechas:{" "}
         <span className="font-medium">

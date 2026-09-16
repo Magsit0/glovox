@@ -26,11 +26,11 @@ interface Props {
 export default function CurrencySwitch({ active, hrefFor }: Props) {
   return (
     <section className="flex items-center gap-2">
-      <span className="font-sans text-xs text-[#666666]">Moneda</span>
+      <span className="font-sans text-xs text-[var(--ink-muted)]">Moneda</span>
       <div
         role="group"
         aria-label="Moneda de despliegue"
-        className="inline-flex gap-1 rounded-lg border border-[#E5E5E5] bg-white p-1"
+        className="inline-flex gap-1 rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-1"
       >
         {DISPLAY_CURRENCIES.map((m) => {
           const isActive = m === active;
@@ -41,8 +41,8 @@ export default function CurrencySwitch({ active, hrefFor }: Props) {
               aria-current={isActive ? "true" : undefined}
               className={`rounded-md px-3 py-1 font-sans text-xs font-medium transition-colors ${
                 isActive
-                  ? "bg-[#F0EFFE] text-[#9F99F8]"
-                  : "text-[#666666] hover:text-[#333333]"
+                  ? "bg-[var(--purple-tint)] text-[#9F99F8]"
+                  : "text-[var(--ink-muted)] hover:text-[var(--ink)]"
               }`}
             >
               {m}

@@ -99,7 +99,7 @@ function etapaColor(i: number) {
 function RmktBadge() {
   return (
     <span
-      className="rounded-full bg-[#F0EFFE] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-[#534AB7]"
+      className="rounded-full bg-[var(--purple-tint)] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-[#534AB7]"
       title="Campaña de remarketing (suma dentro de su tipo)"
     >
       RMKT
@@ -255,12 +255,12 @@ export default function EventoDrill({
         <div>
           <Link
             href="/inversion-medios"
-            className="inline-flex items-center gap-1 font-sans text-sm text-[#666666] hover:text-[#333333]"
+            className="inline-flex items-center gap-1 font-sans text-sm text-[var(--ink-muted)] hover:text-[var(--ink)]"
           >
             <ArrowLeft className="h-4 w-4" /> Inversión en medios
           </Link>
-          <h1 className="mt-1 font-display text-3xl font-bold text-[#333333]">{nombre || eventoId}</h1>
-          <p className="mt-1 font-sans text-sm text-[#666666]">
+          <h1 className="mt-1 font-display text-3xl font-bold text-[var(--ink)]">{nombre || eventoId}</h1>
+          <p className="mt-1 font-sans text-sm text-[var(--ink-muted)]">
             {eventoId}
             {venue ? ` · ${venue}` : ""}
             {fechaEvento
@@ -302,7 +302,7 @@ export default function EventoDrill({
       {/* Sábana horizontal: filas = plataforma (expandibles a tipo→campaña).
           `isolate`: los sticky internos (z-10/20/30) quedan contenidos en su
           propio stacking context y no pintan sobre la GroupNav (z-30). */}
-      <div className="isolate overflow-hidden rounded-lg border border-[#E5E5E5] bg-white">
+      <div className="isolate overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)]">
         <div className="max-h-[600px] overflow-auto overscroll-x-contain">
           <table className="border-separate border-spacing-0 font-sans text-sm">
             <thead>
@@ -311,7 +311,7 @@ export default function EventoDrill({
                 <tr>
                   <th
                     style={{ height: BAND_H }}
-                    className="sticky left-0 top-0 z-30 w-40 min-w-40 max-w-40 border-b border-r border-[#E5E5E5] bg-[#FAFAFA] px-4 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[#999999]"
+                    className="sticky left-0 top-0 z-30 w-40 min-w-40 max-w-40 border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--ink-subtle)]"
                   >
                     Etapa
                   </th>
@@ -321,7 +321,7 @@ export default function EventoDrill({
                       <th
                         key={i}
                         colSpan={s.span}
-                        className="sticky top-0 z-20 truncate border-b border-l border-[#E5E5E5] px-1 py-1 text-center text-[10px] font-medium uppercase tracking-wide"
+                        className="sticky top-0 z-20 truncate border-b border-l border-[var(--divider)] px-1 py-1 text-center text-[10px] font-medium uppercase tracking-wide"
                         style={{
                           height: BAND_H,
                           ...(col ? { backgroundColor: col.bg, color: col.text } : { backgroundColor: "#FFFFFF" }),
@@ -334,14 +334,14 @@ export default function EventoDrill({
                   })}
                   <th
                     style={{ height: BAND_H }}
-                    className="sticky top-0 z-20 w-24 min-w-24 max-w-24 border-b border-l border-[#E5E5E5] bg-[#FAFAFA]"
+                    className="sticky top-0 z-20 w-24 min-w-24 max-w-24 border-b border-l border-[var(--divider)] bg-[var(--surface-alt)]"
                   />
                 </tr>
               )}
               <tr>
                 <th
                   style={{ top: hayEtapas ? BAND_H : 0 }}
-                  className="sticky left-0 z-30 w-40 min-w-40 max-w-40 border-b border-r border-[#E5E5E5] bg-[#FAFAFA] px-4 py-2 text-left text-xs font-medium text-[#666666]"
+                  className="sticky left-0 z-30 w-40 min-w-40 max-w-40 border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-2 text-left text-xs font-medium text-[var(--ink-muted)]"
                 >
                   Canal
                 </th>
@@ -358,17 +358,17 @@ export default function EventoDrill({
                       key={fecha}
                       style={{ top: hayEtapas ? BAND_H : 0 }}
                       title={diaEvento ? tituloDiaEvento(fecha, fechaEvento, diasEvento) : undefined}
-                      className={`sticky z-20 w-16 min-w-16 max-w-16 border-b border-[#E5E5E5] px-0 py-1.5 text-center text-xs font-medium ${
+                      className={`sticky z-20 w-16 min-w-16 max-w-16 border-b border-[var(--divider)] px-0 py-1.5 text-center text-xs font-medium ${
                         diaEvento
                           ? "bg-[#FAEEDA] text-[#854F0B]"
                           : esHoy
-                            ? "bg-[#F0EFFE] text-[#9F99F8]"
+                            ? "bg-[var(--purple-tint)] text-[#9F99F8]"
                             : primerDia
-                              ? "bg-white text-[#333333]"
-                              : "bg-[#FAFAFA] text-[#666666]"
+                              ? "bg-[var(--surface)] text-[var(--ink)]"
+                              : "bg-[var(--surface-alt)] text-[var(--ink-muted)]"
                       } ${primerDia && i > 0 ? "border-l" : ""}`}
                     >
-                      <span className="block text-[10px] font-normal uppercase text-[#999999]">
+                      <span className="block text-[10px] font-normal uppercase text-[var(--ink-subtle)]">
                         {primerDia ? `${MESES[Number(fecha.slice(5, 7)) - 1]} ${fecha.slice(2, 4)}` : DIAS_SEMANA[dow]}
                       </span>
                       {dia}
@@ -377,7 +377,7 @@ export default function EventoDrill({
                 })}
                 <th
                   style={{ top: hayEtapas ? BAND_H : 0 }}
-                  className="sticky z-20 w-24 min-w-24 max-w-24 border-b border-l border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2 text-right text-xs font-medium text-[#666666]"
+                  className="sticky z-20 w-24 min-w-24 max-w-24 border-b border-l border-[var(--divider)] bg-[var(--surface-alt)] px-3 py-2 text-right text-xs font-medium text-[var(--ink-muted)]"
                 >
                   Total
                 </th>
@@ -393,11 +393,11 @@ export default function EventoDrill({
                 // del plan vive en las filas de tipo).
                 rows.push(
                   <tr key={`canal-${p.plataforma}`} className="group">
-                    <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#E5E5E5] bg-white px-4 py-2 align-top group-hover:bg-[#FAFAFA]">
-                      <span className="inline-flex items-center gap-1.5 font-medium text-[#333333]">
+                    <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 align-top group-hover:bg-[var(--surface-alt)]">
+                      <span className="inline-flex items-center gap-1.5 font-medium text-[var(--ink)]">
                         <button
                           onClick={() => toggleCanal(p.plataforma)}
-                          className="inline-flex h-4 w-4 items-center justify-center rounded text-[#999999] hover:bg-[#F0F0F0] hover:text-[#333333]"
+                          className="inline-flex h-4 w-4 items-center justify-center rounded text-[var(--ink-subtle)] hover:bg-[var(--grid)] hover:text-[var(--ink)]"
                           aria-label={abierto ? "Colapsar" : "Desagregar por tipo"}
                         >
                           {abierto ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
@@ -405,16 +405,16 @@ export default function EventoDrill({
                         <span className="h-2 w-2 rounded-full" style={{ backgroundColor: PLAT_COLOR[p.label] }} />
                         {p.label}
                       </span>
-                      <p className="mt-0.5 pl-6 text-xs tabular-nums text-[#999999]">
+                      <p className="mt-0.5 pl-6 text-xs tabular-nums text-[var(--ink-subtle)]">
                         plan <span className="font-medium text-[#534AB7]">{fmtUsd(p.totalPlan, 0)}</span>{" "}
-                        · real <span className="font-medium text-[#333333]">{fmtUsd(p.totalReal, 0)}</span>
+                        · real <span className="font-medium text-[var(--ink)]">{fmtUsd(p.totalReal, 0)}</span>
                       </p>
                     </td>
                     {p.dias.map((cell) => (
                       <td
                         key={cell.fecha}
-                        className={`w-16 min-w-16 max-w-16 border-t border-[#E5E5E5] p-0 text-center align-top ${
-                          cell.fecha === hoy ? "bg-[#F0EFFE]/40" : ""
+                        className={`w-16 min-w-16 max-w-16 border-t border-[var(--divider)] p-0 text-center align-top ${
+                          cell.fecha === hoy ? "bg-[var(--purple-tint)]/40" : ""
                         }`}
                       >
                         <CeldaPlan
@@ -427,9 +427,9 @@ export default function EventoDrill({
                         />
                       </td>
                     ))}
-                    <td className="border-l border-t border-[#E5E5E5] px-3 py-2 text-right align-top tabular-nums text-xs">
+                    <td className="border-l border-t border-[var(--divider)] px-3 py-2 text-right align-top tabular-nums text-xs">
                       <span className="block font-medium text-[#534AB7]">{fmtUsd(p.totalPlan)}</span>
-                      <span className="block text-[#333333]">{fmtUsd(p.totalReal)}</span>
+                      <span className="block text-[var(--ink)]">{fmtUsd(p.totalReal)}</span>
                     </td>
                   </tr>,
                 );
@@ -445,12 +445,12 @@ export default function EventoDrill({
                   const totalRmkt = f.realNode?.totalRmkt ?? 0;
                   rows.push(
                     <tr key={`tipo-${tk}`} className="bg-[#FBFBFD]">
-                      <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F0F0F0] bg-[#FBFBFD] py-1.5 pl-7 pr-3 align-top">
-                        <span className="inline-flex items-center gap-1 text-xs text-[#333333]">
+                      <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--grid)] bg-[#FBFBFD] py-1.5 pl-7 pr-3 align-top">
+                        <span className="inline-flex items-center gap-1 text-xs text-[var(--ink)]">
                           {campanas.length > 0 ? (
                             <button
                               onClick={() => toggleTipo(tk)}
-                              className="inline-flex h-4 w-4 items-center justify-center rounded text-[#999999] hover:bg-[#F0F0F0] hover:text-[#333333]"
+                              className="inline-flex h-4 w-4 items-center justify-center rounded text-[var(--ink-subtle)] hover:bg-[var(--grid)] hover:text-[var(--ink)]"
                               aria-label={tAbierto ? "Colapsar" : "Ver campañas"}
                             >
                               {tAbierto ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -458,7 +458,7 @@ export default function EventoDrill({
                           ) : (
                             <span className="inline-block h-4 w-4" />
                           )}
-                          <span className={f.tipoKey === SIN_TIPO ? "italic text-[#999999]" : ""}>
+                          <span className={f.tipoKey === SIN_TIPO ? "italic text-[var(--ink-subtle)]" : ""}>
                             {f.label}
                           </span>
                           {!f.editable && (
@@ -475,16 +475,16 @@ export default function EventoDrill({
                             </span>
                           )}
                         </span>
-                        <p className="mt-0.5 pl-5 text-[11px] tabular-nums text-[#999999]">
+                        <p className="mt-0.5 pl-5 text-[11px] tabular-nums text-[var(--ink-subtle)]">
                           plan <span className="font-medium text-[#534AB7]">{fmtUsd(f.totalPlan, 0)}</span>{" "}
-                          · real <span className="font-medium text-[#333333]">{fmtUsd(totalReal, 0)}</span>
+                          · real <span className="font-medium text-[var(--ink)]">{fmtUsd(totalReal, 0)}</span>
                         </p>
                       </td>
                       {dias.map((fecha, i) => (
                         <td
                           key={fecha}
-                          className={`w-16 min-w-16 max-w-16 border-t border-[#F0F0F0] p-0 text-center align-top ${
-                            fecha === hoy ? "bg-[#F0EFFE]/40" : ""
+                          className={`w-16 min-w-16 max-w-16 border-t border-[var(--grid)] p-0 text-center align-top ${
+                            fecha === hoy ? "bg-[var(--purple-tint)]/40" : ""
                           }`}
                         >
                           <CeldaPlan
@@ -503,9 +503,9 @@ export default function EventoDrill({
                           />
                         </td>
                       ))}
-                      <td className="border-l border-t border-[#F0F0F0] px-3 py-1.5 text-right align-top tabular-nums text-xs">
+                      <td className="border-l border-t border-[var(--grid)] px-3 py-1.5 text-right align-top tabular-nums text-xs">
                         <span className="block font-medium text-[#534AB7]">{fmtUsd(f.totalPlan)}</span>
-                        <span className="block text-[#333333]">{fmtUsd(totalReal)}</span>
+                        <span className="block text-[var(--ink)]">{fmtUsd(totalReal)}</span>
                       </td>
                     </tr>,
                   );
@@ -514,13 +514,13 @@ export default function EventoDrill({
                       const c = campanas[ci];
                       rows.push(
                         <tr key={`camp-${tk}-${ci}`}>
-                          <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 truncate border-r border-t border-[#F5F5F5] bg-white py-1 pl-12 pr-3 align-top text-[11px] text-[#999999]" title={c.nombre}>
+                          <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 truncate border-r border-t border-[#F5F5F5] bg-[var(--surface)] py-1 pl-12 pr-3 align-top text-[11px] text-[var(--ink-subtle)]" title={c.nombre}>
                             {c.esRmkt && <RmktBadge />} {c.nombre}
                           </td>
                           {dias.map((fecha, i) => (
                             <ReadCell key={fecha} value={c.dias[i]} hoy={fecha === hoy} muted />
                           ))}
-                          <td className="border-l border-t border-[#F5F5F5] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[#999999]">
+                          <td className="border-l border-t border-[#F5F5F5] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
                             {fmtUsd(c.total, 0)}
                           </td>
                         </tr>,
@@ -543,11 +543,11 @@ export default function EventoDrill({
                   devolución no se puede fechar. */}
               {tickets.tieneTickets && (
                 <>
-                  <tr className="bg-[#FAFAFA]">
-                    <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#E5E5E5] bg-[#FAFAFA] px-4 py-1.5 align-top">
+                  <tr className="bg-[var(--surface-alt)]">
+                    <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-1.5 align-top">
                       <button
                         onClick={() => setExpRes((v) => !v)}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-[#333333] hover:text-[#9F99F8]"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-[var(--ink)] hover:text-[#9F99F8]"
                         title="Tickets vendidos por día de la orden. No hay CPA ni conversiones por día: la plataforma las imputa al día del clic, no al de la compra."
                       >
                         {expRes ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -557,35 +557,35 @@ export default function EventoDrill({
                     {dias.map((fecha) => (
                       <td
                         key={fecha}
-                        className={`w-16 min-w-16 max-w-16 border-t border-[#E5E5E5] bg-[#FAFAFA] p-0 ${
+                        className={`w-16 min-w-16 max-w-16 border-t border-[var(--divider)] bg-[var(--surface-alt)] p-0 ${
                           fecha === hoy ? "bg-[#F9F9FF]" : ""
                         }`}
                       />
                     ))}
-                    <td className="border-l border-t border-[#E5E5E5] bg-[#FAFAFA]" />
+                    <td className="border-l border-t border-[var(--divider)] bg-[var(--surface-alt)]" />
                   </tr>
 
                   <tr className={expRes ? "" : "hidden"}>
-                    <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F0F0F0] bg-white py-1 pl-7 pr-3 align-top text-[11px] text-[#666666]">
+                    <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-muted)]">
                       Tickets vendidos
                     </td>
                     {dias.map((fecha, i) => (
                       <ResultCell key={fecha} value={serieCols.tx[i]} hoy={fecha === hoy} />
                     ))}
-                    <td className="border-l border-t border-[#F0F0F0] px-3 py-1 text-right align-top tabular-nums text-[11px] font-medium text-[#666666]">
+                    <td className="border-l border-t border-[var(--grid)] px-3 py-1 text-right align-top tabular-nums text-[11px] font-medium text-[var(--ink-muted)]">
                       {formatInt(tickets.transacciones)}
                     </td>
                   </tr>
 
                   {hayFilaPersonas && (
                     <tr className={expRes ? "" : "hidden"}>
-                      <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F5F5F5] bg-white py-1 pl-7 pr-3 align-top text-[11px] text-[#999999]">
+                      <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F5F5F5] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-subtle)]">
                         Personas
                       </td>
                       {dias.map((fecha, i) => (
                         <ResultCell key={fecha} value={serieCols.pe[i]} hoy={fecha === hoy} muted />
                       ))}
-                      <td className="border-l border-t border-[#F5F5F5] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[#999999]">
+                      <td className="border-l border-t border-[#F5F5F5] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
                         {formatInt(tickets.personas)}
                       </td>
                     </tr>
@@ -594,7 +594,7 @@ export default function EventoDrill({
                   {refInterpretable && (
                     <tr className={expRes ? "" : "hidden"}>
                       <td
-                        className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F5F5F5] bg-white py-1 pl-7 pr-3 align-top text-[11px] text-[#999999]"
+                        className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F5F5F5] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-subtle)]"
                         title="Órdenes que llegaron a la ticketera con una etiqueta PM_ de campaña de venta."
                       >
                         Órdenes con PM_
@@ -602,7 +602,7 @@ export default function EventoDrill({
                       {dias.map((fecha, i) => (
                         <ResultCell key={fecha} value={serieCols.pm[i]} hoy={fecha === hoy} muted />
                       ))}
-                      <td className="border-l border-t border-[#F5F5F5] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[#999999]">
+                      <td className="border-l border-t border-[#F5F5F5] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
                         {formatInt(tickets.pmOrdenes)}
                       </td>
                     </tr>
@@ -612,21 +612,21 @@ export default function EventoDrill({
             </tbody>
             <tfoot>
               <tr>
-                <td className="sticky bottom-0 left-0 z-30 w-40 min-w-40 max-w-40 border-r border-t border-[#E5E5E5] bg-white px-4 py-2 text-xs font-medium text-[#333333]">
+                <td className="sticky bottom-0 left-0 z-30 w-40 min-w-40 max-w-40 border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 text-xs font-medium text-[var(--ink)]">
                   Total diario (plan / real)
                 </td>
                 {totalDia.map((d) => (
                   <td
                     key={d.fecha}
-                    className="sticky bottom-0 z-20 w-16 min-w-16 max-w-16 border-t border-[#E5E5E5] bg-white px-1 py-2 text-center tabular-nums text-xs"
+                    className="sticky bottom-0 z-20 w-16 min-w-16 max-w-16 border-t border-[var(--divider)] bg-[var(--surface)] px-1 py-2 text-center tabular-nums text-xs"
                   >
                     <span className="block font-medium text-[#534AB7]">{d.plan > 0 ? fmtUsd(d.plan, 0) : "·"}</span>
-                    <span className="block text-[#333333]">{d.real > 0 ? fmtUsd(d.real, 0) : "·"}</span>
+                    <span className="block text-[var(--ink)]">{d.real > 0 ? fmtUsd(d.real, 0) : "·"}</span>
                   </td>
                 ))}
-                <td className="sticky bottom-0 z-20 w-24 min-w-24 max-w-24 border-l border-t border-[#E5E5E5] bg-white px-3 py-2 text-right tabular-nums text-xs font-medium text-[#534AB7]">
+                <td className="sticky bottom-0 z-20 w-24 min-w-24 max-w-24 border-l border-t border-[var(--divider)] bg-[var(--surface)] px-3 py-2 text-right tabular-nums text-xs font-medium text-[#534AB7]">
                   {fmtUsd(totalPlan)}
-                  <span className="block font-normal text-[#333333]">{fmtUsd(totalReal)}</span>
+                  <span className="block font-normal text-[var(--ink)]">{fmtUsd(totalReal)}</span>
                 </td>
               </tr>
             </tfoot>
@@ -634,16 +634,16 @@ export default function EventoDrill({
         </div>
       </div>
 
-      <p className="font-sans text-xs text-[#999999]">
-        El presupuesto se planifica <span className="text-[#333333]">por tipo de campaña y día</span>:
+      <p className="font-sans text-xs text-[var(--ink-subtle)]">
+        El presupuesto se planifica <span className="text-[var(--ink)]">por tipo de campaña y día</span>:
         en cada fila de tipo, <span className="font-medium text-[#534AB7]">plan editable</span> (arriba,
-        en morado) y <span className="font-medium text-[#333333]">gasto real</span> (abajo, en negro).
+        en morado) y <span className="font-medium text-[var(--ink)]">gasto real</span> (abajo, en negro).
         La fila del canal es la suma de sus tipos (solo lectura). El real se clasifica solo, desde el
-        objetivo declarado en la plataforma; <span className="text-[#333333]">RMKT</span> es una marca
-        de la campaña y suma dentro de su tipo. <span className="italic text-[#999999]">Sin tipo</span>{" "}
+        objetivo declarado en la plataforma; <span className="text-[var(--ink)]">RMKT</span> es una marca
+        de la campaña y suma dentro de su tipo. <span className="italic text-[var(--ink-subtle)]">Sin tipo</span>{" "}
         es el plan cargado antes del desglose — muévelo a su tipo (carga el monto en el tipo correcto y
         vacía la celda de Sin tipo). El real de hoy es parcial (los datos de ads llegan a las 09:45). Las filas de{" "}
-        <span className="text-[#666666]">Resultado del día</span> van en gris y de una línea: son
+        <span className="text-[var(--ink-muted)]">Resultado del día</span> van en gris y de una línea: son
         tickets de la ticketera, no dinero, y se imputan al día de la orden.
       </p>
 
@@ -677,28 +677,28 @@ function CampanasPorTipo({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <h2 className="font-display text-lg font-bold text-[#333333]">Campañas por tipo</h2>
-        <span className="font-sans text-xs text-[#999999]">
+        <h2 className="font-display text-lg font-bold text-[var(--ink)]">Campañas por tipo</h2>
+        <span className="font-sans text-xs text-[var(--ink-subtle)]">
           gasto real del período en pantalla · tipo según el objetivo declarado en la plataforma
         </span>
       </div>
 
       {grupos.length === 0 ? (
-        <div className="rounded-lg border border-[#E5E5E5] bg-white p-6 text-center font-sans text-sm text-[#999999]">
+        <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6 text-center font-sans text-sm text-[var(--ink-subtle)]">
           Sin gasto real en el período.
         </div>
       ) : (
-        <div className="overflow-hidden rounded-lg border border-[#E5E5E5] bg-white">
+        <div className="overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)]">
           <table className="w-full">
             <thead>
-              <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
-                <th className="px-4 py-3 text-left font-sans text-xs font-medium text-[#666666]">
+              <tr className="border-b border-[var(--divider)] bg-[var(--surface-alt)]">
+                <th className="px-4 py-3 text-left font-sans text-xs font-medium text-[var(--ink-muted)]">
                   Campaña
                 </th>
-                <th className="w-28 px-4 py-3 text-right font-sans text-xs font-medium text-[#666666]">
+                <th className="w-28 px-4 py-3 text-right font-sans text-xs font-medium text-[var(--ink-muted)]">
                   Gasto
                 </th>
-                <th className="w-24 px-4 py-3 text-right font-sans text-xs font-medium text-[#666666]">
+                <th className="w-24 px-4 py-3 text-right font-sans text-xs font-medium text-[var(--ink-muted)]">
                   % del tipo
                 </th>
               </tr>
@@ -706,15 +706,15 @@ function CampanasPorTipo({
             <tbody>
               {grupos.map(({ plat, tipo }) => (
                 <Fragment key={`${plat.plataforma}::${tipo.tipo}`}>
-                  <tr className="border-b border-[#E5E5E5] bg-[#FBFBFD]">
+                  <tr className="border-b border-[var(--divider)] bg-[#FBFBFD]">
                     <td className="px-4 py-2">
-                      <span className="inline-flex flex-wrap items-center gap-2 font-sans text-sm font-medium text-[#333333]">
+                      <span className="inline-flex flex-wrap items-center gap-2 font-sans text-sm font-medium text-[var(--ink)]">
                         <span
                           className="h-2 w-2 rounded-full"
                           style={{ backgroundColor: PLAT_COLOR[plat.label] }}
                         />
                         {plat.label} · {tipo.tipo}
-                        <span className="font-normal text-[#999999]">
+                        <span className="font-normal text-[var(--ink-subtle)]">
                           {tipo.campanas.length}{" "}
                           {tipo.campanas.length === 1 ? "campaña" : "campañas"}
                         </span>
@@ -725,7 +725,7 @@ function CampanasPorTipo({
                         )}
                       </span>
                     </td>
-                    <td className="px-4 py-2 text-right font-sans text-sm font-medium tabular-nums text-[#333333]">
+                    <td className="px-4 py-2 text-right font-sans text-sm font-medium tabular-nums text-[var(--ink)]">
                       {fmtUsd(tipo.total)}
                     </td>
                     <td className="px-4 py-2" />
@@ -733,18 +733,18 @@ function CampanasPorTipo({
                   {tipo.campanas.map((c) => (
                     <tr
                       key={c.nombre}
-                      className="border-b border-[#E5E5E5] transition-colors duration-150 hover:bg-[#FAFAFA]"
+                      className="border-b border-[var(--divider)] transition-colors duration-150 hover:bg-[var(--surface-alt)]"
                     >
-                      <td className="px-4 py-2.5 pl-10 font-sans text-sm text-[#333333]">
+                      <td className="px-4 py-2.5 pl-10 font-sans text-sm text-[var(--ink)]">
                         <span className="inline-flex flex-wrap items-center gap-2">
                           {c.esRmkt && <RmktBadge />}
                           {c.nombre}
                         </span>
                       </td>
-                      <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
+                      <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[var(--ink-muted)]">
                         {fmtUsd(c.total)}
                       </td>
-                      <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#999999]">
+                      <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[var(--ink-subtle)]">
                         {tipo.total > 0 ? `${((c.total / tipo.total) * 100).toFixed(0)}%` : "·"}
                       </td>
                     </tr>
@@ -764,10 +764,10 @@ function ReadCell({ value, hoy, muted }: { value: number; hoy: boolean; muted?: 
   return (
     <td
       className={`w-16 min-w-16 max-w-16 border-t px-1 py-1 text-center tabular-nums ${
-        muted ? "border-[#F5F5F5] text-[11px] text-[#999999]" : "border-[#F0F0F0] text-xs text-[#666666]"
-      } ${hoy ? "bg-[#F0EFFE]/40" : ""}`}
+        muted ? "border-[#F5F5F5] text-[11px] text-[var(--ink-subtle)]" : "border-[var(--grid)] text-xs text-[var(--ink-muted)]"
+      } ${hoy ? "bg-[var(--purple-tint)]/40" : ""}`}
     >
-      {value > 0 ? fmtUsd(value, 0) : <span className="text-[#E5E5E5]">·</span>}
+      {value > 0 ? fmtUsd(value, 0) : <span className="text-[var(--divider)]">·</span>}
     </td>
   );
 }
@@ -794,16 +794,16 @@ function ResultCell({
     <td
       className={`w-16 min-w-16 max-w-16 border-t px-1 py-1 text-center tabular-nums ${
         muted
-          ? "border-[#F5F5F5] text-[11px] text-[#999999]"
-          : "border-[#F0F0F0] text-xs text-[#666666]"
+          ? "border-[#F5F5F5] text-[11px] text-[var(--ink-subtle)]"
+          : "border-[var(--grid)] text-xs text-[var(--ink-muted)]"
       } ${hoy ? "bg-[#F9F9FF]" : ""}`}
     >
       {value == null ? (
-        <span className="text-[#E5E5E5]">—</span>
+        <span className="text-[var(--divider)]">—</span>
       ) : value > 0 ? (
         compactInt(value)
       ) : (
-        <span className="text-[#E5E5E5]">·</span>
+        <span className="text-[var(--divider)]">·</span>
       )}
     </td>
   );
@@ -821,12 +821,12 @@ function Stat({
   tone?: "neg";
 }) {
   return (
-    <div className="rounded-lg border border-[#E5E5E5] bg-white p-4">
-      <p className="font-sans text-xs text-[#666666]">{label}</p>
-      <p className={`mt-1.5 font-display text-2xl font-bold leading-none ${tone === "neg" ? "text-[#ED75A0]" : "text-[#333333]"}`}>
+    <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-4">
+      <p className="font-sans text-xs text-[var(--ink-muted)]">{label}</p>
+      <p className={`mt-1.5 font-display text-2xl font-bold leading-none ${tone === "neg" ? "text-[#ED75A0]" : "text-[var(--ink)]"}`}>
         {value}
       </p>
-      {hint && <p className="mt-2 font-sans text-[11px] text-[#999999]">{hint}</p>}
+      {hint && <p className="mt-2 font-sans text-[11px] text-[var(--ink-subtle)]">{hint}</p>}
     </div>
   );
 }
@@ -878,16 +878,16 @@ function EtapasEditor({ eventoId, etapas }: { eventoId: string; etapas: EtapaCam
   }
 
   const inputCls =
-    "rounded-lg border border-[#E5E5E5] px-3 py-2 font-sans text-sm text-[#333333] transition-colors focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]";
+    "rounded-lg border border-[var(--divider)] px-3 py-2 font-sans text-sm text-[var(--ink)] transition-colors focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]";
 
   return (
-    <div className="rounded-lg border border-[#E5E5E5] bg-white p-4">
+    <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-4">
       <button
         onClick={() => setOpen((v) => !v)}
         className="flex w-full items-center justify-between gap-3 text-left"
       >
-        <span className="font-sans text-sm font-medium text-[#333333]">Etapas de campaña</span>
-        <span className="font-sans text-xs text-[#999999]">
+        <span className="font-sans text-sm font-medium text-[var(--ink)]">Etapas de campaña</span>
+        <span className="font-sans text-xs text-[var(--ink-subtle)]">
           {resumen} {open ? "▲" : "▼"}
         </span>
       </button>
@@ -917,7 +917,7 @@ function EtapasEditor({ eventoId, etapas }: { eventoId: string; etapas: EtapaCam
                 />
                 <button
                   onClick={() => removeRow(i)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] hover:bg-[#F5F5F5]"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--ink-muted)] hover:bg-[#F5F5F5]"
                   aria-label="Quitar etapa"
                 >
                   <X className="h-4 w-4" />
@@ -928,7 +928,7 @@ function EtapasEditor({ eventoId, etapas }: { eventoId: string; etapas: EtapaCam
           <div className="mt-1 flex flex-wrap items-center gap-3">
             <button
               onClick={addRow}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#E5E5E5] px-3 py-2 font-sans text-sm text-[#333333] transition-colors hover:border-[#333333]"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--divider)] px-3 py-2 font-sans text-sm text-[var(--ink)] transition-colors hover:border-[var(--ink)]"
             >
               <Plus className="h-4 w-4" /> Agregar etapa
             </button>
@@ -940,12 +940,12 @@ function EtapasEditor({ eventoId, etapas }: { eventoId: string; etapas: EtapaCam
               Guardar etapas
             </button>
             {msg && (
-              <span className={`font-sans text-xs ${msg.ok ? "text-[#666666]" : "text-[#ED75A0]"}`}>
+              <span className={`font-sans text-xs ${msg.ok ? "text-[var(--ink-muted)]" : "text-[#ED75A0]"}`}>
                 {msg.text}
               </span>
             )}
           </div>
-          <p className="mt-1 font-sans text-xs text-[#999999]">
+          <p className="mt-1 font-sans text-xs text-[var(--ink-subtle)]">
             El inicio de cada etapa es el fin de la anterior; la última corre hasta el final del
             calendario. El orden define el color. Solo las etapas con fecha pintan banda.
           </p>

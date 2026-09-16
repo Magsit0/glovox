@@ -101,8 +101,8 @@ export default function RendimientoEvento({
   return (
     <section className="flex flex-col gap-3">
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <h2 className="font-display text-lg font-bold text-[#333333]">Resultado del evento</h2>
-        <span className="font-sans text-xs text-[#999999]">{captionScope}</span>
+        <h2 className="font-display text-lg font-bold text-[var(--ink)]">Resultado del evento</h2>
+        <span className="font-sans text-xs text-[var(--ink-subtle)]">{captionScope}</span>
       </div>
 
       {/* La MISMA grilla que la fila de stats financieros de arriba: cards del
@@ -115,13 +115,13 @@ export default function RendimientoEvento({
           value={formatInt(t.transacciones)}
           title="Tickets vendidos, sin cortesías ni mesas VIP y sin devoluciones. Una fila de la ticketera es un ítem de ticket; una orden puede traer varios. Personas: el pack de 2 cuenta doble solo cuando la ticketera emitió una sola fila para las dos personas."
         >
-          <p className="mt-1.5 font-sans text-[11px] leading-tight text-[#999999]">
-            <span className="font-medium text-[#666666]">{formatInt(t.personas)}</span> personas ·{" "}
-            <span className="font-medium text-[#666666]">{formatInt(t.ordenes)}</span> órdenes
+          <p className="mt-1.5 font-sans text-[11px] leading-tight text-[var(--ink-subtle)]">
+            <span className="font-medium text-[var(--ink-muted)]">{formatInt(t.personas)}</span> personas ·{" "}
+            <span className="font-medium text-[var(--ink-muted)]">{formatInt(t.ordenes)}</span> órdenes
           </p>
           {/* Sin venta, la nota de packs no informa nada. */}
           {t.transacciones > 0 && (
-            <p className="mt-0.5 font-sans text-[11px] leading-tight text-[#999999]">
+            <p className="mt-0.5 font-sans text-[11px] leading-tight text-[var(--ink-subtle)]">
               {t.personas > t.transacciones ? "el pack de 2 cuenta doble" : "sin packs de 2"}
             </p>
           )}
@@ -170,7 +170,7 @@ export default function RendimientoEvento({
             hint={`÷ ${formatInt(t.pmOrdenes)} órdenes con etiqueta PM_`}
             title="El mismo gasto de Ventas de Meta, dividido por las órdenes que la ticketera recibió con una etiqueta PM_ de campaña de venta. Es el piso conservador: exige que la etiqueta sobreviva todo el checkout."
           >
-            <p className="mt-2 inline-flex items-center gap-1.5 font-sans text-[11px] font-medium text-[#333333]">
+            <p className="mt-2 inline-flex items-center gap-1.5 font-sans text-[11px] font-medium text-[var(--ink)]">
               <span
                 className={`h-1.5 w-1.5 shrink-0 rounded-full ${sano ? "bg-[#B1D750]" : "bg-[#F6C544]"}`}
                 aria-hidden="true"
@@ -184,9 +184,9 @@ export default function RendimientoEvento({
       {/* La historia de los dos CPA, como leyenda bajo la grilla — el mismo
           patrón que la leyenda de la sábana. Solo cuando hay dos CPA que leer. */}
       {refInterpretable && (
-        <p className="font-sans text-xs leading-relaxed text-[#999999]">
+        <p className="font-sans text-xs leading-relaxed text-[var(--ink-subtle)]">
           Los dos CPA dividen{" "}
-          <span className="text-[#666666]">
+          <span className="text-[var(--ink-muted)]">
             el mismo gasto de Ventas de Meta ({fmtUsd(ads.gastoVentasUsd, 0)})
           </span>
           {": "}
@@ -248,16 +248,16 @@ function Stat({
   children?: React.ReactNode;
 }) {
   return (
-    <div className="rounded-lg border border-[#E5E5E5] bg-white p-4" title={title}>
-      <p className="font-sans text-xs text-[#666666]">{label}</p>
+    <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-4" title={title}>
+      <p className="font-sans text-xs text-[var(--ink-muted)]">{label}</p>
       <p
         className={`mt-1.5 font-display text-2xl font-bold leading-none ${
-          tone === "neg" ? "text-[#ED75A0]" : "text-[#333333]"
+          tone === "neg" ? "text-[#ED75A0]" : "text-[var(--ink)]"
         }`}
       >
         {value}
       </p>
-      {hint && <p className="mt-1.5 font-sans text-[11px] leading-tight text-[#999999]">{hint}</p>}
+      {hint && <p className="mt-1.5 font-sans text-[11px] leading-tight text-[var(--ink-subtle)]">{hint}</p>}
       {children}
     </div>
   );
@@ -304,12 +304,12 @@ function notaBrecha(ads: AdsMetricasEvento, t: TicketsEvento): string | null {
 
 function NotaBrecha({ texto }: { texto: string }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-[#F6C544] bg-white p-4">
+    <div className="flex items-start gap-3 rounded-lg border border-[#F6C544] bg-[var(--surface)] p-4">
       <span
         className="mt-1.5 inline-block h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[#F6C544]"
         aria-hidden="true"
       />
-      <p className="font-sans text-sm text-[#333333]">{texto}</p>
+      <p className="font-sans text-sm text-[var(--ink)]">{texto}</p>
     </div>
   );
 }

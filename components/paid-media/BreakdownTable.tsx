@@ -66,13 +66,13 @@ const SORT_DEFAULT: Record<SortKey, SortDir> = {
 function SortIcon({ active, dir }: { active: boolean; dir: SortDir }) {
   if (!active) {
     return (
-      <svg viewBox="0 0 12 12" className="h-3 w-3 text-[#999999]" aria-hidden="true">
+      <svg viewBox="0 0 12 12" className="h-3 w-3 text-[var(--ink-subtle)]" aria-hidden="true">
         <path d="M4 4l2-2 2 2M4 8l2 2 2-2" stroke="currentColor" strokeWidth="1.2" fill="none" />
       </svg>
     );
   }
   return (
-    <svg viewBox="0 0 12 12" className="h-3 w-3 text-[#333333]" aria-hidden="true">
+    <svg viewBox="0 0 12 12" className="h-3 w-3 text-[var(--ink)]" aria-hidden="true">
       {dir === "asc" ? (
         <path d="M3 8l3-4 3 4" stroke="currentColor" strokeWidth="1.5" fill="none" />
       ) : (
@@ -172,34 +172,34 @@ export default function BreakdownTable({
   ];
 
   return (
-    <article className="flex flex-col gap-6 rounded-lg border border-[#E5E5E5] bg-white">
+    <article className="flex flex-col gap-6 rounded-lg border border-[var(--divider)] bg-[var(--surface)]">
       <header className="flex flex-col gap-1 px-6 pt-6">
-        <h2 className="font-display text-lg font-bold tracking-tight text-[#333333]">
+        <h2 className="font-display text-lg font-bold tracking-tight text-[var(--ink)]">
           {title}
         </h2>
-        <p className="font-sans text-sm text-[#666666]">{subtitle}</p>
+        <p className="font-sans text-sm text-[var(--ink-muted)]">{subtitle}</p>
       </header>
 
       {rows.length === 0 ? (
-        <p className="py-8 text-center font-sans text-sm text-[#999999]">{emptyText}</p>
+        <p className="py-8 text-center font-sans text-sm text-[var(--ink-subtle)]">{emptyText}</p>
       ) : (
         <div className={scrollable ? "max-h-[520px] overflow-auto" : "overflow-x-auto"}>
           <table className="w-full border-collapse">
             <thead>
-              <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
+              <tr className="border-b border-[var(--divider)] bg-[var(--surface-alt)]">
                 {cols.map((c) => {
                   const isActive = sortKey === c.key;
                   return (
                     <th
                       key={c.key}
-                      className={`px-4 py-3 font-sans text-xs font-medium uppercase tracking-wide text-[#666666] ${
-                        scrollable ? "sticky top-0 z-10 bg-[#FAFAFA] " : ""
+                      className={`px-4 py-3 font-sans text-xs font-medium uppercase tracking-wide text-[var(--ink-muted)] ${
+                        scrollable ? "sticky top-0 z-10 bg-[var(--surface-alt)] " : ""
                       }${c.align === "right" ? "text-right" : "text-left"}`}
                     >
                       <button
                         type="button"
                         onClick={() => onSort(c.key)}
-                        className={`inline-flex items-center gap-1 transition-colors hover:text-[#333333] ${
+                        className={`inline-flex items-center gap-1 transition-colors hover:text-[var(--ink)] ${
                           c.align === "right" ? "justify-end" : ""
                         }`}
                       >
@@ -218,28 +218,28 @@ export default function BreakdownTable({
                 return (
                   <tr
                     key={r.key}
-                    className="border-b border-[#E5E5E5] last:border-b-0 transition-colors hover:bg-[#FAFAFA]"
+                    className="border-b border-[var(--divider)] last:border-b-0 transition-colors hover:bg-[var(--surface-alt)]"
                   >
                     <td className="px-4 py-3 align-top">
                       <div className="flex min-w-0 flex-col gap-0.5">
                         {href ? (
                           <Link
                             href={href}
-                            className="truncate font-sans text-sm text-[#333333] hover:text-[#9F99F8]"
+                            className="truncate font-sans text-sm text-[var(--ink)] hover:text-[#9F99F8]"
                             title={r.label}
                           >
                             {r.label || r.key}
                           </Link>
                         ) : (
                           <span
-                            className="truncate font-sans text-sm text-[#333333]"
+                            className="truncate font-sans text-sm text-[var(--ink)]"
                             title={r.label}
                           >
                             {r.label || r.key}
                           </span>
                         )}
                         {r.extra && (
-                          <span className="truncate font-sans text-xs text-[#999999]">
+                          <span className="truncate font-sans text-xs text-[var(--ink-subtle)]">
                             {extraIsPlataforma ? plataformaLabel(r.extra) : r.extra}
                           </span>
                         )}
@@ -247,11 +247,11 @@ export default function BreakdownTable({
                     </td>
                     <td className="px-4 py-3 text-right align-top tabular-nums">
                       <div className="flex flex-col items-end gap-1">
-                        <span className="font-sans text-sm text-[#333333]">
+                        <span className="font-sans text-sm text-[var(--ink)]">
                           {compactMoney(r.gasto)}
                         </span>
                         <span
-                          className="h-1 w-24 overflow-hidden rounded-full bg-[#F0F0F0]"
+                          className="h-1 w-24 overflow-hidden rounded-full bg-[var(--grid)]"
                           aria-hidden="true"
                         >
                           <span
@@ -260,7 +260,7 @@ export default function BreakdownTable({
                           />
                         </span>
                         <span
-                          className="font-sans text-[10px] text-[#999999]"
+                          className="font-sans text-[10px] text-[var(--ink-subtle)]"
                           title={formatMoney(r.gasto, moneda)}
                         >
                           {formatMoney(r.gasto, moneda)}
@@ -275,25 +275,25 @@ export default function BreakdownTable({
                         )}
                       </div>
                     </td>
-                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
+                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[var(--ink)]">
                       {formatInt(r.impresiones)}
                     </td>
-                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
+                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[var(--ink)]">
                       {formatInt(r.clics)}
                     </td>
-                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
+                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[var(--ink)]">
                       {formatRatio(r.ctr)}
                     </td>
-                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
+                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[var(--ink)]">
                       {formatUnitCost(r.cpc, moneda)}
                     </td>
-                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
+                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[var(--ink)]">
                       {formatUnitCost(r.cpm, moneda)}
                     </td>
-                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
+                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[var(--ink)]">
                       {formatInt(r.conversiones)}
                     </td>
-                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[#333333]">
+                    <td className="px-4 py-3 text-right align-top font-sans text-sm tabular-nums text-[var(--ink)]">
                       {formatRoas(r.roas)}
                     </td>
                   </tr>
@@ -305,7 +305,7 @@ export default function BreakdownTable({
       )}
 
       {(extraLabel || truncadas > 0) && rows.length > 0 && (
-        <p className="px-6 pb-4 font-sans text-xs text-[#999999]">
+        <p className="px-6 pb-4 font-sans text-xs text-[var(--ink-subtle)]">
           {truncadas > 0 && (
             <>
               Mostrando {formatInt(rows.length)} de {formatInt(total ?? 0)} por

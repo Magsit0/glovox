@@ -485,9 +485,63 @@ Avoid: bouncy springs, `scale` > `1.03`, rotation on chrome, parallax.
 
 ---
 
+## THEME TOKENS & DARK MODE
+
+Colors are no longer written as literals in components. They go through **CSS custom
+properties** declared once in `app/globals.css`. In light mode every token resolves to
+exactly the hex listed in the tables above, so this layer changed nothing visually — it
+only created a single place to change a color.
+
+| Token | Light | Dark | Role |
+| ----- | ----- | ---- | ---- |
+| `--ink` | `#333333` | `#EDEDED` | Primary text |
+| `--ink-muted` | `#666666` | `#A8A8A8` | Labels, subtitles, column headers |
+| `--ink-subtle` | `#999999` | `#8A8A8A` | Captions, axis labels, placeholders |
+| `--divider` | `#E5E5E5` | `#383838` | Hairline borders, table dividers |
+| `--grid` | `#F0F0F0` | `#2E2E2E` | Chart grid lines |
+| `--surface` | `#FFFFFF` | `#242424` | Card & table background |
+| `--surface-alt` | `#FAFAFA` | `#1A1A1A` | Page canvas, table header, hover rows |
+| `--purple-tint` | `#F0EFFE` | `#2A2840` | Selected/active state fill |
+
+### Rules
+
+- **Use the token, never the hex**: `text-[var(--ink)]`, `bg-[var(--surface)]`,
+  `border-[var(--divider)]`. A literal neutral hex in a component is a bug — it will not
+  follow the theme.
+- **Brand accents do NOT change between themes.** The six accents (`#9F99F8`, `#B1D750`,
+  `#ED75A0`, `#F6C544`, `#87DACD`, `#EF8C34`) keep their exact value in dark: they are
+  mid-tone and already contrast against `#242424`. Redefining them would mean inventing
+  brand variants this manual does not have. Keep writing them as literals.
+- **`text-white` stays `text-white`.** It means "white on a brand accent" (the purple
+  spotlight KPI, active pills) — it is not a surface color and must not be tokenized.
+- **Country flags and other illustrative SVG fills stay literal.** They are artwork, not
+  chrome.
+- **No `#000000` still holds.** The darkest surface is `#1A1A1A`; cards lift to `#242424`
+  so they separate from the canvas, the same gesture the white card makes over `#FAFAFA`
+  in light mode.
+- **Chart colors go through `lib/chart-colors.ts`.** `INK` and `SURFACE` there are now
+  `var(--…)` strings — SVG resolves custom properties in `fill`/`stroke` like any color
+  property, so recharts follows the theme with no per-chart change. ⚠️ Never feed those
+  values to `chroma-js`: it needs a concrete color. Use `LIGHT_HEX` for color math.
+
+### Scope
+
+Dark mode is **per route, not global**. `<ThemeSwitch>` (which mounts `<ThemeScope>`)
+sets `data-theme="dark"` on `<html>` while mounted and removes it on unmount, so leaving
+the route reverts to light. Today only `/paid-media` and `/inversion-medios` offer it
+(`THEMED_ROUTES` in `lib/theme.ts`); every other dashboard resolves `:root` and is
+untouched. Adding a route to dark mode = tokenize its literals + render `<ThemeSwitch>`.
+
+The preference lives in `localStorage`, not in the URL: it is personal, and a query param
+would impose your theme on whoever opens a link you share. Print always renders light —
+`@media print` re-pins the tokens to their light values.
+
+---
+
 ## WHAT NOT TO DO
 
 - No `#000000`. Always `#333333` or lighter.
+- No neutral hex literals in components. Use the theme tokens (`var(--ink)`, `var(--surface)`, …) — a literal will not follow dark mode. Brand accents and illustrative SVG fills are the exception.
 - No brutalist offset shadows (`shadow-[4px_4px_0px_*]`).
 - No `rounded-none`. No heavy borders (3px+).
 - No `uppercase` on page titles, card titles, KPI labels, buttons, body. Only: sidebar section dividers, table column headers (dense view), status pills.

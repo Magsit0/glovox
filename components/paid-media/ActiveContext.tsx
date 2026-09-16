@@ -45,9 +45,9 @@ export default function ActiveContext({
       {items.map((i) => (
         <span
           key={`${i.label}-${i.value}`}
-          className="inline-flex items-center gap-1.5 rounded-full border border-[#E5E5E5] bg-white px-2.5 py-1 font-sans text-xs font-medium text-[#333333]"
+          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--divider)] bg-[var(--surface)] px-2.5 py-1 font-sans text-xs font-medium text-[var(--ink)]"
         >
-          <span className="text-[#666666]">{i.label}</span>
+          <span className="text-[var(--ink-muted)]">{i.label}</span>
           <span>·</span>
           <span title={i.value} className="max-w-[260px] truncate">
             {i.value}
