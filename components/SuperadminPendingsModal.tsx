@@ -113,15 +113,15 @@ export default function SuperadminPendingsModal({
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 12 }}
           transition={{ duration: 0.25, ease: "easeOut" }}
-          className="my-auto w-full max-w-2xl rounded-lg border border-[#E5E5E5] bg-white shadow-md"
+          className="my-auto w-full max-w-2xl rounded-lg border border-[var(--divider)] bg-[var(--surface)] shadow-md"
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center justify-between border-b border-[#E5E5E5] px-6 py-4">
+          <div className="flex items-center justify-between border-b border-[var(--divider)] px-6 py-4">
             <div>
-              <h2 className="font-display text-lg font-bold text-[#333333]">
+              <h2 className="font-display text-lg font-bold text-[var(--ink)]">
                 Pendientes
               </h2>
-              <p className="font-sans text-sm text-[#666666]">
+              <p className="font-sans text-sm text-[var(--ink-muted)]">
                 {dashboard.label}
               </p>
             </div>
@@ -129,13 +129,13 @@ export default function SuperadminPendingsModal({
               type="button"
               onClick={onClose}
               aria-label="Cerrar"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[#666666] transition-colors hover:bg-[#F5F5F5] hover:text-[#333333]"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
             >
               <X className="h-5 w-5" />
             </button>
           </div>
 
-          <div className="flex border-b border-[#E5E5E5] px-6">
+          <div className="flex border-b border-[var(--divider)] px-6">
             <TabButton
               active={tab === "pending"}
               onClick={() => setTab("pending")}
@@ -153,20 +153,20 @@ export default function SuperadminPendingsModal({
           {tab === "pending" && (
             <form
               onSubmit={handleCreate}
-              className="border-b border-[#E5E5E5] bg-[#FAFAFA] px-6 py-4"
+              className="border-b border-[var(--divider)] bg-[var(--surface-alt)] px-6 py-4"
             >
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="Título del pendiente"
-                className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+                className="w-full rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 py-2 font-sans text-sm text-[var(--ink)] placeholder:text-[var(--ink-subtle)] transition-colors hover:border-[var(--ink)] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
               />
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
                 placeholder="Descripción (opcional)"
                 rows={2}
-                className="mt-2 w-full resize-none rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+                className="mt-2 w-full resize-none rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 py-2 font-sans text-sm text-[var(--ink)] placeholder:text-[var(--ink-subtle)] transition-colors hover:border-[var(--ink)] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
               />
               <div className="mt-2 flex items-center justify-end">
                 <button
@@ -182,14 +182,14 @@ export default function SuperadminPendingsModal({
           )}
 
           {error && (
-            <div className="border-b border-[#E5E5E5] bg-white px-6 py-3">
+            <div className="border-b border-[var(--divider)] bg-[var(--surface)] px-6 py-3">
               <p className="font-sans text-sm text-[#ED75A0]">{error}</p>
             </div>
           )}
 
           <div className="max-h-[50vh] overflow-y-auto px-6 py-4">
             {items.length === 0 ? (
-              <p className="py-8 text-center font-sans text-sm text-[#999999]">
+              <p className="py-8 text-center font-sans text-sm text-[var(--ink-subtle)]">
                 {tab === "pending"
                   ? "Sin pendientes. Agrega uno arriba."
                   : "Aún no hay pendientes completados."}
@@ -199,28 +199,28 @@ export default function SuperadminPendingsModal({
                 {items.map((item) => (
                   <li
                     key={item.id}
-                    className="group rounded-lg border border-[#E5E5E5] bg-white p-3 transition-colors hover:bg-[#FAFAFA]"
+                    className="group rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-3 transition-colors hover:bg-[var(--surface-alt)]"
                   >
                     {editingId === item.id ? (
                       <div className="flex flex-col gap-2">
                         <input
                           value={editTitle}
                           onChange={(e) => setEditTitle(e.target.value)}
-                          className="w-full rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+                          className="w-full rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 py-2 font-sans text-sm text-[var(--ink)] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
                         />
                         <textarea
                           value={editDescription}
                           onChange={(e) => setEditDescription(e.target.value)}
                           placeholder="Descripción (opcional)"
                           rows={2}
-                          className="w-full resize-none rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+                          className="w-full resize-none rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 py-2 font-sans text-sm text-[var(--ink)] placeholder:text-[var(--ink-subtle)] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
                         />
                         <div className="flex items-center justify-end gap-2">
                           <button
                             type="button"
                             onClick={cancelEdit}
                             disabled={isPending}
-                            className="rounded-lg px-3 py-1.5 font-sans text-sm font-medium text-[#666666] transition-colors hover:bg-[#F5F5F5] hover:text-[#333333]"
+                            className="rounded-lg px-3 py-1.5 font-sans text-sm font-medium text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
                           >
                             Cancelar
                           </button>
@@ -250,7 +250,7 @@ export default function SuperadminPendingsModal({
                           className={`mt-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors ${
                             item.status === "done"
                               ? "border-[#9F99F8] bg-[#9F99F8] text-white"
-                              : "border-[#E5E5E5] bg-white hover:border-[#9F99F8]"
+                              : "border-[var(--divider)] bg-[var(--surface)] hover:border-[#9F99F8]"
                           }`}
                         >
                           {item.status === "done" && (
@@ -261,8 +261,8 @@ export default function SuperadminPendingsModal({
                           <p
                             className={`font-sans text-sm font-medium ${
                               item.status === "done"
-                                ? "text-[#999999] line-through"
-                                : "text-[#333333]"
+                                ? "text-[var(--ink-subtle)] line-through"
+                                : "text-[var(--ink)]"
                             }`}
                           >
                             {item.title}
@@ -271,14 +271,14 @@ export default function SuperadminPendingsModal({
                             <p
                               className={`mt-1 whitespace-pre-wrap font-sans text-sm ${
                                 item.status === "done"
-                                  ? "text-[#999999]"
-                                  : "text-[#666666]"
+                                  ? "text-[var(--ink-subtle)]"
+                                  : "text-[var(--ink-muted)]"
                               }`}
                             >
                               {item.description}
                             </p>
                           )}
-                          <p className="mt-1 font-sans text-xs text-[#999999]">
+                          <p className="mt-1 font-sans text-xs text-[var(--ink-subtle)]">
                             {formatDate(item.createdAt)}
                           </p>
                         </div>
@@ -291,7 +291,7 @@ export default function SuperadminPendingsModal({
                               }
                               disabled={isPending}
                               aria-label="Reabrir"
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] transition-colors hover:bg-[#F5F5F5] hover:text-[#333333]"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
                             >
                               <RotateCcw className="h-4 w-4" />
                             </button>
@@ -302,7 +302,7 @@ export default function SuperadminPendingsModal({
                               onClick={() => startEdit(item)}
                               disabled={isPending}
                               aria-label="Editar"
-                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] transition-colors hover:bg-[#F5F5F5] hover:text-[#333333]"
+                              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
                             >
                               <Pencil className="h-4 w-4" />
                             </button>
@@ -312,7 +312,7 @@ export default function SuperadminPendingsModal({
                             onClick={() => run(() => deletePending(item.id))}
                             disabled={isPending}
                             aria-label="Eliminar"
-                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] transition-colors hover:bg-[#F5F5F5] hover:text-[#ED75A0]"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-alt)] hover:text-[#ED75A0]"
                           >
                             <Trash2 className="h-4 w-4" />
                           </button>
@@ -347,14 +347,14 @@ function TabButton({
       onClick={onClick}
       className={`-mb-px border-b-2 px-3 py-3 font-sans text-sm transition-colors ${
         active
-          ? "border-[#9F99F8] text-[#333333]"
-          : "border-transparent text-[#666666] hover:text-[#333333]"
+          ? "border-[#9F99F8] text-[var(--ink)]"
+          : "border-transparent text-[var(--ink-muted)] hover:text-[var(--ink)]"
       }`}
     >
       {label}
       <span
         className={`ml-1.5 font-sans text-xs ${
-          active ? "text-[#9F99F8]" : "text-[#999999]"
+          active ? "text-[#9F99F8]" : "text-[var(--ink-subtle)]"
         }`}
       >
         {count}

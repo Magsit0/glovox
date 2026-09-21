@@ -29,6 +29,7 @@
  * los otros ~23 dashboards siguen en claro sin cambiar una linea.
  */
 :root {
+  color-scheme: light;
   --ink: #333333;
   --ink-muted: #666666;
   --ink-subtle: #999999;
@@ -37,9 +38,73 @@
   --surface: #FFFFFF;
   --surface-alt: #FAFAFA;
   --purple-tint: #F0EFFE;
+
+  /* ── Superficie hundida ───────────────────────────────────────────────
+     Las sub-filas que aparecen al DESPLEGAR algo (filas de tipo de la sábana,
+     sub-filas de campaña de "No atribuido", cabeceras de grupo) llevan un
+     fondo un paso por debajo de la tarjeta. En claro eso es "casi blanco";
+     en oscuro tiene que ir para el otro lado, un paso MÁS oscuro que la
+     tarjeta #242424 — por eso es un token y no --surface-alt. */
+  --surface-sunken: #FBFBFD;
+
+  /* ── El morado del PLAN ───────────────────────────────────────────────
+     El acento propio de /inversion-medios: plan en morado, real en tinta.
+     #534AB7 NO es uno de los 6 acentos de marca (es más oscuro), así que
+     NO lo cubre la excepción de "los acentos no cambian": sobre #242424 da
+     2,3:1 y el monto del plan queda ilegible. En oscuro pasa al morado de
+     marca #9F99F8 (6,3:1), que ya es el acento de esta ruta. */
+  --plan: #534AB7;
+  --plan-hover: #3F3796;
+
+  /* ── Día del evento ──────────────────────────────────────────────────
+     El ámbar que marca los días del evento en las dos vistas. Par tinte +
+     tinta: en oscuro el tinte se hunde y la tinta sube al amarillo de marca. */
+  --evento-tint: #FAEEDA;
+  --evento-ink: #854F0B;
+
+  /* ── Tintas de estado sobre superficie ────────────────────────────────
+     Versiones oscurecidas del amarillo y el verde de marca, pensadas para
+     fondo claro (van pareadas con los dots #F6C544 / #B1D750). Sobre oscuro
+     el acento pelado ya contrasta, así que ahí el token ES el acento. */
+  --amber-ink: #B8890B;
+  --green-ink: #3B6D11;
+
+  /* ── Escala de destaque de semana ─────────────────────────────────────
+     Tintes del morado de marca: semana próxima al 50%, subsiguiente al 25%.
+     En claro van hacia blanco; en oscuro, hacia el canvas. */
+  --week-near-line: #CFCCFB;
+  --week-near-tint: #F5F4FE;
+  --week-near-ink: #6E67C4;
+  --week-far-line: #E7E6FD;
+  --week-far-tint: #FAFAFE;
+  --week-far-ink: #8F89D9;
+
+  /* ── Tinta de la barra brutalist (grupo MARKETING) ───────────────────
+     GroupNav theme "brutalist" pinta título, tabs y bordes en negro puro
+     sobre --surface. En oscuro eso desaparece (1,4:1). */
+  --brutal-ink: #000000;
+
+  /* ── Bandas de etapa de campaña ──────────────────────────────────────
+     12 pares tinte + tinta para la franja de etapas del drill. En claro son
+     pasteles; en oscuro, el mismo tono hundido con la tinta clara. Van como
+     variables y no como hex en el componente porque se aplican por `style`
+     inline, donde CSS resuelve custom properties igual que en una clase. */
+  --etapa-1-bg: #E6F1FB;  --etapa-1-ink: #185FA5;  /* azul */
+  --etapa-2-bg: #FAEEDA;  --etapa-2-ink: #854F0B;  /* ámbar */
+  --etapa-3-bg: #FAECE7;  --etapa-3-ink: #993C1D;  /* coral */
+  --etapa-4-bg: #FCEBEB;  --etapa-4-ink: #A32D2D;  /* rojo */
+  --etapa-5-bg: #EAF3DE;  --etapa-5-ink: #3B6D11;  /* verde */
+  --etapa-6-bg: #EEEDFE;  --etapa-6-ink: #534AB7;  /* púrpura */
+  --etapa-7-bg: #FBEAF0;  --etapa-7-ink: #993556;  /* rosa */
+  --etapa-8-bg: #E1F5EE;  --etapa-8-ink: #0F6E56;  /* teal */
+  --etapa-9-bg: #F1EFE8;  --etapa-9-ink: #444441;  /* gris */
+  --etapa-10-bg: #E8F0FE; --etapa-10-ink: #1A56DB; /* azul 2 */
+  --etapa-11-bg: #FCE8F3; --etapa-11-ink: #9B1C6B; /* fucsia 2 */
+  --etapa-12-bg: #ECFDF5; --etapa-12-ink: #047857; /* esmeralda 2 */
 }
 
 [data-theme="dark"] {
+  color-scheme: dark;
   --ink: #EDEDED;
   --ink-muted: #A8A8A8;
   --ink-subtle: #8A8A8A;
@@ -50,6 +115,39 @@
   /* Tinte del morado de marca sobre oscuro, para los estados activos que en
      claro usan #F0EFFE. */
   --purple-tint: #2A2840;
+
+  --surface-sunken: #1F1F1F;
+
+  --plan: #9F99F8;
+  --plan-hover: #CFCCFB;
+
+  --evento-tint: #3A2D14;
+  --evento-ink: #F6C544;
+
+  --amber-ink: #F6C544;
+  --green-ink: #B1D750;
+
+  --week-near-line: #4A4680;
+  --week-near-tint: #232136;
+  --week-near-ink: #BFBBFA;
+  --week-far-line: #34314C;
+  --week-far-tint: #1E1D29;
+  --week-far-ink: #9F99F8;
+
+  --brutal-ink: #EDEDED;
+
+  --etapa-1-bg: #16293A;  --etapa-1-ink: #8FC3EE;
+  --etapa-2-bg: #3A2D14;  --etapa-2-ink: #F0C274;
+  --etapa-3-bg: #3A241B;  --etapa-3-ink: #EFA98C;
+  --etapa-4-bg: #3A1E1E;  --etapa-4-ink: #F09B9B;
+  --etapa-5-bg: #24331A;  --etapa-5-ink: #B9DE8A;
+  --etapa-6-bg: #26243F;  --etapa-6-ink: #B9B4FA;
+  --etapa-7-bg: #391E28;  --etapa-7-ink: #EFA0B8;
+  --etapa-8-bg: #16332B;  --etapa-8-ink: #85D8C2;
+  --etapa-9-bg: #2E2D29;  --etapa-9-ink: #C9C7BE;
+  --etapa-10-bg: #1B2542; --etapa-10-ink: #9BB8F5;
+  --etapa-11-bg: #3A1B2C; --etapa-11-ink: #F09AC6;
+  --etapa-12-bg: #123024; --etapa-12-ink: #7FD9B4;
 }
 
 /* La transicion vive en los contenedores, no en "*": animar el color de cada
@@ -61,11 +159,25 @@
   transition: background-color 150ms ease-out, color 150ms ease-out;
 }
 
+/* El unico logo en public/ es la version negra, y en oscuro queda invisible
+   dentro de su recuadro. Se invierte por CSS en vez de agregar un asset claro:
+   es un glifo de un solo color, asi que invert(1) da exactamente el blanco que
+   tendria la variante clara. Solo aplica en las rutas con tema. */
+[data-theme="dark"] img[src$="gvx_black.svg"] {
+  filter: invert(1);
+}
+@media print {
+  [data-theme="dark"] img[src$="gvx_black.svg"] {
+    filter: none;
+  }
+}
+
 /* Impresion: siempre claro. El bloque @media print de mas abajo ya fuerza fondo
    blanco, y estos tokens tienen que acompanarlo o el texto saldria casi blanco
    sobre papel blanco. */
 @media print {
   [data-theme="dark"] {
+    color-scheme: light;
     --ink: #333333;
     --ink-muted: #666666;
     --ink-subtle: #999999;
@@ -74,6 +186,32 @@
     --surface: #FFFFFF;
     --surface-alt: #FAFAFA;
     --purple-tint: #F0EFFE;
+    --surface-sunken: #FBFBFD;
+    --plan: #534AB7;
+    --plan-hover: #3F3796;
+    --evento-tint: #FAEEDA;
+    --evento-ink: #854F0B;
+    --amber-ink: #B8890B;
+    --green-ink: #3B6D11;
+    --week-near-line: #CFCCFB;
+    --week-near-tint: #F5F4FE;
+    --week-near-ink: #6E67C4;
+    --week-far-line: #E7E6FD;
+    --week-far-tint: #FAFAFE;
+    --week-far-ink: #8F89D9;
+    --brutal-ink: #000000;
+    --etapa-1-bg: #E6F1FB;  --etapa-1-ink: #185FA5;
+    --etapa-2-bg: #FAEEDA;  --etapa-2-ink: #854F0B;
+    --etapa-3-bg: #FAECE7;  --etapa-3-ink: #993C1D;
+    --etapa-4-bg: #FCEBEB;  --etapa-4-ink: #A32D2D;
+    --etapa-5-bg: #EAF3DE;  --etapa-5-ink: #3B6D11;
+    --etapa-6-bg: #EEEDFE;  --etapa-6-ink: #534AB7;
+    --etapa-7-bg: #FBEAF0;  --etapa-7-ink: #993556;
+    --etapa-8-bg: #E1F5EE;  --etapa-8-ink: #0F6E56;
+    --etapa-9-bg: #F1EFE8;  --etapa-9-ink: #444441;
+    --etapa-10-bg: #E8F0FE; --etapa-10-ink: #1A56DB;
+    --etapa-11-bg: #FCE8F3; --etapa-11-ink: #9B1C6B;
+    --etapa-12-bg: #ECFDF5; --etapa-12-ink: #047857;
   }
 }
 

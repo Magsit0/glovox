@@ -25,17 +25,27 @@ interface Props {
  */
 const THEME = {
   brutalist: {
-    nav: "sticky top-0 z-30 flex items-center gap-3 border-b-2 border-black bg-[var(--surface)] px-4 py-2.5 sm:px-8",
-    logo: "inline-flex shrink-0 items-center justify-center border-2 border-black bg-[var(--surface)] p-1.5 transition-colors hover:bg-[#FFFF00]",
+    // El negro del brutalismo va por --brutal-ink, no como literal: el grupo
+    // MARKETING incluye /paid-media y /inversion-medios, que ofrecen tema
+    // oscuro, y sobre --surface #242424 el negro puro da 1,4:1 — la barra
+    // perdia titulo, tabs inactivas y bordes. En claro el token ES #000000,
+    // asi que la barra no cambia en las otras rutas del grupo.
+    nav: "sticky top-0 z-30 flex items-center gap-3 border-b-2 border-[var(--brutal-ink)] bg-[var(--surface)] px-4 py-2.5 sm:px-8",
+    logo: "inline-flex shrink-0 items-center justify-center border-2 border-[var(--brutal-ink)] bg-[var(--surface)] p-1.5 transition-colors hover:bg-[#FFFF00]",
     title:
-      "shrink-0 font-display text-sm font-black uppercase tracking-tight text-black transition-opacity hover:opacity-60 sm:text-base",
+      "shrink-0 font-display text-sm font-black uppercase tracking-tight text-[var(--brutal-ink)] transition-opacity hover:opacity-60 sm:text-base",
     tabs: "ml-auto flex items-center gap-1 overflow-x-auto",
     label:
       "whitespace-nowrap font-mono-data text-[11px] font-bold uppercase tracking-wide sm:text-xs",
+    // La activa se queda en negro: la pastilla negra con texto amarillo es el
+    // gesto brutalist y sigue leyendose sobre #242424. Lo que se tokeniza es
+    // su BORDE, para que la pastilla no se funda con la tarjeta en oscuro.
     tabActive:
-      "inline-flex items-center border-2 border-black bg-black px-3 py-1.5 text-[#FFFF00]",
+      "inline-flex items-center border-2 border-[var(--brutal-ink)] bg-black px-3 py-1.5 text-[#FFFF00]",
+    // `hover:text-black` explicito: el hover pinta #FFFF00 de fondo, y con la
+    // tinta clara de oscuro el texto sobre amarillo quedaria ilegible.
     tabInactive:
-      "inline-flex items-center border-2 border-transparent px-3 py-1.5 text-black transition-colors hover:border-black hover:bg-[#FFFF00]",
+      "inline-flex items-center border-2 border-transparent px-3 py-1.5 text-[var(--brutal-ink)] transition-colors hover:border-[var(--brutal-ink)] hover:bg-[#FFFF00] hover:text-black",
   },
   glovox: {
     nav: "sticky top-0 z-30 flex h-16 items-center gap-4 border-b border-[var(--divider)] bg-[var(--surface)] px-4 sm:px-8",

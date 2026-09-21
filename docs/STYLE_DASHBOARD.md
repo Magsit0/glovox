@@ -502,6 +502,22 @@ only created a single place to change a color.
 | `--surface` | `#FFFFFF` | `#242424` | Card & table background |
 | `--surface-alt` | `#FAFAFA` | `#1A1A1A` | Page canvas, table header, hover rows |
 | `--purple-tint` | `#F0EFFE` | `#2A2840` | Selected/active state fill |
+| `--surface-sunken` | `#FBFBFD` | `#1F1F1F` | Rows revealed by expanding something; group headers |
+| `--plan` | `#534AB7` | `#9F99F8` | The planned figure in `/inversion-medios` (real goes in `--ink`) |
+| `--plan-hover` | `#3F3796` | `#CFCCFB` | Hover of a link painted in `--plan` |
+| `--evento-tint` | `#FAEEDA` | `#3A2D14` | Fill of the event's own days |
+| `--evento-ink` | `#854F0B` | `#F6C544` | Text over `--evento-tint` |
+| `--amber-ink` | `#B8890B` | `#F6C544` | Amber status text over a surface (pairs with dot `#F6C544`) |
+| `--green-ink` | `#3B6D11` | `#B1D750` | Green status text over a surface (pairs with dot `#B1D750`) |
+| `--week-near-line` / `-tint` / `-ink` | `#CFCCFB` / `#F5F4FE` / `#6E67C4` | `#4A4680` / `#232136` / `#BFBBFA` | Week-highlight scale, 50% step |
+| `--week-far-line` / `-tint` / `-ink` | `#E7E6FD` / `#FAFAFE` / `#8F89D9` | `#34314C` / `#1E1D29` / `#9F99F8` | Week-highlight scale, 25% step |
+| `--brutal-ink` | `#000000` | `#EDEDED` | Title, tabs and borders of the `brutalist` GroupNav |
+| `--etapa-N-bg` / `--etapa-N-ink` | 12 pastels | 12 sunken tints | Campaign-stage bands (N = 1…12) |
+
+Tokens below `--purple-tint` are **paired** colors: a fill plus the ink that sits on it, or
+a scale. They exist because a light tint cannot simply be reused in dark — it has to travel
+the other way, toward the canvas — and because two of them (`--plan`, `--brutal-ink`) are
+colors the manual never listed as accents, so nothing said what they should do in dark.
 
 ### Rules
 
@@ -522,7 +538,29 @@ only created a single place to change a color.
 - **Chart colors go through `lib/chart-colors.ts`.** `INK` and `SURFACE` there are now
   `var(--…)` strings — SVG resolves custom properties in `fill`/`stroke` like any color
   property, so recharts follows the theme with no per-chart change. ⚠️ Never feed those
-  values to `chroma-js`: it needs a concrete color. Use `LIGHT_HEX` for color math.
+  values to `chroma-js`: it needs a concrete color. Use `LIGHT_HEX` for color math. This
+  holds for a `stroke=` written inline on a recharts child too (`<CartesianGrid>`), which
+  is where a literal slips back in most easily.
+- **A light tint + dark text pair is NOT an accent.** `#FAEEDA`/`#854F0B`-style pairs read
+  fine in light and read fine in dark too — the pair is self-consistent — but they land as
+  bright patches on a dark board. They get a token pair whose fill travels toward the
+  canvas and whose ink travels toward the accent. Same for any scale of tints (see
+  `--week-*`, `--etapa-*`).
+- **A dark-toned near-accent is NOT covered by the accent exception.** `#534AB7` is not one
+  of the six: it is darker, so on `#242424` it gives 2.3:1. Any purple/green/amber that is
+  *not literally* one of the six hexes needs a token.
+- **One `bg-*` utility per element.** A fixed `bg-[var(--surface-alt)]` plus a conditional
+  `bg-[…]` in the same `className` are two utilities of equal specificity, and the winner
+  is decided by the order of the generated CSS, not by the order of the string. Write the
+  whole background as one ternary.
+- **`color-scheme` is part of the theme.** `:root` declares `light` and `[data-theme="dark"]`
+  declares `dark`, so scrollbars, `<input type="date">` pickers and other native chrome
+  follow the switch. Without it a themed route keeps light scrollbars and a light date
+  picker inside a dark card.
+- **Opacity modifiers on a `var()` color DO work.** `bg-[var(--purple-tint)]/40` compiles to
+  a `color-mix()` rule inside `@supports`, with the full-opacity declaration as fallback.
+  That is the sanctioned way to write a weaker version of a *tint* token; the manual's
+  no-opacity rule is about fills in a brand accent.
 
 ### Scope
 
@@ -534,7 +572,15 @@ untouched. Adding a route to dark mode = tokenize its literals + render `<ThemeS
 
 The preference lives in `localStorage`, not in the URL: it is personal, and a query param
 would impose your theme on whoever opens a link you share. Print always renders light —
-`@media print` re-pins the tokens to their light values.
+`@media print` re-pins the tokens to their light values. ⚠️ **A new token has to be added
+in three places**: `:root`, `[data-theme="dark"]` and the `@media print` re-pin. A token
+missing from the print block prints near-white ink on white paper.
+
+"Per route" means the chrome that surrounds the route counts too, not just its own files.
+`GroupNav` (the group bar), `SuperadminPendingsFab` and `SuperadminPendingsModal` (mounted
+globally in `app/layout.tsx`) all render *on* a themed route, so their literals are theme
+bugs even though they live outside the route folder. Anything else the root layout mounts
+has to be checked the same way when a new route joins `THEMED_ROUTES`.
 
 ---
 

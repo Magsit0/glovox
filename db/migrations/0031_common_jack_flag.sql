@@ -1,0 +1,1 @@
+ALTER TABLE "negocio_variable_envio" ADD COLUMN "periodo" text;

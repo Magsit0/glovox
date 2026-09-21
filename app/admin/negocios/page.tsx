@@ -1,12 +1,28 @@
 import { requireSuperadmin } from "@/lib/access";
 import { getAllNegociosAdmin } from "@/lib/queries/cierreMensual";
-import AdminNegociosTable from "./_components/AdminNegociosTable";
+import { db } from "@/db";
+import { negocioVariableEnvio } from "@/db/schema";
+import { withNeonRetry } from "@/lib/neon-retry";
+import AdminNegociosTable, { type VariableMarca } from "./_components/AdminNegociosTable";
 
 export const dynamic = "force-dynamic";
 
 export default async function AdminNegociosPage() {
   await requireSuperadmin();
-  const negocios = await getAllNegociosAdmin();
+  const [negocios, marcasRows] = await Promise.all([
+    getAllNegociosAdmin(),
+    withNeonRetry(() => db.select().from(negocioVariableEnvio)),
+  ]);
+
+  // Serializado plano para el client component (Date → ISO string).
+  const marcas: Record<string, VariableMarca> = {};
+  for (const m of marcasRows) {
+    marcas[m.negocioId] = {
+      enviado: m.enviado,
+      periodo: m.periodo,
+      marcadoAt: m.marcadoAt.toISOString(),
+    };
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -20,7 +36,7 @@ export default async function AdminNegociosPage() {
         </p>
       </div>
 
-      <AdminNegociosTable rows={negocios} />
+      <AdminNegociosTable rows={negocios} marcas={marcas} />
     </div>
   );
 }

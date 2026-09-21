@@ -593,7 +593,7 @@ export default function InversionMediosPanel({
                   {naCamps.totalCampanas > 0 && (
                     <button
                       onClick={() => setNaOpen((o) => !o)}
-                      className="mt-1 inline-flex items-center gap-1 font-sans text-xs font-medium text-[#534AB7] transition-colors hover:text-[#3F3796]"
+                      className="mt-1 inline-flex items-center gap-1 font-sans text-xs font-medium text-[var(--plan)] transition-colors hover:text-[var(--plan-hover)]"
                       aria-expanded={naOpen}
                     >
                       {naOpen ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
@@ -655,7 +655,7 @@ export default function InversionMediosPanel({
                     key={d.fecha}
                     className="sticky bottom-0 z-20 w-16 min-w-16 max-w-16 border-t border-[var(--divider)] bg-[var(--surface)] px-1 py-2 text-center tabular-nums text-xs"
                   >
-                    <span className="block font-medium text-[#534AB7]">
+                    <span className="block font-medium text-[var(--plan)]">
                       {d.plan > 0 ? fmtUsd(d.plan, 0) : "·"}
                     </span>
                     <span className="block text-[var(--ink)]">
@@ -731,7 +731,7 @@ export default function InversionMediosPanel({
       <FacturacionHistorica consumo={carddaConsumo} consumoSem={carddaConsumoSem} fee={carddaFee} />
 
       <p className="font-sans text-xs text-[var(--ink-subtle)]">
-        Cada celda: <span className="font-medium text-[#534AB7]">plan</span> total del día (arriba, en
+        Cada celda: <span className="font-medium text-[var(--plan)]">plan</span> total del día (arriba, en
         morado) y <span className="font-medium text-[var(--ink)]">real</span> (abajo, en negro). El plan se edita{" "}
         <span className="text-[var(--ink)]">por plataforma</span> abriendo el evento. El techo por
         evento es el budgetPm de la tabla madre (se edita en{" "}
@@ -787,8 +787,8 @@ const NaCampRow = memo(function NaCampRow({
   onVerMas?: () => void;
 }) {
   return (
-    <tr className={`bg-[#FBFBFD] ${hidden ? "hidden" : ""}`}>
-      <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[var(--grid)] bg-[#FBFBFD] py-1.5 pl-7 pr-3">
+    <tr className={`bg-[var(--surface-sunken)] ${hidden ? "hidden" : ""}`}>
+      <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[var(--grid)] bg-[var(--surface-sunken)] py-1.5 pl-7 pr-3">
         <span className="flex items-center gap-1.5 font-sans text-xs text-[var(--ink)]">
           <span
             className="h-1.5 w-1.5 shrink-0 rounded-full"
@@ -808,7 +808,7 @@ const NaCampRow = memo(function NaCampRow({
         {onVerMas && (
           <button
             onClick={onVerMas}
-            className="mt-0.5 pl-3 font-sans text-[11px] font-medium text-[#534AB7] transition-colors hover:text-[#3F3796]"
+            className="mt-0.5 pl-3 font-sans text-[11px] font-medium text-[var(--plan)] transition-colors hover:text-[var(--plan-hover)]"
           >
             mostrar 20 más
           </button>
@@ -829,21 +829,24 @@ const NaCampRow = memo(function NaCampRow({
 // ---------- Card de subtotal semanal ----------
 
 // Escala de destaque de las semanas que vienen: 100% → 50% → 25% del morado de
-// marca (#9F99F8 → tintes hacia blanco, como pide la guía: tinte, no opacidad).
+// marca (#9F99F8 → tinte, no opacidad, como pide la guía). Los dos escalones
+// tenues van por token (`--week-near-*` / `--week-far-*`): en claro son tintes
+// hacia blanco y en oscuro hacia el canvas, porque con el hex fijo los chips de
+// "próxima semana" salían como pastillas blancas sobre el tablero oscuro.
 const DESTAQUE = {
   actual: {
     box: "border-[#9F99F8] shadow-sm ring-1 ring-[#9F99F8]",
-    chip: "bg-[var(--purple-tint)] text-[#534AB7]",
+    chip: "bg-[var(--purple-tint)] text-[var(--plan)]",
     label: "Semana actual",
   },
   siguiente: {
-    box: "border-[#CFCCFB] ring-1 ring-[#CFCCFB]",
-    chip: "bg-[#F5F4FE] text-[#6E67C4]",
+    box: "border-[var(--week-near-line)] ring-1 ring-[var(--week-near-line)]",
+    chip: "bg-[var(--week-near-tint)] text-[var(--week-near-ink)]",
     label: "Próxima semana",
   },
   subsiguiente: {
-    box: "border-[#E7E6FD]",
-    chip: "bg-[#FAFAFE] text-[#8F89D9]",
+    box: "border-[var(--week-far-line)]",
+    chip: "bg-[var(--week-far-tint)] text-[var(--week-far-ink)]",
     label: "En 2 semanas",
   },
 } as const;
@@ -872,12 +875,12 @@ function SemanaCard({
   // pero sin gasto no se pinta verde "cumplida", sino gris "programada".
   const pct = w.planTrans > 0 ? (w.real / w.planTrans) * 100 : w.real > 0 ? 999 : 0;
   const tono = w.futura
-    ? { dot: "#CCCCCC", txt: "text-[var(--ink-subtle)]" }
+    ? { dot: "var(--divider)", txt: "text-[var(--ink-subtle)]" }
     : pct > 100
       ? { dot: "#ED75A0", txt: "text-[#ED75A0]" }
       : pct >= 85
-        ? { dot: "#F6C544", txt: "text-[#B8890B]" }
-        : { dot: "#B1D750", txt: "text-[#3B6D11]" };
+        ? { dot: "#F6C544", txt: "text-[var(--amber-ink)]" }
+        : { dot: "#B1D750", txt: "text-[var(--green-ink)]" };
   const estado = w.futura
     ? "programado — aún sin gasto"
     : w.planTrans > 0
@@ -909,7 +912,7 @@ function SemanaCard({
       <p className="mt-1.5 font-sans text-sm tabular-nums text-[var(--ink)]">
         <span className="font-display text-lg font-bold">{fmtUsd(w.plan, 0)}</span>
         <span className="text-[var(--ink-subtle)]"> plan</span>
-        <span className="mx-1.5 text-[#CCCCCC]">·</span>
+        <span className="mx-1.5 text-[var(--ink-subtle)]">·</span>
         <span className="font-display text-lg font-bold">{fmtUsd(w.real, 0)}</span>
         <span className="text-[var(--ink-subtle)]"> real</span>
       </p>
@@ -966,7 +969,7 @@ const FilaEvento = memo(function FilaEvento({
           </span>
           {totalPlanEvento === 0 && ev.fechaEvento && ev.fechaEvento >= hoy && (
             <span
-              className="inline-flex items-center rounded-full bg-[#FAEEDA] px-2 py-0.5 font-medium text-[#854F0B]"
+              className="inline-flex items-center rounded-full bg-[var(--evento-tint)] px-2 py-0.5 font-medium text-[var(--evento-ink)]"
               title="Evento sin presupuesto diario cargado — abre el evento y llena el plan por plataforma"
             >
               Sin plan
@@ -987,7 +990,7 @@ const FilaEvento = memo(function FilaEvento({
           )}
         </div>
         <p className="mt-1 text-xs tabular-nums text-[var(--ink-subtle)]">
-          Plan <span className="font-medium text-[#534AB7]">{fmtUsd(totalPlanEvento, 0)}</span> · Real{" "}
+          Plan <span className="font-medium text-[var(--plan)]">{fmtUsd(totalPlanEvento, 0)}</span> · Real{" "}
           <span className="font-medium text-[var(--ink)]">{fmtUsd(totalRealEvento, 0)}</span>
         </p>
       </td>
@@ -1002,7 +1005,7 @@ const FilaEvento = memo(function FilaEvento({
             title={diaEvento ? tituloDiaEvento(cell.fecha, ev.fechaEvento, ev.diasEvento) : undefined}
             className={`w-16 min-w-16 max-w-16 border-t border-[var(--divider)] p-0 text-center align-top ${
               diaEvento
-                ? "bg-[#FAEEDA]"
+                ? "bg-[var(--evento-tint)]"
                 : cell.fecha === hoy
                   ? "bg-[var(--purple-tint)]/40"
                   : ""
@@ -1021,7 +1024,7 @@ const FilaEvento = memo(function FilaEvento({
 function CeldaResumen({ cell, parcial }: { cell: DayCell; parcial: boolean }) {
   return (
     <div className="flex min-w-16 flex-col items-stretch px-0.5 py-1.5">
-      <span className="text-center tabular-nums text-xs font-medium text-[#534AB7]">
+      <span className="text-center tabular-nums text-xs font-medium text-[var(--plan)]">
         {cell.plan != null ? fmtUsd(cell.plan, 0) : <span className="text-[var(--divider)]">·</span>}
       </span>
       <span
@@ -1357,7 +1360,7 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
             </button>
             <button
               onClick={() => setEditId(null)}
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--ink-muted)] hover:bg-[#F5F5F5]"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--ink-muted)] hover:bg-[var(--surface-alt)]"
               aria-label="Cancelar"
             >
               <X className="h-4 w-4" />
@@ -1401,7 +1404,7 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
                   <td className="border-t border-[var(--divider)] px-4 py-2 text-[var(--ink-subtle)]">{c.diaPago || "—"}</td>
                   <td className="border-t border-[var(--divider)] px-4 py-2 text-right tabular-nums text-[var(--ink-muted)]">
                     {fmtUsd(costoMensual(c), 0)}
-                    <span className="block text-[11px] text-[#BBBBBB]">{fmtUsd(costoSemanal(c), 0)}/sem</span>
+                    <span className="block text-[11px] text-[var(--ink-subtle)]">{fmtUsd(costoSemanal(c), 0)}/sem</span>
                   </td>
                   {canEdit && (
                     <td className="border-t border-[var(--divider)] px-4 py-2 text-right">
@@ -1416,7 +1419,7 @@ function CargosExtra({ cargos, canEdit }: { cargos: CargoExtra[]; canEdit: boole
                         <button
                           onClick={() => borrar(c.id)}
                           disabled={pending}
-                          className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--ink-muted)] hover:bg-[#FCEBEB] hover:text-[#ED75A0]"
+                          className="inline-flex h-7 w-7 items-center justify-center rounded text-[var(--ink-muted)] hover:bg-[var(--surface-alt)] hover:text-[#ED75A0]"
                           aria-label="Quitar"
                         >
                           <Trash2 className="h-3.5 w-3.5" />
@@ -1485,7 +1488,7 @@ function FacturacionChart({ filas, gran }: { filas: FacturacionMes[]; gran: "mes
       <div className="mt-6 h-80">
         <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={data} margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
-            <CartesianGrid vertical={false} stroke="#F0F0F0" />
+            <CartesianGrid vertical={false} stroke="var(--grid)" />
             <XAxis
               dataKey="label"
               tickLine={false}
@@ -1726,7 +1729,7 @@ function FacturacionHistorica({
                       <span className="inline-flex items-center gap-1.5">
                         {fmtUsd(m.feeUsd, 0)}
                         {m.feeStatus === "draft" && (
-                          <span className="rounded-full bg-[#FBF3D6] px-1.5 py-0.5 text-[10px] text-[#B8890B]">
+                          <span className="rounded-full bg-[var(--evento-tint)] px-1.5 py-0.5 text-[10px] text-[var(--evento-ink)]">
                             borrador
                           </span>
                         )}

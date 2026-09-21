@@ -229,6 +229,124 @@ export async function deleteCellAction(input: {
   }
 }
 
+// ---------- Rellenar rango (por plataforma × TIPO) ----------
+
+// Tope de días por llamada. La ventana de un drill ronda los 120 días; 200 da
+// holgura sin dejar el endpoint abierto a payloads arbitrarios.
+const MAX_BULK = 200;
+
+/**
+ * Escribe el MISMO monto diario en un rango de días de UNA (plataforma, tipo).
+ *
+ * Es la vuelta del "Rellenar rango" que se eliminó el 2026-08-24, con las
+ * cuatro causas del accidente invertidas respecto del `bulkUpsertAction` viejo:
+ * - SIN DELETE: puro `onConflictDoUpdate` sobre el único de 4 columnas — no
+ *   puede tocar un tipo vecino ni un día fuera de las fechas recibidas, y las
+ *   celdas existentes conservan su `nota` y su `created_by/At` (el viejo hacía
+ *   delete-then-insert y perdía ambos).
+ * - `tipo` SIEMPRE en la clave (el viejo era pre-migración 0029: hoy colapsaría
+ *   el desglose entero a "Sin tipo"). "Sin tipo" se RECHAZA: el plan masivo va
+ *   en un tipo concreto; '' existe solo para limpiar plan histórico a mano.
+ * - El rango lo arma el cliente celda a celda y acá se re-valida fecha por
+ *   fecha; no hay "ventana por defecto" que convierta un clic en un borrado.
+ * - `soloVacios` se resuelve EN LA BASE (`onConflictDoNothing`), no leyendo y
+ *   decidiendo en el cliente: sin carrera contra otra pestaña que edita.
+ */
+export async function bulkFillPlanAction(input: {
+  eventoId: string;
+  plataforma: string;
+  /** Tipo de campaña planificable (TIPOS_PLAN). '' = "Sin tipo" se rechaza. */
+  tipo: string;
+  /** USD por día, el mismo para todas las fechas. */
+  montoUsd: number;
+  fechas: string[];
+  /** true → no tocar las celdas que ya tienen plan (solo inserta en vacías). */
+  soloVacios?: boolean;
+}): Promise<ActionResult<{ escritas: number; omitidas: number }>> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+
+  const eventoId = String(input.eventoId ?? "").trim().toUpperCase();
+  const plataforma = sanitizePlataforma(input.plataforma);
+  if (!plataforma) return { ok: false, error: "Plataforma inválida" };
+  const tipo = sanitizeTipo(input.tipo, plataforma);
+  if (tipo === null) return { ok: false, error: "Tipo de campaña inválido" };
+  if (tipo === SIN_TIPO) {
+    return { ok: false, error: 'El relleno masivo va en un tipo de campaña concreto, no en "Sin tipo"' };
+  }
+  const monto = sanitizeMonto(input.montoUsd);
+  if (monto === null) return { ok: false, error: "Monto inválido (USD ≥ 0)" };
+
+  if (!Array.isArray(input.fechas) || input.fechas.length === 0) {
+    return { ok: false, error: "Sin fechas para rellenar" };
+  }
+  // Dedup obligatorio: dos filas iguales en un mismo INSERT … ON CONFLICT
+  // DO UPDATE son un error de Postgres, no un upsert doble.
+  const fechas = Array.from(new Set(input.fechas.map((f) => String(f ?? "").trim()))).sort();
+  for (const f of fechas) {
+    if (!FECHA_RE.test(f)) return { ok: false, error: `Fecha inválida: "${f}"` };
+  }
+  if (fechas.length > MAX_BULK) {
+    return { ok: false, error: `Máximo ${MAX_BULK} días por relleno` };
+  }
+
+  const eventoError = await validarEvento(eventoId);
+  if (eventoError) return { ok: false, error: eventoError };
+
+  try {
+    const values = fechas.map((fecha) => ({
+      eventoId,
+      fecha,
+      plataforma,
+      tipo,
+      montoUsd: monto,
+      // nota: no se manda — las celdas sobrescritas conservan la suya.
+      createdBy: ctx.userId,
+      updatedBy: ctx.userId,
+    }));
+    const target = [
+      inversionMediosDiario.eventoId,
+      inversionMediosDiario.fecha,
+      inversionMediosDiario.plataforma,
+      inversionMediosDiario.tipo,
+    ];
+    // Un solo INSERT multi-fila: atómico sin transacción explícita, y
+    // `returning` cuenta lo realmente escrito (con DO NOTHING las filas que ya
+    // existían no vuelven — esas son las "omitidas" del modo solo-vacíos).
+    const escritas = await withNeonRetry(() =>
+      input.soloVacios
+        ? db.insert(inversionMediosDiario).values(values).onConflictDoNothing({ target }).returning({ fecha: inversionMediosDiario.fecha })
+        : db
+            .insert(inversionMediosDiario)
+            .values(values)
+            .onConflictDoUpdate({
+              target,
+              set: { montoUsd: monto, updatedBy: ctx.userId, updatedAt: sql`now()` },
+            })
+            .returning({ fecha: inversionMediosDiario.fecha }),
+    );
+    await logAudit(ctx.userId, "inversionMedios.bulkFill", {
+      eventoId,
+      plataforma,
+      tipo,
+      montoUsd: monto,
+      desde: fechas[0],
+      hasta: fechas[fechas.length - 1],
+      dias: fechas.length,
+      soloVacios: !!input.soloVacios,
+      escritas: escritas.length,
+    });
+    revalidatePath("/inversion-medios");
+    return { ok: true, data: { escritas: escritas.length, omitidas: fechas.length - escritas.length } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al rellenar el rango" };
+  }
+}
+
 // NOTA: el techo presupuestario NO se edita acá — es categoriaEvento.budgetPm
 // (tabla madre), editable en la hoja de /admin/eventos. Este panel solo lo lee.
 

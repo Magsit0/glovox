@@ -674,6 +674,25 @@ export const cargosExtraPm = pgTable("cargos_extra_pm", {
 });
 export type CargoExtra = typeof cargosExtraPm.$inferSelect;
 
+// ADMIN /admin/negocios — ticket "enviado como variable": marca por negocio de
+// si ya fue enviado para agregarlo a la remuneración variable. Una fila por
+// `negocio_id` (ID de Unabase, el mismo string que lista la tabla de admin);
+// upsert al togglear, last-write-wins. El detalle de quién/cuándo queda en la
+// fila y el historial de toggles en `audit_log`.
+export const negocioVariableEnvio = pgTable("negocio_variable_envio", {
+  negocioId: text("negocio_id").primaryKey(),
+  enviado: boolean("enviado").notNull().default(true),
+  // Mes/año del variable al que corresponde el envío ("yyyy-mm"). Lo fija el
+  // selector "Mes del variable" de la UI al marcar (permite marcado retroactivo
+  // de meses anteriores); null en marcas sin período o desmarcadas.
+  periodo: text("periodo"),
+  marcadoPor: uuid("marcado_por"),
+  marcadoAt: timestamp("marcado_at", { withTimezone: true })
+    .defaultNow()
+    .notNull(),
+});
+export type NegocioVariableEnvio = typeof negocioVariableEnvio.$inferSelect;
+
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Country = (typeof countryEnum.enumValues)[number];
 export type PendingStatus = (typeof pendingStatusEnum.enumValues)[number];

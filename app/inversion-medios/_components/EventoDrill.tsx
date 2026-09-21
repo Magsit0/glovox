@@ -1,9 +1,9 @@
 "use client";
 
-import { Fragment, useMemo, useState, useTransition } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, ChevronRight, Plus, X } from "lucide-react";
+import { ArrowLeft, CalendarRange, ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import type {
   AdsMetricasEvento,
   DrillGrid,
@@ -13,7 +13,7 @@ import type {
   TicketsEvento,
 } from "@/lib/queries/inversion-medios";
 import { PM_PROPAGACION_MIN } from "@/lib/inversion-medios/rendimiento";
-import { esDiaEvento, tituloDiaEvento } from "@/lib/inversion-medios/evento";
+import { addDiasIso, esDiaEvento, tituloDiaEvento } from "@/lib/inversion-medios/evento";
 import {
   computeEtapaSegments,
   ETAPAS_DEFAULT,
@@ -27,7 +27,7 @@ import {
   type DesgloseRow,
   type TipoNode,
 } from "@/lib/inversion-medios/tipos";
-import { saveEtapasAction } from "../actions";
+import { bulkFillPlanAction, saveEtapasAction } from "../actions";
 import CeldaPlan from "./CeldaPlan";
 import RendimientoEvento from "./RendimientoEvento";
 import { compactInt, fmtUsd, formatInt } from "./format";
@@ -76,19 +76,24 @@ const BAND_H = 26;
 // Paleta suave por índice de etapa (sigue el orden de la planilla:
 // pre-registro→awareness→fomo→last call→día de evento, luego extras). Cubre el
 // tope de 12 etapas (MAX_ETAPAS) para que ninguna repita color.
+//
+// Van por variable CSS (`--etapa-N-bg/-ink`, en app/globals.css) y no como hex:
+// los 12 tintes claros quedaban como una franja brillante de 26px cruzando el
+// header de la sábana en tema oscuro. Se aplican por `style` inline, donde CSS
+// resuelve una custom property igual que en una clase.
 const ETAPA_COLORS: { bg: string; text: string }[] = [
-  { bg: "#E6F1FB", text: "#185FA5" }, // azul
-  { bg: "#FAEEDA", text: "#854F0B" }, // ámbar
-  { bg: "#FAECE7", text: "#993C1D" }, // coral
-  { bg: "#FCEBEB", text: "#A32D2D" }, // rojo
-  { bg: "#EAF3DE", text: "#3B6D11" }, // verde
-  { bg: "#EEEDFE", text: "#534AB7" }, // púrpura
-  { bg: "#FBEAF0", text: "#993556" }, // rosa
-  { bg: "#E1F5EE", text: "#0F6E56" }, // teal
-  { bg: "#F1EFE8", text: "#444441" }, // gris
-  { bg: "#E8F0FE", text: "#1A56DB" }, // azul 2
-  { bg: "#FCE8F3", text: "#9B1C6B" }, // fucsia 2
-  { bg: "#ECFDF5", text: "#047857" }, // esmeralda 2
+  { bg: "var(--etapa-1-bg)", text: "var(--etapa-1-ink)" }, // azul
+  { bg: "var(--etapa-2-bg)", text: "var(--etapa-2-ink)" }, // ámbar
+  { bg: "var(--etapa-3-bg)", text: "var(--etapa-3-ink)" }, // coral
+  { bg: "var(--etapa-4-bg)", text: "var(--etapa-4-ink)" }, // rojo
+  { bg: "var(--etapa-5-bg)", text: "var(--etapa-5-ink)" }, // verde
+  { bg: "var(--etapa-6-bg)", text: "var(--etapa-6-ink)" }, // púrpura
+  { bg: "var(--etapa-7-bg)", text: "var(--etapa-7-ink)" }, // rosa
+  { bg: "var(--etapa-8-bg)", text: "var(--etapa-8-ink)" }, // teal
+  { bg: "var(--etapa-9-bg)", text: "var(--etapa-9-ink)" }, // gris
+  { bg: "var(--etapa-10-bg)", text: "var(--etapa-10-ink)" }, // azul 2
+  { bg: "var(--etapa-11-bg)", text: "var(--etapa-11-ink)" }, // fucsia 2
+  { bg: "var(--etapa-12-bg)", text: "var(--etapa-12-ink)" }, // esmeralda 2
 ];
 function etapaColor(i: number) {
   return ETAPA_COLORS[i % ETAPA_COLORS.length];
@@ -99,7 +104,7 @@ function etapaColor(i: number) {
 function RmktBadge() {
   return (
     <span
-      className="rounded-full bg-[var(--purple-tint)] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-[#534AB7]"
+      className="rounded-full bg-[var(--purple-tint)] px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-[var(--plan)]"
       title="Campaña de remarketing (suma dentro de su tipo)"
     >
       RMKT
@@ -249,6 +254,28 @@ export default function EventoDrill({
       return n;
     });
 
+  // ---- Rellenar rango: la fila (plataforma × tipo) activa y sus prefills ----
+  // `seq` fuerza el remount de la card en cada apertura (key): abrirla desde
+  // otra celda de la MISMA fila también tiene que resetear desde/hasta/monto.
+  const fillSeq = useRef(0);
+  const [fill, setFill] = useState<{
+    seq: number;
+    plataforma: string;
+    platLabel: string;
+    tipoKey: string;
+    tipoLabel: string;
+    desde: string;
+    hasta: string;
+    monto: string;
+  } | null>(null);
+  const abrirFill = (t: Omit<NonNullable<typeof fill>, "seq">) =>
+    setFill({ ...t, seq: ++fillSeq.current });
+  // Prefill del botón de fila: hoy si cae en la ventana, si no el primer día.
+  // Hasta queda VACÍO adrede — el rango completo del evento como default fue
+  // lo que convirtió al RellenarRango de 2026 en un borrador de planes.
+  const fillDesdeDefault =
+    dias.length > 0 && hoy >= dias[0] && hoy <= dias[dias.length - 1] ? hoy : dias[0] ?? "";
+
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-10 sm:px-8">
       <header className="flex flex-wrap items-start justify-between gap-4">
@@ -299,6 +326,21 @@ export default function EventoDrill({
 
       {canEdit && <EtapasEditor eventoId={eventoId} etapas={etapas} />}
 
+      {canEdit && fill && (
+        <RellenarRango
+          key={fill.seq}
+          eventoId={eventoId}
+          plataforma={fill.plataforma}
+          platLabel={fill.platLabel}
+          tipoKey={fill.tipoKey}
+          tipoLabel={fill.tipoLabel}
+          init={fill}
+          dias={dias}
+          plan={filasTipo.get(fill.plataforma)?.find((f) => f.tipoKey === fill.tipoKey)?.plan ?? []}
+          onClose={() => setFill(null)}
+        />
+      )}
+
       {/* Sábana horizontal: filas = plataforma (expandibles a tipo→campaña).
           `isolate`: los sticky internos (z-10/20/30) quedan contenidos en su
           propio stacking context y no pintan sobre la GroupNav (z-30). */}
@@ -324,7 +366,7 @@ export default function EventoDrill({
                         className="sticky top-0 z-20 truncate border-b border-l border-[var(--divider)] px-1 py-1 text-center text-[10px] font-medium uppercase tracking-wide"
                         style={{
                           height: BAND_H,
-                          ...(col ? { backgroundColor: col.bg, color: col.text } : { backgroundColor: "#FFFFFF" }),
+                          ...(col ? { backgroundColor: col.bg, color: col.text } : { backgroundColor: "var(--surface)" }),
                         }}
                         title={s.nombre ?? undefined}
                       >
@@ -360,7 +402,7 @@ export default function EventoDrill({
                       title={diaEvento ? tituloDiaEvento(fecha, fechaEvento, diasEvento) : undefined}
                       className={`sticky z-20 w-16 min-w-16 max-w-16 border-b border-[var(--divider)] px-0 py-1.5 text-center text-xs font-medium ${
                         diaEvento
-                          ? "bg-[#FAEEDA] text-[#854F0B]"
+                          ? "bg-[var(--evento-tint)] text-[var(--evento-ink)]"
                           : esHoy
                             ? "bg-[var(--purple-tint)] text-[#9F99F8]"
                             : primerDia
@@ -406,7 +448,7 @@ export default function EventoDrill({
                         {p.label}
                       </span>
                       <p className="mt-0.5 pl-6 text-xs tabular-nums text-[var(--ink-subtle)]">
-                        plan <span className="font-medium text-[#534AB7]">{fmtUsd(p.totalPlan, 0)}</span>{" "}
+                        plan <span className="font-medium text-[var(--plan)]">{fmtUsd(p.totalPlan, 0)}</span>{" "}
                         · real <span className="font-medium text-[var(--ink)]">{fmtUsd(p.totalReal, 0)}</span>
                       </p>
                     </td>
@@ -428,7 +470,7 @@ export default function EventoDrill({
                       </td>
                     ))}
                     <td className="border-l border-t border-[var(--divider)] px-3 py-2 text-right align-top tabular-nums text-xs">
-                      <span className="block font-medium text-[#534AB7]">{fmtUsd(p.totalPlan)}</span>
+                      <span className="block font-medium text-[var(--plan)]">{fmtUsd(p.totalPlan)}</span>
                       <span className="block text-[var(--ink)]">{fmtUsd(p.totalReal)}</span>
                     </td>
                   </tr>,
@@ -444,8 +486,8 @@ export default function EventoDrill({
                   const totalReal = f.realNode?.total ?? 0;
                   const totalRmkt = f.realNode?.totalRmkt ?? 0;
                   rows.push(
-                    <tr key={`tipo-${tk}`} className="bg-[#FBFBFD]">
-                      <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--grid)] bg-[#FBFBFD] py-1.5 pl-7 pr-3 align-top">
+                    <tr key={`tipo-${tk}`} className="bg-[var(--surface-sunken)]">
+                      <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--grid)] bg-[var(--surface-sunken)] py-1.5 pl-7 pr-3 align-top">
                         <span className="inline-flex items-center gap-1 text-xs text-[var(--ink)]">
                           {campanas.length > 0 ? (
                             <button
@@ -463,7 +505,7 @@ export default function EventoDrill({
                           </span>
                           {!f.editable && (
                             <span
-                              className="text-[10px] uppercase tracking-wide text-[#BBBBBB]"
+                              className="text-[10px] uppercase tracking-wide text-[var(--ink-subtle)]"
                               title="Tipo fuera de la lista planificable: solo gasto real"
                             >
                               real
@@ -474,9 +516,29 @@ export default function EventoDrill({
                               rmkt {fmtUsd(totalRmkt, 0)}
                             </span>
                           )}
+                          {canEdit && f.editable && f.tipoKey !== SIN_TIPO && (
+                            <button
+                              onClick={() =>
+                                abrirFill({
+                                  plataforma: p.plataforma,
+                                  platLabel: p.label,
+                                  tipoKey: f.tipoKey,
+                                  tipoLabel: f.label,
+                                  desde: fillDesdeDefault,
+                                  hasta: "",
+                                  monto: "",
+                                })
+                              }
+                              className="inline-flex h-4 w-4 items-center justify-center rounded text-[var(--ink-subtle)] hover:bg-[var(--grid)] hover:text-[var(--plan)]"
+                              title={`Rellenar rango de ${p.label} · ${f.label}`}
+                              aria-label={`Rellenar rango de ${p.label} · ${f.label}`}
+                            >
+                              <CalendarRange className="h-3 w-3" />
+                            </button>
+                          )}
                         </span>
                         <p className="mt-0.5 pl-5 text-[11px] tabular-nums text-[var(--ink-subtle)]">
-                          plan <span className="font-medium text-[#534AB7]">{fmtUsd(f.totalPlan, 0)}</span>{" "}
+                          plan <span className="font-medium text-[var(--plan)]">{fmtUsd(f.totalPlan, 0)}</span>{" "}
                           · real <span className="font-medium text-[var(--ink)]">{fmtUsd(totalReal, 0)}</span>
                         </p>
                       </td>
@@ -500,11 +562,31 @@ export default function EventoDrill({
                             }}
                             parcial={fecha === hoy || fecha > realMaxFecha}
                             canEdit={canEdit && f.editable}
+                            onFill={
+                              // El handle "copiar hacia adelante": celda CON plan
+                              // y con al menos un día por delante en la ventana.
+                              // Abre la card prellenada con este monto y ~15 días.
+                              canEdit && f.editable && f.tipoKey !== SIN_TIPO && f.plan[i] != null && i < dias.length - 1
+                                ? () =>
+                                    abrirFill({
+                                      plataforma: p.plataforma,
+                                      platLabel: p.label,
+                                      tipoKey: f.tipoKey,
+                                      tipoLabel: f.label,
+                                      desde: addDiasIso(fecha, 1),
+                                      hasta:
+                                        addDiasIso(fecha, 15) <= dias[dias.length - 1]
+                                          ? addDiasIso(fecha, 15)
+                                          : dias[dias.length - 1],
+                                      monto: String(f.plan[i]),
+                                    })
+                                : undefined
+                            }
                           />
                         </td>
                       ))}
                       <td className="border-l border-t border-[var(--grid)] px-3 py-1.5 text-right align-top tabular-nums text-xs">
-                        <span className="block font-medium text-[#534AB7]">{fmtUsd(f.totalPlan)}</span>
+                        <span className="block font-medium text-[var(--plan)]">{fmtUsd(f.totalPlan)}</span>
                         <span className="block text-[var(--ink)]">{fmtUsd(totalReal)}</span>
                       </td>
                     </tr>,
@@ -514,13 +596,13 @@ export default function EventoDrill({
                       const c = campanas[ci];
                       rows.push(
                         <tr key={`camp-${tk}-${ci}`}>
-                          <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 truncate border-r border-t border-[#F5F5F5] bg-[var(--surface)] py-1 pl-12 pr-3 align-top text-[11px] text-[var(--ink-subtle)]" title={c.nombre}>
+                          <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 truncate border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-12 pr-3 align-top text-[11px] text-[var(--ink-subtle)]" title={c.nombre}>
                             {c.esRmkt && <RmktBadge />} {c.nombre}
                           </td>
                           {dias.map((fecha, i) => (
                             <ReadCell key={fecha} value={c.dias[i]} hoy={fecha === hoy} muted />
                           ))}
-                          <td className="border-l border-t border-[#F5F5F5] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
+                          <td className="border-l border-t border-[var(--grid)] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
                             {fmtUsd(c.total, 0)}
                           </td>
                         </tr>,
@@ -557,8 +639,12 @@ export default function EventoDrill({
                     {dias.map((fecha) => (
                       <td
                         key={fecha}
-                        className={`w-16 min-w-16 max-w-16 border-t border-[var(--divider)] bg-[var(--surface-alt)] p-0 ${
-                          fecha === hoy ? "bg-[#F9F9FF]" : ""
+                        // Una sola utilidad bg-*: con `bg-[var(--surface-alt)]`
+                        // fija + el condicional encima competían dos clases de
+                        // igual especificidad y el ganador lo decidía el orden
+                        // del CSS generado, no el del string.
+                        className={`w-16 min-w-16 max-w-16 border-t border-[var(--divider)] p-0 ${
+                          fecha === hoy ? "bg-[var(--purple-tint)]/40" : "bg-[var(--surface-alt)]"
                         }`}
                       />
                     ))}
@@ -579,13 +665,13 @@ export default function EventoDrill({
 
                   {hayFilaPersonas && (
                     <tr className={expRes ? "" : "hidden"}>
-                      <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F5F5F5] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-subtle)]">
+                      <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-subtle)]">
                         Personas
                       </td>
                       {dias.map((fecha, i) => (
                         <ResultCell key={fecha} value={serieCols.pe[i]} hoy={fecha === hoy} muted />
                       ))}
-                      <td className="border-l border-t border-[#F5F5F5] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
+                      <td className="border-l border-t border-[var(--grid)] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
                         {formatInt(tickets.personas)}
                       </td>
                     </tr>
@@ -594,7 +680,7 @@ export default function EventoDrill({
                   {refInterpretable && (
                     <tr className={expRes ? "" : "hidden"}>
                       <td
-                        className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[#F5F5F5] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-subtle)]"
+                        className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-subtle)]"
                         title="Órdenes que llegaron a la ticketera con una etiqueta PM_ de campaña de venta."
                       >
                         Órdenes con PM_
@@ -602,7 +688,7 @@ export default function EventoDrill({
                       {dias.map((fecha, i) => (
                         <ResultCell key={fecha} value={serieCols.pm[i]} hoy={fecha === hoy} muted />
                       ))}
-                      <td className="border-l border-t border-[#F5F5F5] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
+                      <td className="border-l border-t border-[var(--grid)] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
                         {formatInt(tickets.pmOrdenes)}
                       </td>
                     </tr>
@@ -620,11 +706,11 @@ export default function EventoDrill({
                     key={d.fecha}
                     className="sticky bottom-0 z-20 w-16 min-w-16 max-w-16 border-t border-[var(--divider)] bg-[var(--surface)] px-1 py-2 text-center tabular-nums text-xs"
                   >
-                    <span className="block font-medium text-[#534AB7]">{d.plan > 0 ? fmtUsd(d.plan, 0) : "·"}</span>
+                    <span className="block font-medium text-[var(--plan)]">{d.plan > 0 ? fmtUsd(d.plan, 0) : "·"}</span>
                     <span className="block text-[var(--ink)]">{d.real > 0 ? fmtUsd(d.real, 0) : "·"}</span>
                   </td>
                 ))}
-                <td className="sticky bottom-0 z-20 w-24 min-w-24 max-w-24 border-l border-t border-[var(--divider)] bg-[var(--surface)] px-3 py-2 text-right tabular-nums text-xs font-medium text-[#534AB7]">
+                <td className="sticky bottom-0 z-20 w-24 min-w-24 max-w-24 border-l border-t border-[var(--divider)] bg-[var(--surface)] px-3 py-2 text-right tabular-nums text-xs font-medium text-[var(--plan)]">
                   {fmtUsd(totalPlan)}
                   <span className="block font-normal text-[var(--ink)]">{fmtUsd(totalReal)}</span>
                 </td>
@@ -636,7 +722,7 @@ export default function EventoDrill({
 
       <p className="font-sans text-xs text-[var(--ink-subtle)]">
         El presupuesto se planifica <span className="text-[var(--ink)]">por tipo de campaña y día</span>:
-        en cada fila de tipo, <span className="font-medium text-[#534AB7]">plan editable</span> (arriba,
+        en cada fila de tipo, <span className="font-medium text-[var(--plan)]">plan editable</span> (arriba,
         en morado) y <span className="font-medium text-[var(--ink)]">gasto real</span> (abajo, en negro).
         La fila del canal es la suma de sus tipos (solo lectura). El real se clasifica solo, desde el
         objetivo declarado en la plataforma; <span className="text-[var(--ink)]">RMKT</span> es una marca
@@ -706,7 +792,7 @@ function CampanasPorTipo({
             <tbody>
               {grupos.map(({ plat, tipo }) => (
                 <Fragment key={`${plat.plataforma}::${tipo.tipo}`}>
-                  <tr className="border-b border-[var(--divider)] bg-[#FBFBFD]">
+                  <tr className="border-b border-[var(--divider)] bg-[var(--surface-sunken)]">
                     <td className="px-4 py-2">
                       <span className="inline-flex flex-wrap items-center gap-2 font-sans text-sm font-medium text-[var(--ink)]">
                         <span
@@ -764,7 +850,7 @@ function ReadCell({ value, hoy, muted }: { value: number; hoy: boolean; muted?: 
   return (
     <td
       className={`w-16 min-w-16 max-w-16 border-t px-1 py-1 text-center tabular-nums ${
-        muted ? "border-[#F5F5F5] text-[11px] text-[var(--ink-subtle)]" : "border-[var(--grid)] text-xs text-[var(--ink-muted)]"
+        muted ? "border-[var(--grid)] text-[11px] text-[var(--ink-subtle)]" : "border-[var(--grid)] text-xs text-[var(--ink-muted)]"
       } ${hoy ? "bg-[var(--purple-tint)]/40" : ""}`}
     >
       {value > 0 ? fmtUsd(value, 0) : <span className="text-[var(--divider)]">·</span>}
@@ -794,9 +880,9 @@ function ResultCell({
     <td
       className={`w-16 min-w-16 max-w-16 border-t px-1 py-1 text-center tabular-nums ${
         muted
-          ? "border-[#F5F5F5] text-[11px] text-[var(--ink-subtle)]"
+          ? "border-[var(--grid)] text-[11px] text-[var(--ink-subtle)]"
           : "border-[var(--grid)] text-xs text-[var(--ink-muted)]"
-      } ${hoy ? "bg-[#F9F9FF]" : ""}`}
+      } ${hoy ? "bg-[var(--purple-tint)]/40" : ""}`}
     >
       {value == null ? (
         <span className="text-[var(--divider)]">—</span>
@@ -834,6 +920,186 @@ function Stat({
 // ---------- Editor de etapas de campaña ----------
 
 type EtapaDraft = { nombre: string; fechaInicio: string };
+
+// ---------- Rellenar rango (plataforma × TIPO) ----------
+
+/**
+ * Card de carga masiva del plan: el MISMO monto diario sobre un tramo de UNA
+ * fila (plataforma × tipo). Es la vuelta del "Rellenar rango" eliminado el
+ * 2026-08-24, con sus salvaguardas al revés del original:
+ * - nace scopeada a la fila desde la que se abrió — no hay selector de
+ *   plataforma/tipo que equivocar (el viejo era global y pre-`tipo`);
+ * - `hasta` NO viene precargado con la ventana del evento (el default de la
+ *   ventana completa fue lo que convertía un clic en un borrado de plan);
+ * - el preview cuenta vacías vs. sobrescritas ANTES de escribir y el botón
+ *   lleva el número (patrón "Guardar N celdas" del editor de eventos);
+ * - server-side es upsert puro (`bulkFillPlanAction`, sin DELETE), así que las
+ *   celdas fuera del rango, los otros tipos y las notas quedan intactos.
+ * También la abre el handle "copiar hacia adelante" de una celda con plan,
+ * prellenada con ese monto y ~15 días.
+ */
+function RellenarRango({
+  eventoId,
+  plataforma,
+  platLabel,
+  tipoKey,
+  tipoLabel,
+  init,
+  dias,
+  plan,
+  onClose,
+}: {
+  eventoId: string;
+  plataforma: string;
+  platLabel: string;
+  tipoKey: string;
+  tipoLabel: string;
+  init: { desde: string; hasta: string; monto: string };
+  /** Ventana cargada del drill (las columnas de la sábana). */
+  dias: string[];
+  /** Plan existente de ESTA fila, alineado a `dias` — alimenta el preview. */
+  plan: (number | null)[];
+  onClose: () => void;
+}) {
+  const router = useRouter();
+  const ref = useRef<HTMLDivElement>(null);
+  const [desde, setDesde] = useState(init.desde);
+  const [hasta, setHasta] = useState(init.hasta);
+  const [monto, setMonto] = useState(init.monto);
+  const [soloVacios, setSoloVacios] = useState(false);
+  const [pending, start] = useTransition();
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // La card vive arriba de la sábana y se puede abrir desde una fila lejana.
+  useEffect(() => {
+    ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, []);
+
+  const min = dias[0] ?? "";
+  const max = dias[dias.length - 1] ?? "";
+
+  // Mismo parseo de moneda que CeldaPlan: $, espacios y coma decimal.
+  const cleaned = monto.replace(/[$\s]/g, "").replace(",", ".");
+  const num = Number(cleaned);
+  const montoOk = cleaned !== "" && Number.isFinite(num) && num >= 0;
+
+  // El rango se acota a la ventana CARGADA: es de lo único que se conoce el
+  // plan existente y, por lo tanto, lo único que el preview puede contar.
+  const rango = useMemo(() => {
+    if (!desde || !hasta || desde > hasta) return [] as number[];
+    const out: number[] = [];
+    for (let i = 0; i < dias.length; i++) {
+      if (dias[i] >= desde && dias[i] <= hasta) out.push(i);
+    }
+    return out;
+  }, [dias, desde, hasta]);
+  const conPlan = rango.reduce((a, i) => a + (plan[i] != null ? 1 : 0), 0);
+  const vacias = rango.length - conPlan;
+  const escribe = soloVacios ? vacias : rango.length;
+  const listo = montoOk && escribe > 0 && !pending;
+
+  const preview = !desde || !hasta
+      ? `Elige desde y hasta (la ventana va del ${min} al ${max}).`
+      : desde > hasta
+        ? "El rango está invertido."
+        : rango.length === 0
+          ? "El rango cae fuera de la ventana cargada."
+          : soloVacios
+            ? `Escribe en ${vacias} ${vacias === 1 ? "día vacío" : "días vacíos"}${conPlan > 0 ? `; ${conPlan} con plan no se tocan` : ""}.`
+            : conPlan > 0
+              ? `Escribe en ${rango.length} días: ${vacias} ${vacias === 1 ? "vacío" : "vacíos"} y ${conPlan} con plan (se sobrescriben).`
+              : `Escribe en ${rango.length} ${rango.length === 1 ? "día, vacío" : "días, todos vacíos"}.`;
+
+  function aplicar() {
+    if (!listo) return;
+    start(async () => {
+      const res = await bulkFillPlanAction({
+        eventoId,
+        plataforma,
+        tipo: tipoKey,
+        montoUsd: num,
+        fechas: rango.map((i) => dias[i]),
+        soloVacios,
+      });
+      if (!res.ok) {
+        setMsg({ ok: false, text: res.error });
+        return;
+      }
+      const n = res.data?.escritas ?? escribe;
+      setMsg({ ok: true, text: `${n} ${n === 1 ? "día escrito" : "días escritos"}` });
+      // La card queda abierta para encadenar otro tramo (otra etapa, otro
+      // monto); el refresh trae el plan nuevo y el preview se recalcula solo.
+      router.refresh();
+    });
+  }
+
+  const inputCls =
+    "rounded-lg border border-[var(--divider)] px-3 py-2 font-sans text-sm text-[var(--ink)] transition-colors focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]";
+
+  return (
+    <div ref={ref} className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-4">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-sans text-sm font-medium text-[var(--ink)]">
+          Rellenar rango — {platLabel} · <span className="text-[var(--plan)]">{tipoLabel}</span>
+        </p>
+        <button
+          onClick={onClose}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--ink-muted)] hover:bg-[var(--surface-alt)]"
+          aria-label="Cerrar rellenar rango"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 font-sans text-xs text-[var(--ink-muted)]">
+          Desde
+          <input type="date" value={desde} min={min} max={max} onChange={(e) => setDesde(e.target.value)} className={inputCls} />
+        </label>
+        <label className="flex flex-col gap-1 font-sans text-xs text-[var(--ink-muted)]">
+          Hasta
+          <input type="date" value={hasta} min={min} max={max} onChange={(e) => setHasta(e.target.value)} className={inputCls} />
+        </label>
+        <label className="flex flex-col gap-1 font-sans text-xs text-[var(--ink-muted)]">
+          USD por día
+          <input
+            value={monto}
+            onChange={(e) => setMonto(e.target.value)}
+            inputMode="decimal"
+            placeholder="0.00"
+            className={`${inputCls} w-28 text-right tabular-nums`}
+          />
+        </label>
+        <label className="flex items-center gap-2 pb-2.5 font-sans text-xs text-[var(--ink-muted)]">
+          <input
+            type="checkbox"
+            checked={soloVacios}
+            onChange={(e) => setSoloVacios(e.target.checked)}
+            className="h-3.5 w-3.5 accent-[#9F99F8]"
+          />
+          solo días vacíos
+        </label>
+        <button
+          onClick={aplicar}
+          disabled={!listo}
+          className="rounded-lg bg-[#9F99F8] px-4 py-2 font-sans text-sm font-medium text-white transition-colors hover:bg-[#8780F0] disabled:opacity-60"
+        >
+          {escribe > 0 ? `Escribir ${escribe} ${escribe === 1 ? "día" : "días"}` : "Escribir"}
+        </button>
+        {msg && (
+          <span className={`pb-2.5 font-sans text-xs ${msg.ok ? "text-[var(--ink-muted)]" : "text-[#ED75A0]"}`}>
+            {msg.text}
+          </span>
+        )}
+      </div>
+
+      <p className="mt-2 font-sans text-xs text-[var(--ink-subtle)]">
+        {preview} Solo escribe en esta fila ({platLabel} · {tipoLabel}); las notas de las celdas
+        sobrescritas se conservan y el resto del plan no se toca.
+      </p>
+    </div>
+  );
+}
 
 function EtapasEditor({ eventoId, etapas }: { eventoId: string; etapas: EtapaCampana[] }) {
   const router = useRouter();
@@ -917,7 +1183,7 @@ function EtapasEditor({ eventoId, etapas }: { eventoId: string; etapas: EtapaCam
                 />
                 <button
                   onClick={() => removeRow(i)}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--ink-muted)] hover:bg-[#F5F5F5]"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--ink-muted)] hover:bg-[var(--surface-alt)]"
                   aria-label="Quitar etapa"
                 >
                   <X className="h-4 w-4" />
