@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
+import { isValidShareToken } from "@/lib/lacava/share-token";
 import {
   getLaCavaEventos,
   getLaCavaMedios,
@@ -66,14 +67,20 @@ function fmtFecha(iso: string): string {
 export default async function LaCavaPage({
   searchParams,
 }: {
-  searchParams: Promise<{ event?: string }>;
+  searchParams: Promise<{ event?: string; k?: string }>;
 }) {
-  const session = await auth();
-  if (!session?.user?.email) redirect("/login");
-  const permissions = session.user.permissions ?? [];
-  if (!canAccessPath(permissions, "/lacava")) redirect("/?unauthorized=1");
-
   const params = await searchParams;
+
+  // Modo público: con el link secreto (?k=LACAVA_SHARE_TOKEN) la página se ve
+  // sin sesión — es la vista para el cliente externo. Sin token válido, el
+  // control de acceso es el de siempre (sesión + grant del dashboard).
+  const esLinkPublico = isValidShareToken(params.k);
+  if (!esLinkPublico) {
+    const session = await auth();
+    if (!session?.user?.email) redirect("/login");
+    const permissions = session.user.permissions ?? [];
+    if (!canAccessPath(permissions, "/lacava")) redirect("/?unauthorized=1");
+  }
   const eventos = await getLaCavaEventos();
 
   if (eventos.length === 0) {
@@ -199,7 +206,12 @@ export default async function LaCavaPage({
   return (
     <Shell
       header={
-        <Header eventos={eventos} selectedId={selectedId} evento={evento} />
+        <Header
+          eventos={eventos}
+          selectedId={selectedId}
+          evento={evento}
+          shareK={esLinkPublico ? params.k : undefined}
+        />
       }
     >
       {/* KPIs de la edición seleccionada */}
@@ -347,23 +359,31 @@ function Header({
   eventos,
   selectedId,
   evento,
+  shareK,
 }: {
   eventos: LaCavaEvento[];
   selectedId: string;
   evento: LaCavaEvento;
+  /** Presente en modo público (link secreto): se propaga en los tabs y se
+   *  oculta la navegación interna. */
+  shareK?: string;
 }) {
   return (
     <header style={{ backgroundColor: LACAVA.verde }}>
       <div className="mx-auto flex max-w-[1600px] flex-col gap-8 px-4 py-8 sm:px-8">
         <div className="flex items-center justify-between">
-          <Link
-            href="/"
-            className="flex items-center gap-1.5 font-sans text-sm transition-opacity hover:opacity-100"
-            style={{ color: LACAVA.marfil, opacity: 0.75 }}
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Inicio
-          </Link>
+          {shareK ? (
+            <span />
+          ) : (
+            <Link
+              href="/"
+              className="flex items-center gap-1.5 font-sans text-sm transition-opacity hover:opacity-100"
+              style={{ color: LACAVA.marfil, opacity: 0.75 }}
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Inicio
+            </Link>
+          )}
           <span
             className="font-sans text-xs uppercase tracking-wide"
             style={{ color: LACAVA.marfil, opacity: 0.55 }}
@@ -404,7 +424,7 @@ function Header({
             return (
               <Link
                 key={e.eventoId}
-                href={`/lacava?event=${e.eventoId}`}
+                href={`/lacava?event=${e.eventoId}${shareK ? `&k=${encodeURIComponent(shareK)}` : ""}`}
                 prefetch={false}
                 className="rounded-full border px-4 py-1.5 font-sans text-sm font-medium transition-colors"
                 style={

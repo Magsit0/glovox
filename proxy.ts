@@ -1,4 +1,5 @@
 import { auth } from "@/lib/auth";
+import { isValidShareToken } from "@/lib/lacava/share-token";
 import { canAccessPath, getUserPermissions } from "@/lib/permissions";
 import { matchDashboardKey } from "@/lib/dashboards-catalog";
 import { DASHBOARD_GROUPS, accessibleMembers } from "@/lib/dashboard-groups";
@@ -14,6 +15,14 @@ export const proxy = auth((req) => {
   const isLoginPage = pathname === "/login";
 
   if (!isLoggedIn && !isLoginPage) {
+    // Link secreto de La Cava: /lacava?k=<LACAVA_SHARE_TOKEN> se ve sin
+    // sesión (cliente externo). Solo esa ruta exacta y solo con token válido.
+    if (
+      pathname === "/lacava" &&
+      isValidShareToken(req.nextUrl.searchParams.get("k"))
+    ) {
+      return NextResponse.next();
+    }
     return NextResponse.redirect(new URL("/login", req.nextUrl.origin));
   }
 

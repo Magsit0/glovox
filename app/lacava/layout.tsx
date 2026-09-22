@@ -15,6 +15,8 @@ const playfair = Playfair_Display({
 export const metadata: Metadata = {
   title: "La Cava · Glovox",
   description: "Evolución de venta de tickets de La Cava (Jumbo).",
+  // El dashboard puede verse con un link secreto (?k=): fuera de buscadores.
+  robots: { index: false, follow: false },
 };
 
 export default function LaCavaLayout({

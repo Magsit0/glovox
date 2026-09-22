@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import {
   createUserAction,
   restoreUserAction,
@@ -39,6 +39,47 @@ const COUNTRY_OPTIONS: { value: string; label: string }[] = [
 // con una celda sticky) + hairline inferior en la celda, no en el <tr>.
 const HEAD_CELL = "border-b border-[#E5E5E5] bg-[#FAFAFA]";
 
+// Agrupacion visual por la empresa que hay detras del dominio del email:
+// alguien@glovox.cl -> Glovox, alguien@cencosud.cl -> Cencosud.
+// Es solo UI: no cambia el orden ni el origen del dato, solo como se lista.
+const PERSONAL_PROVIDERS = new Set([
+  "gmail",
+  "hotmail",
+  "outlook",
+  "yahoo",
+  "icloud",
+  "live",
+  "proton",
+  "protonmail",
+]);
+const PERSONAL_LABEL = "Correos personales";
+
+function companyOf(email: string): string {
+  const domain = email.split("@")[1]?.trim().toLowerCase();
+  if (!domain) return "Sin dominio";
+  // Primer label del dominio: "glovox.cl" -> "glovox", "mail.cencosud.cl" -> "mail".
+  const name = domain.split(".")[0];
+  if (!name) return domain;
+  if (PERSONAL_PROVIDERS.has(name)) return PERSONAL_LABEL;
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+function groupByCompany(users: UserRow[]): { company: string; rows: UserRow[] }[] {
+  const map = new Map<string, UserRow[]>();
+  for (const u of users) {
+    const key = companyOf(u.email);
+    const bucket = map.get(key);
+    if (bucket) bucket.push(u);
+    else map.set(key, [u]);
+  }
+  return Array.from(map, ([company, rows]) => ({ company, rows })).sort((a, b) => {
+    // El bucket de correos personales siempre al final; el resto alfabetico.
+    if (a.company === PERSONAL_LABEL) return 1;
+    if (b.company === PERSONAL_LABEL) return -1;
+    return a.company.localeCompare(b.company, "es");
+  });
+}
+
 export function UsersMatrix({
   users,
   catalog,
@@ -51,6 +92,11 @@ export function UsersMatrix({
   const [isPending, startTransition] = useTransition();
   const [showAdd, setShowAdd] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const groups = useMemo(() => groupByCompany(users), [users]);
+  const companyCount = groups.filter((g) => g.company !== PERSONAL_LABEL).length;
+  // Email + Rol + Pais + Estado + accion, mas una columna por dashboard.
+  const totalCols = 5 + catalog.length;
 
   const run = (fn: () => Promise<void>) => {
     setError(null);
@@ -74,6 +120,12 @@ export function UsersMatrix({
       <div className="flex items-center justify-between">
         <span className="font-sans text-sm text-[#666666]">
           {users.length} {users.length === 1 ? "usuario" : "usuarios"}
+          {companyCount > 0 ? (
+            <span className="text-[#999999]">
+              {" · "}
+              {companyCount} {companyCount === 1 ? "empresa" : "empresas"}
+            </span>
+          ) : null}
         </span>
         <button
           type="button"
@@ -124,18 +176,37 @@ export function UsersMatrix({
               <th className={`sticky top-0 z-20 ${HEAD_CELL} px-4 py-3`}></th>
             </tr>
           </thead>
-          <tbody>
-            {users.map((u) => (
-              <UserMatrixRow
-                key={u.id}
-                user={u}
-                catalog={catalog}
-                isMe={u.id === myId}
-                disabled={isPending}
-                run={run}
-              />
-            ))}
-          </tbody>
+          {groups.map((g) => (
+            <tbody key={g.company}>
+              <tr>
+                {/* La etiqueta de la empresa vive en la columna inmovilizada, asi
+                    sigue visible al desplazarse por las columnas de dashboards. */}
+                <th
+                  scope="rowgroup"
+                  className="sticky left-0 z-10 whitespace-nowrap border-b border-r border-[#E5E5E5] bg-[#FAFAFA] px-4 py-2 text-left font-sans text-xs font-medium uppercase tracking-wide text-[#666666]"
+                >
+                  {g.company}
+                  <span className="ml-2 font-normal normal-case text-[#999999]">
+                    {g.rows.length}
+                  </span>
+                </th>
+                <td
+                  colSpan={totalCols - 1}
+                  className="border-b border-[#E5E5E5] bg-[#FAFAFA]"
+                />
+              </tr>
+              {g.rows.map((u) => (
+                <UserMatrixRow
+                  key={u.id}
+                  user={u}
+                  catalog={catalog}
+                  isMe={u.id === myId}
+                  disabled={isPending}
+                  run={run}
+                />
+              ))}
+            </tbody>
+          ))}
         </table>
       </div>
     </div>
