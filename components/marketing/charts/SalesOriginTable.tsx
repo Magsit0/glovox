@@ -117,7 +117,7 @@ export default function SalesOriginTable({ data }: Props) {
                 key={`single-${entry.origin}-${i}`}
                 className="border-b-2 border-black hover:bg-[#FFFF00] transition-colors duration-150"
               >
-                <td className="font-mono-data text-sm px-4 py-3">{entry.origin || "(directo)"}</td>
+                <td className="font-mono-data text-sm px-4 py-3">{entry.origin || "Sin dato"}</td>
                 <td className="font-mono-data text-sm px-4 py-3 text-right">
                   {entry.tickets.toLocaleString("es-CL")}
                 </td>
