@@ -29,7 +29,7 @@ const FOLLOWERS = `\`${P}.marketing.rrss_fllws\``;
 // La tabla cruda tiene miles de landing pages únicas (códigos personales
 // /codigo/EVENTO/50/XXXX, retornos de pago /Compra/Exito/<orden>, páginas QA);
 // la vista las colapsa en `landing_normalizada` y las clasifica en `familia`.
-// Definición: data-governance/schemas/bigquery/views/marts_ga4_funnel.sql
+// Definición: db/bigquery/ga4_funnel.sql
 const FUNNEL = `\`${P}.marts.ga4_funnel\``;
 // Asignación landing↔evento. Una propiedad GA4 es de la MARCA (GRID, Piknic),
 // no del evento: sin este mapa, el funnel de un evento mezcla el tráfico de
@@ -40,7 +40,7 @@ const LANDING_MAP = `\`${P}.glovox_inputs.ga4_landing_event_map\``;
 // Tráfico UTM mart: vista con `canal` (clasifica el source/medium informal del
 // equipo — meta/venta_*, mt/pm, ff/ref… — en canales de negocio) y landing
 // normalizada para acotar por evento. Definición:
-// data-governance/schemas/bigquery/views/marts_ga4_utm.sql
+// db/bigquery/ga4_utm.sql
 const UTM = `\`${P}.marts.ga4_utm\``;
 const USERS = `\`${P}.comunidadGlovox.users\``;
 
@@ -95,6 +95,22 @@ function ticketPeriodCte(tSql: string): string {
       WHERE EventoID = @eventoId
         AND ${TICKET_TYPE_FILTER}${tSql}
     )`;
+}
+
+// A shared property cannot identify an event by itself. Prefer an explicit
+// event ID in the URL, then the governed landing map. Only a property belonging
+// to a single catalog event can retain the legacy unmapped-page fallback.
+function ga4EventPredicate(alias: "f" | "u"): string {
+  return `CASE
+        WHEN ${alias}.evento_id_url IS NOT NULL THEN ${alias}.evento_id_url = @eventoId
+        WHEN m.landing_normalizada IS NOT NULL THEN TRUE
+        WHEN EXISTS (SELECT 1 FROM mapa_evento) THEN FALSE
+        ELSE (
+          SELECT COUNT(DISTINCT mapped.EventoID) = 1
+          FROM ${CATEGORY} mapped
+          WHERE CAST(mapped.property_ga4 AS STRING) = ${alias}.property_id
+        )
+      END`;
 }
 
 // Rows from `ads_performance` attributed to @eventoId (param required by callers).
@@ -686,10 +702,8 @@ export async function getSalesOrigin(
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
-      -- Normalize empty / whitespace-only Referido to NULL so they don't become
-      -- separate "directo" buckets (they all render as origin "" client-side,
-      -- which collided as duplicate React keys). TRIM also folds accidental
-      -- whitespace-only referrals into the single NULL "(directo)" group.
+      -- Missing referral codes do not establish direct acquisition.
+      -- Fold whitespace into the missing-data bucket without inventing a source.
       CASE WHEN Referido LIKE 'FF%' THEN 'Club Glovox' ELSE NULLIF(TRIM(Referido), '') END AS origin,
       COUNT(*) AS tickets,
       SUM(PrecioFinal) AS revenue
@@ -862,8 +876,9 @@ export async function getFunnelData(
   // sección UTM — y (b) las landings del evento: las del LANDING_MAP más las
   // URLs que traen el EventoID embebido (/codigo/GLO198/...). Piknic reusa el
   // mismo slug entre ediciones, por eso fechas y mapa se aplican JUNTOS. Si el
-  // evento no tiene landings mapeadas, cae a toda la propiedad (solo excluye
-  // códigos de otros eventos). La selección manual reemplaza el criterio (b).
+  // evento no tiene landings mapeadas, solo una propiedad exclusiva permite
+  // usar páginas sin evento. La selección manual reemplaza el criterio (b),
+  // pero nunca incluye URLs con el ID explícito de otro evento.
   const rows = await query<Record<string, unknown>>(
     `
     WITH ${ticketPeriodCte("")},
@@ -884,11 +899,10 @@ export async function getFunnelData(
     CROSS JOIN ticket_period p
     WHERE c.EventoID = @eventoId
       AND f.date BETWEEN p.start_date AND p.end_date
+      AND (f.evento_id_url IS NULL OR f.evento_id_url = @eventoId)
       AND CASE
         WHEN @hasFilter THEN f.landing_normalizada IN UNNEST(@landingPages)
-        WHEN f.evento_id_url = @eventoId OR m.landing_normalizada IS NOT NULL THEN TRUE
-        WHEN EXISTS (SELECT 1 FROM mapa_evento) THEN FALSE
-        ELSE f.evento_id_url IS NULL
+        ELSE ${ga4EventPredicate("f")}
       END
     GROUP BY step, step_order
     ORDER BY step_order
@@ -923,6 +937,7 @@ export async function getFunnelLandingPages(
       ON m.property_id = f.property_id
       AND m.landing_normalizada = f.landing_normalizada
     WHERE c.EventoID = @eventoId
+      AND (f.evento_id_url IS NULL OR f.evento_id_url = @eventoId)
     GROUP BY landing_page
     ORDER BY
       MAX(IF(f.evento_id_url = @eventoId OR m.landing_normalizada IS NOT NULL, 1, 0)) DESC,
@@ -993,8 +1008,8 @@ export async function getUtmTraffic(
     )
     SELECT
       u.canal AS canal,
-      COALESCE(u.medium, '(none)') AS medium,
-      COALESCE(u.source, '(direct)') AS source,
+      COALESCE(NULLIF(TRIM(u.medium), ''), 'Sin dato') AS medium,
+      COALESCE(NULLIF(TRIM(u.source), ''), 'Sin dato') AS source,
       COALESCE(u.content, '') AS content,
       COALESCE(u.term, '') AS term,
       SUM(u.sessions) AS sessions,
@@ -1010,11 +1025,7 @@ export async function getUtmTraffic(
     CROSS JOIN ticket_period p
     WHERE c.EventoID = @eventoId
       AND u.date BETWEEN p.start_date AND p.end_date
-      AND CASE
-        WHEN u.evento_id_url = @eventoId OR m.landing_normalizada IS NOT NULL THEN TRUE
-        WHEN EXISTS (SELECT 1 FROM mapa_evento) THEN FALSE
-        ELSE u.evento_id_url IS NULL
-      END
+      AND ${ga4EventPredicate("u")}
     GROUP BY canal, medium, source, content, term
     ORDER BY sessions DESC
     `,
@@ -1072,11 +1083,7 @@ export async function getTrafficTimeline(
     LEFT JOIN ordenes_dia o ON o.dia = u.date
     WHERE c.EventoID = @eventoId
       AND u.date BETWEEN p.start_date AND p.end_date
-      AND CASE
-        WHEN u.evento_id_url = @eventoId OR m.landing_normalizada IS NOT NULL THEN TRUE
-        WHEN EXISTS (SELECT 1 FROM mapa_evento) THEN FALSE
-        ELSE u.evento_id_url IS NULL
-      END
+      AND ${ga4EventPredicate("u")}
     GROUP BY date, canal
     ORDER BY date
     `,
