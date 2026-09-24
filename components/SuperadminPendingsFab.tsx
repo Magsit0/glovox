@@ -69,6 +69,7 @@ export default function SuperadminPendingsFab({ role }: { role: Role }) {
         type="button"
         onClick={() => setOpen(true)}
         aria-label={`Pendientes — ${dashboard.label}`}
+        data-no-print="true"
         className="fixed bottom-6 right-6 z-40 inline-flex h-14 w-14 items-center justify-center rounded-full bg-[#9F99F8] text-white shadow-md transition-all duration-200 hover:bg-[#8780F0] hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#9F99F8] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface-alt)]"
       >
         <ListTodo className="h-6 w-6" />

@@ -77,6 +77,32 @@
 .entel-report .er-nav-links a:hover {
   color: white;
 }
+.entel-report .er-nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.entel-report .er-nav-pdf {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+  padding: 7px 16px;
+  border-radius: 20px;
+  border: none;
+  background: #ff5500;
+  color: white;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.entel-report .er-nav-pdf:hover { background: #e64d00; }
+.entel-report .er-nav-pdf:focus-visible { outline: 2px solid white; outline-offset: 2px; }
+.entel-report .er-nav-pdf:disabled { opacity: 0.75; cursor: progress; }
 .entel-report .er-nav-badge {
   font-size: 10px;
   font-weight: 700;
@@ -802,7 +828,11 @@
 /* No-scroll body lock when lightbox open */
 .entel-report.lock-scroll { overflow: hidden; }
 
-@media (max-width: 900px) {
+@media screen and (max-width: 1100px) {
+  .entel-report .er-nav-links { gap: 18px; }
+}
+
+@media screen and (max-width: 900px) {
   .entel-report .er-kpi-strip,
   .entel-report .er-hero-kpis {
     grid-template-columns: repeat(2, 1fr);
@@ -818,4 +848,241 @@
   .entel-report .er-hero-content { padding: 0 24px 60px; }
   .entel-report .er-hero-logo { top: 70px; right: 24px; }
   .entel-report .er-nav { padding: 0 24px; }
+  .entel-report .er-nav-links { display: none; }
+}
+
+@media screen and (max-width: 560px) {
+  .entel-report .er-nav { padding: 0 16px; }
+  .entel-report .er-nav-badge,
+  .entel-report .er-nav-pdf-long { display: none; }
+}
+
+/* ── PDF FORMATO PRESENTACIÓN (DownloadPdfButton → window.print) ──
+   Cada <Slide> es una lámina 16:9 de 1280×720 px (13,33 × 7,5 in, el panorámico
+   de PowerPoint). En pantalla los wrappers no generan caja y lo print-only se
+   oculta. Página con nombre propio para no pisar el @page A4 de globals.css,
+   y solo se activa cuando el reporte está en el DOM (:has). */
+.entel-report .er-slide { display: contents; }
+.entel-report .er-print-only { display: none; }
+
+@page entel-slide {
+  size: 1280px 720px;
+  margin: 0;
+}
+
+@media print {
+  body:has(.entel-report) {
+    page: entel-slide;
+    overflow: visible !important;
+  }
+
+  .entel-report {
+    background: white;
+    min-height: 0;
+    counter-reset: er-slide 1;
+  }
+
+  .entel-report .er-nav,
+  .entel-report .er-lightbox,
+  .entel-report .er-g-overlay,
+  .entel-report .er-footer {
+    display: none !important;
+  }
+
+  /* ── Lámina 01: portada ── */
+  .entel-report .er-hero {
+    min-height: 0;
+    height: 720px;
+    break-after: page;
+    page-break-after: always;
+  }
+  .entel-report .er-hero-logo { top: 48px; right: 72px; }
+  .entel-report .er-hero-content { padding: 0 72px 56px; max-width: none; }
+  .entel-report .er-hero-title { font-size: 88px; margin-bottom: 28px; }
+  .entel-report .er-hero-meta-row { margin-bottom: 36px; }
+  .entel-report .er-hero-meta-item { color: rgba(255, 255, 255, 0.72); }
+  .entel-report .er-hk-label { color: rgba(255, 255, 255, 0.55); }
+  .entel-report .er-hk-sub { color: rgba(255, 255, 255, 0.5); }
+
+  /* ── Láminas de contenido ── */
+  .entel-report .er-main { max-width: none; padding: 0; }
+
+  .entel-report .er-slide {
+    counter-increment: er-slide;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    height: 720px;
+    padding: 44px 64px 64px;
+    overflow: hidden;
+    background:
+      linear-gradient(90deg, var(--blue) 0%, var(--sky) 70%, var(--orange) 100%) top / 100% 6px no-repeat,
+      var(--gray-50);
+    break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
+  }
+  .entel-report .er-slide:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+  .entel-report .er-slide > * { margin: 0 !important; }
+
+  /* Pie de lámina: evento a la izquierda, número a la derecha */
+  .entel-report .er-slide::before,
+  .entel-report .er-slide::after {
+    position: absolute;
+    bottom: 26px;
+    font-size: 10px;
+    letter-spacing: 0.5px;
+    color: var(--gray-400);
+  }
+  .entel-report .er-slide::before {
+    content: attr(data-footer);
+    left: 64px;
+    white-space: pre;
+  }
+  .entel-report .er-slide::after {
+    content: "CONFIDENCIAL   " counter(er-slide, decimal-leading-zero);
+    right: 64px;
+    white-space: pre;
+    font-family: var(--font-entel-display), "Outfit", sans-serif;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: var(--gray-600);
+  }
+
+  /* Título de lámina: siempre arriba, aunque en el DOM venga después */
+  .entel-report .er-print-only { display: flex; }
+  .entel-report .er-slide > .er-section-title {
+    order: -1;
+    font-size: 28px;
+    font-weight: 800;
+    letter-spacing: -0.3px;
+    text-transform: none;
+    color: var(--gray-800);
+    gap: 16px;
+  }
+  .entel-report .er-slide > .er-section-title::before {
+    content: "";
+    width: 32px;
+    height: 5px;
+    border-radius: 3px;
+    background: var(--orange);
+    flex-shrink: 0;
+  }
+
+  .entel-report .er-grid-2,
+  .entel-report .er-grid-3,
+  .entel-report .er-grid-65-35 { gap: 20px; }
+
+  .entel-report .er-card { padding: 24px; }
+  .entel-report .er-card-desc { margin-bottom: 16px; }
+
+  /* 02 · KPIs + flujo */
+  .entel-report .er-kpi-card { padding: 20px 22px; }
+  .entel-report .er-kpi-value { font-size: 34px; }
+
+  /* Bloques que estiran sus tarjetas al alto disponible de la lámina */
+  .entel-report .er-slide > .er-grid-2:has(.er-guard-timeline),
+  .entel-report .er-slide > .er-grid-2:has(.er-ficha-table),
+  .entel-report .er-slide > .er-grid-3,
+  .entel-report .er-slide > .er-recom-grid {
+    flex: 1;
+    min-height: 0;
+  }
+
+  /* 03 · Stock y guardarropía */
+  .entel-report .er-card:has(.er-progress-row),
+  .entel-report .er-card:has(.er-guard-timeline) {
+    display: flex;
+    flex-direction: column;
+  }
+  .entel-report .er-card:has(.er-progress-row) > div:last-child {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-evenly;
+    margin-top: 0 !important;
+  }
+  .entel-report .er-progress-row { margin-bottom: 0; }
+  .entel-report .er-progress-name { font-size: 15px; }
+  .entel-report .er-progress-pct { font-size: 17px; }
+  .entel-report .er-progress-track { height: 12px; }
+  .entel-report .er-guard-timeline { flex: 1; height: auto; min-height: 0; }
+  .entel-report .er-guard-val { font-size: 13px; }
+  .entel-report .er-guard-label { font-size: 11px; }
+
+  /* 04 · Galería: 6 × 3 celdas llenando la lámina */
+  .entel-report .er-gallery {
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-rows: repeat(3, minmax(0, 1fr));
+    grid-auto-rows: 0;
+    grid-auto-flow: dense;
+    gap: 10px;
+  }
+  .entel-report .er-g-item { border-radius: 10px; }
+  .entel-report .er-g-item img { filter: none; }
+
+  /* 05 · Cronología en 3 columnas de 3 hitos */
+  .entel-report .er-timeline {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-rows: repeat(3, auto);
+    grid-auto-flow: column;
+    column-gap: 32px;
+  }
+  .entel-report .er-tl-item:nth-child(3n)::before { display: none; }
+
+  /* 07 · Objetivos */
+  .entel-report .er-grid-3 .er-card { padding: 32px; }
+  .entel-report .er-obj-icon { font-size: 40px; margin-bottom: 14px; }
+  .entel-report .er-grid-3 .er-card-title { font-size: 20px; }
+  .entel-report .er-grid-3 .er-card-desc { font-size: 13.5px; margin-bottom: 18px; }
+  .entel-report .er-objpill { font-size: 14px; margin-bottom: 18px; }
+  .entel-report .er-obj-detail { font-size: 15px; line-height: 1.7; }
+
+  /* 08 · Plan de mejoras: 3 × 2 tarjetas llenando la lámina */
+  .entel-report .er-recom-grid { grid-template-rows: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .entel-report .er-recom-card { padding: 26px; border-radius: var(--radius); }
+  .entel-report .er-recom-num { font-size: 48px; margin-bottom: 14px; }
+  .entel-report .er-recom-title { font-size: 17px; margin-bottom: 10px; }
+  .entel-report .er-recom-text { font-size: 14px; line-height: 1.6; }
+  .entel-report .er-recom-priority { top: 20px; right: 20px; font-size: 10px; padding: 4px 10px; }
+
+  /* 09 · Ficha técnica + conclusión ejecutiva */
+  .entel-report .er-grid-2:has(.er-ficha-table) .er-card-title { font-size: 18px; margin-bottom: 10px; }
+  .entel-report .er-ficha-table { font-size: 15px; }
+  .entel-report .er-ficha-table td { padding: 11px 6px !important; }
+  .entel-report .er-card:has(> .er-conclusion) {
+    display: flex;
+    padding: 0;
+    border: none;
+    background: none;
+  }
+  .entel-report .er-conclusion {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 48px;
+    border-radius: var(--radius);
+  }
+  .entel-report .er-conclusion-label { font-size: 12px; letter-spacing: 2px; margin-bottom: 18px; }
+  .entel-report .er-conclusion-text { font-size: 21px; line-height: 1.6; opacity: 1; }
+
+  /* Grises más legibles en PDF */
+  .entel-report .er-card-desc,
+  .entel-report .er-kpi-sub,
+  .entel-report .er-collab-text,
+  .entel-report .er-recom-text,
+  .entel-report .er-bar-label:not(.peak),
+  .entel-report .er-guard-label,
+  .entel-report .er-ficha-label,
+  .entel-report .er-gallery-head-r {
+    color: var(--gray-600);
+  }
 }
