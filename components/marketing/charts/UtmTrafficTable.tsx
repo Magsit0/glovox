@@ -17,9 +17,12 @@ import {
   LabelList,
 } from "recharts";
 import type { UtmTrafficRow } from "@/lib/queries/marketing";
+import { buildUtmTrafficCsv, csvFilename } from "@/components/marketing/csvExports";
+import BrutalCsvButton from "@/components/marketing/BrutalCsvButton";
 
 type Props = {
   data: UtmTrafficRow[];
+  eventoId?: string; // solo para el nombre del archivo CSV
 };
 
 const PIE_COLORS = [
@@ -97,7 +100,7 @@ type ScatterPoint = {
   engPerSession: number;
 };
 
-export default function UtmTrafficTable({ data }: Props) {
+export default function UtmTrafficTable({ data, eventoId }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const totalSessions = data.reduce((sum, r) => sum + r.sessions, 0);
 
@@ -296,40 +299,53 @@ export default function UtmTrafficTable({ data }: Props) {
       </div>
 
       {/* Grouped table by canal */}
-      <div className="border-4 border-black rounded-none w-full overflow-x-auto">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-black text-white">
-              <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Canal</th>
-              <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Source</th>
-              <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Medium</th>
-              <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Content</th>
-              <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">Sessions</th>
-              <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">%</th>
-              <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">Eng/S</th>
-              <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">Bounce</th>
-            </tr>
-          </thead>
-          <tbody>
-            {entries.map((entry) =>
-              entry.type === "single" ? (
-                <SingleRow
-                  key={`s-${entry.row.canal}-${entry.row.source}-${entry.row.medium}`}
-                  row={entry.row}
-                  totalSessions={totalSessions}
-                />
-              ) : (
-                <GroupRows
-                  key={`g-${entry.group.canal}`}
-                  group={entry.group}
-                  totalSessions={totalSessions}
-                  isExpanded={expanded.has(entry.group.canal)}
-                  onToggle={() => toggle(entry.group.canal)}
-                />
-              )
-            )}
-          </tbody>
-        </table>
+      <div className="space-y-3">
+        {/* Etiqueta como la de los gráficos vecinos, para que se sepa qué
+            exporta el botón. pr-1: la sombra no sobresale del borde. */}
+        <div className="flex items-end justify-between gap-3 pr-1">
+          <p className="font-mono-data uppercase text-xs font-bold">Desglose de tráfico</p>
+          <BrutalCsvButton
+            filename={() => csvFilename("desglose-trafico", eventoId)}
+            build={() => buildUtmTrafficCsv(data)}
+            context="Desglose de tráfico"
+            disabled={data.length === 0}
+          />
+        </div>
+        <div className="border-4 border-black rounded-none w-full overflow-x-auto">
+          <table className="w-full">
+            <thead>
+              <tr className="bg-black text-white">
+                <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Canal</th>
+                <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Source</th>
+                <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Medium</th>
+                <th className="font-mono-data uppercase text-xs px-4 py-3 text-left">Content</th>
+                <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">Sessions</th>
+                <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">%</th>
+                <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">Eng/S</th>
+                <th className="font-mono-data uppercase text-xs px-4 py-3 text-right">Bounce</th>
+              </tr>
+            </thead>
+            <tbody>
+              {entries.map((entry) =>
+                entry.type === "single" ? (
+                  <SingleRow
+                    key={`s-${entry.row.canal}-${entry.row.source}-${entry.row.medium}`}
+                    row={entry.row}
+                    totalSessions={totalSessions}
+                  />
+                ) : (
+                  <GroupRows
+                    key={`g-${entry.group.canal}`}
+                    group={entry.group}
+                    totalSessions={totalSessions}
+                    isExpanded={expanded.has(entry.group.canal)}
+                    onToggle={() => toggle(entry.group.canal)}
+                  />
+                )
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

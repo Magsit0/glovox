@@ -13,16 +13,21 @@ function escapeCell(value: Cell): string {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+/** Serializa a texto CSV (BOM + CRLF + celdas entre comillas). Puro, sin DOM. */
+export function toCsvString(headers: string[], rows: Cell[][]): string {
+  const lines = [
+    headers.map(escapeCell).join(","),
+    ...rows.map((row) => row.map(escapeCell).join(",")),
+  ];
+  return `﻿${lines.join("\r\n")}`;
+}
+
 export function downloadCsv(
   filename: string,
   headers: string[],
   rows: Cell[][],
 ): void {
-  const lines = [
-    headers.map(escapeCell).join(","),
-    ...rows.map((row) => row.map(escapeCell).join(",")),
-  ];
-  const csv = `﻿${lines.join("\r\n")}`;
+  const csv = toCsvString(headers, rows);
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");

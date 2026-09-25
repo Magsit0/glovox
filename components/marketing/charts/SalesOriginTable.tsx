@@ -2,24 +2,17 @@
 
 import { useState, useMemo } from "react";
 import type { SalesOriginRow } from "@/lib/queries/marketing";
+import {
+  ORIGIN_CATEGORY_MAP as CATEGORY_MAP,
+  categorizeOrigin as categorize,
+} from "@/components/marketing/salesOriginCategories";
+import { buildSalesOriginCsv, csvFilename } from "@/components/marketing/csvExports";
+import BrutalCsvButton from "@/components/marketing/BrutalCsvButton";
 
 type Props = {
   data: SalesOriginRow[];
+  eventoId?: string; // solo para el nombre del archivo CSV
 };
-
-const CATEGORY_MAP: Record<string, string> = {
-  PM_MT: "Paid Media Meta",
-  PM_GG: "Paid Media Google",
-  EMAIL: "Email",
-  ORG_LT: "Linktree",
-};
-
-function categorize(origin: string): string | null {
-  for (const prefix of Object.keys(CATEGORY_MAP)) {
-    if (origin.startsWith(prefix)) return prefix;
-  }
-  return null;
-}
 
 type GroupEntry = {
   type: "group";
@@ -39,7 +32,7 @@ type SingleEntry = {
 
 type Entry = GroupEntry | SingleEntry;
 
-export default function SalesOriginTable({ data }: Props) {
+export default function SalesOriginTable({ data, eventoId }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const totalTickets = data.reduce((sum, r) => sum + r.tickets, 0);
 
@@ -100,40 +93,52 @@ export default function SalesOriginTable({ data }: Props) {
   }
 
   return (
-    <div className="border-4 border-black rounded-none w-full overflow-auto max-h-[420px]">
-      <table className="w-full">
-        <thead>
-          {/* Sticky header so column titles stay visible while the body scrolls. */}
-          <tr className="bg-black text-white">
-            <th className="font-mono-data uppercase text-xs px-4 py-3 text-left sticky top-0 z-10 bg-black">Origen</th>
-            <th className="font-mono-data uppercase text-xs px-4 py-3 text-right sticky top-0 z-10 bg-black">Tickets</th>
-            <th className="font-mono-data uppercase text-xs px-4 py-3 text-right sticky top-0 z-10 bg-black">%</th>
-          </tr>
-        </thead>
-        <tbody>
-          {entries.map((entry, i) =>
-            entry.type === "single" ? (
-              <tr
-                key={`single-${entry.origin}-${i}`}
-                className="border-b-2 border-black hover:bg-[#FFFF00] transition-colors duration-150"
-              >
-                <td className="font-mono-data text-sm px-4 py-3">{entry.origin || "(directo)"}</td>
-                <td className="font-mono-data text-sm px-4 py-3 text-right">
-                  {entry.tickets.toLocaleString("es-CL")}
-                </td>
-                <td className="font-mono-data text-sm px-4 py-3 text-right">{entry.pct}%</td>
-              </tr>
-            ) : (
-              <GroupRow
-                key={`group-${entry.prefix}`}
-                group={entry}
-                isExpanded={expanded.has(entry.prefix)}
-                onToggle={() => toggle(entry.prefix)}
-              />
-            )
-          )}
-        </tbody>
-      </table>
+    <div className="space-y-3">
+      {/* Fuera del área con scroll para que el botón siempre quede visible.
+          pr-1: la sombra dura del botón no sobresale del borde de la tabla. */}
+      <div className="flex justify-end pr-1">
+        <BrutalCsvButton
+          filename={() => csvFilename("origen-venta", eventoId)}
+          build={() => buildSalesOriginCsv(data)}
+          context="Origen de Venta"
+          disabled={data.length === 0}
+        />
+      </div>
+      <div className="border-4 border-black rounded-none w-full overflow-auto max-h-[420px]">
+        <table className="w-full">
+          <thead>
+            {/* Sticky header so column titles stay visible while the body scrolls. */}
+            <tr className="bg-black text-white">
+              <th className="font-mono-data uppercase text-xs px-4 py-3 text-left sticky top-0 z-10 bg-black">Origen</th>
+              <th className="font-mono-data uppercase text-xs px-4 py-3 text-right sticky top-0 z-10 bg-black">Tickets</th>
+              <th className="font-mono-data uppercase text-xs px-4 py-3 text-right sticky top-0 z-10 bg-black">%</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map((entry, i) =>
+              entry.type === "single" ? (
+                <tr
+                  key={`single-${entry.origin}-${i}`}
+                  className="border-b-2 border-black hover:bg-[#FFFF00] transition-colors duration-150"
+                >
+                  <td className="font-mono-data text-sm px-4 py-3">{entry.origin || "(directo)"}</td>
+                  <td className="font-mono-data text-sm px-4 py-3 text-right">
+                    {entry.tickets.toLocaleString("es-CL")}
+                  </td>
+                  <td className="font-mono-data text-sm px-4 py-3 text-right">{entry.pct}%</td>
+                </tr>
+              ) : (
+                <GroupRow
+                  key={`group-${entry.prefix}`}
+                  group={entry}
+                  isExpanded={expanded.has(entry.prefix)}
+                  onToggle={() => toggle(entry.prefix)}
+                />
+              )
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

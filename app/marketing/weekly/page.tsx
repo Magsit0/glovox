@@ -498,7 +498,7 @@ async function SalesOriginSection({ eventoId, scope }: { eventoId: string; scope
   const data = await getSalesOrigin(eventoId, scope);
   return (
     <BrutalChartPanel title="Origen de Venta" className="col-span-2">
-      <SalesOriginTable data={data} />
+      <SalesOriginTable data={data} eventoId={eventoId} />
     </BrutalChartPanel>
   );
 }
@@ -559,7 +559,7 @@ async function UtmTrafficSection({ eventoId, scope }: { eventoId: string; scope?
     <BrutalChartPanel title="Tráfico" className="col-span-4">
       <div className="space-y-6">
         <TrafficTimelineChart data={timeline} />
-        <UtmTrafficTable data={data} />
+        <UtmTrafficTable data={data} eventoId={eventoId} />
       </div>
     </BrutalChartPanel>
   );
