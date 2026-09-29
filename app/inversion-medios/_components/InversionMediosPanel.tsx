@@ -50,6 +50,7 @@ import {
 import { esDiaEvento, tituloDiaEvento } from "@/lib/inversion-medios/evento";
 import { deleteCargoAction, upsertCargoAction } from "../actions";
 import { fmtDiaCorto, fmtUsd } from "./format";
+import SubtotalRango from "./SubtotalRango";
 
 type Props = {
   desde: string; // YYYY-MM-DD, inicio del rango cargado
@@ -349,95 +350,22 @@ export default function InversionMediosPanel({
     [rows, dias],
   );
 
+  // Mismo alcance del subtotal semanal: todos los eventos + gasto no atribuido.
+  // Independiente del scroll; no modifica los totales de la fila del calendario.
+  const totalesDiaOperacion = useMemo(
+    () => totalesDia.map((dia, i) => ({
+      ...dia,
+      real: dia.real + (noAtribuidoByFecha.get(dia.fecha)?.gastoUsd ?? 0),
+      conDatos: dataIdx.some((fila) => fila[i]) || (noAtribuidoByFecha.get(dia.fecha)?.gastoUsd ?? 0) > 0,
+    })),
+    [totalesDia, noAtribuidoByFecha, dataIdx],
+  );
+
   const rangoLabel =
     dias.length > 0
       ? `${fmtDiaCorto(dias[Math.min(view.a, dias.length - 1)])} – ${fmtDiaCorto(dias[Math.min(view.b, dias.length - 1)])}`
       : "";
 
-  // Subtotal por semana (lun→dom): plan vs real de toda la operación (eventos +
-  // no atribuido). El semáforo compara real contra el plan TRANSCURRIDO (días ≤
-  // real-al), para no pintar verde una semana futura que solo no ocurrió aún.
-  // La etiqueta se recorta al rango cargado y se marca "parcial" si está cortada.
-  // Cálculo COMPLETO (todas las semanas): pesado, memoizado fuera del scroll.
-  // El monto es el total de la semana (7 días), no un parcial del scroll, para
-  // que el número no salte al desplazarse; el filtro por viewport es aparte.
-  const semanas = useMemo(() => {
-    const naByFecha = new Map(noAtribuido.map((r) => [r.fecha, r.gastoUsd]));
-    const primero = dias[0];
-    const ultimo = dias[dias.length - 1];
-    const acc = new Map<
-      string,
-      {
-        inicio: string;
-        fin: string;
-        plan: number;
-        planTrans: number;
-        real: number;
-        idxMinData: number;
-        idxMaxData: number;
-      }
-    >();
-    dias.forEach((fecha, i) => {
-      const d = new Date(`${fecha}T00:00:00Z`);
-      const offset = (d.getUTCDay() + 6) % 7; // 0=lunes
-      const lun = new Date(d);
-      lun.setUTCDate(d.getUTCDate() - offset);
-      const inicio = lun.toISOString().slice(0, 10);
-      if (!acc.has(inicio)) {
-        const dom = new Date(lun);
-        dom.setUTCDate(lun.getUTCDate() + 6);
-        acc.set(inicio, {
-          inicio,
-          fin: dom.toISOString().slice(0, 10),
-          plan: 0,
-          planTrans: 0,
-          real: 0,
-          idxMinData: Infinity,
-          idxMaxData: -Infinity,
-        });
-      }
-      const w = acc.get(inicio)!;
-      const transcurrido = fecha <= realMaxFecha;
-      let conMonto = false; // ¿este día aporta plan/real de la semana?
-      for (const r of rows) {
-        const c = r.days[i];
-        if (c.plan != null) {
-          w.plan += c.plan;
-          if (transcurrido) w.planTrans += c.plan;
-          conMonto = true;
-        }
-        if (c.real != null) {
-          w.real += c.real;
-          conMonto = true;
-        }
-      }
-      const na = naByFecha.get(fecha) ?? 0;
-      w.real += na;
-      if (na > 0) conMonto = true;
-      // rango de columnas CON MONTO de la semana: la card aparece cuando uno de
-      // esos días entra en el viewport (mismo criterio de data-presencia que la
-      // grilla), para no mostrar un total mientras la grilla dice "sin gasto".
-      if (conMonto) {
-        if (i < w.idxMinData) w.idxMinData = i;
-        if (i > w.idxMaxData) w.idxMaxData = i;
-      }
-    });
-    return [...acc.values()]
-      .map((w) => ({
-        ...w,
-        // etiqueta recortada al rango cargado + flags de completitud
-        inicioVista: w.inicio < primero ? primero : w.inicio,
-        finVista: w.fin > ultimo ? ultimo : w.fin,
-        futura: w.inicio > realMaxFecha, // aún no empieza (no hay real posible)
-        parcial: w.inicio < primero || w.fin > ultimo || w.fin > realMaxFecha,
-      }))
-      .filter((w) => w.plan > 0 || w.real > 0)
-      .sort((a, b) => a.inicio.localeCompare(b.inicio));
-  }, [dias, rows, noAtribuido, realMaxFecha]);
-
-  // Semanas del TRAMO VISIBLE: la card aparece cuando un día CON MONTO de la
-  // semana entra en el viewport. Se mueve junto al calendario. Barato: filtra la
-  // lista ya calculada por overlap de los índices con gasto/plan.
   // Lunes de la semana de HOY, la siguiente y la subsiguiente (hoy ya viene en
   // TZ Santiago). Sus cards se destacan en intensidad decreciente (100/50/25)
   // para ver de un vistazo el gasto planificado que viene.
@@ -451,11 +379,6 @@ export default function InversionMediosPanel({
     const subsiguiente = d.toISOString().slice(0, 10);
     return { actual, siguiente, subsiguiente };
   }, [hoy]);
-
-  const semanasVisibles = useMemo(
-    () => semanas.filter((w) => w.idxMaxData >= view.a && w.idxMinData <= view.b),
-    [semanas, view],
-  );
 
   return (
     <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-10 sm:px-8">
@@ -695,34 +618,13 @@ export default function InversionMediosPanel({
         </div>
       </div>
 
-      {/* Subtotal por semana (lun→dom) — sincronizado con el tramo visible */}
-      {semanasVisibles.length > 0 && (
-        <div className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <h2 className="font-display text-lg font-bold text-[var(--ink)]">Subtotal por semana</h2>
-            <span className="font-sans text-xs text-[var(--ink-subtle)]">
-              semanas del tramo visible ({rangoLabel}) · monto de la semana completa
-            </span>
-          </div>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {semanasVisibles.map((w) => (
-              <SemanaCard
-                key={w.inicio}
-                w={w}
-                destacada={
-                  w.inicio === lunesDestacados.actual
-                    ? "actual"
-                    : w.inicio === lunesDestacados.siguiente
-                      ? "siguiente"
-                      : w.inicio === lunesDestacados.subsiguiente
-                        ? "subsiguiente"
-                        : null
-                }
-              />
-            ))}
-          </div>
-        </div>
-      )}
+      <SubtotalRango
+        dias={totalesDiaOperacion}
+        realMaxFecha={realMaxFecha}
+        view={view}
+        rangoLabel={rangoLabel}
+        lunesDestacados={lunesDestacados}
+      />
 
       {/* Cargos extra CARDDA (pagos recurrentes de plataformas) */}
       <CargosExtra cargos={cargos} canEdit={canEdit} />
@@ -825,104 +727,6 @@ const NaCampRow = memo(function NaCampRow({
     </tr>
   );
 });
-
-// ---------- Card de subtotal semanal ----------
-
-// Escala de destaque de las semanas que vienen: 100% → 50% → 25% del morado de
-// marca (#9F99F8 → tinte, no opacidad, como pide la guía). Los dos escalones
-// tenues van por token (`--week-near-*` / `--week-far-*`): en claro son tintes
-// hacia blanco y en oscuro hacia el canvas, porque con el hex fijo los chips de
-// "próxima semana" salían como pastillas blancas sobre el tablero oscuro.
-const DESTAQUE = {
-  actual: {
-    box: "border-[#9F99F8] shadow-sm ring-1 ring-[#9F99F8]",
-    chip: "bg-[var(--purple-tint)] text-[var(--plan)]",
-    label: "Semana actual",
-  },
-  siguiente: {
-    box: "border-[var(--week-near-line)] ring-1 ring-[var(--week-near-line)]",
-    chip: "bg-[var(--week-near-tint)] text-[var(--week-near-ink)]",
-    label: "Próxima semana",
-  },
-  subsiguiente: {
-    box: "border-[var(--week-far-line)]",
-    chip: "bg-[var(--week-far-tint)] text-[var(--week-far-ink)]",
-    label: "En 2 semanas",
-  },
-} as const;
-
-function SemanaCard({
-  w,
-  destacada,
-}: {
-  w: {
-    inicio: string;
-    fin: string;
-    plan: number;
-    planTrans: number;
-    real: number;
-    inicioVista: string;
-    finVista: string;
-    futura: boolean;
-    parcial: boolean;
-  };
-  /** Destaque en intensidad decreciente: actual (100) → siguiente (50) →
-   *  subsiguiente (25). Tintes del morado de marca, no opacidades. */
-  destacada: "actual" | "siguiente" | "subsiguiente" | null;
-}) {
-  // El semáforo compara real contra el plan TRANSCURRIDO (días ≤ real-al), no
-  // contra el plan de toda la semana: así una semana futura con plan sembrado
-  // pero sin gasto no se pinta verde "cumplida", sino gris "programada".
-  const pct = w.planTrans > 0 ? (w.real / w.planTrans) * 100 : w.real > 0 ? 999 : 0;
-  const tono = w.futura
-    ? { dot: "var(--divider)", txt: "text-[var(--ink-subtle)]" }
-    : pct > 100
-      ? { dot: "#ED75A0", txt: "text-[#ED75A0]" }
-      : pct >= 85
-        ? { dot: "#F6C544", txt: "text-[var(--amber-ink)]" }
-        : { dot: "#B1D750", txt: "text-[var(--green-ink)]" };
-  const estado = w.futura
-    ? "programado — aún sin gasto"
-    : w.planTrans > 0
-      ? `${Math.round(pct)}% del plan${w.parcial ? " a la fecha" : ""}`
-      : w.real > 0
-        ? "gasto sin plan"
-        : "sin plan";
-  // Intensidad del destaque: 100 (actual) / 50 (siguiente) / 25 (subsiguiente).
-  const nivel = destacada && DESTAQUE[destacada];
-  return (
-    <div
-      className={`rounded-lg border bg-[var(--surface)] p-4 ${nivel ? nivel.box : "border-[var(--divider)]"}`}
-    >
-      <p className="flex flex-wrap items-center gap-1.5 font-sans text-xs text-[var(--ink-muted)]">
-        <span>
-          Semana del {fmtDiaCorto(w.inicioVista)} al {fmtDiaCorto(w.finVista)}
-        </span>
-        {nivel && (
-          <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${nivel.chip}`}>
-            {nivel.label}
-          </span>
-        )}
-        {w.parcial && !w.futura && (
-          <span className="ml-1 text-[var(--ink-subtle)]" title="La semana aún no cierra: el real está incompleto">
-            (parcial)
-          </span>
-        )}
-      </p>
-      <p className="mt-1.5 font-sans text-sm tabular-nums text-[var(--ink)]">
-        <span className="font-display text-lg font-bold">{fmtUsd(w.plan, 0)}</span>
-        <span className="text-[var(--ink-subtle)]"> plan</span>
-        <span className="mx-1.5 text-[var(--ink-subtle)]">·</span>
-        <span className="font-display text-lg font-bold">{fmtUsd(w.real, 0)}</span>
-        <span className="text-[var(--ink-subtle)]"> real</span>
-      </p>
-      <p className={`mt-2 inline-flex items-center gap-1.5 font-sans text-xs ${tono.txt}`}>
-        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: tono.dot }} />
-        {estado}
-      </p>
-    </div>
-  );
-}
 
 // ---------- Fila de evento ----------
 
