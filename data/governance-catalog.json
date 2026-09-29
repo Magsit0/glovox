@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-01T13:50:37.815303+00:00",
+  "generatedAt": "2026-09-29T18:06:03.881999+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -20,7 +20,8 @@
       "type": "api",
       "area": "marketing",
       "endpoints": [
-        "GA4 Data API runReport — UTM breakdown y embudo (4 pasos)"
+        "GA4 Data API runReport — UTM breakdown y embudo (4 pasos)",
+        "GA4 Data API runReport — compras (purchase) por transactionId + atribución de sesión"
       ],
       "envVars": [
         "GA4_PROPERTY_IDS",
@@ -610,9 +611,10 @@
       "owner": "@maximiliano",
       "upstream": [],
       "consumers": [
+        "marts.ga4_utm",
         "/marketing/weekly"
       ],
-      "notes": "Schema y pipeline versionados; el productor en producción aún es legacy (_rescate-ga4 sin deployar).",
+      "notes": "Productor en producción: Cloud Function ga4-ingesta-analytics (us-central1, gen2, SA bqaccess), scheduler ga4-ingesta-analytics-daily 06:00 America/Santiago, ventana de 3 días hasta ayer. El servicio legacy google-analytics (southamerica-west1) sigue desplegado pero sin scheduler ni invocaciones en 60 días (verificado 2026-09-29): candidato a borrar. Se lee vía marts.ga4_utm.",
       "metrics": [
         "Sesiones y usuarios por fuente/medio/campaña",
         "Landing pages top + atribución UTM"
@@ -725,9 +727,10 @@
       "owner": "@maximiliano",
       "upstream": [],
       "consumers": [
+        "marts.ga4_funnel",
         "/marketing/weekly"
       ],
-      "notes": "Schema y pipeline versionados; productor en producción aún legacy (deploy pendiente).",
+      "notes": "Productor en producción: Cloud Function ga4-ingesta-analytics (us-central1, gen2, SA bqaccess), scheduler ga4-ingesta-analytics-daily 06:00 America/Santiago, ventana de 3 días hasta ayer. El servicio legacy google-analytics (southamerica-west1) sigue desplegado pero sin scheduler ni invocaciones en 60 días (verificado 2026-09-29): candidato a borrar. Se lee vía marts.ga4_funnel.",
       "metrics": [
         "Tasa de conversión por paso del embudo",
         "Drop-off entre pasos"
@@ -781,6 +784,179 @@
           "type": "TIMESTAMP",
           "mode": "REQUIRED",
           "description": "Timestamp UTC de la carga del registro"
+        }
+      ]
+    },
+    {
+      "key": "google_analytics.purchases",
+      "area": "marketing",
+      "source": "ga4",
+      "endpoint": "GA4 Data API runReport (compras por transactionId)",
+      "pipeline": "pipelines/marketing/analytics/ga4_ingesta.py",
+      "schema": "google_analytics_purchases",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "delete-then-append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "marts.ga4_purchases",
+        "/marketing/weekly"
+      ],
+      "notes": "Evento purchase por transactionId × atribución de sesión (9 dims, metric_filter ecommercePurchases>0). transaction_id = glovox.tickets.OrdenID (PuntoTicket desde 2026-09-16; Fever desde jun-2026). Repite transacciones entre propiedades y sesiones: leer marts.ga4_purchases. date en zona horaria de la propiedad (Piknic = America/Los_Angeles). purchase_revenue NO es venta. Backfill 2026-06-01→2026-09-28 cargado el 2026-09-29 (--reports purchases). Carga diaria activa desde el deploy del 2026-09-29 (revisión ga4-ingesta-analytics-00006, scheduler 06:00 America/Santiago, 3 reportes por defecto).",
+      "metrics": [
+        "Órdenes vistas por GA4 y su canal de sesión",
+        "Cobertura de medición: órdenes vistas / órdenes reales",
+        "CPA por lente (pixel, GA4 último clic, Referido) y por conjunto de Meta"
+      ],
+      "endpointLabel": "GA4 runReport · compras",
+      "fields": [
+        {
+          "name": "property_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "ID de la propiedad GA4 (clave de la ventana de reemplazo)"
+        },
+        {
+          "name": "date",
+          "type": "DATE",
+          "mode": "REQUIRED",
+          "description": "Día del evento purchase en la zona horaria DE LA PROPIEDAD (ver property_time_zone; Piknic 420448122 = America/Los_Angeles). Clave de la ventana de reemplazo. Para series diarias usar la fecha de la orden en glovox.tickets"
+        },
+        {
+          "name": "transaction_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "transactionId del evento purchase. PuntoTicket y Fever: = glovox.tickets.OrdenID. '(not set)' = compras sin id, agregadas por atribución"
+        },
+        {
+          "name": "session_source",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "sessionSource: fuente de la sesión con auto-tagging ((direct), google, gclid = google/cpc)"
+        },
+        {
+          "name": "session_medium",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "sessionMedium: medio de la sesión ((none), organic, cpc, referral o el utm_medium)"
+        },
+        {
+          "name": "source",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm_source manual de la sesión (sessionManualSource). Misma semántica que google_analytics.utm.source"
+        },
+        {
+          "name": "medium",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm_medium manual de la sesión (sessionManualMedium). Misma semántica que google_analytics.utm.medium"
+        },
+        {
+          "name": "campaign_id",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "sessionCampaignId: utm_id manual o id de campaña Google Ads (auto-tag). En Meta trae <adset_id>_v2_... (prefijo = meta_ads.adset_performance.adset_id)"
+        },
+        {
+          "name": "content",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm_content manual de la sesión (sessionManualAdContent). Misma semántica que google_analytics.utm.content"
+        },
+        {
+          "name": "term",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "utm_term manual de la sesión (sessionManualTerm). Misma semántica que google_analytics.utm.term"
+        },
+        {
+          "name": "ecommerce_purchases",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Eventos purchase de la combinación. >1 con transaction_id = evento duplicado (p. ej. recarga de la página de éxito)"
+        },
+        {
+          "name": "purchase_revenue",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Revenue que reporta GA4, en currency_code de la propiedad. NO usar como venta: usar los montos de glovox.tickets"
+        },
+        {
+          "name": "currency_code",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Moneda de la propiedad (metadata del reporte): USD, CLP, PEN"
+        },
+        {
+          "name": "property_time_zone",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Zona horaria de la propiedad (metadata del reporte). Define el día de la columna date"
+        },
+        {
+          "name": "ingested_at",
+          "type": "TIMESTAMP",
+          "mode": "REQUIRED",
+          "description": "Timestamp UTC de la carga del registro"
+        }
+      ]
+    },
+    {
+      "key": "glovox_inputs.ga4_landing_event_map",
+      "area": "marketing",
+      "source": "ga4",
+      "endpoint": "Seed SQL desde URLs de prueba (qa_url) + filas manuales",
+      "pipeline": "scripts/ga4_seed_landing_event_map.sql",
+      "schema": "glovox_inputs_ga4_landing_event_map",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "merge",
+      "frequency": "on-demand",
+      "owner": "@maximiliano",
+      "upstream": [
+        "google_analytics.funnel"
+      ],
+      "consumers": [
+        "/marketing/weekly"
+      ],
+      "notes": "Asigna landing_normalizada → EventoID dentro de una propiedad GA4 (la propiedad es de la marca, no del evento). El seed (MERGE idempotente) solo inserta lo que falta desde las URLs /pruebasgt*/GLO/<EVENTO>/…; filas fuente='manual' nunca se tocan. Re-correr cuando haya eventos nuevos: al 2026-09-29 no hay filas para GLO211, GLO212, GLO203 ni GLO214, así que su funnel/UTM cae a toda la propiedad (la sección Atribución de compras no depende del mapa: amarra por OrdenID).",
+      "metrics": [
+        "Funnel y tráfico UTM acotados a las landings de cada evento"
+      ],
+      "endpointLabel": "Seed SQL · landing↔evento",
+      "fields": [
+        {
+          "name": "property_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Propiedad GA4 dueña de la landing (la propiedad es de la marca, no del evento)"
+        },
+        {
+          "name": "landing_normalizada",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "Landing como la entregan marts.ga4_funnel / marts.ga4_utm (minúsculas, sin .html)"
+        },
+        {
+          "name": "evento_id",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "EventoID de glovox.tickets / glovox.categoriaEvento"
+        },
+        {
+          "name": "fuente",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "qa_url = derivada de las URLs de prueba del equipo (seed) | manual = agregada a mano (el seed nunca la toca)"
+        },
+        {
+          "name": "updated_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "UTC de la última inserción o edición de la fila"
         }
       ]
     },
@@ -4535,14 +4711,17 @@
       "pipeline": "schemas/bigquery/views/marts_ga4_utm.sql",
       "schema": null,
       "assetType": "view",
-      "status": "governed_unconsumed",
+      "status": "governed",
       "loadPattern": "view",
       "frequency": "realtime",
       "owner": "@maximiliano",
       "upstream": [
         "google_analytics.utm"
       ],
-      "consumers": [],
+      "consumers": [
+        "/marketing/weekly"
+      ],
+      "notes": "Consumida por /marketing/weekly (getUtmTraffic, getTrafficTimeline y la sección Atribución de compras (etl_hasta, getContenidosQueVenden)).",
       "metrics": [],
       "endpointLabel": "Vista BQ",
       "fields": []
@@ -4555,14 +4734,41 @@
       "pipeline": "schemas/bigquery/views/marts_ga4_funnel.sql",
       "schema": null,
       "assetType": "view",
-      "status": "governed_unconsumed",
+      "status": "governed",
       "loadPattern": "view",
       "frequency": "realtime",
       "owner": "@maximiliano",
       "upstream": [
         "google_analytics.funnel"
       ],
-      "consumers": [],
+      "consumers": [
+        "/marketing/weekly"
+      ],
+      "notes": "Consumida por /marketing/weekly (getFunnelData y getFunnelLandingPages; con ?funnelVentana=ga4 los pasos se recortan a la ventana medida).",
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.ga4_purchases",
+      "area": "marketing",
+      "source": "ga4",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_ga4_purchases.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "google_analytics.purchases",
+        "glovox.tickets"
+      ],
+      "consumers": [
+        "/marketing/weekly"
+      ],
+      "notes": "Una fila por transacción (dedupe entre propiedades y re-disparos), amarrada a la orden real (orden_id, evento_id, ticketera) y con canal de la sesión (mismo CASE que marts.ga4_utm + más pasarelas; mantener en sync). meta_adset_id = prefijo de sessionCampaignId (utm_id de Meta). Inicio de medición por propiedad = MIN(fecha_ga4).",
       "metrics": [],
       "endpointLabel": "Vista BQ",
       "fields": []
@@ -4584,9 +4790,11 @@
         "referencia.tipo_cambio"
       ],
       "consumers": [
-        "/inversion-medios"
+        "/inversion-medios",
+        "/paid-media",
+        "/marketing/weekly"
       ],
-      "notes": "Performance consolidada de ads (paidMedia.ads_performance) + montos en USD por FECHA vía referencia.tipo_cambio. Define la conversión gasto→USD UNA vez (gasto_usd, cpc_usd, cpm_usd, valor_conversion_usd + fx_units_per_usd/fx_imputado) en vez de repetir `gasto / fx` en marketing.ts. Join denso por (currency, fecha): siempre pega para CLP/BRL/USD; una moneda no cubierta (ej. PEN) sale *_usd = NULL (gap visible) en vez del COALESCE(fx,1) que contaba moneda extranjera como USD. source=legacy porque la base ads_performance sigue siendo la scheduled query legacy; cuando se jubile, esta vista es candidata a reemplazo consolidado+USD gobernado. PRIMER consumidor (14-jul): /inversion-medios — control presupuesto vs gasto real de ads por evento×día (usa EventoID + gasto_usd + fx_imputado; el plan diario vive en Neon: inversion_medios_diario, escrito solo por ese panel; el techo por evento es categoriaEvento.budgetPm, read-only en el panel, se edita en /admin/eventos). Sigue pendiente el switch de /marketing/weekly (marketing.ts) a leer gasto_usd de acá.",
+      "notes": "Performance consolidada de ads (paidMedia.ads_performance) + montos en USD por FECHA vía referencia.tipo_cambio. Define la conversión gasto→USD UNA vez (gasto_usd, cpc_usd, cpm_usd, valor_conversion_usd + fx_units_per_usd/fx_imputado) en vez de repetir `gasto / fx` en marketing.ts. Join denso por (currency, fecha): siempre pega para CLP/BRL/USD; una moneda no cubierta (ej. PEN) sale *_usd = NULL (gap visible) en vez del COALESCE(fx,1) que contaba moneda extranjera como USD. source=legacy porque la base ads_performance sigue siendo la scheduled query legacy; cuando se jubile, esta vista es candidata a reemplazo consolidado+USD gobernado. PRIMER consumidor (14-jul): /inversion-medios — control presupuesto vs gasto real de ads por evento×día (usa EventoID + gasto_usd + fx_imputado; el plan diario vive en Neon: inversion_medios_diario, escrito solo por ese panel; el techo por evento es categoriaEvento.budgetPm, read-only en el panel, se edita en /admin/eventos). /paid-media (paidMedia.ts) y /marketing/weekly (marketing.ts) ya leen gasto_usd de acá; en /marketing/weekly también la sección Atribución de compras (CPA por lente y por conjunto de Meta, con objective y adset_id).",
       "metrics": [],
       "endpointLabel": "Vista BQ",
       "fields": []

@@ -1,9 +1,28 @@
+import { cache } from "react";
 import { query } from "@/lib/bigquery";
 import {
   countryTicketeraFilter,
   hasCountryScope,
   type DataScope,
 } from "@/lib/scopes";
+import {
+  CANALES_GA4_DEBILES,
+  CANAL_GOOGLE,
+  CANAL_META,
+  CANAL_SIN_ORIGEN,
+  HASTA_ABIERTO,
+  estadoMedicion,
+  mergeUtmOrdenes,
+  monedaDePais,
+  type AtribucionCompras,
+  type ConjuntoMetaRow,
+  type ContenidosQueVenden,
+  type FuenteCanal,
+  type FunnelCompra,
+  type RendimientoConjuntos,
+  type VentanaMedida,
+} from "@/lib/marketing/atribucion";
+import { tipoDeObjetivo } from "@/lib/inversion-medios/tipos";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 const TICKETS = `\`${P}.glovox.tickets\``;
@@ -43,6 +62,13 @@ const LANDING_MAP = `\`${P}.glovox_inputs.ga4_landing_event_map\``;
 // data-governance/schemas/bigquery/views/marts_ga4_utm.sql
 const UTM = `\`${P}.marts.ga4_utm\``;
 const USERS = `\`${P}.comunidadGlovox.users\``;
+// Compras que GA4 vio (evento purchase), UNA fila por transaction_id, amarrada a
+// la orden real (orden_id = OrdenID, ticketera, evento_id) y con el canal de la
+// SESIÓN (session_source/medium: ve (direct) y el auto-tag de Google Ads). Trae
+// también las dims MANUALES (source/medium/content/term) para cruzar con UTM.
+// El inicio de la medición de cada propiedad es MIN(fecha_ga4) de esta vista.
+// Definición: data-governance/schemas/bigquery/views/marts_ga4_purchases.sql
+const PURCHASES = `\`${P}.marts.ga4_purchases\``;
 
 // Override FechaOrden for GLO198 / GENERAL DGTL tickets to 2026-03-18 for chart display
 const FECHA_ORDEN_ADJ = `CASE WHEN EventoID = 'GLO198' AND TipoTicket = 'GENERAL DGTL' THEN TIMESTAMP('2026-03-18') ELSE FechaOrden END`;
@@ -57,6 +83,60 @@ const TICKET_TYPE_FILTER = `
   END IN ('VENTA', 'PASE TEMPORADA')
   AND EsDevuelto IS FALSE
 `;
+
+// Ticket row that went through the web checkout (spec D7): sold online and paid
+// with a checkout method. Box office, invitations, free tickets and season
+// passes (MedioPago 'Otro') can never fire a GA4 `purchase`, so they stay out of
+// every GA4 coverage denominator. Aggregated per order with LOGICAL_AND.
+const ES_WEB = `COALESCE(LOWER(SucursalVenta) IN ('internet', 'marketplace') AND MedioPago NOT IN ('Otro', 'Free', 'Cash'), FALSE)`;
+
+// Referido (already UPPER(TRIM())) → the SAME channel labels as marts.ga4_purchases,
+// so an order whose channel comes from GA4 and one whose channel comes from the
+// link code land in the same row. `c` is a SQL expression, never user input.
+// FF codes are "Vendedores (ref)" (GA4 taxonomy); "Origen de Venta" calls them Club Glovox.
+function referidoCanalSql(c: string): string {
+  return `CASE
+      WHEN ${c} = '' THEN NULL
+      WHEN REGEXP_CONTAINS(${c}, r'^PM_MT') THEN '${CANAL_META}'
+      WHEN REGEXP_CONTAINS(${c}, r'^PM_GG') THEN '${CANAL_GOOGLE}'
+      WHEN REGEXP_CONTAINS(${c}, r'^PM_') OR ${c} IN ('CONV', 'MIX', 'ALC', 'TRF', 'SEA')
+        OR REGEXP_CONTAINS(${c}, r'^[0-9]{15,20}$') THEN 'Paid media (otro código)'
+      WHEN REGEXP_CONTAINS(${c}, r'^ORG_LT') THEN 'Linktree'
+      WHEN REGEXP_CONTAINS(${c}, r'^ORG_(STO|IG)') THEN 'Social orgánico'
+      WHEN REGEXP_CONTAINS(${c}, r'^EMAIL') THEN 'Email'
+      WHEN REGEXP_CONTAINS(${c}, r'^FF') THEN 'Vendedores (ref)'
+      ELSE 'Otro (código)'
+    END`;
+}
+
+// GA4 channels that say nothing about the origin (code constants, not user input).
+const GA4_DEBIL_SQL = CANALES_GA4_DEBILES.map((c) => `'${c}'`).join(", ");
+
+// Referido of one ticket row, normalized: UPPER(TRIM()), and the placeholders
+// that mean "no code" read as '' (Fever writes the literal GA4 sentinels
+// "(not set)" / "(not provided)" into Referido). Without this they fell through
+// to 'Otro (código)' and overrode GA4's Directo: 82 of 617 measured orders in 708092.
+const REFERIDO_VACIOS = ["(NOT SET)", "(NOT PROVIDED)", "(NONE)", "(DIRECT)", "(DATA NOT AVAILABLE)", "_"];
+const REFERIDO_NORM = `IF(UPPER(TRIM(COALESCE(Referido, ''))) IN (${REFERIDO_VACIOS.map((v) => `'${v}'`).join(", ")}), '', UPPER(TRIM(COALESCE(Referido, ''))))`;
+
+// Measured web orders of @eventoId: one row per (order, ticketera), web checkout
+// only (ES_WEB), day in [@medDesde, @medHasta] (ticket date, like the rest of the
+// page). Shared by the queries that run over the GA4 measured window.
+function ordenesWebMedidasCte(tSql: string): string {
+  return `ordenes_web AS (
+      SELECT
+        OrdenID AS orden_id,
+        Ticketera AS ticketera,
+        MIN(DATE(${FECHA_ORDEN_ADJ})) AS dia,
+        SUM(Precio - COALESCE(Descuento, 0)) AS venta
+      FROM ${TICKETS}
+      WHERE EventoID = @eventoId
+        AND ${TICKET_TYPE_FILTER}${tSql}
+      GROUP BY orden_id, ticketera
+      HAVING LOGICAL_AND(${ES_WEB})
+        AND MIN(DATE(${FECHA_ORDEN_ADJ})) BETWEEN DATE(@medDesde) AND DATE(@medHasta)
+    )`;
+}
 
 // ---------- Paid-media attribution (ads_performance) ----------
 //
@@ -104,7 +184,9 @@ function attributedAds(windowMeta: boolean): string {
   // `gasto` stays for the per-currency native breakdown; `gasto_usd` is what
   // every total and ratio sums. It is NULL when `referencia.tipo_cambio` has no
   // rate for that date yet — SUM skips it rather than pretending it is zero.
-  const cols = `a.plataforma, a.fecha, a.campaign_id, a.campaign_name, a.currency, a.gasto, a.gasto_usd, a.conversiones`;
+  // `objective` and `adset_id` feed the GA4 attribution section (sales spend for
+  // the CPA, spend per Meta adset). Every caller selects named columns.
+  const cols = `a.plataforma, a.fecha, a.campaign_id, a.campaign_name, a.objective, a.adset_id, a.currency, a.gasto, a.gasto_usd, a.conversiones`;
   return `
     SELECT ${cols}
     FROM ${ADS} a
@@ -380,7 +462,18 @@ export async function getTicketDateRange(
   };
 }
 
-export async function getEventKpis(
+// Four sections of the page ask for the same KPIs: React.cache (request-scoped)
+// makes that one BigQuery job. Keyed on primitives because cache() compares
+// arguments by identity. Same semantics as before; `scope` only carries country.
+const getEventKpisCached = cache((eventoId: string, country: Scope["country"]) =>
+  getEventKpisImpl(eventoId, { country }),
+);
+
+export function getEventKpis(eventoId: string, scope?: Scope): Promise<EventKpiRow> {
+  return getEventKpisCached(eventoId, scope?.country ?? null);
+}
+
+async function getEventKpisImpl(
   eventoId: string,
   scope?: Scope,
 ): Promise<EventKpiRow> {
@@ -854,10 +947,16 @@ export async function getClubMembersEvolution(
 
 export async function getFunnelData(
   eventoId: string,
-  landingPages?: string[]
+  landingPages?: string[],
+  // Opt-in "Desde medición GA4": clips the steps to the GA4 measured window so
+  // they line up with the "Compran" step (getFunnelCompra). Absent = unchanged.
+  ventana?: VentanaMedida,
 ): Promise<FunnelRow[]> {
   const list = landingPages ?? [];
   const hasFilter = list.length > 0;
+  const dateCond = ventana
+    ? `f.date BETWEEN DATE(@medDesde) AND DATE(@medHasta)`
+    : `f.date BETWEEN p.start_date AND p.end_date`;
   // Acotado por defecto a (a) la ventana de venta del evento — igual que la
   // sección UTM — y (b) las landings del evento: las del LANDING_MAP más las
   // URLs que traen el EventoID embebido (/codigo/GLO198/...). Piknic reusa el
@@ -883,7 +982,7 @@ export async function getFunnelData(
       AND m.landing_normalizada = f.landing_normalizada
     CROSS JOIN ticket_period p
     WHERE c.EventoID = @eventoId
-      AND f.date BETWEEN p.start_date AND p.end_date
+      AND ${dateCond}
       AND CASE
         WHEN @hasFilter THEN f.landing_normalizada IN UNNEST(@landingPages)
         WHEN f.evento_id_url = @eventoId OR m.landing_normalizada IS NOT NULL THEN TRUE
@@ -897,6 +996,7 @@ export async function getFunnelData(
       eventoId,
       hasFilter,
       landingPages: hasFilter ? list : [""],
+      ...(ventana ? { medDesde: ventana.desde, medHasta: ventana.hasta } : {}),
     }
   );
   return rows.map((r) => ({
@@ -1088,4 +1188,538 @@ export async function getTrafficTimeline(
     sessions: n(r.sessions),
     ordenes: n(r.ordenes),
   }));
+}
+
+// ---------- Atribución de compras (GA4 purchases × órdenes reales) ----------
+//
+// Every query below runs over the GA4 MEASURED window (spec D6), not the sale
+// window: GA4 records purchases with their order number only since the tag
+// started (16-sep-2026 for the CL properties; earlier for Fever). Orders are
+// web-checkout only (D7, ES_WEB) and dated by DATE(FechaOrden) like the rest of
+// the page. The mart is joined by (orden_id, ticketera), so a GA4 property that
+// carries several events is split correctly per event.
+//
+// Timeout + process cache (governance playbook rule for heavy queries, same
+// pattern as ffbb.ts / cierreMensual.ts): these four are the heaviest queries of
+// the page (60-76 MB) and their data changes once a day (GA4 ETL at 06:00), so a
+// 5-minute TTL is safe. The key is the SQL plus its params, which already carry
+// the event, the window and the scope's ticketeras: users with different country
+// scope never share an entry. A rejected query (error or timeout) is evicted at
+// once. React.cache on getAtribucionCompras still dedupes within one request.
+const GA4_QUERY_TIMEOUT_MS = 30_000;
+const GA4_CACHE_TTL_MS = 5 * 60 * 1000;
+const ga4QueryCache = new Map<string, { at: number; rows: Promise<Record<string, unknown>[]> }>();
+
+function withTimeout<T>(p: Promise<T>, ms = GA4_QUERY_TIMEOUT_MS): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`BigQuery tardó demasiado (>${Math.floor(ms / 1000)}s). Vuelve a intentarlo.`)),
+      ms,
+    );
+  });
+  return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
+}
+
+function queryGa4Cached(sql: string, params: Record<string, unknown>): Promise<Record<string, unknown>[]> {
+  const key = `${sql}\u0000${JSON.stringify(params)}`;
+  const now = Date.now();
+  const hit = ga4QueryCache.get(key);
+  if (hit && now - hit.at < GA4_CACHE_TTL_MS) return hit.rows;
+  for (const [k, v] of ga4QueryCache) {
+    if (now - v.at >= GA4_CACHE_TTL_MS) ga4QueryCache.delete(k);
+  }
+  const rows = withTimeout(query<Record<string, unknown>>(sql, params));
+  ga4QueryCache.set(key, { at: now, rows });
+  rows.catch(() => {
+    if (ga4QueryCache.get(key)?.rows === rows) ga4QueryCache.delete(key);
+  });
+  return rows;
+}
+
+/** Order-level GA4 attribution for an event, over its measured window (D6). One BQ job.
+ *  cache(): the attribution section, the Paid Media panel and the Funnel share it per
+ *  request. Keyed on primitives (React.cache compares arguments by identity).
+ *  `hastaMax` is for audits only: it pins the end of the measured window. */
+export const getAtribucionCompras = cache(async function getAtribucionCompras(
+  eventoId: string,
+  country: Scope["country"],
+  hastaMax: string = HASTA_ABIERTO,
+): Promise<AtribucionCompras> {
+  const t = ticketeraFilter({ country });
+  const rows = await queryGa4Cached(
+    `
+    WITH ${ticketPeriodCte(t.sql)},
+    ordenes AS (
+      SELECT
+        OrdenID AS orden_id,
+        Ticketera AS ticketera,
+        MIN(DATE(${FECHA_ORDEN_ADJ})) AS dia,
+        MIN(DATE(FechaEvento)) AS fecha_evento,
+        ANY_VALUE(MedioPago) AS medio_pago,
+        -- Deterministic: the (max) non-empty code of the order, '' when it has none.
+        COALESCE(MAX(NULLIF(${REFERIDO_NORM}, '')), '') AS ref,
+        LOGICAL_OR(MedioPago = 'Otro') AS es_pase,
+        LOGICAL_AND(${ES_WEB}) AS es_web,
+        SUM(PersonasPorTicket) AS personas,
+        SUM(Precio - COALESCE(Descuento, 0)) AS venta
+      FROM ${TICKETS}
+      WHERE EventoID = @eventoId
+        AND ${TICKET_TYPE_FILTER}${t.sql}
+      GROUP BY orden_id, ticketera
+    ),
+    -- Scope also filters the mart: its \`ticketera\` column (BigQuery names are case-insensitive).
+    vistas AS (
+      SELECT orden_id, ticketera, property_id, canal, disparo_tardio
+      FROM ${PURCHASES}
+      WHERE evento_id = @eventoId AND match_ticketera${t.sql}
+    ),
+    props AS (   -- DISTINCT: categoriaEvento repeats rows for some events
+      SELECT CAST(property_ga4 AS STRING) AS property_id
+      FROM ${CATEGORY}
+      WHERE EventoID = @eventoId AND property_ga4 IS NOT NULL
+      UNION DISTINCT
+      SELECT property_id FROM vistas
+    ),
+    evento_pais AS (SELECT ANY_VALUE(Pais) AS pais FROM ${CATEGORY} WHERE EventoID = @eventoId),
+    tracking AS (   -- first day the WHOLE property records purchases with an order number
+      SELECT property_id, MIN(fecha_ga4) AS tracking_desde, MAX(ingested_at) AS ingested_at
+      FROM ${PURCHASES}
+      GROUP BY property_id
+    ),
+    -- Last day the GA4 ETL loaded, for BOTH reports the section reads. utm and
+    -- purchases load independently (one try/except per property × report), so a
+    -- failed purchases load must not turn its days into "measured, 0 seen".
+    -- Purchases: the whole table's last load (Santiago) − 1 day, because a
+    -- property with no sales in the refreshed range loads no rows at all (a
+    -- per-property MAX would freeze exactly when a tag breaks and hide the break).
+    etl AS (   -- a JOIN, not IN (subquery): BigQuery rejects that form here as a non-decorrelatable subquery
+      SELECT
+        LEAST(
+          MAX(u.date),
+          (SELECT DATE_SUB(DATE(MAX(ingested_at), 'America/Santiago'), INTERVAL 1 DAY) FROM tracking)
+        ) AS etl_hasta,
+        COUNT(DISTINCT pr.property_id) AS propiedades
+      FROM props pr
+      LEFT JOIN ${UTM} u
+        ON u.property_id = pr.property_id
+        AND u.date >= DATE_SUB(CURRENT_DATE('America/Santiago'), INTERVAL 30 DAY)
+    ),
+    inicio AS (   -- first FULL day of tracking, and not before the first order GA4 saw live
+      SELECT GREATEST(
+          DATE_ADD(MIN(s.tracking_desde), INTERVAL 1 DAY),
+          MIN(IF(v.disparo_tardio, NULL, o.dia))
+        ) AS medible_desde
+      FROM vistas v
+      JOIN ordenes o USING (orden_id, ticketera)
+      JOIN tracking s ON s.property_id = v.property_id
+    ),
+    rango AS (
+      SELECT
+        p.start_date AS ventana_desde,
+        p.end_date AS ventana_hasta,
+        i.medible_desde,
+        LEAST(p.end_date, COALESCE(e.etl_hasta, p.end_date), DATE(@hastaMax)) AS medible_hasta,
+        e.etl_hasta,
+        e.propiedades,
+        (SELECT MIN(fecha_evento) FROM ordenes) AS fecha_evento,
+        (SELECT pais FROM evento_pais) AS pais
+      FROM ticket_period p CROSS JOIN inicio i CROSS JOIN etl e
+    ),
+    att AS (
+      SELECT
+        o.orden_id, o.dia, o.medio_pago, o.ref, o.personas, o.venta,
+        v.orden_id IS NOT NULL AS vista,
+        v.canal AS canal_ga4,
+        ${referidoCanalSql("o.ref")} AS canal_ref,
+        CASE
+          WHEN o.es_pase THEN 'pase'
+          WHEN NOT o.es_web THEN 'fuera_web'
+          WHEN r.medible_desde IS NULL THEN 'sin_medicion'
+          WHEN o.dia < r.medible_desde THEN 'antes'
+          WHEN o.dia > r.medible_hasta THEN 'pendiente'
+          ELSE 'medible'
+        END AS fase
+      FROM ordenes o
+      CROSS JOIN rango r
+      LEFT JOIN vistas v USING (orden_id, ticketera)
+    ),
+    real AS (   -- one channel per order: GA4 wins; Referido fills in when GA4 is missing or weak
+      SELECT
+        *,
+        CASE
+          WHEN canal_ga4 NOT IN (${GA4_DEBIL_SQL}) THEN 'ga4'
+          WHEN canal_ref IS NOT NULL THEN 'referido'
+          WHEN canal_ga4 IS NOT NULL THEN 'ga4'
+          ELSE 'sin_dato'
+        END AS fuente,
+        CASE
+          WHEN canal_ga4 NOT IN (${GA4_DEBIL_SQL}) THEN canal_ga4
+          WHEN canal_ref IS NOT NULL THEN canal_ref
+          WHEN canal_ga4 IS NOT NULL THEN canal_ga4
+          ELSE '${CANAL_SIN_ORIGEN}'
+        END AS canal_real
+      FROM att
+      WHERE fase = 'medible'
+    ),
+    ads_evt AS (${attributedAds(false)}),
+    ads_w AS (   -- spend and pixel clipped to the SAME window as the GA4 and Referido lenses
+      SELECT
+        SUM(IF(e.plataforma = 'meta', e.gasto_usd, 0)) AS spend_meta,
+        SUM(IF(e.plataforma = 'meta' AND e.objective = 'OUTCOME_SALES', e.gasto_usd, 0)) AS spend_meta_ventas,
+        SUM(IF(e.plataforma = 'google', e.gasto_usd, 0)) AS spend_google,
+        SUM(IF(e.plataforma = 'meta', e.conversiones, 0)) AS pixel_meta,
+        SUM(IF(e.plataforma = 'meta' AND e.objective = 'OUTCOME_SALES', e.conversiones, 0)) AS pixel_meta_ventas
+      FROM ads_evt e
+      CROSS JOIN rango r
+      WHERE e.fecha BETWEEN r.medible_desde AND r.medible_hasta
+    ),
+    resumen AS (
+      SELECT
+        COUNTIF(fase != 'pase') AS ordenes_no_pase,
+        COUNTIF(fase = 'pase') AS ordenes_pase,
+        COUNTIF(fase = 'fuera_web') AS ordenes_fuera_web,
+        COUNTIF(fase = 'antes') AS ordenes_antes,
+        COUNTIF(fase = 'pendiente') AS ordenes_pendientes,
+        COUNTIF(fase = 'medible') AS ordenes_medibles,
+        COUNTIF(fase = 'medible' AND vista) AS ordenes_vistas,
+        COUNTIF(fase = 'medible' AND canal_ga4 = 'Pasarela de pago') AS vistas_pasarela,
+        COUNTIF(fase = 'medible' AND canal_ga4 = '${CANAL_META}') AS ga4_meta,
+        COUNTIF(fase = 'medible' AND canal_ga4 = '${CANAL_GOOGLE}') AS ga4_google,
+        COUNTIF(fase = 'medible' AND REGEXP_CONTAINS(ref, r'^PM_MT')) AS ref_meta,
+        COUNTIF(fase = 'medible' AND REGEXP_CONTAINS(ref, r'^PM_GG')) AS ref_google,
+        COUNTIF(fase = 'medible' AND REGEXP_CONTAINS(ref, r'^PM_')) AS ref_pm,
+        COUNTIF(fase = 'medible' AND NOT vista AND canal_ref IS NOT NULL) AS solo_referido
+      FROM att
+    )
+    SELECT
+      FORMAT_DATE('%F', r.ventana_desde) AS ventana_desde,
+      FORMAT_DATE('%F', r.ventana_hasta) AS ventana_hasta,
+      FORMAT_DATE('%F', r.medible_desde) AS medible_desde,
+      FORMAT_DATE('%F', r.medible_hasta) AS medible_hasta,
+      FORMAT_DATE('%F', r.etl_hasta) AS etl_hasta,
+      FORMAT_DATE('%F', r.fecha_evento) AS fecha_evento,
+      r.pais,
+      r.propiedades,
+      s.*,
+      COALESCE(a.pixel_meta, 0) AS pixel_meta,
+      COALESCE(a.pixel_meta_ventas, 0) AS pixel_meta_ventas,
+      ROUND(COALESCE(a.spend_meta, 0), 2) AS spend_meta,
+      ROUND(COALESCE(a.spend_meta_ventas, 0), 2) AS spend_meta_ventas,
+      ROUND(COALESCE(a.spend_google, 0), 2) AS spend_google,
+      ARRAY(SELECT AS STRUCT canal_real AS canal, fuente, COUNT(*) AS ordenes,
+              SUM(personas) AS personas, SUM(venta) AS venta
+            FROM real GROUP BY canal_real, fuente ORDER BY ordenes DESC, canal) AS canal_real,
+      ARRAY(SELECT AS STRUCT medio_pago, COUNT(*) AS ordenes, COUNTIF(vista) AS vistas
+            FROM real GROUP BY medio_pago ORDER BY ordenes DESC, medio_pago) AS por_medio_pago,
+      ARRAY(SELECT AS STRUCT FORMAT_DATE('%F', dia) AS date, COUNT(*) AS ordenes,
+              COUNTIF(vista) AS vistas, COUNTIF(canal_ga4 = 'Pasarela de pago') AS pasarela
+            FROM real GROUP BY dia ORDER BY dia) AS por_dia,
+      ARRAY(SELECT AS STRUCT FORMAT_DATE('%F', dia) AS date, canal_real AS canal, COUNT(*) AS ordenes
+            FROM real GROUP BY dia, canal_real ORDER BY dia, ordenes DESC, canal) AS por_dia_canal
+    FROM rango r
+    CROSS JOIN resumen s
+    CROSS JOIN ads_w a
+    `,
+    { eventoId, hastaMax, ...t.params },
+  );
+  const r = rows[0] ?? {};
+  const d = (v: unknown) => s(v) || null;
+  const arr = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+  const base = {
+    ventanaDesde: d(r.ventana_desde),
+    ventanaHasta: d(r.ventana_hasta),
+    medibleDesde: d(r.medible_desde),
+    medibleHasta: d(r.medible_hasta),
+    etlHasta: d(r.etl_hasta),
+    fechaEvento: d(r.fecha_evento),
+    moneda: monedaDePais(s(r.pais)),
+    propiedades: n(r.propiedades),
+    ordenes: {
+      noPase: n(r.ordenes_no_pase),
+      pase: n(r.ordenes_pase),
+      fueraWeb: n(r.ordenes_fuera_web),
+      antes: n(r.ordenes_antes),
+      pendientes: n(r.ordenes_pendientes),
+      medibles: n(r.ordenes_medibles),
+      vistas: n(r.ordenes_vistas),
+      vistasPasarela: n(r.vistas_pasarela),
+      soloReferido: n(r.solo_referido),
+      referidoPm: n(r.ref_pm),
+    },
+    meta: {
+      pixelVentas: n(r.pixel_meta_ventas),
+      pixelTotal: n(r.pixel_meta),
+      ga4: n(r.ga4_meta),
+      referido: n(r.ref_meta),
+      gastoVentasUsd: n(r.spend_meta_ventas),
+      gastoTotalUsd: n(r.spend_meta),
+    },
+    google: { ga4: n(r.ga4_google), referido: n(r.ref_google), gastoUsd: n(r.spend_google) },
+    canalReal: arr(r.canal_real).map((c) => ({
+      canal: s(c.canal),
+      fuente: s(c.fuente) as FuenteCanal,
+      ordenes: n(c.ordenes),
+      personas: n(c.personas),
+      venta: n(c.venta),
+    })),
+    porMedioPago: arr(r.por_medio_pago).map((c) => ({
+      medioPago: s(c.medio_pago),
+      ordenes: n(c.ordenes),
+      vistas: n(c.vistas),
+    })),
+    porDia: arr(r.por_dia).map((c) => ({
+      date: s(c.date),
+      ordenes: n(c.ordenes),
+      vistas: n(c.vistas),
+      pasarela: n(c.pasarela),
+    })),
+    porDiaCanal: arr(r.por_dia_canal).map((c) => ({
+      date: s(c.date),
+      canal: s(c.canal),
+      ordenes: n(c.ordenes),
+    })),
+  };
+  return { ...base, estado: estadoMedicion(base) };
+});
+
+/**
+ * "Qué contenido vende": sesiones UTM y órdenes GA4 por contenido, en la ventana
+ * medida. El tráfico se acota EXACTAMENTE como getUtmTraffic (propiedad del
+ * evento + landings del mapa / EventoID en la URL, o toda la propiedad si el
+ * evento no tiene mapa), pero recortado a [desde, hasta]; las órdenes son las
+ * web medidas del evento, por la clave MANUAL source|medium|content|term (las
+ * dims con las que se arma la tabla UTM). El cruce vive en mergeUtmOrdenes.
+ * Una sola consulta. Llamar solo con una ventana medida (ventanaMedida()).
+ */
+export async function getContenidosQueVenden(
+  eventoId: string,
+  country: Scope["country"],
+  medible: VentanaMedida,
+): Promise<ContenidosQueVenden> {
+  const t = ticketeraFilter({ country });
+  const rows = await queryGa4Cached(
+    `
+    WITH mapa_evento AS (
+      SELECT property_id, landing_normalizada
+      FROM ${LANDING_MAP}
+      WHERE evento_id = @eventoId
+    ),
+    prop AS (   -- DISTINCT: categoriaEvento repeats rows for some events
+      SELECT DISTINCT CAST(property_ga4 AS STRING) AS property_id
+      FROM ${CATEGORY}
+      WHERE EventoID = @eventoId AND property_ga4 IS NOT NULL
+    ),
+    utm_ses AS (
+      SELECT
+        u.canal AS canal,
+        COALESCE(u.medium, '(none)') AS medium,
+        COALESCE(u.source, '(direct)') AS source,
+        COALESCE(u.content, '') AS content,
+        COALESCE(u.term, '') AS term,
+        SUM(u.sessions) AS sesiones
+      FROM ${UTM} u
+      JOIN prop pr ON pr.property_id = u.property_id
+      LEFT JOIN mapa_evento m
+        ON m.property_id = u.property_id
+        AND m.landing_normalizada = u.landing_normalizada
+      WHERE u.date BETWEEN DATE(@medDesde) AND DATE(@medHasta)
+        AND CASE
+          WHEN u.evento_id_url = @eventoId OR m.landing_normalizada IS NOT NULL THEN TRUE
+          WHEN EXISTS (SELECT 1 FROM mapa_evento) THEN FALSE
+          ELSE u.evento_id_url IS NULL
+        END
+      GROUP BY canal, medium, source, content, term
+    ),
+    ${ordenesWebMedidasCte(t.sql)},
+    utm_ord AS (
+      SELECT
+        COALESCE(g.medium, '(none)') AS medium,
+        COALESCE(g.source, '(direct)') AS source,
+        COALESCE(g.content, '') AS content,
+        COALESCE(g.term, '') AS term,
+        COUNT(*) AS ordenes,
+        SUM(o.venta) AS venta
+      FROM ordenes_web o
+      JOIN ${PURCHASES} g ON g.orden_id = o.orden_id AND g.ticketera = o.ticketera
+      WHERE g.evento_id = @eventoId AND g.match_ticketera
+      GROUP BY medium, source, content, term
+    )
+    SELECT
+      ARRAY(SELECT AS STRUCT canal, source, medium, content, term, sesiones
+            FROM utm_ses ORDER BY sesiones DESC) AS sesiones,
+      ARRAY(SELECT AS STRUCT source, medium, content, term, ordenes, venta
+            FROM utm_ord ORDER BY ordenes DESC) AS ordenes
+    `,
+    { eventoId, medDesde: medible.desde, medHasta: medible.hasta, ...t.params },
+  );
+  const r = rows[0] ?? {};
+  const arr = (v: unknown) => (Array.isArray(v) ? (v as Record<string, unknown>[]) : []);
+  return mergeUtmOrdenes(
+    arr(r.sesiones).map((u) => ({
+      canal: s(u.canal),
+      source: s(u.source),
+      medium: s(u.medium),
+      content: s(u.content),
+      term: s(u.term),
+      sesiones: n(u.sesiones),
+    })),
+    arr(r.ordenes).map((o) => ({
+      source: s(o.source),
+      medium: s(o.medium),
+      content: s(o.content),
+      term: s(o.term),
+      ordenes: n(o.ordenes),
+      venta: n(o.venta),
+    })),
+  );
+}
+
+/**
+ * "Rendimiento por conjunto (Meta)": gasto y pixel por adset (attributedAds,
+ * recortado a la ventana medida) junto a las órdenes web medidas cuya sesión GA4
+ * trae ese adset (sessionCampaignId = "<adset_id>_v2_…" → meta_adset_id).
+ * FULL JOIN: aparecen también conjuntos con órdenes GA4 y sin gasto en la
+ * ventana. Nombres y objetivo salen del mart de pauta (último valor visto).
+ */
+export async function getRendimientoConjuntos(
+  eventoId: string,
+  country: Scope["country"],
+  medible: VentanaMedida,
+): Promise<RendimientoConjuntos> {
+  const t = ticketeraFilter({ country });
+  const rows = await queryGa4Cached(
+    `
+    WITH ${ticketPeriodCte(t.sql)},
+    ads_evt AS (${attributedAds(false)}),
+    gasto AS (
+      SELECT
+        e.adset_id,
+        SUM(e.gasto_usd) AS gasto_usd,
+        SUM(e.conversiones) AS pixel
+      FROM ads_evt e
+      WHERE e.plataforma = 'meta'
+        AND e.fecha BETWEEN DATE(@medDesde) AND DATE(@medHasta)
+      GROUP BY e.adset_id
+    ),
+    ${ordenesWebMedidasCte(t.sql)},
+    ga4 AS (
+      SELECT g.meta_adset_id AS adset_id, g.canal
+      FROM ordenes_web o
+      JOIN ${PURCHASES} g ON g.orden_id = o.orden_id AND g.ticketera = o.ticketera
+      WHERE g.evento_id = @eventoId AND g.match_ticketera
+    ),
+    ga4_adset AS (
+      SELECT adset_id, COUNT(*) AS ordenes
+      FROM ga4
+      WHERE adset_id IS NOT NULL
+      GROUP BY adset_id
+    ),
+    conjuntos AS (
+      SELECT
+        COALESCE(g.adset_id, a.adset_id) AS adset_id,
+        COALESCE(g.gasto_usd, 0) AS gasto_usd,
+        COALESCE(g.pixel, 0) AS pixel,
+        COALESCE(a.ordenes, 0) AS ordenes_ga4
+      FROM gasto g
+      FULL JOIN ga4_adset a ON a.adset_id = g.adset_id
+    ),
+    nombres AS (
+      SELECT
+        x.adset_id,
+        ARRAY_AGG(STRUCT(x.campaign_name, x.adset_name, x.objective) ORDER BY x.fecha DESC LIMIT 1)[OFFSET(0)] AS nm
+      FROM ${ADS} x
+      JOIN (SELECT DISTINCT adset_id FROM conjuntos) c ON c.adset_id = x.adset_id
+      WHERE x.plataforma = 'meta'
+      GROUP BY x.adset_id
+    )
+    SELECT
+      ARRAY(
+        SELECT AS STRUCT
+          c.adset_id,
+          n.nm.campaign_name AS campaign_name,
+          n.nm.adset_name AS adset_name,
+          n.nm.objective AS objective,
+          ROUND(c.gasto_usd, 2) AS gasto_usd,
+          c.pixel,
+          c.ordenes_ga4
+        FROM conjuntos c
+        LEFT JOIN nombres n ON n.adset_id = c.adset_id
+        ORDER BY c.gasto_usd DESC, c.ordenes_ga4 DESC, c.adset_id
+      ) AS conjuntos,
+      (SELECT COUNTIF(canal = '${CANAL_META}') FROM ga4) AS ga4_meta,
+      (SELECT COUNTIF(canal = '${CANAL_META}' AND adset_id IS NULL) FROM ga4) AS ga4_meta_sin_conjunto
+    `,
+    { eventoId, medDesde: medible.desde, medHasta: medible.hasta, ...t.params },
+  );
+  const r = rows[0] ?? {};
+  const conjuntos = Array.isArray(r.conjuntos) ? (r.conjuntos as Record<string, unknown>[]) : [];
+  return {
+    rows: conjuntos.map(
+      (c): ConjuntoMetaRow => ({
+        adsetId: s(c.adset_id),
+        campana: s(c.campaign_name),
+        conjunto: s(c.adset_name),
+        objective: s(c.objective),
+        objetivo: s(c.objective) ? tipoDeObjetivo("meta", s(c.objective)) : "",
+        gastoUsd: n(c.gasto_usd),
+        pixel: n(c.pixel),
+        ordenesGa4: n(c.ordenes_ga4),
+      }),
+    ),
+    ga4Meta: n(r.ga4_meta),
+    ga4MetaSinConjunto: n(r.ga4_meta_sin_conjunto),
+  };
+}
+
+/**
+ * Paso "Compran (órdenes GA4)" del Funnel en modo "Desde medición GA4": órdenes
+ * que GA4 registró con su número de orden, fechadas por la orden, en la ventana
+ * medida. Mismo alcance que los pasos 1-4: si el evento tiene landings mapeadas
+ * se cuenta solo el evento; si no, toda la propiedad GA4 (incluye compras de
+ * otros eventos de la misma propiedad, que vuelven en `otrosEventos`).
+ * No admite filtro por landing (la tabla de compras no trae landingPage).
+ */
+export async function getFunnelCompra(
+  eventoId: string,
+  country: Scope["country"],
+  ventana: VentanaMedida,
+): Promise<FunnelCompra> {
+  const t = ticketeraFilter({ country });
+  const rows = await queryGa4Cached(
+    `
+    WITH mapa_evento AS (
+      SELECT property_id, landing_normalizada
+      FROM ${LANDING_MAP}
+      WHERE evento_id = @eventoId
+    ),
+    prop AS (
+      SELECT DISTINCT CAST(property_ga4 AS STRING) AS property_id
+      FROM ${CATEGORY}
+      WHERE EventoID = @eventoId AND property_ga4 IS NOT NULL
+    ),
+    tiene_mapa AS (SELECT COUNT(*) > 0 AS si FROM mapa_evento),
+    compras AS (
+      SELECT g.evento_id
+      FROM ${PURCHASES} g
+      CROSS JOIN tiene_mapa tm
+      LEFT JOIN prop pr ON pr.property_id = g.property_id
+      WHERE g.match_ticketera${t.sql}
+        AND DATE(g.fecha_orden) BETWEEN DATE(@medDesde) AND DATE(@medHasta)
+        AND IF(tm.si, g.evento_id = @eventoId, pr.property_id IS NOT NULL)
+    )
+    SELECT
+      (SELECT COUNT(*) FROM compras) AS users,
+      (SELECT si FROM tiene_mapa) AS por_evento,
+      ARRAY(SELECT DISTINCT evento_id FROM compras WHERE evento_id != @eventoId ORDER BY evento_id) AS otros_eventos
+    `,
+    { eventoId, medDesde: ventana.desde, medHasta: ventana.hasta, ...t.params },
+  );
+  const r = rows[0] ?? {};
+  const otros = Array.isArray(r.otros_eventos) ? (r.otros_eventos as unknown[]).map(s) : [];
+  return {
+    users: n(r.users),
+    alcance: r.por_evento === true ? "evento" : "propiedad",
+    otrosEventos: otros,
+  };
 }

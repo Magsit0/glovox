@@ -16,7 +16,10 @@ import {
   getCampaignBreakdown,
   getUtmTraffic,
   getTrafficTimeline,
+  getAtribucionCompras,
+  getFunnelCompra,
   type EventOption,
+  type FunnelRow,
   type Scope,
 } from "@/lib/queries/marketing";
 import EventSelector from "@/components/marketing/EventSelector";
@@ -33,16 +36,18 @@ import FunnelLandingPageFilter from "@/components/marketing/FunnelLandingPageFil
 import CampaignBreakdownChart from "@/components/marketing/charts/CampaignBreakdownChart";
 import UtmTrafficTable from "@/components/marketing/charts/UtmTrafficTable";
 import TrafficTimelineChart from "@/components/marketing/charts/TrafficTimelineChart";
-
-const fmtUsd = (v: number) => "US$" + v.toFixed(1);
-// CLP compact formatter, matching BrutalKpiCard's "clp-compact" style.
-// Reused for KPI secondary lines so the styling stays consistent.
-const compactClpFmt = new Intl.NumberFormat("es-CL", {
-  notation: "compact",
-  compactDisplay: "short",
-  maximumFractionDigits: 1,
-});
-const fmtClpCompact = (v: number) => "$" + compactClpFmt.format(Math.round(v));
+import AtribucionSection, { ANCLA_ATRIBUCION } from "@/components/marketing/atribucion/AtribucionSection";
+import FunnelVentanaToggle from "@/components/marketing/FunnelVentanaToggle";
+// fmtClpCompact: CLP compact formatter, matching BrutalKpiCard's "clp-compact"
+// style. Reused for KPI secondary lines (and shared with the attribution section).
+import { fmtClpCompact, fmtFechaCorta, fmtPct, fmtUsd } from "@/lib/marketing/formato";
+import {
+  FUNNEL_PASO_COMPRA,
+  pct,
+  tieneMedicion,
+  ventanaMedida,
+  type AtribucionCompras,
+} from "@/lib/marketing/atribucion";
 // Raw amount in its own currency (no symbol; the currency code is shown alongside).
 // USD keeps 1 decimal; CLP/BRL/others are whole-number amounts.
 const fmtAmount = (currency: string, v: number) =>
@@ -78,6 +83,7 @@ export default async function MarketingWeeklyPage({
     landingPage?: string | string[];
     compare?: string | string[];
     tipoTicket?: string | string[];
+    funnelVentana?: string; // "ga4" = Funnel "Desde medición GA4"; ausente = toda la venta
   }>;
 }) {
   const params = await searchParams;
@@ -139,6 +145,7 @@ export default async function MarketingWeeklyPage({
       ? [params.tipoTicket]
       : [];
   const selectedTipoTickets = Array.from(new Set(rawTipoTicket)).sort();
+  const funnelVentanaGa4 = params.funnelVentana === "ga4";
 
   return (
     <div className="bg-white text-black min-h-full">
@@ -186,13 +193,26 @@ export default async function MarketingWeeklyPage({
           </Suspense>
         </div>
 
+        {/* Row: Atribución de compras (GA4). Its own window: only since GA4 measures purchases */}
+        <Suspense key={`atrib-${selectedId}`} fallback={<Skeleton />}>
+          <AtribucionSection eventoId={selectedId} country={scope.country} />
+        </Suspense>
+
         {/* Row: Sales Origin + Funnel */}
         <div className="grid grid-cols-4 gap-6">
           <Suspense fallback={<Skeleton />}>
             <SalesOriginSection eventoId={selectedId} scope={scope} />
           </Suspense>
-          <Suspense key={`funnel-${selectedId}-${selectedLandingPages.join("|")}`} fallback={<Skeleton />}>
-            <FunnelSection eventoId={selectedId} landingPages={selectedLandingPages} />
+          <Suspense
+            key={`funnel-${selectedId}-${selectedLandingPages.join("|")}-${funnelVentanaGa4 ? "ga4" : "todo"}`}
+            fallback={<Skeleton />}
+          >
+            <FunnelSection
+              eventoId={selectedId}
+              landingPages={selectedLandingPages}
+              country={scope.country}
+              ventanaGa4={funnelVentanaGa4}
+            />
           </Suspense>
         </div>
 
@@ -488,9 +508,28 @@ async function PaidMediaSection({ eventoId, scope }: { eventoId: string; scope?:
         <div>
           <p className="font-mono-data text-xs uppercase">CPA Paid Media</p>
           <p className="font-display text-3xl leading-none">{fmtUsd(pm.cpa)}</p>
+          {/* Own boundary: the link waits for the attribution query (shared with the
+              section via React.cache) without delaying the rest of the panel. */}
+          <Suspense fallback={null}>
+            <CompararGa4Link eventoId={eventoId} country={scope?.country ?? null} />
+          </Suspense>
         </div>
       </div>
     </BrutalHighlightPanel>
+  );
+}
+
+// "Compara con GA4 y Referido ↓": only when the event has a GA4 measured window.
+async function CompararGa4Link({ eventoId, country }: { eventoId: string; country: Scope["country"] }) {
+  const atrib = await getAtribucionCompras(eventoId, country).catch(() => null);
+  if (!atrib || !tieneMedicion(atrib)) return null;
+  return (
+    <a
+      href={`#${ANCLA_ATRIBUCION}`}
+      className="mt-1 inline-block font-mono-data text-[10px] uppercase underline"
+    >
+      Compara con GA4 y Referido ↓
+    </a>
   );
 }
 
@@ -506,29 +545,115 @@ async function SalesOriginSection({ eventoId, scope }: { eventoId: string; scope
 async function FunnelSection({
   eventoId,
   landingPages,
+  country,
+  ventanaGa4,
 }: {
   eventoId: string;
   landingPages: string[];
+  country: Scope["country"];
+  ventanaGa4: boolean;
 }) {
-  const [data, availableLandingPages] = await Promise.all([
-    getFunnelData(eventoId, landingPages.length > 0 ? landingPages : undefined),
+  const filtro = landingPages.length > 0 ? landingPages : undefined;
+
+  // The attribution query (shared with the section above via React.cache) is
+  // awaited together with the funnel queries: the toggle then renders in the
+  // same pass as the chart and never pushes an already-painted chart down. The
+  // default view knows its funnel query up front, so it runs in parallel too.
+  const [atrib, availableLandingPages, dataTodo] = await Promise.all([
+    getAtribucionCompras(eventoId, country).catch(() => null),
     getFunnelLandingPages(eventoId),
+    ventanaGa4 ? Promise.resolve(null) : getFunnelData(eventoId, filtro),
   ]);
+  const ventana = atrib ? ventanaMedida(atrib) : null;
+
+  // Default view ("Toda la venta"), or GA4 mode asked for an event without a
+  // measured window: exactly the funnel as before. The toggle only shows up when
+  // the event has a GA4 measured window; in the second case a note explains why
+  // the GA4 mode is not available (the param survives event switches).
+  if (!ventanaGa4 || !ventana) {
+    const data = dataTodo ?? (await getFunnelData(eventoId, filtro));
+    return (
+      <BrutalChartPanel title="Funnel" className="col-span-2">
+        <FunnelLandingPageFilter
+          landingPages={availableLandingPages}
+          selected={landingPages}
+        />
+        {ventana && <FunnelVentanaToggle modo="todo" />}
+        {data.length === 0 ? (
+          <p className="font-mono-data text-sm text-black/50">
+            Sin datos de funnel para este evento.
+          </p>
+        ) : (
+          <FunnelChart data={data} nota={ventanaGa4 ? notaSinVentanaGa4(atrib) : undefined} />
+        )}
+      </BrutalChartPanel>
+    );
+  }
+
+  // "Desde medición GA4": steps clipped to the measured window + "Compran".
+  const [data, compra] = await Promise.all([
+    getFunnelData(eventoId, filtro, ventana),
+    // The purchases table has no landingPage: no "Compran" with a landing filter.
+    !filtro
+      ? getFunnelCompra(eventoId, country, ventana).catch(() => null)
+      : Promise.resolve(null),
+  ]);
+  const steps: FunnelRow[] = compra ? [...data, { ...FUNNEL_PASO_COMPRA, users: compra.users }] : data;
+
+  let nota: string | undefined;
+  if (filtro) {
+    nota = "El paso Compran no se puede filtrar por landing: se oculta con el filtro activo.";
+  } else if (!compra) {
+    nota = "No se pudo cargar el paso Compran. Vuelve a cargar la página en unos minutos.";
+  } else if (compra.alcance === "propiedad") {
+    // Steps 1-4 leave out other events' coded links (/codigo/<otro>/…); Compran
+    // cannot (the purchases table has no landing), so it is the whole property.
+    nota =
+      "Sin landings mapeadas: los pasos cuentan toda la propiedad GA4, salvo los links con código de otro evento, " +
+      (compra.otrosEventos.length > 0
+        ? `y Compran cuenta todas sus compras (incluye órdenes de ${compra.otrosEventos.join(", ")}).`
+        : "y Compran cuenta todas sus compras.");
+  }
+  const lecturaGa4 =
+    `Desde el ${fmtFechaCorta(ventana.desde)}.` +
+    (compra
+      ? ` Compran = órdenes que GA4 registró con su número de orden (GA4 ve ${fmtPct(pct(atrib!.ordenes.vistas, atrib!.ordenes.medibles))} de las órdenes web del evento).`
+      : "");
+
   return (
     <BrutalChartPanel title="Funnel" className="col-span-2">
       <FunnelLandingPageFilter
         landingPages={availableLandingPages}
         selected={landingPages}
       />
+      <FunnelVentanaToggle modo="ga4" />
       {data.length === 0 ? (
         <p className="font-mono-data text-sm text-black/50">
-          Sin datos de funnel para este evento.
+          Sin datos de funnel para este evento desde que GA4 mide compras.
         </p>
       ) : (
-        <FunnelChart data={data} />
+        <FunnelChart data={steps} nota={nota} lecturaGa4={lecturaGa4} />
       )}
     </BrutalChartPanel>
   );
+}
+
+// ?funnelVentana=ga4 on an event without a measured window: why the funnel shows the whole sale.
+function notaSinVentanaGa4(atrib: AtribucionCompras | null): string {
+  const cola = "el funnel muestra toda la venta.";
+  if (!atrib) return `No se pudo cargar la medición GA4: ${cola}`;
+  switch (atrib.estado) {
+    case "sin_ordenes":
+      return `Sin órdenes para este evento: ${cola}`;
+    case "sin_propiedad":
+      return `Este evento no tiene una propiedad GA4 asignada: ${cola}`;
+    case "sin_dias":
+      return atrib.ventanaHasta && atrib.medibleDesde && atrib.medibleDesde > atrib.ventanaHasta
+        ? `La venta de este evento terminó antes de que GA4 midiera sus compras: ${cola}`
+        : `GA4 empieza a medir las compras de este evento el ${fmtFechaCorta(atrib.medibleDesde)}: por ahora ${cola}`;
+    default:
+      return `GA4 no mide compras con número de orden para este evento: ${cola}`;
+  }
 }
 
 async function CampaignSection({ eventoId, scope }: { eventoId: string; scope?: Scope }) {

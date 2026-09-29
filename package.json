@@ -18,7 +18,9 @@
     "test:optimizer": "tsx lib/ticketing-pricing/optimizer.checks.ts",
     "test:paidmedia-fx": "dotenv -e .env.local -- tsx scripts/paidmedia-fx-parity.ts",
     "audit:tipos": "dotenv -e .env.local -- tsx scripts/audit-tipos-campana.ts",
-    "audit:referido": "dotenv -e .env.local -- tsx scripts/audit-referido.ts"
+    "audit:referido": "dotenv -e .env.local -- tsx scripts/audit-referido.ts",
+    "test:atribucion": "tsx lib/marketing/atribucion.checks.ts",
+    "audit:atribucion": "dotenv -e .env.local -- tsx scripts/audit-atribucion.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.80",

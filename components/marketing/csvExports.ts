@@ -13,6 +13,14 @@
 //   al sumar por canal/grupo el total no cuadra con la tabla.
 
 import type { SalesOriginRow, UtmTrafficRow } from "@/lib/queries/marketing";
+import {
+  agruparCanales,
+  type CanalRealRow,
+  type ConjuntoMetaRow,
+  type ContenidoRow,
+  type FuenteCanal,
+  type Moneda,
+} from "@/lib/marketing/atribucion";
 import { ORIGIN_CATEGORY_MAP, categorizeOrigin } from "./salesOriginCategories";
 
 export type CsvCell = string | number;
@@ -151,6 +159,98 @@ export function buildUtmTrafficCsv(data: UtmTrafficRow[]): CsvTable {
       "Rebote (%)",
     ],
     rows,
+  };
+}
+
+const FUENTE_LABEL: Record<FuenteCanal, string> = {
+  ga4: "GA4",
+  referido: "Referido",
+  sin_dato: "Sin dato",
+};
+const FUENTE_ORDEN: Record<FuenteCanal, number> = { ga4: 0, referido: 1, sin_dato: 2 };
+
+/**
+ * "Origen real de la venta": una fila por canal × fuente (GA4 / Referido /
+ * Sin dato), con los canales en el mismo orden que la tabla (agruparCanales:
+ * órdenes desc, "Sin origen conocido" al final). Una tabla dinámica por Canal
+ * reproduce las filas de la pantalla; "% órdenes" es sobre las órdenes medidas.
+ * La venta va en la moneda del evento (CLP, o PEN en Fever Lima), nombrada en el encabezado.
+ */
+export function buildOrigenRealCsv(rows: CanalRealRow[], medibles: number, moneda: Moneda): CsvTable {
+  const orden = new Map(agruparCanales(rows, medibles).map((g, i) => [g.canal, i]));
+  const sorted = [...rows].sort(
+    (a, b) =>
+      (orden.get(a.canal) ?? 0) - (orden.get(b.canal) ?? 0) ||
+      FUENTE_ORDEN[a.fuente] - FUENTE_ORDEN[b.fuente] ||
+      b.ordenes - a.ordenes,
+  );
+  return {
+    headers: ["Canal", "Fuente", "Órdenes", "Personas", `Venta (${moneda})`, "% órdenes"],
+    rows: sorted.map((r): CsvCell[] => [
+      textCell(r.canal),
+      FUENTE_LABEL[r.fuente] ?? textCell(String(r.fuente)),
+      r.ordenes,
+      r.personas,
+      Math.round(r.venta),
+      share(r.ordenes, medibles),
+    ]),
+  };
+}
+
+/**
+ * "Qué contenido vende": la lista COMPLETA (la tabla muestra el top), una fila
+ * por canal × source × medium × content × term de la tabla UTM, en el mismo
+ * orden (órdenes desc, luego sesiones). Conv. (%) = Órdenes GA4 ÷ Sesiones con
+ * 2 decimales; vacía cuando no hubo sesiones. Venta en la moneda del evento.
+ */
+export function buildContenidosCsv(rows: ContenidoRow[], moneda: Moneda): CsvTable {
+  return {
+    headers: ["Canal", "Source", "Medium", "Content", "Term", "Sesiones", "Órdenes GA4", `Venta (${moneda})`, "Conv. (%)"],
+    rows: rows.map((r): CsvCell[] => [
+      textCell(r.canal),
+      textCell(r.source),
+      textCell(r.medium),
+      textCell(r.content),
+      textCell(r.term),
+      r.sesiones,
+      r.ordenes,
+      Math.round(r.venta),
+      r.sesiones > 0 ? round((r.ordenes / r.sesiones) * 100, 2) : "",
+    ]),
+  };
+}
+
+/**
+ * "Rendimiento por conjunto (Meta)": una fila por adset, en el orden de la
+ * tabla. El ID va como texto exacto (18 dígitos). Los CPA quedan vacíos
+ * cuando no hay gasto o no hay compras (la tabla muestra "—").
+ */
+export function buildConjuntosCsv(rows: ConjuntoMetaRow[]): CsvTable {
+  const cpaCell = (gasto: number, compras: number): CsvCell =>
+    gasto > 0 && compras > 0 ? round(gasto / compras, 2) : "";
+  return {
+    headers: [
+      "Campaña",
+      "Conjunto",
+      "ID conjunto",
+      "Objetivo",
+      "Gasto (USD)",
+      "Pixel",
+      "Órdenes GA4",
+      "CPA pixel (USD)",
+      "CPA GA4 (USD)",
+    ],
+    rows: rows.map((r): CsvCell[] => [
+      textCell(r.campana),
+      textCell(r.conjunto),
+      textCell(r.adsetId),
+      textCell(r.objetivo),
+      round(r.gastoUsd, 2),
+      r.pixel,
+      r.ordenesGa4,
+      cpaCell(r.gastoUsd, r.pixel),
+      cpaCell(r.gastoUsd, r.ordenesGa4),
+    ]),
   };
 }
 
