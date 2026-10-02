@@ -235,6 +235,8 @@ export type EventoGridRow = {
   fechaEvento: string; // categoriaEvento.Fecha o "" = PRIMER día
   /** Cuántos días dura el evento. El calendario marca los `diasEvento` días. */
   diasEvento: number;
+  /** categoriaEvento.Pais (CL, PE) — alimenta el filtro de país del calendario. */
+  pais: string;
   /** Clave del orden vertical: Fecha del evento, o el último día con datos si no tiene. */
   ordenFecha: string;
   /** Techo presupuestario = categoriaEvento.budgetPm (se edita en /admin/eventos). */
@@ -581,6 +583,8 @@ export type EventoMeta = {
   fecha: string;
   /** Cuántos días dura el evento (categoriaEvento.dias). 1 si no se sabe. */
   dias: number;
+  /** categoriaEvento.Pais (CL, PE). "" si no está. */
+  pais: string;
 };
 
 export function listDays(from: string, to: string): string[] {
@@ -648,6 +652,7 @@ export function mergeGrid(args: {
       nombre: ev.nombre,
       fechaEvento: ev.fecha,
       diasEvento: ev.dias >= 1 ? ev.dias : 1,
+      pais: ev.pais,
       // Clave de orden: fecha del evento; sin Fecha → último día con datos.
       ordenFecha: ev.fecha || ultimaConDatos || "9999-12-31",
       techoUsd,

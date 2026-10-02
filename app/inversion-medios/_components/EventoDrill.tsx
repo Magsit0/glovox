@@ -14,6 +14,7 @@ import type {
 } from "@/lib/queries/inversion-medios";
 import { PM_PROPAGACION_MIN } from "@/lib/inversion-medios/rendimiento";
 import { addDiasIso, esDiaEvento, tituloDiaEvento } from "@/lib/inversion-medios/evento";
+import { nivelPayday, PAYDAY_HEAD, paydayCell, tituloPayday } from "@/lib/inversion-medios/payday";
 import {
   computeEtapaSegments,
   ETAPAS_DEFAULT,
@@ -395,19 +396,26 @@ export default function EventoDrill({
                   // $295 y vendió 326 tickets en su segundo día, sin marca.
                   const diaEvento = esDiaEvento(fecha, fechaEvento, diasEvento);
                   const primerDia = dia === 1 || i === 0;
+                  const payday = nivelPayday(fecha);
                   return (
                     <th
                       key={fecha}
                       style={{ top: hayEtapas ? BAND_H : 0 }}
-                      title={diaEvento ? tituloDiaEvento(fecha, fechaEvento, diasEvento) : undefined}
+                      title={
+                        [diaEvento ? tituloDiaEvento(fecha, fechaEvento, diasEvento) : null, tituloPayday(fecha)]
+                          .filter(Boolean)
+                          .join(" · ") || undefined
+                      }
                       className={`sticky z-20 w-16 min-w-16 max-w-16 border-b border-[var(--divider)] px-0 py-1.5 text-center text-xs font-medium ${
                         diaEvento
                           ? "bg-[var(--evento-tint)] text-[var(--evento-ink)]"
                           : esHoy
                             ? "bg-[var(--purple-tint)] text-[#9F99F8]"
-                            : primerDia
-                              ? "bg-[var(--surface)] text-[var(--ink)]"
-                              : "bg-[var(--surface-alt)] text-[var(--ink-muted)]"
+                            : payday
+                              ? PAYDAY_HEAD[payday]
+                              : primerDia
+                                ? "bg-[var(--surface)] text-[var(--ink)]"
+                                : "bg-[var(--surface-alt)] text-[var(--ink-muted)]"
                       } ${primerDia && i > 0 ? "border-l" : ""}`}
                     >
                       <span className="block text-[10px] font-normal uppercase text-[var(--ink-subtle)]">
@@ -456,7 +464,7 @@ export default function EventoDrill({
                       <td
                         key={cell.fecha}
                         className={`w-16 min-w-16 max-w-16 border-t border-[var(--divider)] p-0 text-center align-top ${
-                          cell.fecha === hoy ? "bg-[var(--purple-tint)]/40" : ""
+                          cell.fecha === hoy ? "bg-[var(--purple-tint)]/40" : paydayCell(cell.fecha)
                         }`}
                       >
                         <CeldaPlan
@@ -546,7 +554,7 @@ export default function EventoDrill({
                         <td
                           key={fecha}
                           className={`w-16 min-w-16 max-w-16 border-t border-[var(--grid)] p-0 text-center align-top ${
-                            fecha === hoy ? "bg-[var(--purple-tint)]/40" : ""
+                            fecha === hoy ? "bg-[var(--purple-tint)]/40" : paydayCell(fecha)
                           }`}
                         >
                           <CeldaPlan
@@ -600,7 +608,7 @@ export default function EventoDrill({
                             {c.esRmkt && <RmktBadge />} {c.nombre}
                           </td>
                           {dias.map((fecha, i) => (
-                            <ReadCell key={fecha} value={c.dias[i]} hoy={fecha === hoy} muted />
+                            <ReadCell key={fecha} value={c.dias[i]} fecha={fecha} hoy={fecha === hoy} muted />
                           ))}
                           <td className="border-l border-t border-[var(--grid)] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
                             {fmtUsd(c.total, 0)}
@@ -644,7 +652,9 @@ export default function EventoDrill({
                         // igual especificidad y el ganador lo decidía el orden
                         // del CSS generado, no el del string.
                         className={`w-16 min-w-16 max-w-16 border-t border-[var(--divider)] p-0 ${
-                          fecha === hoy ? "bg-[var(--purple-tint)]/40" : "bg-[var(--surface-alt)]"
+                          fecha === hoy
+                            ? "bg-[var(--purple-tint)]/40"
+                            : paydayCell(fecha, "bg-[var(--surface-alt)]")
                         }`}
                       />
                     ))}
@@ -656,7 +666,7 @@ export default function EventoDrill({
                       Tickets vendidos
                     </td>
                     {dias.map((fecha, i) => (
-                      <ResultCell key={fecha} value={serieCols.tx[i]} hoy={fecha === hoy} />
+                      <ResultCell key={fecha} value={serieCols.tx[i]} fecha={fecha} hoy={fecha === hoy} />
                     ))}
                     <td className="border-l border-t border-[var(--grid)] px-3 py-1 text-right align-top tabular-nums text-[11px] font-medium text-[var(--ink-muted)]">
                       {formatInt(tickets.transacciones)}
@@ -669,7 +679,7 @@ export default function EventoDrill({
                         Personas
                       </td>
                       {dias.map((fecha, i) => (
-                        <ResultCell key={fecha} value={serieCols.pe[i]} hoy={fecha === hoy} muted />
+                        <ResultCell key={fecha} value={serieCols.pe[i]} fecha={fecha} hoy={fecha === hoy} muted />
                       ))}
                       <td className="border-l border-t border-[var(--grid)] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
                         {formatInt(tickets.personas)}
@@ -686,7 +696,7 @@ export default function EventoDrill({
                         Órdenes con PM_
                       </td>
                       {dias.map((fecha, i) => (
-                        <ResultCell key={fecha} value={serieCols.pm[i]} hoy={fecha === hoy} muted />
+                        <ResultCell key={fecha} value={serieCols.pm[i]} fecha={fecha} hoy={fecha === hoy} muted />
                       ))}
                       <td className="border-l border-t border-[var(--grid)] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
                         {formatInt(tickets.pmOrdenes)}
@@ -846,12 +856,22 @@ function CampanasPorTipo({
 }
 
 // Celda read-only de gasto real (filas de tipo/campaña del desglose).
-function ReadCell({ value, hoy, muted }: { value: number; hoy: boolean; muted?: boolean }) {
+function ReadCell({
+  value,
+  fecha,
+  hoy,
+  muted,
+}: {
+  value: number;
+  fecha: string;
+  hoy: boolean;
+  muted?: boolean;
+}) {
   return (
     <td
       className={`w-16 min-w-16 max-w-16 border-t px-1 py-1 text-center tabular-nums ${
         muted ? "border-[var(--grid)] text-[11px] text-[var(--ink-subtle)]" : "border-[var(--grid)] text-xs text-[var(--ink-muted)]"
-      } ${hoy ? "bg-[var(--purple-tint)]/40" : ""}`}
+      } ${hoy ? "bg-[var(--purple-tint)]/40" : paydayCell(fecha)}`}
     >
       {value > 0 ? fmtUsd(value, 0) : <span className="text-[var(--divider)]">·</span>}
     </td>
@@ -869,10 +889,12 @@ function ReadCell({ value, hoy, muted }: { value: number; hoy: boolean; muted?: 
  */
 function ResultCell({
   value,
+  fecha,
   hoy,
   muted,
 }: {
   value: number | null;
+  fecha: string;
   hoy: boolean;
   muted?: boolean;
 }) {
@@ -882,7 +904,7 @@ function ResultCell({
         muted
           ? "border-[var(--grid)] text-[11px] text-[var(--ink-subtle)]"
           : "border-[var(--grid)] text-xs text-[var(--ink-muted)]"
-      } ${hoy ? "bg-[var(--purple-tint)]/40" : ""}`}
+      } ${hoy ? "bg-[var(--purple-tint)]/40" : paydayCell(fecha)}`}
     >
       {value == null ? (
         <span className="text-[var(--divider)]">—</span>

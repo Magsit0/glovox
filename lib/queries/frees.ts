@@ -81,6 +81,17 @@ export type FreesIngresoRow = {
   tsSeconds: number;
 };
 
+/** Una fila por cortesía canjeada: la persona nominada en el ticket. */
+export type FreesInvitadoRow = {
+  category: string;
+  recipient: string;
+  nombre: string;
+  rut: string;
+  genero: "Hombre" | "Mujer" | "Sin clasificar";
+  /** HH:MM del escaneo en puerta; null si el ticket no se usó. */
+  horaIngreso: string | null;
+};
+
 export type FreesCelebEstado = "asistio" | "con_ticket" | "sin_ticket";
 
 export type FreesCelebRow = {
@@ -116,6 +127,8 @@ export type FreesDashboardData = {
   byCategory: FreesCategoryNode[];
   byGenero: FreesGeneroData;
   ingresoRows: FreesIngresoRow[];
+  /** Solo con evento seleccionado; en la vista global va vacío (~30k filas). */
+  invitados: FreesInvitadoRow[];
   celebrities: FreesCelebData;
 };
 
@@ -171,6 +184,7 @@ const JOIN_CTE = `
       cb.promo,
       COUNT(t.CodigoPromocion) > 0 AS canjeada,
       ANY_VALUE(t.NombreNominado)   AS nombreNominado,
+      ANY_VALUE(t.RutNominado)      AS rutNominado,
       MIN(t.HoraQuemado)            AS horaQuemado
     FROM cortesias_base cb
     LEFT JOIN ${TICKETS} t
@@ -503,6 +517,48 @@ async function fetchIngresoRows(
   });
 }
 
+/** RUT de tickets viene sin puntos ni guion (`123456789`, `12345678K`). */
+function formatRut(raw: string): string {
+  const clean = raw.replace(/[^0-9kK]/g, "").toUpperCase();
+  if (!/^\d{7,8}[\dK]$/.test(clean)) return raw;
+  const body = clean.slice(0, -1).replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${body}-${clean.slice(-1)}`;
+}
+
+/**
+ * Detalle nominal de las cortesías canjeadas (mismo universo que
+ * fetchGeneroTree). Cada código promo genera un solo ticket, así que una fila
+ * = una persona. Solo por evento: la vista global serían ~30k filas de PII.
+ */
+async function fetchInvitados(eventoId?: string): Promise<FreesInvitadoRow[]> {
+  if (!eventoId) return [];
+  const sql = `
+    ${JOIN_CTE}
+    SELECT
+      COALESCE(NULLIF(category, ''),  '${SIN_DATO}') AS category,
+      COALESCE(NULLIF(recipient, ''), '${SIN_DATO}') AS recipient,
+      TRIM(IFNULL(nombreNominado, '')) AS nombre,
+      IFNULL(rutNominado, '') AS rut,
+      generoLabel AS genero,
+      FORMAT_DATETIME('%H:%M', horaQuemado) AS horaIngreso
+    FROM cortesias_with_genero
+    WHERE (${DELIVERED_FILTER}) AND canjeada
+    ORDER BY category, recipient, nombre
+  `;
+  const rows = await query<Record<string, unknown>>(sql, eventoParams(eventoId));
+  return rows.map((r) => {
+    const gen = s(r.genero);
+    return {
+      category: s(r.category) || SIN_DATO,
+      recipient: s(r.recipient) || SIN_DATO,
+      nombre: s(r.nombre),
+      rut: formatRut(s(r.rut)),
+      genero: gen === "Hombre" || gen === "Mujer" ? gen : "Sin clasificar",
+      horaIngreso: r.horaIngreso == null ? null : s(r.horaIngreso),
+    };
+  });
+}
+
 /**
  * Grupo Celebrities: lista curada en glovox_inputs.input_celebrities cruzada
  * contra glovox.tickets por RUT nominado (vista marts.celebrities_asistencia).
@@ -615,6 +671,7 @@ export async function getFreesDashboardData(
     byCategory,
     byGenero,
     ingresoRows,
+    invitados,
     celebrities,
   ] = await Promise.all([
     fetchKpis(eventoId),
@@ -623,6 +680,7 @@ export async function getFreesDashboardData(
     fetchCategoryTree(eventoId),
     fetchGeneroTree(eventoId),
     fetchIngresoRows(eventoId),
+    fetchInvitados(eventoId),
     fetchCelebrities(eventoId),
   ]);
 
@@ -633,6 +691,7 @@ export async function getFreesDashboardData(
     byCategory,
     byGenero,
     ingresoRows,
+    invitados,
     celebrities,
   };
 }

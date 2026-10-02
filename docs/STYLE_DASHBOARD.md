@@ -511,6 +511,7 @@ only created a single place to change a color.
 | `--green-ink` | `#3B6D11` | `#B1D750` | Green status text over a surface (pairs with dot `#B1D750`) |
 | `--week-near-line` / `-tint` / `-ink` | `#CFCCFB` / `#F5F4FE` / `#6E67C4` | `#4A4680` / `#232136` / `#BFBBFA` | Week-highlight scale, 50% step |
 | `--week-far-line` / `-tint` / `-ink` | `#E7E6FD` / `#FAFAFE` / `#8F89D9` | `#34314C` / `#1E1D29` / `#9F99F8` | Week-highlight scale, 25% step |
+| `--payday-1…4` / `--payday-ink` | `#D4E99F` `#E4F1C2` `#EFF7DC` `#F7FBEE` / `#3B6D11` | `#515D32` `#434B2E` `#383D2A` `#2F3228` / `#D0F66D` | Payday window in `/inversion-medios` (green-accent tint scale: 1 = last day of month … 4 = D±3). Header uses the full tint, body cells the tint at `/50` |
 | `--brutal-ink` | `#000000` | `#EDEDED` | Title, tabs and borders of the `brutalist` GroupNav |
 | `--etapa-N-bg` / `--etapa-N-ink` | 12 pastels | 12 sunken tints | Campaign-stage bands (N = 1…12) |
 

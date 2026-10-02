@@ -910,6 +910,11 @@ export type EventoOption = {
    *  marcar TODOS los días del evento en el calendario, no solo el primero. */
   dias: number;
   country: "CL" | "PE" | "";
+  /** categoriaEvento.Pais tal cual (CL, PE). A diferencia de `country` —que se
+   *  deduce del prefijo GLO/GLP— clasifica bien los eventos Fever de ID
+   *  numérico (751455 = Sundeck Apache PE). Lo usa el filtro de país de
+   *  /inversion-medios. */
+  pais: string;
 };
 
 /**
@@ -927,7 +932,8 @@ export async function getCategoriaEventos(country: Country): Promise<EventoOptio
       NombreGlovox                          AS nombre,
       venue                                 AS venue,
       FORMAT_DATE('%Y-%m-%d', Fecha)        AS fecha,
-      dias                                  AS dias
+      dias                                  AS dias,
+      Pais                                  AS pais
     FROM ${CATEGORY}
     WHERE EventoID IS NOT NULL AND isCanceled IS NOT TRUE ${cond}
     QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
@@ -942,6 +948,7 @@ export async function getCategoriaEventos(country: Country): Promise<EventoOptio
       fecha: s(r.fecha),
       dias: r.dias == null ? 1 : n(r.dias),
       country: eventoId.startsWith("GLP") ? "PE" : eventoId.startsWith("GLO") ? "CL" : "",
+      pais: s(r.pais).toUpperCase(),
     };
   });
 }

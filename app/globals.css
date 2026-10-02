@@ -79,6 +79,17 @@
   --week-far-tint: #FAFAFE;
   --week-far-ink: #8F89D9;
 
+  /* ── Escala payday (fin de mes) ───────────────────────────────────────
+     4 tintes del verde de marca #B1D750 (55/35/20/10% sobre blanco) para la
+     ventana de pago de sueldos en /inversion-medios: 1 = último día del mes,
+     4 = D±3 (ver lib/inversion-medios/payday.ts). En oscuro el tinte se hunde
+     hacia el canvas (32/22/14/8% sobre #242424) y la tinta sube. */
+  --payday-1: #D4E99F;
+  --payday-2: #E4F1C2;
+  --payday-3: #EFF7DC;
+  --payday-4: #F7FBEE;
+  --payday-ink: #3B6D11;
+
   /* ── Tinta de la barra brutalist (grupo MARKETING) ───────────────────
      GroupNav theme "brutalist" pinta título, tabs y bordes en negro puro
      sobre --surface. En oscuro eso desaparece (1,4:1). */
@@ -133,6 +144,12 @@
   --week-far-line: #34314C;
   --week-far-tint: #1E1D29;
   --week-far-ink: #9F99F8;
+
+  --payday-1: #515D32;
+  --payday-2: #434B2E;
+  --payday-3: #383D2A;
+  --payday-4: #2F3228;
+  --payday-ink: #D0F66D;
 
   --brutal-ink: #EDEDED;
 
@@ -199,6 +216,11 @@
     --week-far-line: #E7E6FD;
     --week-far-tint: #FAFAFE;
     --week-far-ink: #8F89D9;
+    --payday-1: #D4E99F;
+    --payday-2: #E4F1C2;
+    --payday-3: #EFF7DC;
+    --payday-4: #F7FBEE;
+    --payday-ink: #3B6D11;
     --brutal-ink: #000000;
     --etapa-1-bg: #E6F1FB;  --etapa-1-ink: #185FA5;
     --etapa-2-bg: #FAEEDA;  --etapa-2-ink: #854F0B;

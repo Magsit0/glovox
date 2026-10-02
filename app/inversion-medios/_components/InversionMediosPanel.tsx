@@ -48,6 +48,7 @@ import {
   type FacturacionMes,
 } from "@/lib/inversion-medios/facturacion";
 import { esDiaEvento, tituloDiaEvento } from "@/lib/inversion-medios/evento";
+import { nivelPayday, PAYDAY_HEAD, paydayCell, tituloPayday } from "@/lib/inversion-medios/payday";
 import { deleteCargoAction, upsertCargoAction } from "../actions";
 import { fmtDiaCorto, fmtUsd } from "./format";
 import SubtotalRango from "./SubtotalRango";
@@ -72,6 +73,8 @@ type Props = {
   carddaFee: CarddaFeeRow[];
   /** Habilita editar los cargos extra. Va con el grant del dashboard, no con el rol. */
   canEdit: boolean;
+  /** País inicial del filtro (`?pais=CL|PE`); "" = todos. */
+  paisInicial: string;
 };
 
 // Geometría fija de la grilla (box-border: el ancho incluye el borde).
@@ -80,6 +83,12 @@ const STICKY_W = 224; // w-56
 // Máximo de sub-filas individuales al desplegar "No atribuido" (el resto se
 // agrega en una fila "otras N campañas" para no inflar el DOM).
 const NA_MAX_FILAS = 20;
+
+const PAIS_LABEL: Record<string, string> = { CL: "Chile", PE: "Perú" };
+// Arreglos vacíos ESTABLES: con un país elegido el "no atribuido" se vacía, y un
+// `[]` literal nuevo en cada render rompería los useMemo que dependen de él.
+const SIN_NA: NoAtribuidoRow[] = [];
+const SIN_NA_CAMP: NoAtribuidoCampanaDia[] = [];
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 const DIAS_SEMANA = ["D", "L", "M", "M", "J", "V", "S"];
@@ -107,8 +116,32 @@ export default function InversionMediosPanel({
   carddaConsumoSem,
   carddaFee,
   canEdit,
+  paisInicial,
 }: Props) {
   const router = useRouter();
+  // Filtro de país (categoriaEvento.Pais). El gasto "no atribuido" no tiene
+  // evento y por lo tanto tampoco país: con un país elegido sale de la grilla y
+  // de los totales, para que lo que se ve sea SOLO de ese país.
+  const [pais, setPais] = useState(paisInicial);
+  const paises = useMemo(
+    () =>
+      Array.from(new Set(grid.map((r) => r.pais).filter(Boolean))).sort(
+        (a, b) => (a === "CL" ? -1 : b === "CL" ? 1 : a.localeCompare(b)),
+      ),
+    [grid],
+  );
+  const elegirPais = useCallback((p: string) => {
+    setPais(p);
+    // Solo la URL (compartible) — sin ida al servidor: el filtro es de cliente.
+    const params = new URLSearchParams(window.location.search);
+    if (p) params.set("pais", p);
+    else params.delete("pais");
+    const qs = params.toString();
+    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+  }, []);
+  const qsPais = pais ? `&pais=${pais}` : "";
+  const noAtribuidoVis = pais ? SIN_NA : noAtribuido;
+  const noAtribuidoCampanasVis = pais ? SIN_NA_CAMP : noAtribuidoCampanas;
   // Resumen superior: KPIs globales o desglose por canal (mismo tramo visible).
   const [modo, setModo] = useState<"resumen" | "canal">("resumen");
   // Listado de campañas "no atribuido" (desplegable desde su fila). naShown =
@@ -132,11 +165,13 @@ export default function InversionMediosPanel({
   // ordenadas por fecha del evento. No hay alta manual.
   const rows = useMemo<EventoGridRow[]>(
     () =>
-      [...grid].sort(
-        (a, b) =>
-          a.ordenFecha.localeCompare(b.ordenFecha) || a.eventoId.localeCompare(b.eventoId),
-      ),
-    [grid],
+      grid
+        .filter((r) => !pais || r.pais === pais)
+        .sort(
+          (a, b) =>
+            a.ordenFecha.localeCompare(b.ordenFecha) || a.eventoId.localeCompare(b.eventoId),
+        ),
+    [grid, pais],
   );
 
   // Índices con datos por fila (para la visibilidad según viewport).
@@ -146,8 +181,8 @@ export default function InversionMediosPanel({
   );
 
   const noAtribuidoByFecha = useMemo(
-    () => new Map(noAtribuido.map((r) => [r.fecha, r])),
-    [noAtribuido],
+    () => new Map(noAtribuidoVis.map((r) => [r.fecha, r])),
+    [noAtribuidoVis],
   );
 
   // Etiqueta del período CARGADO del calendario (desde–hasta) para los totales
@@ -165,7 +200,7 @@ export default function InversionMediosPanel({
       string,
       { plataforma: string; nombre: string; dias: number[]; total: number }
     >();
-    for (const r of noAtribuidoCampanas) {
+    for (const r of noAtribuidoCampanasVis) {
       const col = idx.get(r.fecha);
       if (col === undefined || !r.gastoUsd) continue;
       const k = `${r.plataforma}|${r.campaignName}`;
@@ -199,7 +234,7 @@ export default function InversionMediosPanel({
       };
     }
     return { top, resto, totalCampanas: all.length };
-  }, [noAtribuidoCampanas, dias, naShown]);
+  }, [noAtribuidoCampanasVis, dias, naShown]);
 
   // ---------- Viewport: qué tramo del calendario se está mirando ----------
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -394,7 +429,30 @@ export default function InversionMediosPanel({
             {realMaxFecha ? ` · real al ${realMaxFecha}` : ""}.
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          {/* Filtro de país (solo si el rango cargado tiene más de uno) */}
+          {paises.length > 1 && (
+            <div
+              className="flex overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)] font-sans text-sm"
+              role="group"
+              aria-label="Filtrar por país"
+            >
+              {(["", ...paises] as string[]).map((k) => (
+                <button
+                  key={k || "todos"}
+                  onClick={() => elegirPais(k)}
+                  aria-pressed={pais === k}
+                  className={`px-3 py-2 transition-colors ${
+                    pais === k
+                      ? "bg-[var(--purple-tint)] font-medium text-[#9F99F8]"
+                      : "text-[var(--ink-muted)] hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
+                  }`}
+                >
+                  {k ? (PAIS_LABEL[k] ?? k) : "Todos"}
+                </button>
+              ))}
+            </div>
+          )}
           {/* Switch resumen ↔ por canal */}
           <div className="flex overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)] font-sans text-sm">
             {(
@@ -437,8 +495,12 @@ export default function InversionMediosPanel({
           />
           <Kpi
             label="No atribuido"
-            value={fmtUsd(kpis.na)}
-            hint="gasto sin evento en el tramo visible"
+            value={pais ? "—" : fmtUsd(kpis.na)}
+            hint={
+              pais
+                ? "no tiene país: se excluye al filtrar"
+                : "gasto sin evento en el tramo visible"
+            }
           />
         </div>
       ) : (
@@ -467,15 +529,19 @@ export default function InversionMediosPanel({
                   const dow = new Date(`${fecha}T00:00:00Z`).getUTCDay();
                   const esHoy = fecha === hoy;
                   const primerDia = dia === 1 || i === 0;
+                  const payday = nivelPayday(fecha);
                   return (
                     <th
                       key={fecha}
+                      title={tituloPayday(fecha)}
                       className={`sticky top-0 z-20 w-16 min-w-16 max-w-16 border-b border-[var(--divider)] px-0 py-1.5 text-center text-xs font-medium ${
                         esHoy
                           ? "bg-[var(--purple-tint)] text-[#9F99F8]"
-                          : primerDia
-                            ? "bg-[var(--surface)] text-[var(--ink)]"
-                            : "bg-[var(--surface-alt)] text-[var(--ink-muted)]"
+                          : payday
+                            ? PAYDAY_HEAD[payday]
+                            : primerDia
+                              ? "bg-[var(--surface)] text-[var(--ink)]"
+                              : "bg-[var(--surface-alt)] text-[var(--ink-muted)]"
                       } ${primerDia && i > 0 ? "border-l" : ""}`}
                     >
                       <span className="block text-[10px] font-normal uppercase text-[var(--ink-subtle)]">
@@ -508,8 +574,9 @@ export default function InversionMediosPanel({
                   <td colSpan={dias.length} className="border-t border-[var(--divider)]" />
                 </tr>
               )}
-              {/* Fila NO ATRIBUIDO: el gasto sin evento nunca desaparece */}
-              <tr className="bg-[var(--surface-alt)]">
+              {/* Fila NO ATRIBUIDO: el gasto sin evento nunca desaparece… salvo
+                  con un país elegido, porque no tiene país. */}
+              <tr className={pais ? "hidden" : "bg-[var(--surface-alt)]"}>
                 <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-2">
                   <span className="font-medium text-[var(--ink-muted)]">No atribuido</span>
                   <p className="text-xs text-[var(--ink-subtle)]">campañas sin evento reconocible</p>
@@ -529,7 +596,7 @@ export default function InversionMediosPanel({
                   return (
                     <td
                       key={fecha}
-                      className="w-16 min-w-16 max-w-16 border-t border-[var(--divider)] px-1 py-2 text-center tabular-nums text-xs text-[var(--ink-muted)]"
+                      className={`w-16 min-w-16 max-w-16 border-t border-[var(--divider)] px-1 py-2 text-center tabular-nums text-xs text-[var(--ink-muted)] ${paydayCell(fecha)}`}
                     >
                       {r && r.gastoUsd > 0 ? fmtUsd(r.gastoUsd, 0) : "·"}
                     </td>
@@ -548,6 +615,7 @@ export default function InversionMediosPanel({
                     dot={PLAT_DOT[c.plataforma] ?? "#B4B2A9"}
                     dotTitle={PLAT_LABEL[c.plataforma] ?? c.plataforma}
                     diasVals={c.dias}
+                    fechas={dias}
                     total={c.total}
                     rango={rangoCargadoLabel}
                     hidden={!c.dias.slice(view.a, view.b + 1).some((v) => v > 0)}
@@ -559,6 +627,7 @@ export default function InversionMediosPanel({
                   dot="#B4B2A9"
                   dotTitle="Varias plataformas"
                   diasVals={naCamps.resto.dias}
+                  fechas={dias}
                   total={naCamps.resto.total}
                   rango={rangoCargadoLabel}
                   // La fila agregada SIEMPRE se ve al expandir (aunque no tenga
@@ -595,7 +664,7 @@ export default function InversionMediosPanel({
           <button
             onClick={() =>
               router.push(
-                `/inversion-medios?desde=${shiftMes(desde, -1, "inicio")}&hasta=${hasta}`,
+                `/inversion-medios?desde=${shiftMes(desde, -1, "inicio")}&hasta=${hasta}${qsPais}`,
               )
             }
             className="inline-flex items-center gap-1 font-sans text-xs text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
@@ -608,7 +677,7 @@ export default function InversionMediosPanel({
           <button
             onClick={() =>
               router.push(
-                `/inversion-medios?desde=${desde}&hasta=${shiftMes(hasta, 1, "fin")}`,
+                `/inversion-medios?desde=${desde}&hasta=${shiftMes(hasta, 1, "fin")}${qsPais}`,
               )
             }
             className="inline-flex items-center gap-1 font-sans text-xs text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
@@ -642,7 +711,10 @@ export default function InversionMediosPanel({
         </Link>
         ). El real de hoy es parcial (los datos de ads llegan a las 09:45). La atribución usa
         el EventoID al inicio del nombre de campaña — lo que no calza queda en &ldquo;No
-        atribuido&rdquo;.
+        atribuido&rdquo;, que no tiene país y por eso se oculta al filtrar por Chile o Perú.
+        Los días en <span className="font-medium text-[var(--payday-ink)]">verde</span> son la
+        ventana de payday (pago de sueldos en Chile, aprox. del 28 al 3): más intenso el
+        último día del mes, más suave hacia D±3.
       </p>
     </div>
   );
@@ -672,6 +744,7 @@ const NaCampRow = memo(function NaCampRow({
   dot,
   dotTitle,
   diasVals,
+  fechas,
   total,
   rango,
   hidden,
@@ -681,6 +754,8 @@ const NaCampRow = memo(function NaCampRow({
   dot: string;
   dotTitle: string;
   diasVals: number[];
+  /** Fecha de cada columna (mismo orden que `diasVals`), para el payday. */
+  fechas: string[];
   total: number;
   /** Período CARGADO del calendario (desde–hasta), ej. "1 jun – 31 dic". */
   rango: string;
@@ -719,7 +794,7 @@ const NaCampRow = memo(function NaCampRow({
       {diasVals.map((v, i) => (
         <td
           key={i}
-          className="w-16 min-w-16 max-w-16 border-t border-[var(--grid)] px-1 py-1.5 text-center tabular-nums text-[11px] text-[var(--ink-muted)]"
+          className={`w-16 min-w-16 max-w-16 border-t border-[var(--grid)] px-1 py-1.5 text-center tabular-nums text-[11px] text-[var(--ink-muted)] ${paydayCell(fechas[i])}`}
         >
           {v > 0 ? fmtUsd(v, 0) : <span className="text-[var(--divider)]">·</span>}
         </td>
@@ -812,7 +887,7 @@ const FilaEvento = memo(function FilaEvento({
                 ? "bg-[var(--evento-tint)]"
                 : cell.fecha === hoy
                   ? "bg-[var(--purple-tint)]/40"
-                  : ""
+                  : paydayCell(cell.fecha)
             }`}
           >
             <CeldaResumen cell={cell} parcial={cell.fecha === hoy || cell.fecha > realMaxFecha} />

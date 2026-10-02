@@ -43,6 +43,7 @@ import type {
   FreesGeneroKpis,
   FreesGroupRow,
   FreesIngresoRow,
+  FreesInvitadoRow,
   FreesKpis,
 } from "@/lib/queries/frees";
 import { FreesEventSelect } from "./FreesEventSelect";
@@ -206,7 +207,8 @@ export function FreesDashboard({
           <GeneroSection
             data={data.byGenero}
             ingresoRows={data.ingresoRows}
-            hasEventoFilter={Boolean(selectedEvent)}
+            invitados={data.invitados}
+            eventoId={selectedEvent}
           />
         ) : tab === "celebrities" ? (
           <CelebritiesSection
@@ -749,15 +751,22 @@ function matchesSelection(selection: Set<string>, value: string): boolean {
   return selection.size === 0 || selection.has(value);
 }
 
+function recipientKey(category: string, recipient: string): string {
+  return `${category}::${recipient}`;
+}
+
 function GeneroSection({
   data,
   ingresoRows,
-  hasEventoFilter,
+  invitados,
+  eventoId,
 }: {
   data: FreesGeneroData;
   ingresoRows: FreesIngresoRow[];
-  hasEventoFilter: boolean;
+  invitados: FreesInvitadoRow[];
+  eventoId: string;
 }) {
+  const hasEventoFilter = Boolean(eventoId);
   const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
   const [recipientFilter, setRecipientFilter] = useState<Set<string>>(new Set());
   const [generoFilter, setGeneroFilter] = useState<Set<string>>(new Set());
@@ -838,6 +847,58 @@ function GeneroSection({
     return { h, m, sc };
   }, [filteredCategories]);
 
+  // Mismo cálculo que fetchGeneroTree, pero sobre categorías/recipients
+  // filtrados: sin filtro coincide con data.kpis.
+  const filteredKpis = useMemo<FreesGeneroKpis>(() => {
+    const { h, m, sc } = filteredDonutTotals;
+    const clasificable = h + m;
+    const all = clasificable + sc;
+    return {
+      totalHombres: h,
+      totalMujeres: m,
+      totalSinClasificar: sc,
+      pctClasificable: all ? clasificable / all : 0,
+      pctMujeres: clasificable ? m / clasificable : 0,
+    };
+  }, [filteredDonutTotals]);
+
+  const filteredInvitados = useMemo<FreesInvitadoRow[]>(
+    () =>
+      invitados.filter(
+        (r) =>
+          matchesSelection(categoryFilter, r.category) &&
+          matchesSelection(effectiveRecipientFilter, r.recipient) &&
+          matchesSelection(generoFilter, r.genero),
+      ),
+    [invitados, categoryFilter, effectiveRecipientFilter, generoFilter],
+  );
+
+  const invitadosByRecipient = useMemo(() => {
+    const map = new Map<string, FreesInvitadoRow[]>();
+    for (const r of filteredInvitados) {
+      const key = recipientKey(r.category, r.recipient);
+      const list = map.get(key);
+      if (list) list.push(r);
+      else map.set(key, [r]);
+    }
+    return map;
+  }, [filteredInvitados]);
+
+  function handleDownloadInvitados() {
+    downloadCsv(
+      `invitados-${eventoId}`,
+      ["Categoría", "Recipient", "Nombre", "RUT", "Género", "Hora de ingreso"],
+      filteredInvitados.map((r) => [
+        r.category,
+        r.recipient,
+        r.nombre,
+        r.rut,
+        r.genero,
+        r.horaIngreso ?? "No ingresó",
+      ]),
+    );
+  }
+
   const filteredIngresoRows = useMemo<FreesIngresoRow[]>(() => {
     return ingresoRows.filter((r) => {
       if (!matchesSelection(categoryFilter, r.category)) return false;
@@ -886,15 +947,16 @@ function GeneroSection({
           onGeneroChange={setGeneroFilter}
         />
         <p className="font-sans text-xs text-[#999999]">
-          El filtro de género aplica solo a la curva horaria y al card de hora
-          media. El donut y la tabla muestran la distribución completa por
-          género.
+          Categoría y recipient filtran toda la pestaña. El filtro de género
+          aplica a la curva horaria, la hora media y la lista de invitados; los
+          cards, el donut y la tabla siguen mostrando la distribución completa
+          por género.
         </p>
       </Panel>
 
       <div className="lg:col-span-12">
         <GeneroKpis
-          kpis={data.kpis}
+          kpis={filteredKpis}
           horaMediaLabel={horaMediaLabel}
           ingresosFiltrados={filteredIngresoRows.length}
         />
@@ -910,17 +972,9 @@ function GeneroSection({
         }
       >
         <GeneroDonut
-          hombres={
-            hasNonGenderFilter ? filteredDonutTotals.h : data.kpis.totalHombres
-          }
-          mujeres={
-            hasNonGenderFilter ? filteredDonutTotals.m : data.kpis.totalMujeres
-          }
-          sinClasificar={
-            hasNonGenderFilter
-              ? filteredDonutTotals.sc
-              : data.kpis.totalSinClasificar
-          }
+          hombres={filteredKpis.totalHombres}
+          mujeres={filteredKpis.totalMujeres}
+          sinClasificar={filteredKpis.totalSinClasificar}
         />
       </Panel>
 
@@ -939,9 +993,32 @@ function GeneroSection({
       <Panel
         className="lg:col-span-12"
         title="Detalle por categoría y recipient"
-        subtitle="Click en una categoría para ver sus recipients. Solo cortesías canjeadas tienen nombre nominado; el resto cae en 'Sin clasificar'."
+        subtitle={
+          hasEventoFilter
+            ? "Click en una categoría para ver sus recipients, y en un recipient para ver sus invitados. Solo cuentan las cortesías canjeadas, que son las que tienen nombre nominado."
+            : "Click en una categoría para ver sus recipients. Elige un evento en el filtro superior para ver el nombre y RUT de cada invitado."
+        }
+        actions={
+          <button
+            type="button"
+            onClick={handleDownloadInvitados}
+            disabled={filteredInvitados.length === 0}
+            title={
+              hasEventoFilter
+                ? undefined
+                : "Elige un evento para descargar sus invitados"
+            }
+            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Download className="h-4 w-4" />
+            Descargar invitados
+          </button>
+        }
       >
-        <GeneroTable categories={filteredCategories} />
+        <GeneroTable
+          categories={filteredCategories}
+          invitadosByRecipient={hasEventoFilter ? invitadosByRecipient : null}
+        />
       </Panel>
     </>
   );
@@ -1153,8 +1230,16 @@ function GeneroDonut({
   );
 }
 
-function GeneroTable({ categories }: { categories: FreesGeneroCategory[] }) {
+function GeneroTable({
+  categories,
+  invitadosByRecipient,
+}: {
+  categories: FreesGeneroCategory[];
+  /** null en la vista global: los recipients no se expanden. */
+  invitadosByRecipient: Map<string, FreesInvitadoRow[]> | null;
+}) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [expandedRec, setExpandedRec] = useState<Set<string>>(new Set());
 
   if (!categories.length) {
     return (
@@ -1174,13 +1259,28 @@ function GeneroTable({ categories }: { categories: FreesGeneroCategory[] }) {
     });
   }
 
+  function toggleRec(key: string) {
+    setExpandedRec((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  const canExpandRec = invitadosByRecipient !== null;
+
   return (
     <div className="overflow-hidden rounded-lg border border-[#E5E5E5]">
       <div className="max-h-[560px] overflow-auto">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
-              <Th>Categoría · Recipient</Th>
+              <Th>
+                {canExpandRec
+                  ? "Categoría · Recipient · Invitado"
+                  : "Categoría · Recipient"}
+              </Th>
               <Th align="right">Total</Th>
               <Th align="right">
                 <span className="inline-flex items-center gap-1.5">
@@ -1257,42 +1357,132 @@ function GeneroTable({ categories }: { categories: FreesGeneroCategory[] }) {
                     </td>
                   </tr>
                   {isOpen &&
-                    cat.recipients.map((rec) => (
-                      <tr
-                        key={`grec-${cat.label}-${rec.label}`}
-                        className="border-b border-[#E5E5E5] bg-[#FAFAFA]/60 transition-colors duration-150"
-                      >
-                        <td className="px-4 py-2.5 font-sans text-sm text-[#666666]">
-                          <span className="inline-flex items-center gap-2 pl-6">
-                            <span className="h-1 w-1 rounded-full bg-[#9F99F8]" />
-                            <span>{rec.label}</span>
-                          </span>
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
-                          {formatNumber(rec.total)}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
-                          {formatNumber(rec.hombres)}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
-                          {formatNumber(rec.mujeres)}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
-                          {formatNumber(rec.sinClasificar)}
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
-                          {rec.hombres + rec.mujeres > 0
-                            ? formatPercent(rec.pctMujeres)
-                            : "—"}
-                        </td>
-                      </tr>
-                    ))}
+                    cat.recipients.map((rec) => {
+                      const key = recipientKey(cat.label, rec.label);
+                      const recOpen = canExpandRec && expandedRec.has(key);
+                      return (
+                        <Fragment key={`grec-${key}`}>
+                          <tr
+                            className={`border-b border-[#E5E5E5] bg-[#FAFAFA]/60 transition-colors duration-150 ${
+                              canExpandRec ? "cursor-pointer hover:bg-[#FAFAFA]" : ""
+                            }`}
+                            onClick={() => canExpandRec && toggleRec(key)}
+                            aria-expanded={canExpandRec ? recOpen : undefined}
+                          >
+                            <td className="px-4 py-2.5 font-sans text-sm text-[#666666]">
+                              <span className="inline-flex items-center gap-2 pl-6">
+                                {canExpandRec ? (
+                                  <ChevronRight
+                                    className={`h-3 w-3 text-[#999999] transition-transform duration-150 ${
+                                      recOpen ? "rotate-90" : ""
+                                    }`}
+                                  />
+                                ) : (
+                                  <span className="h-1 w-1 rounded-full bg-[#9F99F8]" />
+                                )}
+                                <span>{rec.label}</span>
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
+                              {formatNumber(rec.total)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
+                              {formatNumber(rec.hombres)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#333333]">
+                              {formatNumber(rec.mujeres)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
+                              {formatNumber(rec.sinClasificar)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[#666666]">
+                              {rec.hombres + rec.mujeres > 0
+                                ? formatPercent(rec.pctMujeres)
+                                : "—"}
+                            </td>
+                          </tr>
+                          {recOpen && (
+                            <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]/60">
+                              <td colSpan={6} className="px-4 pb-4 pt-1">
+                                <InvitadosList
+                                  rows={invitadosByRecipient?.get(key) ?? []}
+                                />
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
                 </Fragment>
               );
             })}
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function InvitadosList({ rows }: { rows: FreesInvitadoRow[] }) {
+  if (!rows.length) {
+    return (
+      <p className="ml-12 py-2 font-sans text-xs text-[#999999]">
+        Sin invitados con el filtro de género actual.
+      </p>
+    );
+  }
+
+  return (
+    <div className="ml-12 overflow-hidden rounded-lg border border-[#E5E5E5] bg-white">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
+            <th className="px-4 py-2 text-left font-sans text-xs font-medium text-[#666666]">
+              Nombre
+            </th>
+            <th className="px-4 py-2 text-left font-sans text-xs font-medium text-[#666666]">
+              RUT
+            </th>
+            <th className="px-4 py-2 text-left font-sans text-xs font-medium text-[#666666]">
+              Género
+            </th>
+            <th className="px-4 py-2 text-right font-sans text-xs font-medium text-[#666666]">
+              Hora de ingreso
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r, i) => (
+            <tr
+              key={`inv-${r.rut}-${i}`}
+              className="border-b border-[#E5E5E5] transition-colors duration-150 last:border-b-0 hover:bg-[#FAFAFA]"
+            >
+              <td className="px-4 py-2 font-sans text-sm text-[#333333]">
+                {r.nombre || "—"}
+              </td>
+              <td className="px-4 py-2 font-sans text-sm tabular-nums text-[#666666]">
+                {r.rut || "—"}
+              </td>
+              <td className="px-4 py-2 font-sans text-sm text-[#666666]">
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    className="h-1.5 w-1.5 shrink-0 rounded-full"
+                    style={{ backgroundColor: GENERO_COLORS[r.genero] }}
+                  />
+                  {r.genero}
+                </span>
+              </td>
+              <td
+                className={`px-4 py-2 text-right font-sans text-sm tabular-nums ${
+                  r.horaIngreso ? "text-[#333333]" : "text-[#999999]"
+                }`}
+              >
+                {r.horaIngreso ?? "No ingresó"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }

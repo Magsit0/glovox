@@ -56,6 +56,9 @@ function mesFin(iso: string): string {
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
 // Alfanumérico (GLO203) o numérico Fever (660905) — como en categoriaEvento.
 const EVENTO_RE = /^([A-Z]{2,4}\d{2,4}|\d{5,6})$/;
+// Filtro de país del calendario (categoriaEvento.Pais). Lo aplica el cliente;
+// acá solo se valida el valor inicial que viene en la URL.
+const PAISES = new Set(["CL", "PE"]);
 
 type SearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -143,7 +146,7 @@ export default async function InversionMediosPage({
     // `dias` viaja hasta la fila para que el calendario marque TODOS los días del
     // evento en ámbar, no solo el primero (Bocas Moradas dura 2, FDS 3, Yein
     // Fonda 4). Ver lib/inversion-medios/evento.ts.
-    return { eventoId: id, nombre: c.nombre, fecha: c.fecha, dias: normDias(c.dias) };
+    return { eventoId: id, nombre: c.nombre, fecha: c.fecha, dias: normDias(c.dias), pais: c.pais };
   });
 
   const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee] =
@@ -157,6 +160,7 @@ export default async function InversionMediosPage({
     ]);
 
   const grid = mergeGrid({ eventos, from: desde, to: hasta, plan, real, budgetPm });
+  const paisParam = typeof sp.pais === "string" ? sp.pais.toUpperCase() : "";
 
   return (
     <InversionMediosPanel
@@ -173,6 +177,7 @@ export default async function InversionMediosPage({
       carddaConsumoSem={carddaConsumoSem}
       carddaFee={carddaFee}
       canEdit={canEdit}
+      paisInicial={PAISES.has(paisParam) ? paisParam : ""}
     />
   );
 }

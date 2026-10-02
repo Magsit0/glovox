@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-29T18:06:03.881999+00:00",
+  "generatedAt": "2026-09-29T20:23:18.584337+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -4750,6 +4750,29 @@
       "fields": []
     },
     {
+      "key": "marts.ventas_diarias_evento",
+      "area": "tickets",
+      "source": "legacy",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/views/marts_ventas_diarias_evento.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "glovox.tickets"
+      ],
+      "consumers": [
+        "glovox-produccion"
+      ],
+      "notes": "Venta pagada por EventoID × día de compra (tickets = COUNT(*), personas = SUM(PersonasPorTicket)), SIN columnas personales: es lo que lee glovox-produccion para no tocar glovox.tickets (email, RUT, teléfono). Pagado = MedioPago <> 'Otro' (NULL cuenta como venta) y EsDevuelto no TRUE: ESPEJO de la clase VENTA del CASE de glovox-data (lib/queries/curvas.ts / marketing.ts); si ese CASE cambia, cambia acá. Día = DATE(FechaOrden), que ya viene en hora local (misma convención que glovox-data). Uso en glovox-produccion (29-sep): la primera venta real = primer día con >=10 tickets pagados, que cierra la fecha clave «Salida a la venta» en la portada. source=legacy porque su upstream (glovox.tickets) es la scheduled query legacy.",
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
       "key": "marts.ga4_purchases",
       "area": "marketing",
       "source": "ga4",
@@ -4843,7 +4866,8 @@
         "/ticketing",
         "/reportes/grid-kiki-jw",
         "slack-data-agent",
-        "ticketsAndAABB.cierreEventos"
+        "ticketsAndAABB.cierreEventos",
+        "marts.ventas_diarias_evento"
       ],
       "notes": "LA tabla más crítica de la plataforma. Productor: scheduled query 'UPDATE glovox.tickets' (config 69a95835-0000-2ee8-910e-582429adf63c, owner info@glovox.cl, región us) que corre CADA HORA y fusiona PuntoTicket+TeleTicket+fever.order_items con un UNION ALL POSICIONAL de 3 bloques. Versionada en schemas/bigquery/views/glovox_tickets.sql (7-ago). Ojo: el id que figuraba como 'scheduled_query_6a7eafda-...' es un job/run id, NO el config. CAMBIO 28-ago — PERSONAS POR TICKET: 5 columnas nuevas al final (PersonasNominal, PersonasNominalDetectado, PackYaPartido, RegimenRevisar, PersonasPorTicket) que resuelven el fenómeno '1 fila ≠ 1 persona'. Hay tickets tipo pack multi-persona que algunas ticketeras NO partieron en una fila por asistente; PuntoTicket cambió de régimen a partir de GLO197. INVARIANTE para todo consumidor: SUM(PersonasPorTicket) = personas/asistentes, COUNT(*) = transacciones/tickets emitidos. Difieren en 6 eventos (GLO181, GLO197, GLO202, GLO207, GLP005, GLP006), +3.932 personas. El régimen NO se deduce del nombre del ticket: se decide por la paridad de filas por orden dentro de cada evento×tipo, y solo un catálogo de 12 nombres sancionados puede multiplicar (compuerta). Un pack NUEVO queda en 1 persona hasta que se agregue al catálogo: vigílalo con el watchdog W4 (PersonasNominalDetectado > 1 AND PersonasNominal = 1), documentado en el .sql. Las fuentes NO traen columna de cantidad ni teléfono del comprador (schema verificado 28-ago). GOTCHA preexistente: mezcla monedas (CLP/PEN) sin columna currency.",
       "metrics": [
