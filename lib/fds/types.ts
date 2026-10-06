@@ -52,3 +52,31 @@ export interface FdsGastosData {
   bucketLabels: Record<string, string>;
   sinMapear: { categoria: string; monto: number }[]; // categorías crudas sin match (van a "Otras")
 }
+
+// --- Ranking de sangucherías (stands de comida en Onfire) -------------------
+
+/** Venta de un stand en una edición. */
+export interface FdsStandVenta {
+  venta: number; // SUM(SubTotal) en onfire.soldItems
+  ordenes: number; // órdenes distintas del punto
+  rank: number; // posición dentro de la edición (1 = mayor venta)
+}
+
+/** Un stand de comida, unificado entre ediciones por nombre normalizado. */
+export interface FdsStand {
+  key: string; // nombre normalizado (sin tildes, minúsculas, con alias)
+  nombre: string; // nombre tal como figura en la edición más reciente
+  porEdicion: Record<string, FdsStandVenta>; // eventoId → venta de esa edición
+}
+
+export interface FdsRankingEdicion {
+  eventoId: string;
+  nombre: string;
+  totalStands: number; // venta sumada de todos los stands de la edición
+}
+
+export interface FdsRankingData {
+  editions: FdsRankingEdicion[]; // cronológico asc; solo ediciones con venta Onfire
+  stands: FdsStand[];
+  excluidos: string[]; // puntos descartados por ser barras o puntos internos
+}

@@ -3,9 +3,15 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
-import { getFdsGastosPorCategoria, getFdsHistorico } from "@/lib/queries/fds";
+import {
+  getFdsGastosPorCategoria,
+  getFdsHistorico,
+  getFdsRankingSangucherias,
+} from "@/lib/queries/fds";
 import FdsHistorico from "@/components/fds/FdsHistorico";
 import FdsGastosCategoria from "@/components/fds/FdsGastosCategoria";
+import FdsEsenciales from "@/components/fds/FdsEsenciales";
+import FdsRankingSangucherias from "@/components/fds/FdsRankingSangucherias";
 import MontoModeToggle from "@/components/MontoModeToggle";
 import { montoModeFrom } from "@/components/montoMode";
 
@@ -35,6 +41,7 @@ export default async function FdsPage({ searchParams }: PageProps) {
     return (
       <Shell>
         <Heading />
+        <FdsEsenciales />
         <div className="flex items-start gap-3 rounded-lg border border-[#ED75A0] bg-white p-6">
           <span className="mt-1.5 inline-block h-2 w-2 rounded-full bg-[#ED75A0]" />
           <p className="flex-1 font-sans text-sm text-[#333333]">
@@ -54,9 +61,18 @@ export default async function FdsPage({ searchParams }: PageProps) {
     gastos = null;
   }
 
+  // Igual que el baseline: el ranking de stands degrada a null sin tumbar la página.
+  let ranking = null;
+  try {
+    ranking = await getFdsRankingSangucherias();
+  } catch {
+    ranking = null;
+  }
+
   return (
     <Shell>
       <Heading />
+      <FdsEsenciales />
       {/* Switch neto/bruto: aplica a las cifras de finanzas (facturado, gasto
           por categoría). Las ventas de tickets/FFBB no cambian con el modo. */}
       <div className="flex items-end justify-between gap-3">
@@ -77,6 +93,7 @@ export default async function FdsPage({ searchParams }: PageProps) {
       ) : (
         <FdsHistorico rows={rows} />
       )}
+      {ranking && ranking.editions.length > 0 && <FdsRankingSangucherias data={ranking} />}
       {gastos && gastos.editions.length > 0 && <FdsGastosCategoria data={gastos} />}
     </Shell>
   );

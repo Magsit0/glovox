@@ -5,6 +5,9 @@ import type {
   FdsGastoEdicion,
   FdsGastosData,
   FdsHistoricoRow,
+  FdsRankingData,
+  FdsRankingEdicion,
+  FdsStand,
 } from "@/lib/fds/types";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
@@ -465,9 +468,124 @@ export async function getFdsGastosPorCategoria(
   return data;
 }
 
+// --- Ranking de sangucherías -----------------------------------------------
+
+const RANKING_SQL = `
+  WITH fds AS (
+    SELECT EventoID, ANY_VALUE(NombreGlovox) AS nombre
+    FROM ${CATEGORIA_EV}
+    WHERE UPPER(IFNULL(CategoriaEvento, '')) = 'FDS' AND EventoID IS NOT NULL
+    GROUP BY EventoID
+  )
+  SELECT
+    s.EventoID                                      AS eventoId,
+    ANY_VALUE(f.nombre)                             AS nombre,
+    FORMAT_DATE('%Y-%m-%d', DATE(MIN(s.HoraPedido))) AS fecha,
+    TRIM(s.NombrePunto)                             AS punto,
+    SUM(IFNULL(s.SubTotal, 0))                      AS venta,
+    COUNT(DISTINCT s.NumeroOrden)                   AS ordenes
+  FROM ${SOLD_ITEMS} s
+  JOIN fds f ON f.EventoID = s.EventoID
+  WHERE s.NombrePunto IS NOT NULL
+  GROUP BY s.EventoID, punto
+`;
+
+// Puntos que no son stands de sangucheros: barras/carros de tragos y cerveza
+// de producción, barra de vinos, y puntos internos de Onfire (cover, puerta,
+// abonos, bingo). "Barra de Pickles / By María" sí es un stand de comida.
+const NO_STAND_RE =
+  /^(barra|carro|combi|ambulantes)\b(?!.*pickles)|bocas moradas|^bingo$|^cover\b|^puerta\b|^abonos\b|plant store/;
+
+// Mismo stand con otro nombre entre ediciones (clave ya normalizada).
+const STAND_ALIAS: Record<string, string> = {
+  "bestias burger": "bestias",
+  "helados timaukel": "timaukel",
+  "barra de pickles by maria": "by maria",
+  "tukuy sonqo cafe especialida": "tukuy sonqo",
+  "tuku y sonqo": "tukuy sonqo",
+  "cara de pezkao": "cara de pezcado",
+};
+
+function standKey(nombre: string): string {
+  const k = nombre
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  return STAND_ALIAS[k] ?? k;
+}
+
+let rankingCache: { data: FdsRankingData; timestamp: number } | null = null;
+
+export async function getFdsRankingSangucherias(): Promise<FdsRankingData> {
+  const now = Date.now();
+  if (rankingCache && now - rankingCache.timestamp < CACHE_TTL_MS) {
+    return rankingCache.data;
+  }
+
+  const rows = await withTimeout(query<Record<string, unknown>>(RANKING_SQL));
+
+  const edMap = new Map<string, FdsRankingEdicion & { fecha: string }>();
+  const excluidos = new Set<string>();
+  const porEdicion = new Map<string, { key: string; nombre: string; venta: number; ordenes: number }[]>();
+
+  for (const r of rows) {
+    const s = serialize(r);
+    const eventoId = str(s.eventoId);
+    const punto = str(s.punto).replace(/\*/g, "").trim();
+    if (!punto) continue;
+    if (NO_STAND_RE.test(punto.toLowerCase())) {
+      excluidos.add(punto);
+      continue;
+    }
+    const venta = num(s.venta);
+    if (venta <= 0) continue;
+    if (!edMap.has(eventoId)) {
+      edMap.set(eventoId, { eventoId, nombre: str(s.nombre) || eventoId, totalStands: 0, fecha: str(s.fecha) });
+    }
+    edMap.get(eventoId)!.totalStands += venta;
+    // Dos puntos que normalizan al mismo stand en una edición se suman.
+    const key = standKey(punto);
+    const list = porEdicion.get(eventoId) ?? [];
+    const prev = list.find((p) => p.key === key);
+    if (prev) {
+      prev.venta += venta;
+      prev.ordenes += num(s.ordenes);
+    } else {
+      list.push({ key, nombre: punto, venta, ordenes: num(s.ordenes) });
+    }
+    porEdicion.set(eventoId, list);
+  }
+
+  const editions = [...edMap.values()].sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  // Recorre en orden cronológico para que el nombre visible quede el de la
+  // edición más reciente en que participó el stand.
+  const stands = new Map<string, FdsStand>();
+  for (const ed of editions) {
+    const list = (porEdicion.get(ed.eventoId) ?? []).sort((a, b) => b.venta - a.venta);
+    list.forEach((p, i) => {
+      const st = stands.get(p.key) ?? { key: p.key, nombre: p.nombre, porEdicion: {} };
+      st.porEdicion[ed.eventoId] = { venta: p.venta, ordenes: p.ordenes, rank: i + 1 };
+      st.nombre = p.nombre;
+      stands.set(p.key, st);
+    });
+  }
+
+  const data: FdsRankingData = {
+    editions: editions.map(({ eventoId, nombre, totalStands }) => ({ eventoId, nombre, totalStands })),
+    stands: [...stands.values()],
+    excluidos: [...excluidos].sort((a, b) => a.localeCompare(b, "es")),
+  };
+  rankingCache = { data, timestamp: now };
+  return data;
+}
+
 export function invalidateFdsCache(): void {
   optionsCache = null;
   historicoCache.clear();
   gastosCache.clear();
   catalogoOrdenCache = null;
+  rankingCache = null;
 }
