@@ -3,7 +3,14 @@
 import { Fragment, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { ChevronRight, Download, Inbox } from "lucide-react";
+import {
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ChevronRight,
+  Download,
+  Inbox,
+} from "lucide-react";
 import { motion } from "motion/react";
 import {
   Area,
@@ -64,7 +71,7 @@ function formatPercent(v: number): string {
   return percentFormatter.format(v);
 }
 
-type Tab = "ticketType" | "categoria" | "genero" | "celebrities";
+type Tab = "ticketType" | "categoria" | "genero" | "invitados" | "celebrities";
 
 const GENERO_COLORS: Record<string, string> = {
   Hombre: "#9F99F8",
@@ -88,6 +95,11 @@ const TABS: { key: Tab; label: string; description: string }[] = [
     label: "Detalle por categoría",
     description:
       "Distribución por género, hora de ingreso y detalle por categoría/recipient.",
+  },
+  {
+    key: "invitados",
+    label: "Invitados",
+    description: "Lista nominal de invitados y quién los invitó.",
   },
   {
     key: "celebrities",
@@ -126,6 +138,7 @@ export function FreesDashboard({
       case "categoria":
         return categoriaRows;
       case "genero":
+      case "invitados":
       case "celebrities":
         return [];
     }
@@ -210,6 +223,8 @@ export function FreesDashboard({
             invitados={data.invitados}
             eventoId={selectedEvent}
           />
+        ) : tab === "invitados" ? (
+          <InvitadosSection rows={data.invitados} eventoId={selectedEvent} />
         ) : tab === "celebrities" ? (
           <CelebritiesSection
             data={data.celebrities}
@@ -1503,6 +1518,222 @@ const CELEB_ESTADO_META: Record<
     text: "text-[#999999]",
   },
 };
+
+type InvitadoSortKey = "nombre" | "recipient";
+
+function InvitadosSection({
+  rows,
+  eventoId,
+}: {
+  rows: FreesInvitadoRow[];
+  eventoId: string;
+}) {
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState<{ key: InvitadoSortKey; asc: boolean }>({
+    key: "nombre",
+    asc: true,
+  });
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    const list = q
+      ? rows.filter(
+          (r) =>
+            r.nombre.toLowerCase().includes(q) ||
+            r.recipient.toLowerCase().includes(q) ||
+            r.rut.toLowerCase().includes(q),
+        )
+      : rows;
+    const dir = sort.asc ? 1 : -1;
+    const other: InvitadoSortKey = sort.key === "nombre" ? "recipient" : "nombre";
+    return [...list].sort(
+      (a, b) =>
+        dir * a[sort.key].localeCompare(b[sort.key], "es") ||
+        a[other].localeCompare(b[other], "es"),
+    );
+  }, [rows, search, sort]);
+
+  if (!eventoId) {
+    return (
+      <Panel
+        className="lg:col-span-12"
+        title="Invitados"
+        subtitle="Lista nominal de invitados y quién los invitó."
+      >
+        <div className="flex h-32 flex-col items-center justify-center gap-2 font-sans text-sm text-[#999999]">
+          <Inbox className="h-6 w-6" />
+          Elige un evento en el filtro superior para ver sus invitados.
+        </div>
+      </Panel>
+    );
+  }
+
+  const ingresaron = rows.filter((r) => r.horaIngreso).length;
+
+  function toggleSort(key: InvitadoSortKey) {
+    setSort((prev) =>
+      prev.key === key ? { key, asc: !prev.asc } : { key, asc: true },
+    );
+  }
+
+  function handleDownload() {
+    downloadCsv(
+      `invitados-${eventoId}`,
+      [
+        "Invitado",
+        "Invitado por",
+        "Categoría",
+        "RUT",
+        "Género",
+        "Hora de ingreso",
+      ],
+      filteredRows.map((r) => [
+        r.nombre,
+        r.recipient,
+        r.category,
+        r.rut,
+        r.genero,
+        r.horaIngreso ?? "No ingresó",
+      ]),
+    );
+  }
+
+  return (
+    <Panel
+      className="lg:col-span-12"
+      title="Invitados"
+      subtitle={`${formatNumber(rows.length)} invitados · ${formatNumber(ingresaron)} ingresaron. Una fila por cortesía canjeada; "Invitado por" es el recipient de la cortesía.`}
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar por invitado, quien invitó o RUT..."
+          className="w-full max-w-sm rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none"
+        />
+        {search.trim() && (
+          <span className="font-sans text-xs text-[#999999]">
+            {formatNumber(filteredRows.length)} de {formatNumber(rows.length)}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={handleDownload}
+          disabled={filteredRows.length === 0}
+          className="ml-auto inline-flex items-center gap-2 rounded-lg px-4 py-2 font-sans font-medium text-sm bg-[#9F99F8] text-white hover:bg-[#8780F0] cursor-pointer transition-colors duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Download className="h-4 w-4" />
+          Descargar CSV
+        </button>
+      </div>
+
+      {filteredRows.length === 0 ? (
+        <div className="flex h-32 flex-col items-center justify-center gap-2 font-sans text-sm text-[#999999]">
+          <Inbox className="h-6 w-6" />
+          Sin datos
+        </div>
+      ) : (
+        <div className="overflow-hidden rounded-lg border border-[#E5E5E5]">
+          <div className="max-h-[560px] overflow-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
+                  <SortTh
+                    label="Invitado"
+                    active={sort.key === "nombre"}
+                    asc={sort.asc}
+                    onClick={() => toggleSort("nombre")}
+                  />
+                  <SortTh
+                    label="Invitado por"
+                    active={sort.key === "recipient"}
+                    asc={sort.asc}
+                    onClick={() => toggleSort("recipient")}
+                  />
+                  <Th>Categoría</Th>
+                  <Th>RUT</Th>
+                  <Th>Género</Th>
+                  <Th align="right">Hora de ingreso</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.map((r, i) => (
+                  <tr
+                    key={`invt-${r.rut}-${i}`}
+                    className="border-b border-[#E5E5E5] transition-colors duration-150 hover:bg-[#FAFAFA]"
+                  >
+                    <td className="px-4 py-3 font-sans text-sm font-medium text-[#333333]">
+                      {r.nombre || "—"}
+                    </td>
+                    <td className="px-4 py-3 font-sans text-sm text-[#333333]">
+                      {r.recipient}
+                    </td>
+                    <td className="px-4 py-3 font-sans text-sm text-[#666666]">
+                      {r.category}
+                    </td>
+                    <td className="px-4 py-3 font-sans text-sm tabular-nums text-[#666666]">
+                      {r.rut || "—"}
+                    </td>
+                    <td className="px-4 py-3 font-sans text-sm text-[#666666]">
+                      <span className="inline-flex items-center gap-1.5">
+                        <span
+                          className="h-1.5 w-1.5 shrink-0 rounded-full"
+                          style={{ backgroundColor: GENERO_COLORS[r.genero] }}
+                        />
+                        {r.genero}
+                      </span>
+                    </td>
+                    <td
+                      className={`px-4 py-3 text-right font-sans text-sm tabular-nums ${
+                        r.horaIngreso ? "text-[#333333]" : "text-[#999999]"
+                      }`}
+                    >
+                      {r.horaIngreso ?? "No ingresó"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function SortTh({
+  label,
+  active,
+  asc,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  asc: boolean;
+  onClick: () => void;
+}) {
+  const Icon = !active ? ArrowUpDown : asc ? ArrowUp : ArrowDown;
+  return (
+    <th
+      className="sticky top-0 z-10 bg-[#FAFAFA] px-4 py-3 text-left font-sans text-xs font-medium text-[#666666]"
+      aria-sort={active ? (asc ? "ascending" : "descending") : "none"}
+    >
+      <button
+        type="button"
+        onClick={onClick}
+        className={`inline-flex cursor-pointer items-center gap-1 transition-colors hover:text-[#333333] ${
+          active ? "text-[#333333]" : ""
+        }`}
+      >
+        {label}
+        <Icon
+          className={`h-3 w-3 ${active ? "text-[#333333]" : "text-[#999999]"}`}
+        />
+      </button>
+    </th>
+  );
+}
 
 function CelebritiesSection({
   data,

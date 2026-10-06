@@ -287,18 +287,26 @@ export async function getEstructuraMensual(
 // negocio anterior/siguiente dentro de la categoría, así que cachear evita un
 // full-scan por cada informe abierto.
 // A diferencia de NEGOCIOS_SQL conserva cotizaciones y NV nulas (las filtra el
-// consumidor), pero los negocios internos area 'GLOVOX' quedan fuera SIEMPRE.
-let allNegociosCache: { data: NegocioRow[]; timestamp: number } | null = null;
+// consumidor). Los negocios internos area 'GLOVOX' quedan fuera por defecto
+// (regla de consumo del mart: solo rutas restringidas pueden mostrarlos);
+// `incluirInternos: true` los trae y SOLO puede usarse desde rutas gateadas a
+// superadmin — hoy únicamente /admin/negocios, que no expone montos.
+const allNegociosCache = new Map<string, { data: NegocioRow[]; timestamp: number }>();
 
 export async function getAllNegociosAdmin(
-  { timeoutMs = 30_000 }: { timeoutMs?: number } = {},
+  {
+    timeoutMs = 30_000,
+    incluirInternos = false,
+  }: { timeoutMs?: number; incluirInternos?: boolean } = {},
 ): Promise<NegocioRow[]> {
+  const cacheKey = incluirInternos ? "con-internos" : "sin-internos";
   const now = Date.now();
-  if (allNegociosCache && now - allNegociosCache.timestamp < NEGOCIOS_CACHE_TTL_MS) {
-    return allNegociosCache.data;
+  const cached = allNegociosCache.get(cacheKey);
+  if (cached && now - cached.timestamp < NEGOCIOS_CACHE_TTL_MS) {
+    return cached.data;
   }
   const sql = `${NEGOCIOS_SELECT}
-  WHERE NOT es_interno_glovox
+  ${incluirInternos ? "" : "WHERE NOT es_interno_glovox"}
   ORDER BY negocio_id DESC`;
   const queryPromise = query<Record<string, unknown>>(sql);
   const timeoutPromise = new Promise<never>((_, reject) =>
@@ -309,6 +317,6 @@ export async function getAllNegociosAdmin(
   );
   const rawRows = await Promise.race([queryPromise, timeoutPromise]);
   const clean = rawRows.map((row) => serializeRow(row) as unknown as NegocioRow);
-  allNegociosCache = { data: clean, timestamp: Date.now() };
+  allNegociosCache.set(cacheKey, { data: clean, timestamp: Date.now() });
   return clean;
 }

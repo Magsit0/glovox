@@ -10,7 +10,9 @@ export const dynamic = "force-dynamic";
 export default async function AdminNegociosPage() {
   await requireSuperadmin();
   const [negocios, marcasRows] = await Promise.all([
-    getAllNegociosAdmin(),
+    // Universo COMPLETO, incluidos los negocios internos GLOVOX: esta ruta es
+    // solo-superadmin (mismo nivel de acceso que /interno) y no expone montos.
+    getAllNegociosAdmin({ incluirInternos: true }),
     withNeonRetry(() => db.select().from(negocioVariableEnvio)),
   ]);
 
