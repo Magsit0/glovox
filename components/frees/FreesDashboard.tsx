@@ -7,7 +7,9 @@ import {
   ArrowDown,
   ArrowUp,
   ArrowUpDown,
+  Check,
   ChevronRight,
+  Copy,
   Download,
   Inbox,
 } from "lucide-react";
@@ -902,14 +904,25 @@ function GeneroSection({
   function handleDownloadInvitados() {
     downloadCsv(
       `invitados-${eventoId}`,
-      ["Categoría", "Recipient", "Nombre", "RUT", "Género", "Hora de ingreso"],
+      [
+        "Categoría",
+        "Recipient",
+        "Nombre",
+        "Código",
+        "RUT",
+        "Género",
+        "Hora de ingreso",
+        "Link de invitación",
+      ],
       filteredInvitados.map((r) => [
         r.category,
         r.recipient,
         r.nombre,
+        r.codigo,
         r.rut,
         r.genero,
         r.horaIngreso ?? "No ingresó",
+        r.link,
       ]),
     );
   }
@@ -1456,6 +1469,9 @@ function InvitadosList({ rows }: { rows: FreesInvitadoRow[] }) {
               Nombre
             </th>
             <th className="px-4 py-2 text-left font-sans text-xs font-medium text-[#666666]">
+              Código
+            </th>
+            <th className="px-4 py-2 text-left font-sans text-xs font-medium text-[#666666]">
               RUT
             </th>
             <th className="px-4 py-2 text-left font-sans text-xs font-medium text-[#666666]">
@@ -1464,16 +1480,22 @@ function InvitadosList({ rows }: { rows: FreesInvitadoRow[] }) {
             <th className="px-4 py-2 text-right font-sans text-xs font-medium text-[#666666]">
               Hora de ingreso
             </th>
+            <th className="px-4 py-2 text-right font-sans text-xs font-medium text-[#666666]">
+              Link
+            </th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
+          {rows.map((r) => (
             <tr
-              key={`inv-${r.rut}-${i}`}
+              key={`inv-${r.codigo}`}
               className="border-b border-[#E5E5E5] transition-colors duration-150 last:border-b-0 hover:bg-[#FAFAFA]"
             >
               <td className="px-4 py-2 font-sans text-sm text-[#333333]">
                 {r.nombre || "—"}
+              </td>
+              <td className="px-4 py-2 font-sans text-sm tabular-nums text-[#666666]">
+                {r.codigo || "—"}
               </td>
               <td className="px-4 py-2 font-sans text-sm tabular-nums text-[#666666]">
                 {r.rut || "—"}
@@ -1493,6 +1515,9 @@ function InvitadosList({ rows }: { rows: FreesInvitadoRow[] }) {
                 }`}
               >
                 {r.horaIngreso ?? "No ingresó"}
+              </td>
+              <td className="px-4 py-1.5 text-right">
+                <CopyLinkButton link={r.link} />
               </td>
             </tr>
           ))}
@@ -1541,6 +1566,7 @@ function InvitadosSection({
           (r) =>
             r.nombre.toLowerCase().includes(q) ||
             r.recipient.toLowerCase().includes(q) ||
+            r.codigo.toLowerCase().includes(q) ||
             r.rut.toLowerCase().includes(q),
         )
       : rows;
@@ -1582,18 +1608,22 @@ function InvitadosSection({
       [
         "Invitado",
         "Invitado por",
+        "Código",
         "Categoría",
         "RUT",
         "Género",
         "Hora de ingreso",
+        "Link de invitación",
       ],
       filteredRows.map((r) => [
         r.nombre,
         r.recipient,
+        r.codigo,
         r.category,
         r.rut,
         r.genero,
         r.horaIngreso ?? "No ingresó",
+        r.link,
       ]),
     );
   }
@@ -1609,7 +1639,7 @@ function InvitadosSection({
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Buscar por invitado, quien invitó o RUT..."
+          placeholder="Buscar por invitado, quien invitó, código o RUT..."
           className="w-full max-w-sm rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none"
         />
         {search.trim() && (
@@ -1651,16 +1681,18 @@ function InvitadosSection({
                     asc={sort.asc}
                     onClick={() => toggleSort("recipient")}
                   />
+                  <Th>Código</Th>
                   <Th>Categoría</Th>
                   <Th>RUT</Th>
                   <Th>Género</Th>
                   <Th align="right">Hora de ingreso</Th>
+                  <Th align="right">Link</Th>
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((r, i) => (
+                {filteredRows.map((r) => (
                   <tr
-                    key={`invt-${r.rut}-${i}`}
+                    key={`invt-${r.codigo}`}
                     className="border-b border-[#E5E5E5] transition-colors duration-150 hover:bg-[#FAFAFA]"
                   >
                     <td className="px-4 py-3 font-sans text-sm font-medium text-[#333333]">
@@ -1668,6 +1700,9 @@ function InvitadosSection({
                     </td>
                     <td className="px-4 py-3 font-sans text-sm text-[#333333]">
                       {r.recipient}
+                    </td>
+                    <td className="px-4 py-3 font-sans text-sm tabular-nums text-[#666666]">
+                      {r.codigo || "—"}
                     </td>
                     <td className="px-4 py-3 font-sans text-sm text-[#666666]">
                       {r.category}
@@ -1691,6 +1726,9 @@ function InvitadosSection({
                     >
                       {r.horaIngreso ?? "No ingresó"}
                     </td>
+                    <td className="px-4 py-2 text-right">
+                      <CopyLinkButton link={r.link} />
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1699,6 +1737,38 @@ function InvitadosSection({
         </div>
       )}
     </Panel>
+  );
+}
+
+function CopyLinkButton({ link }: { link: string }) {
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Sin permiso de portapapeles: el link queda visible en el title.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      disabled={!link}
+      title={link || "Sin link de invitación"}
+      aria-label={copied ? "Link copiado" : "Copiar link de invitación"}
+      className="inline-flex cursor-pointer items-center gap-1.5 whitespace-nowrap rounded-lg px-2.5 py-1.5 font-sans text-xs font-medium text-[#333333] transition-colors duration-150 hover:bg-[#F5F5F5] disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      {copied ? (
+        <Check className="h-3.5 w-3.5 text-[#B1D750]" />
+      ) : (
+        <Copy className="h-3.5 w-3.5 text-[#666666]" />
+      )}
+      {copied ? "Copiado" : "Copiar link"}
+    </button>
   );
 }
 

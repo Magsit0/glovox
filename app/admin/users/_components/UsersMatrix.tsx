@@ -10,6 +10,7 @@ import {
   setRoleAction,
 } from "../actions";
 import type { Country, Role } from "@/db/schema";
+import { DASHBOARD_GROUPS, byLabel } from "@/lib/dashboard-groups";
 
 type DashboardCatalog = {
   key: string;
@@ -38,6 +39,51 @@ const COUNTRY_OPTIONS: { value: string; label: string }[] = [
 // Celda de encabezado inmovilizada: fondo opaco propio (el bg del <tr> no viaja
 // con una celda sticky) + hairline inferior en la celda, no en el <tr>.
 const HEAD_CELL = "border-b border-[#E5E5E5] bg-[#FAFAFA]";
+
+// Hairline vertical que separa un segmento de dashboards del siguiente.
+const SEGMENT_EDGE = "border-l border-[#E5E5E5]";
+
+type Segment = { key: string; label: string; dashboards: DashboardCatalog[] };
+type MatrixColumn = { dashboard: DashboardCatalog; segmentStart: boolean };
+
+// "REPORTES ESTÁTICOS" -> "Reportes estáticos" (los titulos de la home vienen en
+// mayusculas; aca se muestran en sentence case y el header los sube por CSS).
+function sentenceCase(text: string): string {
+  const lower = text.toLocaleLowerCase("es");
+  return lower.charAt(0).toLocaleUpperCase("es") + lower.slice(1);
+}
+
+// Segmentos = los mismos grupos de la home (`lib/dashboard-groups.ts`). Todo va
+// en orden alfabetico (mismo criterio que la home): los segmentos entre si y los
+// dashboards dentro de cada uno, por el label que muestra la matriz. Lo que no
+// pertenece a ningun grupo cae en "Otros", que siempre va al final por ser el
+// cajon de sastre. Solo se listan dashboards presentes en el catalogo de la DB.
+function segmentCatalog(catalog: DashboardCatalog[]): Segment[] {
+  const byKey = new Map(catalog.map((d) => [d.key, d]));
+  const placed = new Set<string>();
+  const segments: Segment[] = [];
+  for (const group of DASHBOARD_GROUPS) {
+    const dashboards = group.members.flatMap((m) => {
+      const d = byKey.get(m.key);
+      if (!d || placed.has(d.key)) return [];
+      placed.add(d.key);
+      return [d];
+    });
+    if (dashboards.length > 0) {
+      segments.push({
+        key: group.key,
+        label: sentenceCase(group.title),
+        dashboards: dashboards.sort(byLabel),
+      });
+    }
+  }
+  segments.sort(byLabel);
+  const rest = catalog.filter((d) => !placed.has(d.key));
+  if (rest.length > 0) {
+    segments.push({ key: "otros", label: "Otros", dashboards: rest.sort(byLabel) });
+  }
+  return segments;
+}
 
 // Agrupacion visual por la empresa que hay detras del dominio del email:
 // alguien@glovox.cl -> Glovox, alguien@cencosud.cl -> Cencosud.
@@ -95,8 +141,18 @@ export function UsersMatrix({
 
   const groups = useMemo(() => groupByCompany(users), [users]);
   const companyCount = groups.filter((g) => g.company !== PERSONAL_LABEL).length;
+  const segments = useMemo(() => segmentCatalog(catalog), [catalog]);
+  // Columnas de dashboards en orden de segmento; `segmentStart` marca la
+  // primera de cada segmento para dibujar el separador vertical.
+  const columns = useMemo<MatrixColumn[]>(
+    () =>
+      segments.flatMap((seg) =>
+        seg.dashboards.map((d, i) => ({ dashboard: d, segmentStart: i === 0 })),
+      ),
+    [segments],
+  );
   // Email + Rol + Pais + Estado + accion, mas una columna por dashboard.
-  const totalCols = 5 + catalog.length;
+  const totalCols = 5 + columns.length;
 
   const run = (fn: () => Promise<void>) => {
     setError(null);
@@ -138,7 +194,7 @@ export function UsersMatrix({
 
       {showAdd ? (
         <AddUserForm
-          catalog={catalog}
+          segments={segments}
           disabled={isPending}
           onCancel={() => setShowAdd(false)}
           onSubmit={(input) =>
@@ -152,28 +208,55 @@ export function UsersMatrix({
 
       {/* Scroll en ambos ejes con encabezado y columna Email inmovilizados.
           border-separate: con border-collapse los bordes de las celdas sticky
-          no viajan con la celda al hacer scroll. */}
+          no viajan con la celda al hacer scroll. El encabezado tiene dos filas
+          (segmento / dashboard), asi que lo inmovilizado es el <thead> completo:
+          ambas filas viajan juntas sin calcular el alto de la primera. */}
       <div className="max-h-[600px] overflow-auto rounded-lg border border-[#E5E5E5] bg-white">
         <table className="w-full border-separate border-spacing-0 font-sans text-sm">
-          <thead>
+          <thead className="sticky top-0 z-20">
             <tr className="text-left text-xs uppercase tracking-wide text-[#666666]">
-              <th className={`sticky left-0 top-0 z-30 min-w-[220px] border-r ${HEAD_CELL} px-4 py-3`}>
+              <th
+                rowSpan={2}
+                className={`sticky left-0 z-10 min-w-[220px] border-r ${HEAD_CELL} px-4 py-3 align-bottom`}
+              >
                 Email
               </th>
-              <th className={`sticky top-0 z-20 ${HEAD_CELL} px-4 py-3`}>Rol</th>
-              <th className={`sticky top-0 z-20 ${HEAD_CELL} px-4 py-3`}>País</th>
-              {catalog.map((d) => (
+              <th rowSpan={2} className={`${HEAD_CELL} px-4 py-3 align-bottom`}>
+                Rol
+              </th>
+              <th rowSpan={2} className={`${HEAD_CELL} px-4 py-3 align-bottom`}>
+                País
+              </th>
+              {segments.map((seg) => (
+                <th
+                  key={seg.key}
+                  scope="colgroup"
+                  colSpan={seg.dashboards.length}
+                  className={`${HEAD_CELL} ${SEGMENT_EDGE} whitespace-nowrap px-2 py-2 text-center font-medium text-[#333333]`}
+                >
+                  {seg.label}
+                </th>
+              ))}
+              <th
+                rowSpan={2}
+                className={`${HEAD_CELL} ${SEGMENT_EDGE} px-4 py-3 align-bottom`}
+              >
+                Estado
+              </th>
+              <th rowSpan={2} className={`${HEAD_CELL} px-4 py-3`}></th>
+            </tr>
+            <tr className="uppercase tracking-wide text-[#666666]">
+              {columns.map(({ dashboard: d, segmentStart }) => (
                 <th
                   key={d.key}
-                  className={`sticky top-0 z-20 ${HEAD_CELL} px-2 py-3 text-center`}
+                  scope="col"
+                  className={`${HEAD_CELL} ${segmentStart ? SEGMENT_EDGE : ""} px-2 py-3 text-center`}
                 >
                   <div className="text-[10px] font-semibold leading-tight">
                     {d.label}
                   </div>
                 </th>
               ))}
-              <th className={`sticky top-0 z-20 ${HEAD_CELL} px-4 py-3`}>Estado</th>
-              <th className={`sticky top-0 z-20 ${HEAD_CELL} px-4 py-3`}></th>
             </tr>
           </thead>
           {groups.map((g) => (
@@ -199,7 +282,7 @@ export function UsersMatrix({
                 <UserMatrixRow
                   key={u.id}
                   user={u}
-                  catalog={catalog}
+                  columns={columns}
                   isMe={u.id === myId}
                   disabled={isPending}
                   run={run}
@@ -215,13 +298,13 @@ export function UsersMatrix({
 
 function UserMatrixRow({
   user,
-  catalog,
+  columns,
   isMe,
   disabled,
   run,
 }: {
   user: UserRow;
-  catalog: DashboardCatalog[];
+  columns: MatrixColumn[];
   isMe: boolean;
   disabled: boolean;
   run: (fn: () => Promise<void>) => void;
@@ -285,8 +368,11 @@ function UserMatrixRow({
         </select>
       </td>
 
-      {catalog.map((d) => (
-        <td key={d.key} className={`${cell} px-2 py-3 text-center`}>
+      {columns.map(({ dashboard: d, segmentStart }) => (
+        <td
+          key={d.key}
+          className={`${cell} ${segmentStart ? SEGMENT_EDGE : ""} px-2 py-3 text-center`}
+        >
           <input
             type="checkbox"
             checked={isSuperadmin || granted.has(d.key)}
@@ -298,7 +384,7 @@ function UserMatrixRow({
         </td>
       ))}
 
-      <td className={`${cell} px-4 py-3`}>
+      <td className={`${cell} ${SEGMENT_EDGE} px-4 py-3`}>
         {isRevoked ? (
           <span className="inline-flex rounded-full bg-[#FAFAFA] px-2 py-0.5 text-xs text-[#999999]">
             Revocado
@@ -346,12 +432,12 @@ function UserMatrixRow({
 }
 
 function AddUserForm({
-  catalog,
+  segments,
   disabled,
   onCancel,
   onSubmit,
 }: {
-  catalog: DashboardCatalog[];
+  segments: Segment[];
   disabled: boolean;
   onCancel: () => void;
   onSubmit: (input: {
@@ -434,22 +520,32 @@ function AddUserForm({
       </div>
 
       <div className="mt-4">
-        <p className="mb-2 text-xs text-[#666666]">Dashboards</p>
-        <div className="flex flex-wrap gap-3">
-          {catalog.map((d) => (
-            <label
-              key={d.key}
-              className="flex items-center gap-2 text-sm text-[#333333]"
-            >
-              <input
-                type="checkbox"
-                checked={role === "superadmin" || selectedKeys.has(d.key)}
-                disabled={role === "superadmin"}
-                onChange={() => toggle(d.key)}
-                className="h-4 w-4 accent-[#9F99F8]"
-              />
-              {d.label}
-            </label>
+        <p className="mb-3 text-xs text-[#666666]">Dashboards</p>
+        {/* Misma segmentacion que las columnas de la matriz. */}
+        <div className="flex flex-col gap-4">
+          {segments.map((seg) => (
+            <fieldset key={seg.key}>
+              <legend className="mb-2 text-xs font-medium text-[#333333]">
+                {seg.label}
+              </legend>
+              <div className="flex flex-wrap gap-x-4 gap-y-2">
+                {seg.dashboards.map((d) => (
+                  <label
+                    key={d.key}
+                    className="flex items-center gap-2 text-sm text-[#333333]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={role === "superadmin" || selectedKeys.has(d.key)}
+                      disabled={role === "superadmin"}
+                      onChange={() => toggle(d.key)}
+                      className="h-4 w-4 accent-[#9F99F8]"
+                    />
+                    {d.label}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
           ))}
         </div>
         {role === "superadmin" ? (

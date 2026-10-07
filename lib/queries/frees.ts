@@ -90,6 +90,10 @@ export type FreesInvitadoRow = {
   genero: "Hombre" | "Mujer" | "Sin clasificar";
   /** HH:MM del escaneo en puerta; null si el ticket no se usó. */
   horaIngreso: string | null;
+  /** CodigoPromocion del ticket = últimos 8 chars del link. */
+  codigo: string;
+  /** Link de invitación completo (cortesias.sellerLink). */
+  link: string;
 };
 
 export type FreesCelebEstado = "asistio" | "con_ticket" | "sin_ticket";
@@ -168,6 +172,7 @@ const JOIN_CTE = `
       linkType,
       externalId,
       assignedAt,
+      sellerLink,
       RIGHT(sellerLink, 8) AS promo
     FROM cortesias_dedup
     WHERE rn = 1
@@ -181,6 +186,7 @@ const JOIN_CTE = `
       cb.linkType,
       cb.externalId,
       cb.assignedAt,
+      cb.sellerLink,
       cb.promo,
       COUNT(t.CodigoPromocion) > 0 AS canjeada,
       ANY_VALUE(t.NombreNominado)   AS nombreNominado,
@@ -189,7 +195,7 @@ const JOIN_CTE = `
     FROM cortesias_base cb
     LEFT JOIN ${TICKETS} t
       ON t.CodigoPromocion = cb.promo
-    GROUP BY cb.id, cb.ticketType, cb.recipient, cb.category, cb.linkType, cb.externalId, cb.assignedAt, cb.promo
+    GROUP BY cb.id, cb.ticketType, cb.recipient, cb.category, cb.linkType, cb.externalId, cb.assignedAt, cb.sellerLink, cb.promo
   ),
   nombres_norm AS (
     SELECT
@@ -540,7 +546,9 @@ async function fetchInvitados(eventoId?: string): Promise<FreesInvitadoRow[]> {
       TRIM(IFNULL(nombreNominado, '')) AS nombre,
       IFNULL(rutNominado, '') AS rut,
       generoLabel AS genero,
-      FORMAT_DATETIME('%H:%M', horaQuemado) AS horaIngreso
+      FORMAT_DATETIME('%H:%M', horaQuemado) AS horaIngreso,
+      promo AS codigo,
+      IFNULL(sellerLink, '') AS link
     FROM cortesias_with_genero
     WHERE (${DELIVERED_FILTER}) AND canjeada
     ORDER BY category, recipient, nombre
@@ -555,6 +563,8 @@ async function fetchInvitados(eventoId?: string): Promise<FreesInvitadoRow[]> {
       rut: formatRut(s(r.rut)),
       genero: gen === "Hombre" || gen === "Mujer" ? gen : "Sin clasificar",
       horaIngreso: r.horaIngreso == null ? null : s(r.horaIngreso),
+      codigo: s(r.codigo),
+      link: s(r.link),
     };
   });
 }

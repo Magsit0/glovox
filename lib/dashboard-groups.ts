@@ -55,7 +55,23 @@ export interface DashboardGroup {
   /** view-transition-name del contenedor de contenido (hace el slide
    *  direccional al saltar entre hub y dashboards, y entre hermanos). */
   contentVt: string;
+  /** Orden alfabético por `label` (ver `alphabetical`): define el orden de las
+   *  cards del hub y de las pestañas del switcher. */
   members: GroupMember[];
+}
+
+/**
+ * Orden alfabético por `label`, mismo criterio que las cards de la home
+ * (`components/HomeDashboards.tsx`). Lo usan las cards del hub, las pestañas
+ * del switcher y las columnas del panel de admin (`/admin/users`).
+ */
+export function byLabel(a: { label: string }, b: { label: string }): number {
+  return a.label.localeCompare(b.label, "es", { sensitivity: "base" });
+}
+
+/** Los miembros se muestran en orden alfabético, no en el orden declarado. */
+function alphabetical(members: GroupMember[]): GroupMember[] {
+  return [...members].sort(byLabel);
 }
 
 export const MARKETING_GROUP: DashboardGroup = {
@@ -71,7 +87,7 @@ export const MARKETING_GROUP: DashboardGroup = {
   heroVt: "marketing-hero",
   navVt: "marketing-nav",
   contentVt: "marketing-content",
-  members: [
+  members: alphabetical([
     {
       key: "marketing.weekly",
       label: "VENTA DIARIA",
@@ -132,7 +148,7 @@ export const MARKETING_GROUP: DashboardGroup = {
       accentClass: "bg-[#E0218A]",
       accentText: "text-white",
     },
-  ],
+  ]),
 };
 
 export const FINANZAS_GROUP: DashboardGroup = {
@@ -148,7 +164,7 @@ export const FINANZAS_GROUP: DashboardGroup = {
   heroVt: "finanzas-hero",
   navVt: "finanzas-nav",
   contentVt: "finanzas-content",
-  members: [
+  members: alphabetical([
     {
       key: "cierre-mensual",
       label: "Cierre mensual",
@@ -188,7 +204,7 @@ export const FINANZAS_GROUP: DashboardGroup = {
       accentClass: "bg-[#607D8B]",
       accentText: "text-white",
     },
-  ],
+  ]),
 };
 
 export const REPORTES_GROUP: DashboardGroup = {
@@ -204,7 +220,7 @@ export const REPORTES_GROUP: DashboardGroup = {
   heroVt: "reportes-hero",
   navVt: "reportes-nav",
   contentVt: "reportes-content",
-  members: [
+  members: alphabetical([
     {
       key: "reportes.entel.the-grid",
       label: "Entel · The Grid",
@@ -225,7 +241,7 @@ export const REPORTES_GROUP: DashboardGroup = {
       accentClass: "bg-[#B1D750]",
       accentText: "text-black",
     },
-  ],
+  ]),
 };
 
 export const DASHBOARD_GROUPS: readonly DashboardGroup[] = [
