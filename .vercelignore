@@ -1,0 +1,30 @@
+# Qué NO sube `vercel --prod` / `vercel deploy` desde el CLI.
+#
+# Un deploy por Git (push a main) solo lleva lo trackeado en el repo, pero el
+# CLI sube la carpeta local completa y NO lee el .gitignore (solo este archivo
+# más sus defaults: node_modules, .next, .git, .vercel, .env.local…). Sin esto,
+# el 2026-10-07 un script local en docs/ con un import absoluto de la Mac
+# llegó al builder y rompió el type check de `next build`.
+#
+# Espeja las entradas LOCALES del .gitignore. Si agregas algo local al
+# .gitignore, agrégalo también acá.
+docs
+CONTEXTO-PROMPT.md
+.claude
+.agents
+.conductor
+.mcp.json
+*.tsbuildinfo
+BBDD_Entel_The_Grid_FINAL.xlsx
+ENTEL_THE_GRID_SYSTEM.html
+Consolidado Clases.pdf
+
+# Defaults del CLI, explícitos por si una versión los dejara de aplicar al
+# existir este archivo.
+node_modules
+.next
+.git
+.vercel
+.env.local
+.env.*.local
+.DS_Store

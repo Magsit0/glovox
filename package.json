@@ -7,6 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "check:deploy": "node scripts/check-deploy.mjs",
+    "preflight": "npm run check:deploy && npm run lint && npm run build",
     "db:generate": "dotenv -e .env.local -- drizzle-kit generate",
     "db:migrate:preflight": "dotenv -e .env.local -- node db/preflight-migrate.cjs __drizzle_migrations_data",
     "db:migrate": "npm run db:migrate:preflight && dotenv -e .env.local -- drizzle-kit migrate",
