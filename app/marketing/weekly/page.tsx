@@ -345,10 +345,21 @@ async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }
       : 0;
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      {/* Personas (SUM PersonasPorTicket) over the goal, plus the tickets the
+          ticketera actually issued (COUNT(*)) with how many of them are packs:
+          159 "PACK PARA 2" are 159 tickets but 318 personas, and without the
+          second unit on the card that gap reads as an error. */}
       <BrutalKpiCard
         label="Personas"
         value={kpis.totalTickets}
         suffix={`/${kpis.goalTickets.toLocaleString("es-CL")} (${soldPct}%)`}
+        secondary={{
+          label: "Tickets",
+          value:
+            kpis.packs > 0
+              ? `${kpis.totalTransactions.toLocaleString("es-CL")} (${kpis.packs.toLocaleString("es-CL")} packs)`
+              : kpis.totalTransactions.toLocaleString("es-CL"),
+        }}
       />
       <BrutalKpiCard
         label="Venta Tickets"

@@ -93,6 +93,16 @@ export const MARKETING_GROUP: DashboardGroup = {
       accentText: "text-white",
     },
     {
+      key: "marketing.compradores",
+      label: "COMPRADORES",
+      path: "/marketing/compradores",
+      description:
+        "Lista de contacto de asistentes (nombre, email y teléfono nominado) por evento, ventas y cortesías, con CSV descargable.",
+      icon: "book-user",
+      accentClass: "bg-[#8E24AA]",
+      accentText: "text-white",
+    },
+    {
       key: "paid-media",
       label: "PAID MEDIA",
       path: "/paid-media",

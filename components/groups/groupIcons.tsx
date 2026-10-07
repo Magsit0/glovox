@@ -1,4 +1,6 @@
 import {
+  BookUser,
+  Briefcase,
   Building2,
   Megaphone,
   Target,
@@ -26,6 +28,8 @@ export const GROUP_ICON_MAP: Record<string, LucideIcon> = {
   folder: Folder,
   "building-2": Building2,
   "trending-up": TrendingUp,
+  "book-user": BookUser,
+  briefcase: Briefcase,
 };
 
 export const FALLBACK_GROUP_ICON: LucideIcon = Ticket;

@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // docs/ es carpeta local de análisis (gitignored): ESLint no lee .gitignore.
+    "docs/**",
   ]),
   // Scripts CommonJS que corren con `node` directo (no pasan por el bundler de
   // Next): ahí `require()` es la forma correcta, no un import mal escrito.

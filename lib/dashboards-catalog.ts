@@ -80,6 +80,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentText: "text-white",
   },
   {
+    key: "marketing.compradores",
+    pathPrefix: "/marketing/compradores",
+    label: "Compradores",
+    appliesCountryScope: true,
+    sortOrder: 28,
+    title: "COMPRADORES",
+    description:
+      "Lista de contacto de asistentes (nombre, email y teléfono nominado) por evento, ventas y cortesías: CSV descargable y cobertura de datos por evento.",
+    icon: "book-user",
+    accentClass: "bg-[#8E24AA]",
+    accentText: "text-white",
+  },
+  {
     key: "lacava",
     pathPrefix: "/lacava",
     label: "La Cava",

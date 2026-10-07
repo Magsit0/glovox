@@ -7,6 +7,7 @@ import {
   buildDrillGrid,
   getAdsMetricasEvento,
   getBudgetPmMap,
+  getCampanasRecientes,
   getCarddaConsumoMensual,
   getCarddaConsumoSemanal,
   getCarddaFeeMensual,
@@ -149,7 +150,9 @@ export default async function InversionMediosPage({
     return { eventoId: id, nombre: c.nombre, fecha: c.fecha, dias: normDias(c.dias), pais: c.pais };
   });
 
-  const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee] =
+  // `campanasRecientes` no depende del rango cargado: es "qué corre ahora",
+  // anclado a la última fecha del mart.
+  const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee, campanasRecientes] =
     await Promise.all([
       getBudgetPmMap(ids),
       getTotalesEvento(ids),
@@ -157,6 +160,7 @@ export default async function InversionMediosPage({
       getCarddaConsumoMensual(),
       getCarddaConsumoSemanal(),
       getCarddaFeeMensual(),
+      getCampanasRecientes(),
     ]);
 
   const grid = mergeGrid({ eventos, from: desde, to: hasta, plan, real, budgetPm });
@@ -170,6 +174,7 @@ export default async function InversionMediosPage({
       totales={Object.fromEntries(totales)}
       noAtribuido={noAtribuido}
       noAtribuidoCampanas={noAtribuidoCampanas}
+      campanasRecientes={campanasRecientes}
       realMaxFecha={realMaxFecha}
       hoy={hoy}
       cargos={cargos}

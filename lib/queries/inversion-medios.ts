@@ -523,6 +523,142 @@ export async function getNoAtribuidoCampanasDiario(
   }));
 }
 
+export type CampanaReciente = {
+  plataforma: string;
+  campaignId: string;
+  /** Nombre más reciente (las campañas se renombran: el id es la identidad). */
+  campaignName: string;
+  objective: string;
+  /** Evento atribuido al nombre más reciente; null = "no atribuido". */
+  eventoId: string | null;
+  eventoNombre: string;
+  eventoFecha: string; // YYYY-MM-DD o ""
+  pais: string; // categoriaEvento.Pais ("" si no atribuido)
+  /** Primer día con gasto de la racha ACTUAL (se corta tras 7+ días sin gasto). */
+  desde: string;
+  /** Gasto USD por día con gasto, en la ventana de 14 días que termina en la
+   *  última fecha del mart. Los días sin gasto no vienen. */
+  dias: { fecha: string; usd: number }[];
+};
+
+/**
+ * Campañas con gasto en los últimos 7 días del mart, con su serie de 14 días —
+ * alimenta "Campañas activas" del calendario. El mart NO trae el estado de la
+ * campaña (activa/pausada) ni su presupuesto diario: "activa" se INFIERE del
+ * gasto declarado, y el corte activa/detenida lo hace el cliente.
+ * - Ancla = MAX(fecha) del mart (la misma que `getRealMaxFecha`), no "hoy": si
+ *   el pipeline de ads no corrió, la lista sigue mostrando lo último conocido.
+ * - Identidad = (plataforma, campaign_id): Google reutiliza y renombra campañas
+ *   (la PMax de FDS 2026 es la de FDS 25), así que nombre, objetivo y EventoID
+ *   salen de la fila más reciente con gasto.
+ * - Atribución: mismo predicado que getRealDiarioRango (evento existente y no
+ *   cancelado en categoriaEvento); si no calza, va a "no atribuido".
+ * - `desde` = inicio de la racha actual sobre TODO el historial: por eso no se
+ *   usa el primer gasto histórico, que para una campaña reutilizada daría el
+ *   año anterior.
+ */
+export async function getCampanasRecientes(): Promise<CampanaReciente[]> {
+  const rows = await query<Record<string, unknown>>(
+    `${REAL_BASE},
+    ref AS (SELECT MAX(fecha) AS d FROM ${MART}),
+    win AS (
+      SELECT
+        IFNULL(m.plataforma, '(null)') AS plataforma,
+        m.campaign_id, m.campaign_name, m.objective, m.EventoID, m.fecha, m.gasto_usd
+      FROM base m, ref
+      WHERE m.fecha BETWEEN DATE_SUB(ref.d, INTERVAL 13 DAY) AND ref.d
+        AND m.gasto_usd > 0
+    ),
+    -- Universo: campañas con gasto en los últimos 7 días (activas + detenidas).
+    vivas AS (
+      SELECT plataforma, campaign_id
+      FROM win, ref
+      WHERE win.fecha >= DATE_SUB(ref.d, INTERVAL 6 DAY)
+      GROUP BY plataforma, campaign_id
+    ),
+    camp AS (
+      SELECT
+        w.plataforma, w.campaign_id,
+        ARRAY_AGG(STRUCT(w.campaign_name, w.objective, w.EventoID) ORDER BY w.fecha DESC LIMIT 1)[OFFSET(0)] AS ult
+      FROM win w JOIN vivas v USING (plataforma, campaign_id)
+      GROUP BY w.plataforma, w.campaign_id
+    ),
+    serie AS (
+      SELECT d.plataforma, d.campaign_id,
+        ARRAY_AGG(STRUCT(FORMAT_DATE('%Y-%m-%d', d.fecha) AS fecha, d.usd AS usd) ORDER BY d.fecha) AS dias
+      FROM (
+        SELECT plataforma, campaign_id, fecha, SUM(gasto_usd) AS usd
+        FROM win GROUP BY plataforma, campaign_id, fecha
+      ) d
+      JOIN vivas v USING (plataforma, campaign_id)
+      GROUP BY d.plataforma, d.campaign_id
+    ),
+    -- Racha actual: 7+ días seguidos sin gasto (gap > 7) abren una racha nueva.
+    dias_gasto AS (
+      SELECT IFNULL(plataforma, '(null)') AS plataforma, campaign_id, fecha
+      FROM ${MART}
+      WHERE IFNULL(gasto, 0) > 0
+      GROUP BY plataforma, campaign_id, fecha
+    ),
+    rachas AS (
+      SELECT plataforma, campaign_id, fecha,
+        COUNTIF(gap IS NULL OR gap > 7)
+          OVER (PARTITION BY plataforma, campaign_id ORDER BY fecha) AS racha
+      FROM (
+        SELECT plataforma, campaign_id, fecha,
+          DATE_DIFF(fecha, LAG(fecha) OVER (PARTITION BY plataforma, campaign_id ORDER BY fecha), DAY) AS gap
+        FROM dias_gasto
+      )
+    ),
+    desde AS (
+      SELECT plataforma, campaign_id,
+        ARRAY_AGG(fecha ORDER BY racha DESC, fecha ASC LIMIT 1)[OFFSET(0)] AS desde
+      FROM rachas
+      GROUP BY plataforma, campaign_id
+    ),
+    cat AS (
+      SELECT EventoID, NombreGlovox, Fecha, Pais
+      FROM ${CATEGORY}
+      WHERE EventoID IS NOT NULL AND isCanceled IS NOT TRUE
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
+    )
+    SELECT
+      c.plataforma,
+      c.campaign_id,
+      IFNULL(c.ult.campaign_name, '(sin nombre)') AS campaign_name,
+      IFNULL(c.ult.objective, '')                 AS objective,
+      cat.EventoID                                AS evento_id,
+      cat.NombreGlovox                            AS evento_nombre,
+      FORMAT_DATE('%Y-%m-%d', cat.Fecha)          AS evento_fecha,
+      UPPER(IFNULL(cat.Pais, ''))                 AS pais,
+      FORMAT_DATE('%Y-%m-%d', d.desde)            AS desde,
+      s.dias
+    FROM camp c
+    JOIN serie s USING (plataforma, campaign_id)
+    LEFT JOIN desde d USING (plataforma, campaign_id)
+    LEFT JOIN cat ON cat.EventoID = c.ult.EventoID
+    `,
+  );
+  return rows.map((r) => {
+    const eventoId = s(r.evento_id);
+    return {
+      plataforma: s(r.plataforma),
+      campaignId: s(r.campaign_id),
+      campaignName: s(r.campaign_name),
+      objective: s(r.objective),
+      eventoId: eventoId || null,
+      eventoNombre: s(r.evento_nombre),
+      eventoFecha: s(r.evento_fecha),
+      pais: s(r.pais),
+      desde: s(r.desde),
+      dias: (Array.isArray(r.dias) ? (r.dias as Record<string, unknown>[]) : []).map((d) => ({
+        fecha: s(d.fecha),
+        usd: n(d.usd),
+      })),
+    };
+  });
+}
+
 /** Extensión del gasto real de UN evento en el mart: [min, max] o null. */
 export async function getRealExtentEvento(
   eventoId: string,

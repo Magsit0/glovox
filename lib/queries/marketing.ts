@@ -241,6 +241,12 @@ export type EventOption = {
 
 export type EventKpiRow = {
   totalTickets: number;
+  // COUNT(*) of the same rows: tickets issued by the ticketera. A "PACK PARA 2"
+  // is ONE ticket worth 2 personas, so this is always <= totalTickets. Shown
+  // under "Personas" so the gap between tickets and people is visible.
+  totalTransactions: number;
+  // Rows worth more than one person: COUNTIF(PersonasPorTicket > 1).
+  packs: number;
   // Net ticket revenue = SUM(Precio - Descuento). Excludes CargoServicio (the
   // platform's service fee), which is reported separately so this number lines
   // up with what the ticketera reports for "venta de tickets".
@@ -486,6 +492,8 @@ async function getEventKpisImpl(
         SUM(t.PersonasPorTicket) AS total_tickets,
         -- Raw transaction count. Used by CPA so the per-purchase economics stay intact.
         COUNT(*)                        AS total_transactions,
+        -- Pack ROWS (one pack sold = one ticket worth >1 person). Annotation only.
+        COUNTIF(t.PersonasPorTicket > 1) AS packs,
         -- Net ticket revenue: face value minus any per-row discount, excluding
         -- the service fee (which is exposed separately as cargo_servicio). This
         -- matches what the ticketera reports as "venta de tickets".
@@ -515,6 +523,8 @@ async function getEventKpisImpl(
     )
     SELECT
       ts.total_tickets,
+      ts.total_transactions,
+      ts.packs,
       ts.total_revenue,
       ts.cargo_servicio,
       ts.avg_price,
@@ -535,6 +545,8 @@ async function getEventKpisImpl(
   const r = rows[0] ?? {};
   return {
     totalTickets: n(r.total_tickets),
+    totalTransactions: n(r.total_transactions),
+    packs: n(r.packs),
     totalRevenue: n(r.total_revenue),
     cargoServicio: n(r.cargo_servicio),
     avgPrice: n(r.avg_price),

@@ -14,6 +14,7 @@ import {
   Lock,
   AlertCircle,
   X,
+  BookUser,
   BottleWine,
   Briefcase,
   Building2,
@@ -85,6 +86,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   folder: Folder,
   "building-2": Building2,
   "trending-up": TrendingUp,
+  "book-user": BookUser,
 };
 
 const TITLE_MAX = 80;

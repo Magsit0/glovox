@@ -22,6 +22,7 @@ import {
   YAxis,
 } from "recharts";
 import type {
+  CampanaReciente,
   CarddaConsumoRow,
   CarddaFeeRow,
   DayCell,
@@ -52,6 +53,7 @@ import { nivelPayday, PAYDAY_HEAD, paydayCell, tituloPayday } from "@/lib/invers
 import { deleteCargoAction, upsertCargoAction } from "../actions";
 import { fmtDiaCorto, fmtUsd } from "./format";
 import SubtotalRango from "./SubtotalRango";
+import CampanasActivas from "./CampanasActivas";
 
 type Props = {
   desde: string; // YYYY-MM-DD, inicio del rango cargado
@@ -62,6 +64,8 @@ type Props = {
   noAtribuido: NoAtribuidoRow[];
   /** Gasto diario por campaña del grupo "no atribuido" (sub-filas desplegables). */
   noAtribuidoCampanas: NoAtribuidoCampanaDia[];
+  /** Campañas con gasto en los últimos 7 días del mart ("Campañas activas"). */
+  campanasRecientes: CampanaReciente[];
   realMaxFecha: string;
   hoy: string;
   cargos: CargoExtra[];
@@ -109,6 +113,7 @@ export default function InversionMediosPanel({
   totales,
   noAtribuido,
   noAtribuidoCampanas,
+  campanasRecientes,
   realMaxFecha,
   hoy,
   cargos,
@@ -506,6 +511,15 @@ export default function InversionMediosPanel({
       ) : (
         <CanalResumen canal={canal} rangoLabel={rangoLabel} noAtribuido={kpis.na} />
       )}
+
+      {/* Qué campañas están corriendo AHORA (gasto de los 2 últimos días del
+          mart). No sigue el tramo del calendario: ancla en la última fecha. */}
+      <CampanasActivas
+        campanas={campanasRecientes}
+        realMaxFecha={realMaxFecha}
+        hoy={hoy}
+        pais={pais}
+      />
 
       {/* Calendario. `isolate`: contiene los sticky internos (z-10/20/30) en su
           propio stacking context para que no pinten sobre la GroupNav (z-30). */}

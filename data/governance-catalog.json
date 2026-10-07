@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-29T20:23:18.584337+00:00",
+  "generatedAt": "2026-10-07T16:27:40.391900+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -3553,7 +3553,7 @@
         "finanzas.reconciliacion_venta_aceptados"
       ],
       "consumers": [],
-      "notes": "Auditoría append-only del chequeo diario de reconciliación de venta (documentado vs total_facturado del maestro). Corre pegado al final de unabase_ingesta.run(); appendea las filas descuadradas/stopgap de cada corrida y postea a Slack (Incoming Webhook, secret slack-alerts-webhook) SOLO ante divergencias nuevas no aceptadas o regresión STOPGAP. Best-effort: no rompe la ingesta si falla.",
+      "notes": "Auditoría append-only del chequeo diario de reconciliación de venta (documentado vs total_facturado del maestro). Corre pegado al final de unabase_ingesta.run(); appendea las filas descuadradas/stopgap de cada corrida y postea a Slack (Incoming Webhook, secret slack-alerts-webhook) SOLO ante divergencias nuevas no aceptadas o regresión STOPGAP. Excluye los negocios internos GLOVOX (es_interno_glovox; la regla de consumo solo los permite en /interno). Best-effort: no rompe la ingesta si falla.",
       "metrics": [
         "Historial diario de negocios con venta documentada ≠ maestro",
         "Tripwire de regresión STOPGAP (endpoint sin items[])"
@@ -3638,7 +3638,7 @@
         "marts.finanzas_gastos"
       ],
       "consumers": [],
-      "notes": "Snapshot diario por negocio del gasto documentado (item_costo_empresa) + líneas Error#53. NO reconcilia contra costo_real (referencia no confiable: difiere en ~195 negocios sin causa única). Son TRIPWIRES de regresión comparando cada corrida vs la anterior: canary si el conteo de líneas Error#53 salta, y saltos anómalos del gasto documentado por negocio (duplicación/bug de ingesta). Postea a Slack (secret slack-alerts-webhook) solo al disparar. Best-effort.",
+      "notes": "Snapshot diario por negocio del gasto documentado (item_costo_empresa) + líneas Error#53. NO reconcilia contra costo_real (referencia no confiable: difiere en ~195 negocios sin causa única). Son TRIPWIRES de regresión comparando cada corrida vs la anterior: canary si el conteo de líneas Error#53 salta, y saltos anómalos del gasto documentado por negocio (duplicación/bug de ingesta). Postea a Slack (secret slack-alerts-webhook) solo al disparar. Excluye los negocios internos GLOVOX (es_interno_glovox; la regla de consumo solo los permite en /interno). Best-effort.",
       "metrics": [
         "Snapshot diario del gasto documentado por negocio",
         "Canary de corrupción Error#53 + saltos anómalos de gasto"
@@ -3686,6 +3686,114 @@
           "type": "TIMESTAMP",
           "mode": "NULLABLE",
           "description": "Timestamp UTC de la carga (= check_ts)."
+        }
+      ]
+    },
+    {
+      "key": "finanzas.alerta_oc_log",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Derivada — resumen pipelines/finanzas/unabase/alerta_oc.py",
+      "pipeline": "pipelines/finanzas/unabase/alerta_oc.py",
+      "schema": "finanzas_alerta_oc_log",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [
+        "marts.finanzas_negocios",
+        "marts.finanzas_presupuesto_items",
+        "marts.finanzas_gastos"
+      ],
+      "consumers": [],
+      "notes": "Snapshot por negocio del resumen diario de OCs y facturas de eventos propios (pedido del P&L, oct-2026): ítems del presupuesto sin OC (solo compras abiertas), OCs sin factura (justificado = FALSE) y OCs pagadas sin factura. Corre pegado al final de unabase_ingesta.run() (también los días sin IDs) y postea a #data-alerts (secret slack-alerts-webhook) una vez por día hábil; el propio log hace de tope de envío. Best-effort.",
+      "metrics": [],
+      "endpointLabel": "Derivada — resumen pipelines/finanzas/unabase/alerta_oc.py",
+      "fields": [
+        {
+          "name": "check_ts",
+          "type": "TIMESTAMP",
+          "mode": "REQUIRED",
+          "description": "Timestamp UTC del envío del resumen diario de OCs (1 envío por día hábil)."
+        },
+        {
+          "name": "negocio_id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "Negocio de producción propia vigente con algún pendiente (ítems sin OC con compras abiertas, u OCs sin factura)."
+        },
+        {
+          "name": "referencia",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Referencia del negocio (contexto)."
+        },
+        {
+          "name": "compras_abiertas",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "TRUE si el negocio tiene las compras abiertas en Unabase (closed_compras <> 'True'). Solo en ese caso se alertan los ítems sin OC."
+        },
+        {
+          "name": "items_presupuesto",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Líneas hoja del presupuesto con gasto presupuestado > 0 (deduplicadas por llave_item)."
+        },
+        {
+          "name": "items_con_oc",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "De esas líneas, cuántas tienen al menos un gasto no anulado (OC o rendición FXR) imputado por llave_item."
+        },
+        {
+          "name": "presupuesto_gasto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Gasto presupuestado total de las líneas (neto)."
+        },
+        {
+          "name": "presupuesto_gasto_con_oc",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Gasto presupuestado de las líneas que ya tienen OC o rendición (neto)."
+        },
+        {
+          "name": "ocs",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "OCs no anuladas del negocio (tipo_gasto_item = 'OC')."
+        },
+        {
+          "name": "ocs_sin_factura",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "OCs no anuladas con justificado = FALSE (sin factura asociada)."
+        },
+        {
+          "name": "monto_sin_factura",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Gasto neto de las OCs sin factura."
+        },
+        {
+          "name": "dias_oc_sin_factura_mas_antigua",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "Días desde la fecha de la OC sin factura más antigua (hora de Chile)."
+        },
+        {
+          "name": "ocs_pagadas_sin_factura",
+          "type": "INT64",
+          "mode": "NULLABLE",
+          "description": "OCs en estado PAGADA sin factura: se pagó sin respaldo."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga (= check_ts; redundante para consistencia con el resto de tablas)."
         }
       ]
     },
@@ -4861,6 +4969,7 @@
         "/frees",
         "/marketing/weekly",
         "/marketing/curvas",
+        "/marketing/compradores",
         "/inversion-medios",
         "/onepager",
         "/ticketing",
@@ -4869,7 +4978,7 @@
         "ticketsAndAABB.cierreEventos",
         "marts.ventas_diarias_evento"
       ],
-      "notes": "LA tabla más crítica de la plataforma. Productor: scheduled query 'UPDATE glovox.tickets' (config 69a95835-0000-2ee8-910e-582429adf63c, owner info@glovox.cl, región us) que corre CADA HORA y fusiona PuntoTicket+TeleTicket+fever.order_items con un UNION ALL POSICIONAL de 3 bloques. Versionada en schemas/bigquery/views/glovox_tickets.sql (7-ago). Ojo: el id que figuraba como 'scheduled_query_6a7eafda-...' es un job/run id, NO el config. CAMBIO 28-ago — PERSONAS POR TICKET: 5 columnas nuevas al final (PersonasNominal, PersonasNominalDetectado, PackYaPartido, RegimenRevisar, PersonasPorTicket) que resuelven el fenómeno '1 fila ≠ 1 persona'. Hay tickets tipo pack multi-persona que algunas ticketeras NO partieron en una fila por asistente; PuntoTicket cambió de régimen a partir de GLO197. INVARIANTE para todo consumidor: SUM(PersonasPorTicket) = personas/asistentes, COUNT(*) = transacciones/tickets emitidos. Difieren en 6 eventos (GLO181, GLO197, GLO202, GLO207, GLP005, GLP006), +3.932 personas. El régimen NO se deduce del nombre del ticket: se decide por la paridad de filas por orden dentro de cada evento×tipo, y solo un catálogo de 12 nombres sancionados puede multiplicar (compuerta). Un pack NUEVO queda en 1 persona hasta que se agregue al catálogo: vigílalo con el watchdog W4 (PersonasNominalDetectado > 1 AND PersonasNominal = 1), documentado en el .sql. Las fuentes NO traen columna de cantidad ni teléfono del comprador (schema verificado 28-ago). GOTCHA preexistente: mezcla monedas (CLP/PEN) sin columna currency.",
+      "notes": "LA tabla más crítica de la plataforma. Productor: scheduled query 'UPDATE glovox.tickets' (config 69a95835-0000-2ee8-910e-582429adf63c, owner info@glovox.cl, región us) que corre CADA HORA y fusiona PuntoTicket+TeleTicket+fever.order_items con un UNION ALL POSICIONAL de 3 bloques. Versionada en schemas/bigquery/views/glovox_tickets.sql (7-ago). Ojo: el id que figuraba como 'scheduled_query_6a7eafda-...' es un job/run id, NO el config. CAMBIO 28-ago — PERSONAS POR TICKET: 5 columnas nuevas al final (PersonasNominal, PersonasNominalDetectado, PackYaPartido, RegimenRevisar, PersonasPorTicket) que resuelven el fenómeno '1 fila ≠ 1 persona'. Hay tickets tipo pack multi-persona que algunas ticketeras NO partieron en una fila por asistente; PuntoTicket cambió de régimen a partir de GLO197. INVARIANTE para todo consumidor: SUM(PersonasPorTicket) = personas/asistentes, COUNT(*) = transacciones/tickets emitidos. Difieren en 6 eventos (GLO181, GLO197, GLO202, GLO207, GLP005, GLP006), +3.932 personas. El régimen NO se deduce del nombre del ticket: se decide por la paridad de filas por orden dentro de cada evento×tipo, y solo un catálogo de nombres sancionados puede multiplicar (compuerta; 12 nombres el 28-ago, 14 desde el 7-oct: se sumaron 'PACK PARA 2 TODA HORA' y 'PACK PARA 2 ALMUERZO HASTA LAS 15:30' de FDS 26 / GLO213, que subcontaban 140 personas). Un pack NUEVO queda en 1 persona hasta que se agregue al catálogo: vigílalo con el watchdog W4 (PersonasNominalDetectado > 1 AND PersonasNominal = 1), documentado en el .sql. Mismo día se subió el umbral NO PARTIDO de la Capa 2 de 15% a 25% de órdenes pares (autorizado por Maxi): con pocas órdenes los compradores de 2 packs pesaban y FDS 26 caía en zona gris; medido, ningún grupo aprobado vive entre 17,6% y 100%. OJO: W4 NO ve variantes con sufijo horario (la regla (D) exige fin de string o palabra de admisión tras el número, y HASTA es veto), así que revisa también W2 cuando un evento nuevo salga a la venta. Las fuentes NO traen columna de cantidad ni teléfono del comprador (schema verificado 28-ago). GOTCHA preexistente: mezcla monedas (CLP/PEN) sin columna currency.",
       "metrics": [
         "Ventas, cortesías y pases por evento",
         "Ticket promedio, asistentes, per cápita"
@@ -5137,6 +5246,7 @@
         "/ticketing",
         "/onepager",
         "/marketing/weekly",
+        "/marketing/compradores",
         "/cierre-trimestral",
         "glovox-produccion"
       ],
@@ -5334,21 +5444,164 @@
       "area": "ffbb",
       "source": "onfire",
       "endpoint": "OnFire POS — ítems vendidos en evento",
-      "pipeline": null,
-      "schema": null,
+      "pipeline": "pipelines/ffbb/onfire/onfire_solditems.py",
+      "schema": "onfire_soldItems",
       "assetType": "table",
       "status": "pending",
       "owner": null,
       "upstream": [],
       "consumers": [
         "/ffbb",
-        "/onepager"
+        "/onepager",
+        "ticketsAndAABB.cierreEventos",
+        "ffbb.venta_items"
       ],
-      "notes": "Dominio FFBB sin migrar (Fase 3 del PLAN).",
+      "notes": "Dominio FFBB sin migrar a ffbb (Fase 3 del PLAN); el pipeline ya está en el repo y escribe acá. HoraPedido NO es UTC: es el reloj de OnFire, UTC−3 FIJO (sin horario de invierno), rotulado UTC; instante real = HoraPedido + 3 h, lo calcula ffbb.venta_items.",
       "metrics": [
         "Consumo y venta de barra (FF&BB)"
       ],
       "endpointLabel": "OnFire POS — ítems vendidos en evento",
+      "fields": [
+        {
+          "name": "PartyID",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Identificador de la fiesta en OnFire (formato A<OnfireID>_<hash>). Clave de recarga: el pipeline borra y reescribe por PartyID."
+        },
+        {
+          "name": "EventoID",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "EventoID Glovox (GLOxxx). NO viene del API: se resuelve contra onfire.partyID."
+        },
+        {
+          "name": "OnfireID",
+          "type": "INTEGER",
+          "mode": "NULLABLE",
+          "description": "Id numérico de la fiesta en OnFire (el número que sigue a la 'A' en el PartyID). Se resuelve contra onfire.partyID."
+        },
+        {
+          "name": "Origen",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Canal de venta: PRESENCIAL (caja) o APP. API: source."
+        },
+        {
+          "name": "UsuarioID",
+          "type": "INTEGER",
+          "mode": "NULLABLE",
+          "description": "Id del usuario comprador cuando la venta viene de la app; 0 en venta presencial. API: userId."
+        },
+        {
+          "name": "CodigoCajero",
+          "type": "INTEGER",
+          "mode": "NULLABLE",
+          "description": "Id del equipo de caja que tomó el pedido. API: teamCashID."
+        },
+        {
+          "name": "PuntoID",
+          "type": "INTEGER",
+          "mode": "NULLABLE",
+          "description": "Id del punto de venta / barra. API: spotID."
+        },
+        {
+          "name": "NombrePunto",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre de la barra o punto de venta (ej. 'Barra Entel', 'Guardarropia'). API: spotName."
+        },
+        {
+          "name": "NumeroOrden",
+          "type": "INTEGER",
+          "mode": "NULLABLE",
+          "description": "Id de la orden en OnFire. Se repite en cada línea de producto de la misma orden. API: orderID."
+        },
+        {
+          "name": "HoraPedido",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Momento del pedido. OJO: el API lo entrega sin zona horaria y se carga tal cual: es el reloj de OnFire, UTC−3 FIJO (no aplica el horario de invierno de Chile: igual a Chile en verano, +1 h en invierno), rotulado UTC. Instante real = HoraPedido + 3 h (lo calcula ffbb.venta_items). cierreEventos y el onepager de glovox-data usan el reloj tal cual con −6 h para la fecha del evento; ffbb.ts, fds.ts y grid-kiki.ts de glovox-data lo tratan como hora de Chile (1 h corrido en invierno)."
+        },
+        {
+          "name": "Barman",
+          "type": "INTEGER",
+          "mode": "NULLABLE",
+          "description": "Id del barman que atendió; 0 cuando no se registra. API: teamBarmanID."
+        },
+        {
+          "name": "CodigoFormaPago",
+          "type": "INTEGER",
+          "mode": "NULLABLE",
+          "description": "Código de medio de pago de OnFire. Sin tabla de equivalencias: por eso ffbb.venta_items deja medio_pago en NULL para este proveedor. API: paymentMethodID."
+        },
+        {
+          "name": "Normal",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Total del carrito completo (se repite en cada línea de la orden, NO sumar directo). API: orderTotal."
+        },
+        {
+          "name": "Categoria",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Categoría del producto (CERVEZA, GIN, PROMOS, VASO, ON-FIRE, COMIDA...). API: details[].productCategory."
+        },
+        {
+          "name": "Producto",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Nombre del producto vendido. API: details[].productName."
+        },
+        {
+          "name": "Cantidad",
+          "type": "INTEGER",
+          "mode": "NULLABLE",
+          "description": "Unidades vendidas en la línea. API: details[].quantity."
+        },
+        {
+          "name": "Precio",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Precio unitario de la línea. API: details[].price."
+        },
+        {
+          "name": "SubTotal",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Venta de la línea (Precio × Cantidad). Es el campo a sumar para venta FF&BB. Monto bruto, IVA incluido. API: details[].subTotal."
+        },
+        {
+          "name": "HoraEntrega",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "LEGACY: columna heredada de las cargas manuales por parquet (anteriores a 2026). El API de party/details no expone hora de entrega, así que el pipeline la deja NULL. Candidata a eliminar."
+        }
+      ]
+    },
+    {
+      "key": "ffbb.venta_items",
+      "area": "ffbb",
+      "source": "app",
+      "endpoint": "Vista BQ",
+      "pipeline": "schemas/bigquery/ffbb_venta_items.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [
+        "onfire.soldItems",
+        "ffbb.motiondisplays_carts",
+        "ffbb.motiondisplays_carts_items",
+        "ffbb.eventoMap"
+      ],
+      "consumers": [
+        "glovox-operaciones"
+      ],
+      "notes": "Venta FF&BB unificada (OnFire + Motion Displays). fecha_hora es el INSTANTE real en los dos proveedores (OnFire: reloj UTC−3 fijo + 3 h); fecha_evento = hora de Chile − 6 h. Motion entra con su detalle vigente y lo cobrado (cuentas abiertas de Mesas VIP), más una fila sin producto por cada pago: SUM(subtotal) = lo pagado = el dashboard de Motion. Ver docs/data-catalog.md.",
+      "metrics": [],
+      "endpointLabel": "Vista BQ",
       "fields": []
     },
     {
