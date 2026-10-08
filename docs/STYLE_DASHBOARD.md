@@ -565,11 +565,13 @@ colors the manual never listed as accents, so nothing said what they should do i
 
 ### Scope
 
-Dark mode is **per route, not global**. `<ThemeSwitch>` (which mounts `<ThemeScope>`)
-sets `data-theme="dark"` on `<html>` while mounted and removes it on unmount, so leaving
-the route reverts to light. Today only `/paid-media` and `/inversion-medios` offer it
-(`THEMED_ROUTES` in `lib/theme.ts`); every other dashboard resolves `:root` and is
-untouched. Adding a route to dark mode = tokenize its literals + render `<ThemeSwitch>`.
+Dark mode is **per route, not global**. `<ThemeSwitch>` sets `data-theme="dark"` on
+`<html>` while mounted and removes it on unmount, so leaving the route reverts to light
+(`ThemeScope.tsx` only holds the `useTheme` / `setTheme` store it reads from). Today only
+`/paid-media`, `/inversion-medios` and `/marketing/compradores` offer it (`THEMED_ROUTES`
+in `lib/theme.ts`); every other dashboard resolves `:root` and is untouched. Adding a
+route to dark mode = tokenize its literals + render `<ThemeSwitch>` in its layout (or
+page) + add it to `THEMED_ROUTES`.
 
 The preference lives in `localStorage`, not in the URL: it is personal, and a query param
 would impose your theme on whoever opens a link you share. Print always renders light —

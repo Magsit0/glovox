@@ -16,10 +16,10 @@ import {
 const RUTA = "/marketing/compradores";
 
 // Misma estética de toggles que /marketing/curvas (CurvasFilters.tsx).
-const TOGGLE_GROUP = "flex gap-1 rounded-lg border border-[#E5E5E5] bg-white p-1";
+const TOGGLE_GROUP = "flex gap-1 rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-1";
 const toggleBtn = (active: boolean) =>
   `rounded-md px-3 py-1.5 font-sans text-sm font-medium transition-colors ${
-    active ? "bg-[#F0EFFE] text-[#9F99F8]" : "text-[#666666] hover:text-[#333333]"
+    active ? "bg-[var(--purple-tint)] text-[#9F99F8]" : "text-[var(--ink-muted)] hover:text-[var(--ink)]"
   }`;
 
 /** Grupo de botones exclusivos (un valor activo) con la estética de los filtros. */
@@ -36,7 +36,7 @@ function Toggle<T extends string>({
 }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <span className="font-sans text-xs text-[#666666]">{label}</span>
+      <span className="font-sans text-xs text-[var(--ink-muted)]">{label}</span>
       <div className={TOGGLE_GROUP} role="radiogroup" aria-label={label}>
         {options.map((o) => {
           const active = value === o.id;
@@ -171,7 +171,7 @@ export default function CompradoresFilters({
   return (
     <section
       aria-busy={pending}
-      className={`flex flex-col gap-4 rounded-lg border border-[#E5E5E5] bg-white p-6 transition-opacity ${
+      className={`flex flex-col gap-4 rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6 transition-opacity ${
         pending ? "opacity-70" : ""
       }`}
     >
@@ -214,13 +214,13 @@ export default function CompradoresFilters({
 
         <div className="ml-auto flex items-center gap-2 self-end">
           {pending && (
-            <Loader2 className="h-4 w-4 animate-spin text-[#999999]" aria-label="Cargando" />
+            <Loader2 className="h-4 w-4 animate-spin text-[var(--ink-subtle)]" aria-label="Cargando" />
           )}
           {hasParams && (
             <button
               type="button"
               onClick={reset}
-              className="flex items-center gap-1 rounded-lg px-2 py-2 font-sans text-sm text-[#666666] transition-colors hover:bg-[#F5F5F5] hover:text-[#333333]"
+              className="flex items-center gap-1 rounded-lg px-2 py-2 font-sans text-sm text-[var(--ink-muted)] transition-colors hover:bg-[var(--grid)] hover:text-[var(--ink)]"
             >
               <X className="h-4 w-4" />
               Limpiar filtros
@@ -229,7 +229,7 @@ export default function CompradoresFilters({
         </div>
       </div>
 
-      <p className="font-sans text-xs text-[#999999]">
+      <p className="font-sans text-xs text-[var(--ink-subtle)]">
         Ventas = venta + pase de temporada · Cortesías = cortesía + mesa VIP (ambas entran con
         medio de pago &quot;Otro&quot;). Los tickets devueltos quedan fuera. &quot;Por
         persona&quot; junta los tickets de un mismo email nominado (o teléfono, si no hay email)

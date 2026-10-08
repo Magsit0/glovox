@@ -99,7 +99,7 @@ export default function StandardMultiFilter({
 
   return (
     <div ref={ref} className={`flex flex-col gap-1.5 ${className}`}>
-      <span className="font-sans text-xs text-[#666666]">
+      <span className="font-sans text-xs text-[var(--ink-muted)]">
         {label}
         {selected.size > 0 && (
           <span className="ml-1.5 inline-block h-1.5 w-1.5 rounded-full bg-[#9F99F8] align-middle" />
@@ -116,20 +116,20 @@ export default function StandardMultiFilter({
           disabled={disabled}
           aria-haspopup="listbox"
           aria-expanded={open}
-          className="flex w-full min-w-[200px] items-center justify-between gap-2 rounded-lg border border-[#E5E5E5] bg-white px-3 py-2 text-left font-sans text-sm text-[#333333] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8] disabled:cursor-not-allowed disabled:opacity-60"
+          className="flex w-full min-w-[200px] items-center justify-between gap-2 rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 py-2 text-left font-sans text-sm text-[var(--ink)] transition-colors hover:border-[var(--ink)] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8] disabled:cursor-not-allowed disabled:opacity-60"
         >
           <span className="truncate">{triggerText}</span>
-          <ChevronDown className="h-4 w-4 shrink-0 text-[#999999]" />
+          <ChevronDown className="h-4 w-4 shrink-0 text-[var(--ink-subtle)]" />
         </button>
 
         {open && !disabled && (
-          <div className="absolute left-0 top-[calc(100%+4px)] z-40 flex w-[280px] max-w-[90vw] flex-col gap-2 rounded-lg border border-[#E5E5E5] bg-white p-2 shadow-md">
+          <div className="absolute left-0 top-[calc(100%+4px)] z-40 flex w-[280px] max-w-[90vw] flex-col gap-2 rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-2 shadow-md">
             <div className="flex items-center justify-between gap-2 px-1">
               <button
                 type="button"
                 onClick={selectVisible}
                 disabled={filteredOptions.every((o) => o.disabled)}
-                className="font-sans text-xs text-[#666666] transition-colors hover:text-[#333333] disabled:cursor-not-allowed disabled:opacity-50"
+                className="font-sans text-xs text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {query.trim() ? "Seleccionar visibles" : "Seleccionar todos"}
               </button>
@@ -137,29 +137,29 @@ export default function StandardMultiFilter({
                 type="button"
                 onClick={clear}
                 disabled={selected.size === 0}
-                className="font-sans text-xs text-[#666666] transition-colors hover:text-[#333333] disabled:cursor-not-allowed disabled:opacity-50"
+                className="font-sans text-xs text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)] disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Limpiar
               </button>
             </div>
             <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[#999999]" />
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ink-subtle)]" />
               <input
                 ref={inputRef}
                 type="search"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder={searchPlaceholder}
-                className="w-full rounded-lg border border-[#E5E5E5] bg-white py-1.5 pl-8 pr-2 font-sans text-sm text-[#333333] placeholder:text-[#999999] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+                className="w-full rounded-lg border border-[var(--divider)] bg-[var(--surface)] py-1.5 pl-8 pr-2 font-sans text-sm text-[var(--ink)] placeholder:text-[var(--ink-subtle)] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
               />
             </div>
             <div role="listbox" aria-multiselectable className="max-h-[260px] overflow-auto">
               {options.length === 0 ? (
-                <div className="px-3 py-2 font-sans text-sm text-[#999999]">
+                <div className="px-3 py-2 font-sans text-sm text-[var(--ink-subtle)]">
                   Sin opciones
                 </div>
               ) : filteredOptions.length === 0 ? (
-                <div className="px-3 py-2 font-sans text-sm text-[#999999]">
+                <div className="px-3 py-2 font-sans text-sm text-[var(--ink-subtle)]">
                   Sin coincidencias
                 </div>
               ) : (
@@ -175,8 +175,8 @@ export default function StandardMultiFilter({
                       onClick={() => toggle(opt.value)}
                       className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left font-sans text-sm transition-colors ${
                         checked
-                          ? "bg-[#F0EFFE] font-medium text-[#9F99F8]"
-                          : "text-[#333333] hover:bg-[#FAFAFA]"
+                          ? "bg-[var(--purple-tint)] font-medium text-[#9F99F8]"
+                          : "text-[var(--ink)] hover:bg-[var(--surface-alt)]"
                       } disabled:cursor-not-allowed disabled:opacity-50`}
                     >
                       <span
@@ -184,7 +184,7 @@ export default function StandardMultiFilter({
                         className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors ${
                           checked
                             ? "border-[#9F99F8] bg-[#9F99F8]"
-                            : "border-[#E5E5E5] bg-white"
+                            : "border-[var(--divider)] bg-[var(--surface)]"
                         }`}
                       >
                         {checked && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
@@ -193,7 +193,7 @@ export default function StandardMultiFilter({
                         {opt.label}
                       </span>
                       {opt.meta && (
-                        <span className="shrink-0 font-sans text-xs text-[#999999]">
+                        <span className="shrink-0 font-sans text-xs text-[var(--ink-subtle)]">
                           {opt.meta}
                         </span>
                       )}

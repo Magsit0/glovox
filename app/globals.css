@@ -24,9 +24,10 @@
  * #1A1A1A y las tarjetas se levantan a #242424 para que se despeguen del fondo,
  * que es el mismo gesto que en claro hace la tarjeta blanca sobre canvas #FAFAFA.
  *
- * El tema NO es global: lo activa <ThemeScope> mientras estas en /paid-media o
- * /inversion-medios, poniendo data-theme en <html>, y lo retira al salir. Por eso
- * los otros ~23 dashboards siguen en claro sin cambiar una linea.
+ * El tema NO es global: lo activa <ThemeSwitch> mientras estas en /paid-media,
+ * /inversion-medios o /marketing/compradores, poniendo data-theme en <html>, y lo
+ * retira al salir. Por eso el resto de los dashboards siguen en claro sin cambiar
+ * una linea.
  */
 :root {
   color-scheme: light;
@@ -182,6 +183,14 @@
    tendria la variante clara. Solo aplica en las rutas con tema. */
 [data-theme="dark"] img[src$="gvx_black.svg"] {
   filter: invert(1);
+}
+/* Excepcion: en la barra brutalist de GroupNav el recuadro del logo pasa a
+   amarillo #FFFF00 al hover. Con el glifo invertido (blanco) sobre amarillo el
+   contraste es 1,01:1 y el logo desaparece; sobre amarillo vuelve a ser negro.
+   El selector ata la regla al hover amarillo, no a todo link con logo: una barra
+   con otro hover (la del tema "glovox") conserva el glifo blanco. */
+[data-theme="dark"] a[class*="hover:bg-[#FFFF00]"]:hover > img[src$="gvx_black.svg"] {
+  filter: none;
 }
 @media print {
   [data-theme="dark"] img[src$="gvx_black.svg"] {
@@ -375,8 +384,13 @@ body {
     font-size: 8pt !important;
   }
 
-  /* Better contrast for grays (avoid ghost text on paper) */
-  .text-\[\#999999\] {
+  /* Better contrast for grays (avoid ghost text on paper). El segundo selector
+     es el mismo gris pero escrito con el token (--ink-subtle = #999999 en
+     impresion): los componentes tokenizados (StandardMultiFilter,
+     /marketing/compradores, /paid-media, /inversion-medios) ya no llevan el
+     hex y sin esto saldrian en #999999 en papel. */
+  .text-\[\#999999\],
+  .text-\[var\(--ink-subtle\)\] {
     color: #555555 !important;
   }
 

@@ -26,8 +26,8 @@ interface Props {
 const THEME = {
   brutalist: {
     // El negro del brutalismo va por --brutal-ink, no como literal: el grupo
-    // MARKETING incluye /paid-media y /inversion-medios, que ofrecen tema
-    // oscuro, y sobre --surface #242424 el negro puro da 1,4:1 — la barra
+    // MARKETING incluye /paid-media, /inversion-medios y /marketing/compradores,
+    // que ofrecen tema oscuro, y sobre --surface #242424 el negro puro da 1,4:1 — la barra
     // perdia titulo, tabs inactivas y bordes. En claro el token ES #000000,
     // asi que la barra no cambia en las otras rutas del grupo.
     nav: "sticky top-0 z-30 flex items-center gap-3 border-b-2 border-[var(--brutal-ink)] bg-[var(--surface)] px-4 py-2.5 sm:px-8",

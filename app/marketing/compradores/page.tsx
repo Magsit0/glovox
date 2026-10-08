@@ -123,8 +123,8 @@ export default async function CompradoresPage({
 
       <CompradoresFilters events={events} filters={filters} hasParams={hasParams} />
 
-      <p className="-mt-4 font-sans text-sm text-[#666666]">
-        Selección: <span className="text-[#333333]">{describirSeleccion(filters, events)}</span>
+      <p className="-mt-4 font-sans text-sm text-[var(--ink-muted)]">
+        Selección: <span className="text-[var(--ink)]">{describirSeleccion(filters, events)}</span>
       </p>
 
       <KpiRow kpis={resumen.kpis} />
@@ -173,7 +173,7 @@ function describirSeleccion(filters: Filters, events: CompradoresEventOption[]):
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main id="main-content" className="min-h-screen bg-[#FAFAFA]">
+    <main id="main-content" className="min-h-screen bg-[var(--surface-alt)]">
       <div className="mx-auto flex max-w-[1600px] flex-col gap-8 px-4 py-10 sm:px-8">
         {children}
       </div>
@@ -184,11 +184,11 @@ function Shell({ children }: { children: React.ReactNode }) {
 function Heading() {
   return (
     <header className="flex flex-col gap-2">
-      <p className="font-sans text-xs text-[#666666]">Marketing</p>
-      <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[#333333]">
+      <p className="font-sans text-xs text-[var(--ink-muted)]">Marketing</p>
+      <h1 className="font-display text-3xl font-bold leading-tight tracking-tight text-[var(--ink)]">
         Compradores
       </h1>
-      <p className="max-w-3xl font-sans text-sm text-[#666666]">
+      <p className="max-w-3xl font-sans text-sm text-[var(--ink-muted)]">
         Lista de contacto de los asistentes: nombre, email y teléfono nominado en el ticket, por
         evento y por tipo (ventas o cortesías). Descarga el CSV con los filtros aplicados y revisa
         qué tan completa viene la data en cada evento.
@@ -199,7 +199,7 @@ function Heading() {
 
 function EmptyCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-[#E5E5E5] bg-white py-12 font-sans text-sm text-[#999999]">
+    <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-[var(--divider)] bg-[var(--surface)] py-12 font-sans text-sm text-[var(--ink-subtle)]">
       <Inbox className="h-6 w-6" />
       {children}
     </div>
@@ -236,7 +236,7 @@ function DownloadLink({
           Descargar CSV
         </span>
       )}
-      <span className="font-sans text-xs text-[#666666]">
+      <span className="font-sans text-xs text-[var(--ink-muted)]">
         {filas > 0 ? caption : "Sin filas con los filtros actuales"}
       </span>
     </div>
@@ -273,13 +273,13 @@ function KpiRow({ kpis }: { kpis: CompradoresKpis }) {
       {cards.map((k) => (
         <article
           key={k.label}
-          className="flex flex-col rounded-lg border border-[#E5E5E5] bg-white p-6"
+          className="flex flex-col rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-6"
         >
-          <p className="font-sans text-xs text-[#666666]">{k.label}</p>
-          <p className="mt-2 font-display text-4xl font-bold leading-none tracking-tight text-[#333333]">
+          <p className="font-sans text-xs text-[var(--ink-muted)]">{k.label}</p>
+          <p className="mt-2 font-display text-4xl font-bold leading-none tracking-tight text-[var(--ink)]">
             {k.value}
           </p>
-          <p className="mt-3 truncate font-sans text-xs text-[#666666]" title={k.caption}>
+          <p className="mt-3 truncate font-sans text-xs text-[var(--ink-muted)]" title={k.caption}>
             {k.caption}
           </p>
         </article>
@@ -290,29 +290,29 @@ function KpiRow({ kpis }: { kpis: CompradoresKpis }) {
 
 // ---------- Tablas ----------
 
-const TH = "px-4 py-3 text-left font-sans text-xs font-medium text-[#666666]";
+const TH = "px-4 py-3 text-left font-sans text-xs font-medium text-[var(--ink-muted)]";
 const TH_NUM = `${TH} text-right`;
-const TD = "px-4 py-3 font-sans text-sm text-[#333333]";
+const TD = "px-4 py-3 font-sans text-sm text-[var(--ink)]";
 const TD_NUM = `${TD} text-right tabular-nums`;
 
 function PanelHeader({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <header className="border-b border-[#E5E5E5] px-6 py-4">
-      <h2 className="font-display text-lg font-bold tracking-tight text-[#333333]">{title}</h2>
-      <p className="mt-1 font-sans text-sm text-[#666666]">{subtitle}</p>
+    <header className="border-b border-[var(--divider)] px-6 py-4">
+      <h2 className="font-display text-lg font-bold tracking-tight text-[var(--ink)]">{title}</h2>
+      <p className="mt-1 font-sans text-sm text-[var(--ink-muted)]">{subtitle}</p>
     </header>
   );
 }
 
 function CoberturaEventos({ rows }: { rows: CompradoresEventoRow[] }) {
   return (
-    <article className="overflow-hidden rounded-lg border border-[#E5E5E5] bg-white lg:col-span-8">
+    <article className="overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)] lg:col-span-8">
       <PanelHeader
         title="Cobertura por evento"
         subtitle="Cuántos tickets de la selección traen email y teléfono nominado. Sirve para saber de qué eventos se puede sacar una lista de contacto útil."
       />
       {rows.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-12 font-sans text-sm text-[#999999]">
+        <div className="flex flex-col items-center justify-center gap-2 py-12 font-sans text-sm text-[var(--ink-subtle)]">
           <Inbox className="h-6 w-6" />
           Sin tickets con los filtros actuales.
         </div>
@@ -320,37 +320,37 @@ function CoberturaEventos({ rows }: { rows: CompradoresEventoRow[] }) {
         <div className="max-h-[520px] overflow-auto">
           <table className="w-full border-collapse whitespace-nowrap">
             <thead>
-              <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
-                <th className={`${TH} sticky top-0 z-10 bg-[#FAFAFA]`}>Evento</th>
-                <th className={`${TH} sticky top-0 z-10 bg-[#FAFAFA]`}>Fecha</th>
-                <th className={`${TH} sticky top-0 z-10 bg-[#FAFAFA]`}>Ticketera</th>
-                <th className={`${TH_NUM} sticky top-0 z-10 bg-[#FAFAFA]`}>Tickets</th>
-                <th className={`${TH_NUM} sticky top-0 z-10 bg-[#FAFAFA]`}>Ventas</th>
-                <th className={`${TH_NUM} sticky top-0 z-10 bg-[#FAFAFA]`}>Cortesías</th>
-                <th className={`${TH_NUM} sticky top-0 z-10 bg-[#FAFAFA]`}>Con email</th>
-                <th className={`${TH_NUM} sticky top-0 z-10 bg-[#FAFAFA]`}>Con teléfono</th>
-                <th className={`${TH_NUM} sticky top-0 z-10 bg-[#FAFAFA]`}>Emails únicos</th>
+              <tr className="border-b border-[var(--divider)] bg-[var(--surface-alt)]">
+                <th className={`${TH} sticky top-0 z-10 bg-[var(--surface-alt)]`}>Evento</th>
+                <th className={`${TH} sticky top-0 z-10 bg-[var(--surface-alt)]`}>Fecha</th>
+                <th className={`${TH} sticky top-0 z-10 bg-[var(--surface-alt)]`}>Ticketera</th>
+                <th className={`${TH_NUM} sticky top-0 z-10 bg-[var(--surface-alt)]`}>Tickets</th>
+                <th className={`${TH_NUM} sticky top-0 z-10 bg-[var(--surface-alt)]`}>Ventas</th>
+                <th className={`${TH_NUM} sticky top-0 z-10 bg-[var(--surface-alt)]`}>Cortesías</th>
+                <th className={`${TH_NUM} sticky top-0 z-10 bg-[var(--surface-alt)]`}>Con email</th>
+                <th className={`${TH_NUM} sticky top-0 z-10 bg-[var(--surface-alt)]`}>Con teléfono</th>
+                <th className={`${TH_NUM} sticky top-0 z-10 bg-[var(--surface-alt)]`}>Emails únicos</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr
                   key={r.eventoId}
-                  className="border-b border-[#E5E5E5] transition-colors duration-150 last:border-b-0 hover:bg-[#FAFAFA]"
+                  className="border-b border-[var(--divider)] transition-colors duration-150 last:border-b-0 hover:bg-[var(--surface-alt)]"
                 >
                   <td className={TD}>
                     <span className="flex flex-col">
                       <span className="truncate" title={r.nombre}>
                         {r.nombre}
                       </span>
-                      <span className="font-sans text-xs text-[#999999]">{r.eventoId}</span>
+                      <span className="font-sans text-xs text-[var(--ink-subtle)]">{r.eventoId}</span>
                     </span>
                   </td>
-                  <td className={`${TD} text-[#666666]`}>{fmtFecha(r.fecha)}</td>
-                  <td className={`${TD} text-[#666666]`}>{r.ticketera || "—"}</td>
+                  <td className={`${TD} text-[var(--ink-muted)]`}>{fmtFecha(r.fecha)}</td>
+                  <td className={`${TD} text-[var(--ink-muted)]`}>{r.ticketera || "—"}</td>
                   <td className={TD_NUM}>{fmtInt(r.tickets)}</td>
-                  <td className={`${TD_NUM} text-[#666666]`}>{fmtInt(r.ventas)}</td>
-                  <td className={`${TD_NUM} text-[#666666]`}>{fmtInt(r.cortesias)}</td>
+                  <td className={`${TD_NUM} text-[var(--ink-muted)]`}>{fmtInt(r.ventas)}</td>
+                  <td className={`${TD_NUM} text-[var(--ink-muted)]`}>{fmtInt(r.cortesias)}</td>
                   <td className={TD_NUM}>
                     <Cobertura parte={r.conEmail} total={r.tickets} />
                   </td>
@@ -371,11 +371,11 @@ function CoberturaEventos({ rows }: { rows: CompradoresEventoRow[] }) {
 /** Conteo + porcentaje con punto de estado: verde ≥ 70%, amarillo ≥ 30%, rosa bajo eso. */
 function Cobertura({ parte, total }: { parte: number; total: number }) {
   const pct = total ? parte / total : 0;
-  const dot = !total ? "#999999" : pct >= 0.7 ? "#B1D750" : pct >= 0.3 ? "#F6C544" : "#ED75A0";
+  const dot = !total ? "var(--ink-subtle)" : pct >= 0.7 ? "#B1D750" : pct >= 0.3 ? "#F6C544" : "#ED75A0";
   return (
     <span className="inline-flex flex-col items-end">
       <span>{fmtInt(parte)}</span>
-      <span className="inline-flex items-center gap-1.5 font-sans text-xs text-[#666666]">
+      <span className="inline-flex items-center gap-1.5 font-sans text-xs text-[var(--ink-muted)]">
         <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: dot }} />
         {fmtPct(parte, total)}
       </span>
@@ -389,25 +389,25 @@ function Composicion({ rows, total }: { rows: CompradoresClaseRow[]; total: numb
     .reduce((a, r) => a + r.tickets, 0);
   const cortesias = total - ventas;
   return (
-    <article className="flex flex-col rounded-lg border border-[#E5E5E5] bg-white lg:col-span-4">
+    <article className="flex flex-col rounded-lg border border-[var(--divider)] bg-[var(--surface)] lg:col-span-4">
       <PanelHeader
         title="Composición por tipo"
         subtitle="Tickets de la selección por clase, con la cobertura de email de cada una."
       />
       <div className="flex flex-1 flex-col gap-5 p-6">
-        <div className="flex items-center gap-4 font-sans text-sm text-[#333333]">
+        <div className="flex items-center gap-4 font-sans text-sm text-[var(--ink)]">
           <span className="inline-flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-[#9F99F8]" />
-            Ventas <span className="tabular-nums text-[#666666]">{fmtInt(ventas)}</span>
+            Ventas <span className="tabular-nums text-[var(--ink-muted)]">{fmtInt(ventas)}</span>
           </span>
           <span className="inline-flex items-center gap-1.5">
             <span className="h-1.5 w-1.5 rounded-full bg-[#ED75A0]" />
-            Cortesías <span className="tabular-nums text-[#666666]">{fmtInt(cortesias)}</span>
+            Cortesías <span className="tabular-nums text-[var(--ink-muted)]">{fmtInt(cortesias)}</span>
           </span>
         </div>
 
         {rows.length === 0 ? (
-          <p className="font-sans text-sm text-[#999999]">Sin tickets con los filtros actuales.</p>
+          <p className="font-sans text-sm text-[var(--ink-subtle)]">Sin tickets con los filtros actuales.</p>
         ) : (
           <ul className="flex flex-col gap-4">
             {rows.map((r) => {
@@ -415,25 +415,25 @@ function Composicion({ rows, total }: { rows: CompradoresClaseRow[]; total: numb
               return (
                 <li key={r.clase} className="flex flex-col gap-1.5">
                   <div className="flex items-baseline justify-between gap-3 font-sans text-sm">
-                    <span className="inline-flex items-center gap-1.5 text-[#333333]">
+                    <span className="inline-flex items-center gap-1.5 text-[var(--ink)]">
                       <span
                         className="h-1.5 w-1.5 rounded-full"
                         style={{ backgroundColor: claseColor(r.clase) }}
                       />
                       {claseLabel(r.clase)}
                     </span>
-                    <span className="tabular-nums text-[#333333]">
+                    <span className="tabular-nums text-[var(--ink)]">
                       {fmtInt(r.tickets)}{" "}
-                      <span className="text-xs text-[#666666]">({fmtPct(r.tickets, total)})</span>
+                      <span className="text-xs text-[var(--ink-muted)]">({fmtPct(r.tickets, total)})</span>
                     </span>
                   </div>
-                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#F0F0F0]">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--grid)]">
                     <div
                       className="h-full rounded-full"
                       style={{ width: `${share}%`, backgroundColor: claseColor(r.clase) }}
                     />
                   </div>
-                  <p className="font-sans text-xs text-[#666666]">
+                  <p className="font-sans text-xs text-[var(--ink-muted)]">
                     {fmtPct(r.conEmail, r.tickets)} con email · {fmtPct(r.conTelefono, r.tickets)}{" "}
                     con teléfono · {fmtInt(r.personas)} personas
                   </p>
@@ -443,7 +443,7 @@ function Composicion({ rows, total }: { rows: CompradoresClaseRow[]; total: numb
           </ul>
         )}
 
-        <p className="mt-auto font-sans text-xs text-[#999999]">
+        <p className="mt-auto font-sans text-xs text-[var(--ink-subtle)]">
           Las cortesías sin canjear no tienen nominado: por eso su cobertura suele ser más baja.
           Fever (Perú y GRID PE) solo pide datos del asistente en eventos nominales.
         </p>
@@ -470,10 +470,10 @@ function Preview({
           modo === "ticket" ? "compras más recientes primero" : "última compra más reciente primero"
         }).`;
   return (
-    <article className="overflow-hidden rounded-lg border border-[#E5E5E5] bg-white lg:col-span-12">
+    <article className="overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)] lg:col-span-12">
       <PanelHeader title="Vista previa del CSV" subtitle={subtitle} />
       {rows.length === 0 ? (
-        <div className="flex flex-col items-center justify-center gap-2 py-12 font-sans text-sm text-[#999999]">
+        <div className="flex flex-col items-center justify-center gap-2 py-12 font-sans text-sm text-[var(--ink-subtle)]">
           <Inbox className="h-6 w-6" />
           Sin filas con los filtros actuales.
         </div>
@@ -481,11 +481,11 @@ function Preview({
         <div className="max-h-[560px] overflow-auto">
           <table className="w-full border-collapse whitespace-nowrap">
             <thead>
-              <tr className="border-b border-[#E5E5E5] bg-[#FAFAFA]">
+              <tr className="border-b border-[var(--divider)] bg-[var(--surface-alt)]">
                 {cols.map((c) => (
                   <th
                     key={c.key}
-                    className={`${c.align === "right" ? TH_NUM : TH} sticky top-0 z-10 bg-[#FAFAFA]`}
+                    className={`${c.align === "right" ? TH_NUM : TH} sticky top-0 z-10 bg-[var(--surface-alt)]`}
                   >
                     {c.header}
                   </th>
@@ -496,7 +496,7 @@ function Preview({
               {rows.map((r, i) => (
                 <tr
                   key={i}
-                  className="border-b border-[#E5E5E5] transition-colors duration-150 last:border-b-0 hover:bg-[#FAFAFA]"
+                  className="border-b border-[var(--divider)] transition-colors duration-150 last:border-b-0 hover:bg-[var(--surface-alt)]"
                 >
                   {cols.map((c) => {
                     const text = formatCell(c, r[c.key]);
@@ -504,7 +504,7 @@ function Preview({
                       <td
                         key={c.key}
                         className={`${c.align === "right" ? TD_NUM : TD} ${
-                          text ? "" : "text-[#999999]"
+                          text ? "" : "text-[var(--ink-subtle)]"
                         }`}
                       >
                         {text || "—"}
