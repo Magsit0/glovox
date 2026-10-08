@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, CalendarRange, ChevronDown, ChevronRight, Plus, X } from "lucide-react";
+import { ArrowLeft, CalendarRange, ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
 import type {
   AdsMetricasEvento,
   DrillGrid,
@@ -28,7 +28,7 @@ import {
   type DesgloseRow,
   type TipoNode,
 } from "@/lib/inversion-medios/tipos";
-import { bulkFillPlanAction, saveEtapasAction } from "../actions";
+import { bulkFillPlanAction, deleteRowAction, saveEtapasAction } from "../actions";
 import CeldaPlan from "./CeldaPlan";
 import RendimientoEvento from "./RendimientoEvento";
 import { compactInt, fmtUsd, formatInt } from "./format";
@@ -544,6 +544,17 @@ export default function EventoDrill({
                               <CalendarRange className="h-3 w-3" />
                             </button>
                           )}
+                          {canEdit && f.editable && (
+                            <BorrarFila
+                              eventoId={eventoId}
+                              plataforma={p.plataforma}
+                              platLabel={p.label}
+                              tipoKey={f.tipoKey}
+                              tipoLabel={f.label}
+                              plan={f.plan}
+                              totalPlan={f.totalPlan}
+                            />
+                          )}
                         </span>
                         <p className="mt-0.5 pl-5 text-[11px] tabular-nums text-[var(--ink-subtle)]">
                           plan <span className="font-medium text-[var(--plan)]">{fmtUsd(f.totalPlan, 0)}</span>{" "}
@@ -942,6 +953,69 @@ function Stat({
 // ---------- Editor de etapas de campaña ----------
 
 type EtapaDraft = { nombre: string; fechaInicio: string };
+
+// ---------- Borrar fila (plataforma × TIPO) ----------
+
+/**
+ * Vacía de una vez TODOS los días de plan de una fila (plataforma × tipo) del
+ * evento — antes había que vaciar celda por celda. Solo aparece si la fila
+ * tiene plan, y el confirm dice cuántos días y cuánta plata se van. La ventana
+ * del drill siempre cubre todo el plan del evento (page.tsx la estira hasta el
+ * primer/último día con plan), así que lo que se cuenta acá es lo que se borra.
+ * El gasto real no se toca; el audit guarda las celdas borradas.
+ */
+function BorrarFila({
+  eventoId,
+  plataforma,
+  platLabel,
+  tipoKey,
+  tipoLabel,
+  plan,
+  totalPlan,
+}: {
+  eventoId: string;
+  plataforma: string;
+  platLabel: string;
+  tipoKey: string;
+  tipoLabel: string;
+  plan: (number | null)[];
+  totalPlan: number;
+}) {
+  const router = useRouter();
+  const [pending, start] = useTransition();
+  const conPlan = plan.reduce<number>((a, v) => a + (v != null ? 1 : 0), 0);
+  if (conPlan === 0) return null;
+
+  function borrar() {
+    const dias = `${conPlan} ${conPlan === 1 ? "día" : "días"}`;
+    if (
+      !window.confirm(
+        `¿Borrar todo el plan de ${platLabel} · ${tipoLabel}? Son ${dias} (${fmtUsd(totalPlan)}). El gasto real no se toca.`,
+      )
+    )
+      return;
+    start(async () => {
+      const res = await deleteRowAction({ eventoId, plataforma, tipo: tipoKey });
+      if (!res.ok) {
+        window.alert(res.error);
+        return;
+      }
+      router.refresh();
+    });
+  }
+
+  return (
+    <button
+      onClick={borrar}
+      disabled={pending}
+      className="inline-flex h-4 w-4 items-center justify-center rounded text-[var(--ink-subtle)] hover:bg-[var(--grid)] hover:text-[#ED75A0] disabled:opacity-40"
+      title={`Borrar todo el plan de ${platLabel} · ${tipoLabel}`}
+      aria-label={`Borrar todo el plan de ${platLabel} · ${tipoLabel}`}
+    >
+      <Trash2 className="h-3 w-3" />
+    </button>
+  );
+}
 
 // ---------- Rellenar rango (plataforma × TIPO) ----------
 

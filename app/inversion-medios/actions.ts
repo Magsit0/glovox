@@ -229,6 +229,64 @@ export async function deleteCellAction(input: {
   }
 }
 
+/**
+ * Borra la fila completa (evento × plataforma × tipo): todos sus días de plan.
+ * Antes había que vaciar celda por celda (pedido del equipo, 2026-10-08: el
+ * plan de TikTok "Sin tipo" de GLO203 eran 176 celdas). Solo toca esa clave de
+ * 3 columnas — los otros tipos y plataformas del evento quedan intactos — y el
+ * audit guarda las filas borradas completas para poder restaurarlas.
+ */
+export async function deleteRowAction(input: {
+  eventoId: string;
+  plataforma: string;
+  /** Tipo de campaña ('' = "Sin tipo"). */
+  tipo: string;
+}): Promise<ActionResult<{ borradas: number }>> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const eventoId = String(input.eventoId ?? "").trim().toUpperCase();
+  const plataforma = sanitizePlataforma(input.plataforma);
+  if (!EVENTO_RE.test(eventoId)) return { ok: false, error: "EventoID inválido" };
+  if (!plataforma) return { ok: false, error: "Plataforma inválida" };
+  const tipo = sanitizeTipo(input.tipo, plataforma);
+  if (tipo === null) return { ok: false, error: "Tipo de campaña inválido" };
+
+  try {
+    const borradas = await withNeonRetry(() =>
+      db
+        .delete(inversionMediosDiario)
+        .where(
+          and(
+            eq(inversionMediosDiario.eventoId, eventoId),
+            eq(inversionMediosDiario.plataforma, plataforma),
+            eq(inversionMediosDiario.tipo, tipo),
+          ),
+        )
+        .returning({
+          fecha: inversionMediosDiario.fecha,
+          montoUsd: inversionMediosDiario.montoUsd,
+          nota: inversionMediosDiario.nota,
+        }),
+    );
+    await logAudit(ctx.userId, "inversionMedios.deleteRow", {
+      eventoId,
+      plataforma,
+      tipo,
+      borradas: borradas.length,
+      totalUsd: borradas.reduce((a, r) => a + r.montoUsd, 0),
+      filas: borradas,
+    });
+    revalidatePath("/inversion-medios");
+    return { ok: true, data: { borradas: borradas.length } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al borrar la fila" };
+  }
+}
+
 // ---------- Rellenar rango (por plataforma × TIPO) ----------
 
 // Tope de días por llamada. La ventana de un drill ronda los 120 días; 200 da
