@@ -1,0 +1,155 @@
+/* Presentaciones de cierre (/cierres/*). Scoped a .ck-root / .ck-deck.
+ *
+ * Cada lámina es un marco 16:9 diseñado a 1280×720 "px de diseño". En escritorio
+ * el marco se escala para caber en la pantalla sin JS: `--u` es lo que vale 1 px de
+ * diseño, calculado con unidades de contenedor del scroller (.ck-deck es
+ * container-type: size, así que cqw/cqh excluyen la barra de scroll). Dentro del
+ * deck se re-declaran las variables de tema de Tailwind (--spacing, --text-*,
+ * --radius-*) en múltiplos de --u, de modo que `text-sm`, `p-6`, `gap-4`,
+ * `rounded-lg`... siguen siendo la escala del manual pero proporcional al marco.
+ * Por eso dentro del deck NO se usan valores arbitrarios en px (no escalarían):
+ * si hace falta uno, se escribe como calc(var(--u) * N).
+ *
+ * Bajo lg (1024px) --u vale 1px y las láminas fluyen una debajo de otra. Dentro
+ * de las láminas el layout de escritorio se escribe con la variante `deck:`
+ * (globals.css), no con `lg:`: `deck:` aplica también al imprimir.
+ */
+
+.ck-deck {
+  --ck-gutter: 24px;
+  --u: 1px;
+  container-type: size;
+}
+
+@media (min-width: 1024px) {
+  .ck-deck {
+    --u: calc(
+      min(100cqw - 2 * var(--ck-gutter), (100cqh - 2 * var(--ck-gutter)) * 16 / 9) / 1280
+    );
+  }
+}
+
+.ck-deck {
+  --spacing: calc(var(--u) * 4);
+  --text-xs: calc(var(--u) * 12);
+  --text-sm: calc(var(--u) * 14);
+  --text-base: calc(var(--u) * 16);
+  --text-lg: calc(var(--u) * 18);
+  --text-xl: calc(var(--u) * 20);
+  --text-2xl: calc(var(--u) * 24);
+  --text-3xl: calc(var(--u) * 30);
+  --text-4xl: calc(var(--u) * 36);
+  --text-5xl: calc(var(--u) * 48);
+  --text-6xl: calc(var(--u) * 60);
+  --text-7xl: calc(var(--u) * 72);
+  --radius-sm: calc(var(--u) * 4);
+  --radius-md: calc(var(--u) * 6);
+  --radius-lg: calc(var(--u) * 8);
+  --radius-xl: calc(var(--u) * 12);
+}
+
+/* El marco: 1280×720 de diseño en escritorio, fluido en pantallas chicas. */
+@media (min-width: 1024px) {
+  .ck-frame {
+    width: calc(var(--u) * 1280);
+    height: calc(var(--u) * 720);
+  }
+}
+
+/* Pantalla completa (tecla F o botón): se oculta la barra y el deck usa todo el
+   alto. requestFullscreen() se pide sobre <html>, que es el que matchea. */
+:root:fullscreen .ck-topbar {
+  display: none;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ck-deck {
+    scroll-behavior: smooth;
+  }
+}
+
+/* ───────────────────────── PDF (Imprimir → Guardar como PDF) ─────────────────────────
+ * Una lámina por página de 1280×720 px. Página con nombre propio para no pisar el
+ * @page A4 de globals.css (mismo patrón que reportes/entel-the-grid/report.css).
+ *
+ * globals.css trae un bloque @media print pensado para dashboards A4 que achica
+ * tipografía y paddings con !important (`.text-sm{9pt}`, `h2{12pt}`, `.p-6{9pt}`,
+ * `table{table-layout:fixed}`...). Las láminas ya vienen a la medida de la página,
+ * así que aquí se devuelven esos valores a la escala del deck, con un selector más
+ * específico (.ck-deck.ck-deck) para ganarle al !important global.
+ */
+@page ck-slide {
+  size: 1280px 720px;
+  margin: 0;
+}
+
+@media print {
+  body:has(.ck-deck) {
+    page: ck-slide;
+  }
+
+  .ck-root {
+    display: block !important;
+    height: auto !important;
+    background: #ffffff !important;
+  }
+
+  .ck-deck.ck-deck {
+    --u: 1px;
+    container-type: normal;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  .ck-deck .ck-slide {
+    display: block !important;
+    height: 720px !important;
+    min-height: 0 !important;
+    padding: 0 !important;
+    break-after: page;
+    page-break-after: always;
+    break-inside: avoid;
+  }
+  .ck-deck .ck-slide:last-child {
+    break-after: auto;
+    page-break-after: auto;
+  }
+
+  .ck-deck .ck-frame {
+    width: 1280px !important;
+    height: 720px !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  /* Devuelve la escala tipográfica del deck. */
+  .ck-deck.ck-deck .text-xs { font-size: var(--text-xs) !important; }
+  .ck-deck.ck-deck .text-sm { font-size: var(--text-sm) !important; }
+  .ck-deck.ck-deck .text-base { font-size: var(--text-base) !important; }
+  .ck-deck.ck-deck .text-lg { font-size: var(--text-lg) !important; }
+  .ck-deck.ck-deck .text-xl { font-size: var(--text-xl) !important; }
+  .ck-deck.ck-deck .text-2xl { font-size: var(--text-2xl) !important; }
+  .ck-deck.ck-deck .text-3xl { font-size: var(--text-3xl) !important; }
+  .ck-deck.ck-deck .text-4xl { font-size: var(--text-4xl) !important; }
+  .ck-deck.ck-deck .text-5xl { font-size: var(--text-5xl) !important; }
+  .ck-deck.ck-deck .text-6xl { font-size: var(--text-6xl) !important; }
+  .ck-deck.ck-deck .text-7xl { font-size: var(--text-7xl) !important; }
+  .ck-deck.ck-deck :is(h1, h2, h3) { line-height: 1.15 !important; }
+  .ck-deck.ck-deck .leading-none { line-height: 1 !important; }
+
+  /* Devuelve los espaciados que globals.css compacta. */
+  .ck-deck.ck-deck .p-8 { padding: calc(var(--spacing) * 8) !important; }
+  .ck-deck.ck-deck .p-6 { padding: calc(var(--spacing) * 6) !important; }
+  .ck-deck.ck-deck .p-4 { padding: calc(var(--spacing) * 4) !important; }
+  .ck-deck.ck-deck .gap-8 { gap: calc(var(--spacing) * 8) !important; }
+  .ck-deck.ck-deck .gap-6 { gap: calc(var(--spacing) * 6) !important; }
+  .ck-deck.ck-deck .gap-4 { gap: calc(var(--spacing) * 4) !important; }
+  .ck-deck.ck-deck .gap-3 { gap: calc(var(--spacing) * 3) !important; }
+  .ck-deck.ck-deck .mt-6 { margin-top: calc(var(--spacing) * 6) !important; }
+  .ck-deck.ck-deck .mt-3 { margin-top: calc(var(--spacing) * 3) !important; }
+  .ck-deck.ck-deck .mt-2 { margin-top: calc(var(--spacing) * 2) !important; }
+
+  /* Tablas: el ancho de columna lo decide el contenido, como en pantalla. Las
+     celdas usan px-2 py-1.5, que coincide con el `4pt 6pt` del bloque global. */
+  .ck-deck.ck-deck table { table-layout: auto !important; }
+}

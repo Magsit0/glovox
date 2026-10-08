@@ -20,6 +20,7 @@ import {
   Building2,
   Calculator,
   CalendarRange,
+  ClipboardCheck,
   FileText,
   UtensilsCrossed,
   Wallet,
@@ -30,6 +31,7 @@ import {
   Folder,
   TrendingUp,
   Pencil,
+  Presentation,
   GripVertical,
   Check,
   ChevronRight,
@@ -87,6 +89,8 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "building-2": Building2,
   "trending-up": TrendingUp,
   "book-user": BookUser,
+  "clipboard-check": ClipboardCheck,
+  presentation: Presentation,
 };
 
 const TITLE_MAX = 80;

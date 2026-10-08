@@ -2,6 +2,7 @@ import {
   BookUser,
   Briefcase,
   Building2,
+  ClipboardCheck,
   Megaphone,
   Target,
   Ticket,
@@ -10,6 +11,7 @@ import {
   Zap,
   Folder,
   TrendingUp,
+  Presentation,
   type LucideIcon,
 } from "lucide-react";
 
@@ -30,6 +32,8 @@ export const GROUP_ICON_MAP: Record<string, LucideIcon> = {
   "trending-up": TrendingUp,
   "book-user": BookUser,
   briefcase: Briefcase,
+  "clipboard-check": ClipboardCheck,
+  presentation: Presentation,
 };
 
 export const FALLBACK_GROUP_ICON: LucideIcon = Ticket;

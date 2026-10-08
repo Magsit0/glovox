@@ -308,6 +308,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentClass: "bg-[#C1440E]",
     accentText: "text-white",
   },
+  {
+    key: "cierres.piknic-3-26-27",
+    pathPrefix: "/cierres/piknic-3-26-27",
+    label: "Cierre Piknic 3 · 26-27",
+    appliesCountryScope: false,
+    sortOrder: 110,
+    title: "CIERRE PIKNIC 3 · 26-27",
+    description:
+      "Presentación de la reunión de cierre del Piknic 3 (3 oct 2026): puntos de control, permisos, anticipación, comparación con el Piknic 1, venta, mapa de ventas, barras, resultado, OC y acuerdos.",
+    icon: "presentation",
+    accentClass: "bg-[#1E3A5F]",
+    accentText: "text-white",
+  },
 ] as const;
 
 /**

@@ -244,10 +244,38 @@ export const REPORTES_GROUP: DashboardGroup = {
   ]),
 };
 
+export const CIERRES_GROUP: DashboardGroup = {
+  key: "cierres",
+  title: "CIERRES",
+  description:
+    "Presentaciones de las reuniones de cierre de cada evento: qué pasó, medido contra los puntos de control del ciclo, y los acuerdos.",
+  icon: "clipboard-check",
+  accentClass: "bg-[#1E3A5F]",
+  accentText: "text-white",
+  theme: "glovox",
+  href: "/cierres",
+  heroVt: "cierres-hero",
+  navVt: "cierres-nav",
+  contentVt: "cierres-content",
+  members: alphabetical([
+    {
+      key: "cierres.piknic-3-26-27",
+      label: "Piknic 3 · 26-27",
+      path: "/cierres/piknic-3-26-27",
+      description:
+        "Reunión de cierre del Piknic 3 (3 oct 2026): puntos de control, permisos, anticipación, comparación con el Piknic 1, venta, mapa de ventas, barras, resultado, OC y acuerdos.",
+      icon: "presentation",
+      accentClass: "bg-[#1E3A5F]",
+      accentText: "text-white",
+    },
+  ]),
+};
+
 export const DASHBOARD_GROUPS: readonly DashboardGroup[] = [
   MARKETING_GROUP,
   FINANZAS_GROUP,
   REPORTES_GROUP,
+  CIERRES_GROUP,
 ];
 
 /** Todas las keys de dashboards que pertenecen a algún grupo. */

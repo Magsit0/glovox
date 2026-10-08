@@ -237,6 +237,20 @@
   }
 }
 
+/* Layout de lámina de las presentaciones de cierre (/cierres/*,
+   components/cierres/deck): `deck:` = escritorio (como `lg:`) **o** impresión.
+   Al imprimir, los media queries se evalúan contra el @page por defecto (A4 de
+   este archivo, ~700px de ancho), así que `lg:` no aplicaría y cada lámina
+   saldría en su versión móvil dentro de la página 1280×720. */
+@custom-variant deck {
+  @media (width >= 64rem) {
+    @slot;
+  }
+  @media print {
+    @slot;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
