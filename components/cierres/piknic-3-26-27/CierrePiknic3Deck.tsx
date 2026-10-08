@@ -20,7 +20,6 @@ import {
   ACUERDOS,
   ANTICIPACION,
   ANTICIPACION_ESCALA,
-  AREAS,
   BARRAS_TOP,
   CANALES,
   CANALES_TOTAL,
@@ -33,6 +32,7 @@ import {
   META,
   MONITOREO,
   OC,
+  OBSERVACIONES,
   OC_TOTAL,
   PERMISOS,
   PORTADA_FACTS,
@@ -40,7 +40,7 @@ import {
 } from "@/lib/cierres/piknic-3-26-27";
 import mapaVentas from "./mapa-ventas.jpg";
 
-const TOTAL = 13;
+const TOTAL = 14;
 
 /** Destaca los offsets al Día D (D−60, M−3, D+3…) dentro de un texto. */
 function withOffsets(text: string) {
@@ -55,8 +55,46 @@ function withOffsets(text: string) {
   );
 }
 
+const OBSERVACIONES_FUENTE =
+  "Notas desde la transcripción automática de la reunión del 8-oct; sin atribución por persona.";
+
+/** Notas de un área en la ronda final: nombre + viñetas (con estado opcional). */
+function AreaNotes({
+  area,
+  nota,
+  notas,
+}: (typeof OBSERVACIONES)[number]) {
+  return (
+    <section className="flex min-w-0 flex-col gap-2 border-t border-[var(--ink)] pt-2">
+      <h3 className="font-display text-base font-bold leading-tight text-[var(--ink)]">
+        {area}
+        {nota && (
+          <span className="ml-1.5 font-sans text-xs font-normal text-[var(--ink-subtle)]">
+            · {nota}
+          </span>
+        )}
+      </h3>
+      <ul className="flex flex-col gap-2.5">
+        {notas.map((n) => (
+          <li
+            key={n.texto}
+            className="relative pl-3.5 text-sm leading-snug text-[var(--ink)] before:absolute before:left-0 before:top-[0.55em] before:h-1.5 before:w-1.5 before:rounded-full before:bg-[var(--ink-subtle)]"
+          >
+            {n.tag && (
+              <span className="mr-1.5 inline-block align-middle">
+                <Pill tone={n.tag.tone}>{n.tag.label}</Pill>
+              </span>
+            )}
+            {n.texto}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 /**
- * Presentación de la reunión de cierre del Piknic 3 · 26-27 (GLO211): 13
+ * Presentación de la reunión de cierre del Piknic 3 · 26-27 (GLO211): 14
  * láminas. Contenido estático (foto al 8-oct, D+5) en
  * lib/cierres/piknic-3-26-27.ts; la mecánica de láminas, navegación y PDF vive
  * en components/cierres/deck. El control de acceso lo hace la page.
@@ -698,29 +736,25 @@ export default function CierrePiknic3Deck() {
         </ol>
       </Slide>
 
-      {/* 13 · Observaciones por área */}
-      <Slide
-        id="observaciones"
-        n={13}
-        total={TOTAL}
-        label="Ronda final"
-        detail="qué funcionó y qué cambiamos para el próximo Piknic"
-      >
-        <SlideTitle>Observaciones por área</SlideTitle>
-        <div className="grid flex-1 grid-cols-2 gap-x-6 gap-y-5 deck:grid-cols-5">
-          {AREAS.map((area) => (
-            <div key={area} className="flex min-w-0 flex-col gap-1 border-t border-[var(--ink)] pt-2">
-              <h3 className="font-display text-sm font-bold text-[var(--ink)]">{area}</h3>
-              {/* Renglones para anotar a mano en la reunión o sobre el PDF. */}
-              <div aria-hidden="true" className="flex flex-1 flex-col">
-                {Array.from({ length: 6 }, (_, i) => (
-                  <div key={i} className="min-h-6 flex-1 border-b border-[var(--divider)]" />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Slide>
+      {/* 13 y 14 · Observaciones por área (5 áreas por lámina: en una no caben) */}
+      {[OBSERVACIONES.slice(0, 5), OBSERVACIONES.slice(5)].map((areas, i) => (
+        <Slide
+          key={i}
+          id={i === 0 ? "observaciones" : "observaciones-2"}
+          n={13 + i}
+          total={TOTAL}
+          label="Ronda final"
+          detail={`qué funcionó y qué cambiamos para el próximo Piknic · ${i + 1} de 2`}
+        >
+          <SlideTitle>Observaciones por área</SlideTitle>
+          <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2 deck:grid-cols-5">
+            {areas.map((o) => (
+              <AreaNotes key={o.area} {...o} />
+            ))}
+          </div>
+          <Source>{OBSERVACIONES_FUENTE}</Source>
+        </Slide>
+      ))}
     </Deck>
   );
 }

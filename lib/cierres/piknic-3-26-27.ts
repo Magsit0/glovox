@@ -453,16 +453,185 @@ export const ACUERDOS: { titulo: string; texto: string }[] = [
   },
 ];
 
-/* ── 13 · Observaciones por área ── */
-export const AREAS = [
-  "Dirección",
-  "Comercial y Marcas",
-  "Programación Artística",
-  "Marketing",
-  "Ticketing y Comunidad",
-  "Permisos y Legal",
-  "Producción",
-  "Operaciones",
-  "Finanzas",
-  "Datos y Tecnología",
-] as const;
+/* ── 13 y 14 · Observaciones por área (5 áreas por lámina) ──
+ * Notas de la ronda final, tomadas de la transcripción automática de la reunión
+ * del 8-oct (Gemini, dos grabaciones). La transcripción quedó toda a nombre de
+ * una sola persona, así que las notas van sin atribución ni responsables.
+ * Se dejaron fuera, a propósito, las cifras que la transcripción no deja claras
+ * (consumo de mesas, guardias) y el aforo tramitado. */
+export type NotaArea = {
+  texto: string;
+  /** Estado que se pinta como píldora antes del texto. */
+  tag?: { label: string; tone: Tone };
+};
+
+export const OBSERVACIONES: {
+  area: string;
+  /** Aclaración junto al nombre del área (ej. si no estuvo en la reunión). */
+  nota?: string;
+  notas: NotaArea[];
+}[] = [
+  {
+    area: "Dirección",
+    notas: [
+      {
+        tag: { label: "por definir", tone: "neutral" },
+        texto:
+          "Punto de equilibrio y aforo para el que se prepara cada Piknic; el costo del artista es lo que más mueve esa cuenta.",
+      },
+      {
+        texto:
+          "Antes de pensar en 5.500 personas, evaluar un tope rentable entre 4.000 y 4.500: sobre eso, baños, guardias y personal suben de golpe.",
+      },
+      {
+        texto:
+          "Los domingos se vende menos y en La Reina no se pueden hacer: revisar la programación de diciembre.",
+      },
+    ],
+  },
+  {
+    area: "Comercial y Marcas",
+    notas: [
+      {
+        texto:
+          "La gráfica debe estar lista 2 semanas antes de salir a la venta por compromiso con los sponsors: medir cuánta venta cuesta esa demora.",
+      },
+      {
+        texto:
+          "Banco de Chile pesa menos: abre espacio para otro auspicio y para subir el descuento «Plus».",
+      },
+      {
+        texto:
+          "Heineken paga fee más producto: ese producto es costo para Operaciones e ingreso para Marcas; reflejarlo en su centro de costo.",
+      },
+    ],
+  },
+  {
+    area: "Programación Artística",
+    notas: [
+      {
+        texto:
+          "Sin Kabir, nadie en la sala sabía el costo de la artística: dejarlo visible para Finanzas y Producción.",
+      },
+      {
+        texto:
+          "Es la variable principal del punto de equilibrio; hoy tiene OC por el 11% de su presupuesto.",
+      },
+    ],
+  },
+  {
+    area: "Marketing",
+    notas: [
+      {
+        texto:
+          "Con campañas de 4 semanas no se puede predecir la demanda; con 7 u 8 semanas se podría dimensionar la producción.",
+      },
+      {
+        texto:
+          "La dirección de arte es de Marketing y falta su propuesta. No volver a usar las banderitas: la decoración elegida son las plantas.",
+      },
+      {
+        texto:
+          "Paid media va como OC interna (invoice de Meta) y debería pasar a Marketing. Los canjes de entradas (~$4 M) no están en los $5,6 M de presupuesto.",
+      },
+    ],
+  },
+  {
+    area: "Ticketing y Comunidad",
+    notas: [
+      {
+        texto:
+          "Las 1.151 personas por listas no son todas invitadas: 649 invitaciones, 425 de mesa VIP y 77 de Pilates. Separar las categorías.",
+      },
+      {
+        texto:
+          "Dos sistemas de cortesías (carga de RUT y envío de link): medir cuántas se validan en cada uno.",
+      },
+      {
+        texto:
+          "Las invitaciones que se mandan y no se usan le quitan escasez y valor al producto: revisar el volumen.",
+      },
+    ],
+  },
+  {
+    area: "Permisos y Legal",
+    notas: [
+      {
+        texto:
+          "El proveedor no ingresó a tiempo la documentación para 3.500 personas; para llegar al plazo se tramitó como evento no masivo.",
+      },
+      { texto: "Los próximos Piknic se tramitan sobre 3.000 personas." },
+      {
+        tag: { label: "pendiente", tone: "pending" },
+        texto: "Entregar al parque el informe de ruido ETFA (vence el 16-nov).",
+      },
+    ],
+  },
+  {
+    area: "Producción",
+    notas: [
+      {
+        texto:
+          "Desde la entrada no se ve el escenario de frente: evaluar un arco de bienvenida (como Lima) y un foto opportunity horizontal y más grande.",
+      },
+      {
+        texto:
+          "Layout: sobran rejas, los baños quedaron apretados, la barra VIP lejos de las mesas, la de JW mal ubicada y el arco de entrada sobredimensionado.",
+      },
+      {
+        texto:
+          "Mantener un pasillo a la cabina DJ por la mesa técnica para artistas, videógrafos y selcam.",
+      },
+    ],
+  },
+  {
+    area: "Operaciones",
+    nota: "no estuvo en la reunión",
+    notas: [
+      {
+        texto:
+          "La vista desde el escenario hacia atrás debe quedar limpia: que no se vean los baños ni el arco de acceso.",
+      },
+      {
+        texto:
+          "En la barra VIP hubo bartenders sin la app de Onfire: por contrato, todo bartender debe tenerla descargada.",
+      },
+      {
+        texto:
+          "Barra VIP: en un momento no hubo productos fríos (cervezas, latas). Revisar cómo responde el personal al público.",
+      },
+      {
+        texto:
+          "~1.000 de ~3.000 personas estuvieron en VIP: se sobreprodujo el general (baños, guardias) y faltó en VIP. El consumo se concentró en las barras Glovox y 360.",
+      },
+    ],
+  },
+  {
+    area: "Finanzas",
+    notas: [
+      { texto: "Meta: el 95% de las OC emitidas antes del evento." },
+      {
+        tag: { label: "acordado", tone: "success" },
+        texto: "Presupuesto de canjes aparte para registrar canjes y fletes de la temporada.",
+      },
+      {
+        texto:
+          "Faltan centros de costo para compras internas; van atrasados sueldos y boletas del personal de barra, y el Excel de presupuesto no está al día.",
+      },
+      { texto: "Invitar a Cata al próximo cierre." },
+    ],
+  },
+  {
+    area: "Datos y Tecnología",
+    notas: [
+      {
+        texto: "Cargar marcas, mesas VIP, pase de temporada y rebate para cerrar el resultado.",
+      },
+      {
+        texto:
+          "Calcular la rentabilidad de las mesas VIP: costo de producirlas contra entrada más consumo (ese consumo no pasa por Onfire).",
+      },
+      { texto: "Activar los avisos de plazos de la lámina 11." },
+    ],
+  },
+];
