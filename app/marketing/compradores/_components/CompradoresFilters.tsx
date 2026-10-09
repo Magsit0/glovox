@@ -7,6 +7,7 @@ import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 import {
   filtersToSearchParams,
   type CompradoresContacto,
+  type CompradoresDatos,
   type CompradoresEventOption,
   type CompradoresFilters as Filters,
   type CompradoresModo,
@@ -83,6 +84,11 @@ const CONTACTO_OPTIONS: { id: CompradoresContacto; label: string }[] = [
   { id: "todos", label: "Todos" },
   { id: "email", label: "Con email" },
   { id: "telefono", label: "Con teléfono" },
+];
+
+const DATOS_OPTIONS: { id: CompradoresDatos; label: string }[] = [
+  { id: "nominados", label: "Nominados" },
+  { id: "compradores", label: "Compradores" },
 ];
 
 const MODO_OPTIONS: { id: CompradoresModo; label: string }[] = [
@@ -194,6 +200,12 @@ export default function CompradoresFilters({
           className="min-w-[300px]"
         />
         <Toggle
+          label="Datos de"
+          value={filters.datos}
+          options={DATOS_OPTIONS}
+          onSelect={(datos) => commit({ ...filters, datos })}
+        />
+        <Toggle
           label="Tipo"
           value={filters.tipo}
           options={TIPO_OPTIONS}
@@ -232,8 +244,10 @@ export default function CompradoresFilters({
       <p className="font-sans text-xs text-[var(--ink-subtle)]">
         Ventas = venta + pase de temporada · Cortesías = cortesía + mesa VIP (ambas entran con
         medio de pago &quot;Otro&quot;). Los tickets devueltos quedan fuera. &quot;Por
-        persona&quot; junta los tickets de un mismo email nominado (o teléfono, si no hay email)
-        en una sola fila y deja fuera los tickets sin ningún dato nominado.
+        persona&quot; junta los tickets de un mismo email (o teléfono, si no hay email) en una
+        sola fila y deja fuera los tickets sin ningún dato de contacto. &quot;Nominados&quot; =
+        la persona del ticket (asistente); &quot;Compradores&quot; = quien pagó la orden, útil
+        para audiencias de Meta.
       </p>
     </section>
   );

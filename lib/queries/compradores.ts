@@ -66,6 +66,27 @@ const CLASE_CASE = `
     ELSE 'VENTA'
   END`;
 
+// ---------- Fuente de los datos de contacto ----------
+
+/**
+ * Expresiones SQL (constantes de código, no input) de cada fuente.
+ * NOMINADO = el asistente del ticket; COMPRADOR = quien pagó la orden.
+ * `t.Telefono` (comprador) hoy solo lo trae FeverUp: PuntoTicket y TeleTicket
+ * no lo entregan (ver glovox_tickets.sql en data-governance).
+ */
+const FUENTE = {
+  nominados: {
+    nombre: "NULLIF(TRIM(t.NombreNominado), '')",
+    email: "NULLIF(LOWER(TRIM(t.EmailNominado)), '')",
+    telefono: "NULLIF(TRIM(t.TelefonoNominado), '')",
+  },
+  compradores: {
+    nombre: "NULLIF(TRIM(t.Nombres), '')",
+    email: "NULLIF(LOWER(TRIM(t.Email)), '')",
+    telefono: "NULLIF(TRIM(t.Telefono), '')",
+  },
+} as const;
+
 // ---------- CTEs base ----------
 
 type SqlPart = { sql: string; params: Record<string, unknown> };
@@ -78,6 +99,10 @@ type SqlPart = { sql: string; params: Record<string, unknown> };
  */
 function baseCtes(filters: CompradoresFilters, scope: DataScope | undefined): SqlPart {
   const t = countryTicketeraFilter(scope, "t.");
+  // `*_contacto` = la fuente elegida en el toggle; `*_otro` = la otra (solo
+  // se exporta en el modo por ticket, como respaldo).
+  const c = FUENTE[filters.datos];
+  const o = FUENTE[filters.datos === "compradores" ? "nominados" : "compradores"];
   const params: Record<string, unknown> = { ...t.params };
   const condsBase: string[] = ["t.EsDevuelto IS NOT TRUE"];
   if (t.sql) condsBase.push(t.sql.replace(/^\s*AND\s+/, ""));
@@ -93,8 +118,8 @@ function baseCtes(filters: CompradoresFilters, scope: DataScope | undefined): Sq
   const condsFiltro: string[] = ["TRUE"];
   if (filters.tipo === "ventas") condsFiltro.push("clase IN ('VENTA', 'PASE TEMPORADA')");
   if (filters.tipo === "cortesias") condsFiltro.push("clase IN ('CORTESIA', 'MESA VIP')");
-  if (filters.contacto === "email") condsFiltro.push("email_nominado IS NOT NULL");
-  if (filters.contacto === "telefono") condsFiltro.push("telefono_nominado IS NOT NULL");
+  if (filters.contacto === "email") condsFiltro.push("email_contacto IS NOT NULL");
+  if (filters.contacto === "telefono") condsFiltro.push("telefono_contacto IS NOT NULL");
 
   const sql = `
     WITH ev AS (
@@ -122,11 +147,11 @@ function baseCtes(filters: CompradoresFilters, scope: DataScope | undefined): Sq
         t.Item                                                   AS item,
         IFNULL(t.PersonasPorTicket, 1)                           AS personas,
         IFNULL(t.EsQuemado, FALSE)                               AS asistio,
-        NULLIF(TRIM(t.NombreNominado), '')                       AS nombre_nominado,
-        NULLIF(LOWER(TRIM(t.EmailNominado)), '')                 AS email_nominado,
-        NULLIF(TRIM(t.TelefonoNominado), '')                     AS telefono_nominado,
-        NULLIF(TRIM(t.Nombres), '')                              AS nombre_comprador,
-        NULLIF(LOWER(TRIM(t.Email)), '')                         AS email_comprador
+        ${c.nombre}                                              AS nombre_contacto,
+        ${c.email}                                               AS email_contacto,
+        ${c.telefono}                                            AS telefono_contacto,
+        ${o.nombre}                                              AS nombre_otro,
+        ${o.email}                                               AS email_otro
       FROM ${TICKETS} t
       LEFT JOIN ev ON ev.EventoID = t.EventoID
       WHERE ${condsBase.join("\n        AND ")}
@@ -227,9 +252,9 @@ export type CompradoresKpis = {
   telefonosUnicos: number;
   /** Contactos distintos: email; si no hay email, teléfono. */
   contactosUnicos: number;
-  /** Tickets sin email ni teléfono nominado. */
+  /** Tickets sin email ni teléfono de la fuente elegida. */
   sinContacto: number;
-  /** Tickets con nombre nominado pero sin email ni teléfono: en modo persona
+  /** Tickets con nombre pero sin email ni teléfono (fuente elegida): en modo persona
    *  van una fila por ticket (hay a quién nombrar, no a quién escribir). */
   soloNombre: number;
   asistieron: number;
@@ -265,7 +290,7 @@ export type CompradoresResumen = {
 
 /**
  * Filas que tendrá el CSV con los filtros dados (según el modo). En modo
- * persona quedan fuera los tickets sin NINGÚN dato nominado (típicamente
+ *  persona quedan fuera los tickets sin NINGÚN dato de contacto (típicamente
  * cortesías sin canjear): no hay a quién contactar.
  */
 export function filasExport(kpis: CompradoresKpis, modo: CompradoresModo): number {
@@ -285,14 +310,14 @@ export async function getCompradoresResumen(
       IFNULL(SUM(personas), 0)                                     AS personas,
       COUNTIF(clase IN ('VENTA', 'PASE TEMPORADA'))                AS ventas,
       COUNTIF(clase IN ('CORTESIA', 'MESA VIP'))                   AS cortesias,
-      COUNTIF(nombre_nominado IS NOT NULL)                         AS con_nombre,
-      COUNTIF(email_nominado IS NOT NULL)                          AS con_email,
-      COUNTIF(telefono_nominado IS NOT NULL)                       AS con_telefono,
-      COUNT(DISTINCT email_nominado)                               AS emails_unicos,
-      COUNT(DISTINCT telefono_nominado)                            AS telefonos_unicos,
-      COUNT(DISTINCT COALESCE(email_nominado, CONCAT('tel:', telefono_nominado))) AS contactos_unicos,
-      COUNTIF(email_nominado IS NULL AND telefono_nominado IS NULL) AS sin_contacto,
-      COUNTIF(email_nominado IS NULL AND telefono_nominado IS NULL AND nombre_nominado IS NOT NULL) AS solo_nombre,
+      COUNTIF(nombre_contacto IS NOT NULL)                         AS con_nombre,
+      COUNTIF(email_contacto IS NOT NULL)                          AS con_email,
+      COUNTIF(telefono_contacto IS NOT NULL)                       AS con_telefono,
+      COUNT(DISTINCT email_contacto)                               AS emails_unicos,
+      COUNT(DISTINCT telefono_contacto)                            AS telefonos_unicos,
+      COUNT(DISTINCT COALESCE(email_contacto, CONCAT('tel:', telefono_contacto))) AS contactos_unicos,
+      COUNTIF(email_contacto IS NULL AND telefono_contacto IS NULL) AS sin_contacto,
+      COUNTIF(email_contacto IS NULL AND telefono_contacto IS NULL AND nombre_contacto IS NOT NULL) AS solo_nombre,
       COUNTIF(asistio)                                             AS asistieron,
       COUNT(DISTINCT evento_id)                                    AS eventos
     FROM filtrado
@@ -308,9 +333,9 @@ export async function getCompradoresResumen(
       COUNT(*)                                        AS tickets,
       COUNTIF(clase IN ('VENTA', 'PASE TEMPORADA'))   AS ventas,
       COUNTIF(clase IN ('CORTESIA', 'MESA VIP'))      AS cortesias,
-      COUNTIF(email_nominado IS NOT NULL)             AS con_email,
-      COUNTIF(telefono_nominado IS NOT NULL)          AS con_telefono,
-      COUNT(DISTINCT email_nominado)                  AS emails_unicos
+      COUNTIF(email_contacto IS NOT NULL)             AS con_email,
+      COUNTIF(telefono_contacto IS NOT NULL)          AS con_telefono,
+      COUNT(DISTINCT email_contacto)                  AS emails_unicos
     FROM filtrado
     GROUP BY evento_id
     ORDER BY fecha DESC NULLS LAST, tickets DESC
@@ -323,8 +348,8 @@ export async function getCompradoresResumen(
       clase,
       COUNT(*)                                AS tickets,
       IFNULL(SUM(personas), 0)                AS personas,
-      COUNTIF(email_nominado IS NOT NULL)     AS con_email,
-      COUNTIF(telefono_nominado IS NOT NULL)  AS con_telefono
+      COUNTIF(email_contacto IS NOT NULL)     AS con_email,
+      COUNTIF(telefono_contacto IS NOT NULL)  AS con_telefono
     FROM filtrado
     GROUP BY clase
     ORDER BY tickets DESC
@@ -400,9 +425,9 @@ function exportSql(
       sql: `
         ${base.sql}
         SELECT
-          nombre_nominado,
-          email_nominado,
-          telefono_nominado,
+          nombre_contacto,
+          email_contacto,
+          telefono_contacto,
           evento_id,
           evento_nombre,
           fecha_evento,
@@ -415,8 +440,8 @@ function exportSql(
           asistio,
           ticketera,
           CAST(orden_id AS STRING) AS orden,
-          nombre_comprador,
-          email_comprador
+          nombre_otro,
+          email_otro
         FROM filtrado
         ORDER BY fecha_orden DESC, orden_id, item
         ${limitSql}
@@ -424,10 +449,11 @@ function exportSql(
     };
   }
 
-  // Modo persona: una fila por contacto. Clave = email; si no hay, teléfono;
-  // si solo hay nombre, cada ticket es su propia fila (uuid). Los tickets sin
-  // ningún dato nominado (cortesías sin canjear, eventos no nominales) quedan
-  // fuera: no hay a quién contactar. Los datos de contacto salen del ticket
+  // Modo persona: una fila por contacto (de la fuente elegida: nominado o
+  // comprador). Clave = email; si no hay, teléfono; si solo hay nombre, cada
+  // ticket es su propia fila (uuid). Los tickets sin ningún dato de contacto
+  // (cortesías sin canjear, eventos no nominales) quedan fuera: no hay a quién
+  // contactar. Los datos de contacto salen del ticket
   // más completo (con nombre y teléfono), y el "último evento / última
   // compra" del ticket más reciente.
   return {
@@ -437,18 +463,18 @@ function exportSql(
       keyed AS (
         SELECT
           *,
-          COALESCE(email_nominado, CONCAT('tel:', telefono_nominado), GENERATE_UUID()) AS persona_key
+          COALESCE(email_contacto, CONCAT('tel:', telefono_contacto), GENERATE_UUID()) AS persona_key
         FROM filtrado
-        WHERE nombre_nominado IS NOT NULL
-          OR email_nominado IS NOT NULL
-          OR telefono_nominado IS NOT NULL
+        WHERE nombre_contacto IS NOT NULL
+          OR email_contacto IS NOT NULL
+          OR telefono_contacto IS NOT NULL
       ),
       agg AS (
         SELECT
           persona_key,
           ARRAY_AGG(
-            STRUCT(nombre_nominado, email_nominado, telefono_nominado)
-            ORDER BY nombre_nominado IS NULL, telefono_nominado IS NULL, fecha_orden DESC
+            STRUCT(nombre_contacto, email_contacto, telefono_contacto)
+            ORDER BY nombre_contacto IS NULL, telefono_contacto IS NULL, fecha_orden DESC
             LIMIT 1
           )[OFFSET(0)] AS contacto,
           ARRAY_AGG(
@@ -465,9 +491,9 @@ function exportSql(
         GROUP BY persona_key
       )
       SELECT
-        contacto.nombre_nominado                                   AS nombre_nominado,
-        contacto.email_nominado                                    AS email_nominado,
-        contacto.telefono_nominado                                 AS telefono_nominado,
+        contacto.nombre_contacto                                   AS nombre_contacto,
+        contacto.email_contacto                                    AS email_contacto,
+        contacto.telefono_contacto                                 AS telefono_contacto,
         tickets,
         personas,
         eventos,
@@ -479,7 +505,7 @@ function exportSql(
         ult.clase                                                  AS clase,
         asistio
       FROM agg
-      ORDER BY ult.fecha_orden DESC, email_nominado
+      ORDER BY ult.fecha_orden DESC, email_contacto
       ${limitSql}
     `,
   };
@@ -524,7 +550,7 @@ export function createCompradoresCsvStream(
   filters: CompradoresFilters,
   scope?: DataScope,
 ): ReadableStream<Uint8Array> {
-  const cols = exportColumns(filters.modo);
+  const cols = exportColumns(filters.modo, filters.datos);
   const { sql, params } = exportSql(filters, scope);
   const header = CSV_BOM + cols.map((c) => escapeCsv(c.header)).join(",") + CRLF;
 

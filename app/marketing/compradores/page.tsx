@@ -17,6 +17,7 @@ import {
   claseColor,
   claseLabel,
   exportColumns,
+  quienLabel,
   filtersToSearchParams,
   formatCell,
   parseCompradoresParams,
@@ -111,7 +112,8 @@ export default async function CompradoresPage({
   ]);
 
   const filas = filasExport(resumen.kpis, filters.modo);
-  const cols = exportColumns(filters.modo);
+  const cols = exportColumns(filters.modo, filters.datos);
+  const quien = quienLabel(filters.datos);
   const csvHref = `/api${RUTA}/csv?${filtersToSearchParams(filters).toString()}`;
 
   return (
@@ -127,11 +129,15 @@ export default async function CompradoresPage({
         Selección: <span className="text-[var(--ink)]">{describirSeleccion(filters, events)}</span>
       </p>
 
-      <KpiRow kpis={resumen.kpis} />
+      <KpiRow kpis={resumen.kpis} quien={quien} />
 
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <CoberturaEventos rows={resumen.porEvento} />
-        <Composicion rows={resumen.porClase} total={resumen.kpis.tickets} />
+        <CoberturaEventos rows={resumen.porEvento} quien={quien} />
+        <Composicion
+          rows={resumen.porClase}
+          total={resumen.kpis.tickets}
+          compradores={filters.datos === "compradores"}
+        />
         <Preview cols={cols} rows={preview} filas={filas} modo={filters.modo} />
       </div>
     </Shell>
@@ -163,8 +169,10 @@ function describirSeleccion(filters: Filters, events: CompradoresEventOption[]):
         ? "solo cortesías"
         : "ventas y cortesías",
   );
-  if (filters.contacto === "email") partes.push("solo con email nominado");
-  if (filters.contacto === "telefono") partes.push("solo con teléfono nominado");
+  const quien = quienLabel(filters.datos);
+  partes.push(filters.datos === "compradores" ? "datos del comprador" : "datos del nominado");
+  if (filters.contacto === "email") partes.push(`solo con email ${quien}`);
+  if (filters.contacto === "telefono") partes.push(`solo con teléfono ${quien}`);
   partes.push(filters.modo === "ticket" ? "una fila por ticket" : "una fila por persona");
   return partes.join(" · ");
 }
@@ -189,7 +197,7 @@ function Heading() {
         Compradores
       </h1>
       <p className="max-w-3xl font-sans text-sm text-[var(--ink-muted)]">
-        Lista de contacto de los asistentes: nombre, email y teléfono nominado en el ticket, por
+        Lista de contacto de los asistentes (nominados en el ticket) o de los compradores: nombre, email y teléfono, por
         evento y por tipo (ventas o cortesías). Descarga el CSV con los filtros aplicados y revisa
         qué tan completa viene la data en cada evento.
       </p>
@@ -245,7 +253,7 @@ function DownloadLink({
 
 // ---------- KPIs ----------
 
-function KpiRow({ kpis }: { kpis: CompradoresKpis }) {
+function KpiRow({ kpis, quien }: { kpis: CompradoresKpis; quien: string }) {
   const cards = [
     {
       label: "Contactos únicos",
@@ -258,12 +266,12 @@ function KpiRow({ kpis }: { kpis: CompradoresKpis }) {
       caption: `${fmtInt(kpis.personas)} personas · ${fmtInt(kpis.ventas)} ventas · ${fmtInt(kpis.cortesias)} cortesías`,
     },
     {
-      label: "Con email nominado",
+      label: `Con email ${quien}`,
       value: fmtPct(kpis.conEmail, kpis.tickets),
       caption: `${fmtInt(kpis.conEmail)} de ${fmtInt(kpis.tickets)} tickets`,
     },
     {
-      label: "Con teléfono nominado",
+      label: `Con teléfono ${quien}`,
       value: fmtPct(kpis.conTelefono, kpis.tickets),
       caption: `${fmtInt(kpis.conTelefono)} de ${fmtInt(kpis.tickets)} tickets`,
     },
@@ -304,12 +312,12 @@ function PanelHeader({ title, subtitle }: { title: string; subtitle: string }) {
   );
 }
 
-function CoberturaEventos({ rows }: { rows: CompradoresEventoRow[] }) {
+function CoberturaEventos({ rows, quien }: { rows: CompradoresEventoRow[]; quien: string }) {
   return (
     <article className="overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)] lg:col-span-8">
       <PanelHeader
         title="Cobertura por evento"
-        subtitle="Cuántos tickets de la selección traen email y teléfono nominado. Sirve para saber de qué eventos se puede sacar una lista de contacto útil."
+        subtitle={`Cuántos tickets de la selección traen email y teléfono ${quien}. Sirve para saber de qué eventos se puede sacar una lista de contacto útil.`}
       />
       {rows.length === 0 ? (
         <div className="flex flex-col items-center justify-center gap-2 py-12 font-sans text-sm text-[var(--ink-subtle)]">
@@ -383,7 +391,15 @@ function Cobertura({ parte, total }: { parte: number; total: number }) {
   );
 }
 
-function Composicion({ rows, total }: { rows: CompradoresClaseRow[]; total: number }) {
+function Composicion({
+  rows,
+  total,
+  compradores,
+}: {
+  rows: CompradoresClaseRow[];
+  total: number;
+  compradores: boolean;
+}) {
   const ventas = rows
     .filter((r) => r.clase === "VENTA" || r.clase === "PASE TEMPORADA")
     .reduce((a, r) => a + r.tickets, 0);
@@ -444,8 +460,9 @@ function Composicion({ rows, total }: { rows: CompradoresClaseRow[]; total: numb
         )}
 
         <p className="mt-auto font-sans text-xs text-[var(--ink-subtle)]">
-          Las cortesías sin canjear no tienen nominado: por eso su cobertura suele ser más baja.
-          Fever (Perú y GRID PE) solo pide datos del asistente en eventos nominales.
+          {compradores
+            ? "Las cortesías casi nunca traen comprador (no hubo compra). El teléfono del comprador solo lo entrega Fever: en PuntoTicket y TeleTicket viene vacío."
+            : "Las cortesías sin canjear no tienen nominado: por eso su cobertura suele ser más baja. Fever (Perú y GRID PE) solo pide datos del asistente en eventos nominales."}
         </p>
       </div>
     </article>

@@ -11,6 +11,9 @@
 export type CompradoresTipo = "todos" | "ventas" | "cortesias";
 export type CompradoresContacto = "todos" | "email" | "telefono";
 export type CompradoresModo = "persona" | "ticket";
+/** De quién son los datos de contacto: el asistente nominado en el ticket o
+ *  quien hizo la compra (para audiencias de Meta). */
+export type CompradoresDatos = "nominados" | "compradores";
 
 export type CompradoresFilters = {
   /** EventoIDs seleccionados. Vacío = todos los eventos (sin filtro). */
@@ -22,6 +25,9 @@ export type CompradoresFilters = {
   /** "persona" = una fila por contacto único (email; si no hay, teléfono).
    *  "ticket" = una fila por ticket emitido. */
   modo: CompradoresModo;
+  /** "nominados" (default) = NombreNominado / EmailNominado / TelefonoNominado.
+   *  "compradores" = Nombres / Email / Telefono de quien compró la orden. */
+  datos: CompradoresDatos;
 };
 
 export type CompradoresEventOption = {
@@ -40,6 +46,7 @@ export const DEFAULT_FILTERS: Omit<CompradoresFilters, "eventos" | "categorias">
   tipo: "todos",
   contacto: "todos",
   modo: "persona",
+  datos: "nominados",
 };
 
 type RawParams = Record<string, string | string[] | undefined>;
@@ -72,6 +79,7 @@ export function parseCompradoresParams(sp: RawParams): {
   const tipo = first(sp.tipo);
   const contacto = first(sp.contacto);
   const modo = first(sp.modo);
+  const datos = first(sp.datos);
   return {
     eventosExplicitos,
     filters: {
@@ -80,6 +88,7 @@ export function parseCompradoresParams(sp: RawParams): {
       tipo: tipo === "ventas" || tipo === "cortesias" ? tipo : "todos",
       contacto: contacto === "email" || contacto === "telefono" ? contacto : "todos",
       modo: modo === "ticket" ? "ticket" : "persona",
+      datos: datos === "compradores" ? "compradores" : "nominados",
     },
   };
 }
@@ -93,6 +102,7 @@ export function filtersToSearchParams(f: CompradoresFilters): URLSearchParams {
   if (f.tipo !== DEFAULT_FILTERS.tipo) p.set("tipo", f.tipo);
   if (f.contacto !== DEFAULT_FILTERS.contacto) p.set("contacto", f.contacto);
   if (f.modo !== DEFAULT_FILTERS.modo) p.set("modo", f.modo);
+  if (f.datos !== DEFAULT_FILTERS.datos) p.set("datos", f.datos);
   return p;
 }
 
@@ -143,9 +153,9 @@ export type ExportColumn = {
 };
 
 const COLS_PERSONA: ExportColumn[] = [
-  { key: "nombre_nominado", header: "Nombre nominado" },
-  { key: "email_nominado", header: "Email nominado" },
-  { key: "telefono_nominado", header: "Teléfono nominado" },
+  { key: "nombre_contacto", header: "Nombre {quien}" },
+  { key: "email_contacto", header: "Email {quien}" },
+  { key: "telefono_contacto", header: "Teléfono {quien}" },
   { key: "tickets", header: "Tickets", align: "right", format: "int" },
   { key: "personas", header: "Personas", align: "right", format: "int" },
   { key: "eventos", header: "Eventos", align: "right", format: "int" },
@@ -159,9 +169,9 @@ const COLS_PERSONA: ExportColumn[] = [
 ];
 
 const COLS_TICKET: ExportColumn[] = [
-  { key: "nombre_nominado", header: "Nombre nominado" },
-  { key: "email_nominado", header: "Email nominado" },
-  { key: "telefono_nominado", header: "Teléfono nominado" },
+  { key: "nombre_contacto", header: "Nombre {quien}" },
+  { key: "email_contacto", header: "Email {quien}" },
+  { key: "telefono_contacto", header: "Teléfono {quien}" },
   { key: "evento_id", header: "Evento ID" },
   { key: "evento_nombre", header: "Evento" },
   { key: "fecha_evento", header: "Fecha evento" },
@@ -174,12 +184,30 @@ const COLS_TICKET: ExportColumn[] = [
   { key: "asistio", header: "Asistió", format: "bool" },
   { key: "ticketera", header: "Ticketera" },
   { key: "orden", header: "Orden" },
-  { key: "nombre_comprador", header: "Nombre comprador" },
-  { key: "email_comprador", header: "Email comprador" },
+  { key: "nombre_otro", header: "Nombre {otro}" },
+  { key: "email_otro", header: "Email {otro}" },
 ];
 
-export function exportColumns(modo: CompradoresModo): ExportColumn[] {
-  return modo === "ticket" ? COLS_TICKET : COLS_PERSONA;
+/** Rótulo de la fuente de datos ("nominado" / "comprador"). */
+export function quienLabel(datos: CompradoresDatos): string {
+  return datos === "compradores" ? "comprador" : "nominado";
+}
+
+/**
+ * Columnas del CSV. Las claves son genéricas (`*_contacto` = la fuente
+ * elegida, `*_otro` = la otra, solo en el modo por ticket); los encabezados
+ * dicen de quién es cada dato.
+ */
+export function exportColumns(
+  modo: CompradoresModo,
+  datos: CompradoresDatos = "nominados",
+): ExportColumn[] {
+  const quien = quienLabel(datos);
+  const otro = quienLabel(datos === "compradores" ? "nominados" : "compradores");
+  return (modo === "ticket" ? COLS_TICKET : COLS_PERSONA).map((c) => ({
+    ...c,
+    header: c.header.replace("{quien}", quien).replace("{otro}", otro),
+  }));
 }
 
 export type ExportRow = Record<string, string | number | boolean | null>;
@@ -217,6 +245,7 @@ export function csvFilename(filters: CompradoresFilters): string {
   else if (filters.eventos.length > 1) parts.push(`${filters.eventos.length}-eventos`);
   else if (filters.categorias.length > 0) parts.push("categoria");
   else parts.push("todos");
+  if (filters.datos === "compradores") parts.push("datos-comprador");
   if (filters.tipo !== "todos") parts.push(filters.tipo);
   if (filters.contacto !== "todos") parts.push(`con-${filters.contacto}`);
   parts.push(filters.modo === "ticket" ? "por-ticket" : "por-persona");
