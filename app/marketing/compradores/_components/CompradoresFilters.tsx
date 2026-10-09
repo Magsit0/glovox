@@ -87,8 +87,8 @@ const CONTACTO_OPTIONS: { id: CompradoresContacto; label: string }[] = [
 ];
 
 const DATOS_OPTIONS: { id: CompradoresDatos; label: string }[] = [
-  { id: "nominados", label: "Nominados" },
   { id: "compradores", label: "Compradores" },
+  { id: "nominados", label: "Nominados" },
 ];
 
 const MODO_OPTIONS: { id: CompradoresModo; label: string }[] = [

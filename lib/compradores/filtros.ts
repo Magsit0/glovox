@@ -25,8 +25,8 @@ export type CompradoresFilters = {
   /** "persona" = una fila por contacto único (email; si no hay, teléfono).
    *  "ticket" = una fila por ticket emitido. */
   modo: CompradoresModo;
-  /** "nominados" (default) = NombreNominado / EmailNominado / TelefonoNominado.
-   *  "compradores" = Nombres / Email / Telefono de quien compró la orden. */
+  /** "compradores" (default) = Nombres / Email / Telefono de quien compró la orden.
+   *  "nominados" = NombreNominado / EmailNominado / TelefonoNominado. */
   datos: CompradoresDatos;
 };
 
@@ -46,7 +46,7 @@ export const DEFAULT_FILTERS: Omit<CompradoresFilters, "eventos" | "categorias">
   tipo: "todos",
   contacto: "todos",
   modo: "persona",
-  datos: "nominados",
+  datos: "compradores",
 };
 
 type RawParams = Record<string, string | string[] | undefined>;
@@ -88,7 +88,9 @@ export function parseCompradoresParams(sp: RawParams): {
       tipo: tipo === "ventas" || tipo === "cortesias" ? tipo : "todos",
       contacto: contacto === "email" || contacto === "telefono" ? contacto : "todos",
       modo: modo === "ticket" ? "ticket" : "persona",
-      datos: datos === "compradores" ? "compradores" : "nominados",
+      // Default = compradores; `datos=nominados` lo cambia. Un link viejo con
+      // `datos=compradores` sigue funcionando igual.
+      datos: datos === "nominados" ? "nominados" : "compradores",
     },
   };
 }
@@ -200,7 +202,7 @@ export function quienLabel(datos: CompradoresDatos): string {
  */
 export function exportColumns(
   modo: CompradoresModo,
-  datos: CompradoresDatos = "nominados",
+  datos: CompradoresDatos = "compradores",
 ): ExportColumn[] {
   const quien = quienLabel(datos);
   const otro = quienLabel(datos === "compradores" ? "nominados" : "compradores");
@@ -245,7 +247,7 @@ export function csvFilename(filters: CompradoresFilters): string {
   else if (filters.eventos.length > 1) parts.push(`${filters.eventos.length}-eventos`);
   else if (filters.categorias.length > 0) parts.push("categoria");
   else parts.push("todos");
-  if (filters.datos === "compradores") parts.push("datos-comprador");
+  parts.push(filters.datos === "compradores" ? "datos-comprador" : "datos-nominado");
   if (filters.tipo !== "todos") parts.push(filters.tipo);
   if (filters.contacto !== "todos") parts.push(`con-${filters.contacto}`);
   parts.push(filters.modo === "ticket" ? "por-ticket" : "por-persona");
