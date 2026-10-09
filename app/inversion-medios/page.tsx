@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import { getCategoriaEventos, getEventInfo } from "@/lib/queries/ticketing";
 import { normDias, ultimoDiaEvento } from "@/lib/inversion-medios/evento";
+import { hoySantiago } from "@/lib/inversion-medios/holgura";
 import {
   buildDrillGrid,
   getAdsMetricasEvento,
@@ -18,6 +19,7 @@ import {
   getPlanDiarioEvento,
   getPlanDiarioRango,
   getPlanExtent,
+  getRealCorte,
   getRealDesgloseEvento,
   getRealDiarioEvento,
   getRealDiarioRango,
@@ -33,14 +35,6 @@ import InversionMediosPanel from "./_components/InversionMediosPanel";
 import EventoDrill from "./_components/EventoDrill";
 
 export const dynamic = "force-dynamic";
-
-/** Hoy en hora de Santiago (UTC voltearía el día a las ~20:00 locales). */
-function hoyISO(): string {
-  // en-CA formatea YYYY-MM-DD.
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Santiago" }).format(
-    new Date(),
-  );
-}
 
 /** Primer día del mes de una fecha ISO. */
 function mesInicio(iso: string): string {
@@ -79,17 +73,20 @@ export default async function InversionMediosPage({
   // tablero de trabajo del líder de Paid Media, y el acceso ya está acotado por
   // el grant. Cada Server Action revalida el mismo grant server-side.
   const canEdit = true;
+  // Superadmin es el único que corrige el plan de días pasados (el resto los ve
+  // bloqueados: son la vara del desvío). Las actions lo revalidan server-side.
+  const isSuperadmin = session.user.role === "superadmin";
   const sp = await searchParams;
 
   const evento = typeof sp.evento === "string" ? sp.evento.toUpperCase() : "";
 
   // ---------- Modo drill (un evento) ----------
   if (EVENTO_RE.test(evento)) {
-    return <DrillView eventoId={evento} canEdit={canEdit} />;
+    return <DrillView eventoId={evento} canEdit={canEdit} isSuperadmin={isSuperadmin} />;
   }
 
   // ---------- Modo calendario libre ----------
-  const hoy = hoyISO();
+  const hoy = hoySantiago();
   const [catalogo, planExtent, realMaxFecha] = await Promise.all([
     getCategoriaEventos("all"),
     getPlanExtent(),
@@ -187,10 +184,19 @@ export default async function InversionMediosPage({
   );
 }
 
-async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boolean }) {
-  const [info, realMaxFecha] = await Promise.all([
+async function DrillView({
+  eventoId,
+  canEdit,
+  isSuperadmin,
+}: {
+  eventoId: string;
+  canEdit: boolean;
+  isSuperadmin: boolean;
+}) {
+  const [info, realMaxFecha, realCorte] = await Promise.all([
     getEventInfo(eventoId),
     getRealMaxFecha(),
+    getRealCorte(),
   ]);
   if (!info) {
     return (
@@ -216,7 +222,7 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
   //    gasto ese día y `dataMax` estiraba la ventana.
   //  - LÍMITE INFERIOR = inicio de venta o primer dato; si no hay nada, hoy
   //    (así el calendario va de hoy → fecha del evento aunque esté vacío).
-  const hoy = hoyISO();
+  const hoy = hoySantiago();
   const [planAll, realExtent] = await Promise.all([
     getPlanDiarioEvento(eventoId),
     getRealExtentEvento(eventoId),
@@ -265,8 +271,10 @@ async function DrillView({ eventoId, canEdit }: { eventoId: string; canEdit: boo
       drill={drill}
       planRows={planVentana}
       realMaxFecha={realMaxFecha}
+      corte={realCorte || realMaxFecha}
       hoy={hoy}
       canEdit={canEdit}
+      isSuperadmin={isSuperadmin}
       etapas={etapas}
       desgloseRows={desgloseRows}
       ads={ads}

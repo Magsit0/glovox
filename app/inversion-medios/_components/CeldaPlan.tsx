@@ -27,6 +27,7 @@ export default function CeldaPlan({
   cell,
   parcial,
   canEdit = true,
+  bloqueado = false,
   onFill,
 }: {
   eventoId: string;
@@ -38,6 +39,10 @@ export default function CeldaPlan({
   parcial: boolean;
   /** false → celda read-only. Hoy siempre true: el grant de lectura habilita editar. */
   canEdit?: boolean;
+  /** Día pasado de una fila editable: read-only porque su plan es la base del
+   *  desvío (ver esDiaBloqueado). Solo cambia el tooltip; lo de editar lo
+   *  decide `canEdit`. */
+  bloqueado?: boolean;
   /** "Copiar hacia adelante": abre el rellenador de rango prellenado con el
    *  monto de ESTA celda. Solo lo pasan las filas de tipo con plan guardado. */
   onFill?: () => void;
@@ -104,7 +109,9 @@ export default function CeldaPlan({
           lado tiene el foco, el blur (que commitea) no debe robarse el clic.
           Sin z-index propio: la columna sticky (z-10) le sigue pasando por
           encima al scrollear. */}
-      {canEdit && onFill && saved != null && draft === null && (
+      {/* Sin `canEdit`: desde un día pasado (read-only) también se puede copiar
+          su monto hacia los días editables — quien pasa `onFill` ya decidió. */}
+      {onFill && saved != null && draft === null && (
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
@@ -139,7 +146,10 @@ export default function CeldaPlan({
         />
       ) : (
         // Read-only: mismo lugar que el plan, sin input.
-        <span className="px-1 py-0.5 text-center tabular-nums text-xs font-medium text-[var(--plan)]">
+        <span
+          className="px-1 py-0.5 text-center tabular-nums text-xs font-medium text-[var(--plan)]"
+          title={bloqueado ? "Día pasado: el plan no se edita (es la base del desvío). Las correcciones las hace un superadmin." : undefined}
+        >
           {saved != null ? fmtUsd(saved, 0) : <span className="text-[var(--divider)]">·</span>}
         </span>
       )}

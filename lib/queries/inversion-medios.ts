@@ -687,6 +687,33 @@ export async function getRealMaxFecha(): Promise<string> {
 }
 
 /**
+ * Último día CERRADO del mart: el anterior a la última corrida diaria.
+ *
+ * MAX(fecha) no sirve para esto: cada corrida (~09:00 SCL, `loaded_at`) trae
+ * también el día en curso, parcial — el 2026-10-08 a media mañana GRID KIKI 2
+ * mostraba $28 para un día que cerró en $137. Una corrida fechada el día D
+ * deja completo hasta D−1. Se toma el MÍNIMO entre plataformas con datos
+ * recientes, para que un pipeline atrasado no adelante el corte, y nunca pasa
+ * de MAX(fecha). '' si el mart no tiene datos en los últimos 14 días.
+ */
+export async function getRealCorte(): Promise<string> {
+  const rows = await query<Record<string, unknown>>(`
+    WITH ult AS (
+      SELECT plataforma, MAX(loaded_at) AS carga
+      FROM ${MART}
+      WHERE fecha >= DATE_SUB(CURRENT_DATE('America/Santiago'), INTERVAL 14 DAY)
+      GROUP BY plataforma
+    )
+    SELECT FORMAT_DATE('%Y-%m-%d', LEAST(
+      DATE_SUB(DATE(MIN(carga), 'America/Santiago'), INTERVAL 1 DAY),
+      (SELECT MAX(fecha) FROM ${MART})
+    )) AS corte
+    FROM ult
+  `);
+  return s(rows[0]?.corte);
+}
+
+/**
  * Techo presupuestario por evento = categoriaEvento.budgetPm (USD). La tabla
  * madre es la fuente única del techo; se edita en la hoja de /admin/eventos.
  */

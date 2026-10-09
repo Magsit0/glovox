@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, gte, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import { db } from "@/db";
@@ -14,6 +14,7 @@ import {
   type EtapaCampana,
 } from "@/db/schema";
 import { METODOS_CARGO } from "@/lib/inversion-medios/cargos";
+import { esDiaBloqueado, hoySantiago, MSG_DIA_BLOQUEADO } from "@/lib/inversion-medios/holgura";
 import { SIN_TIPO, TIPOS_PLAN } from "@/lib/inversion-medios/tipos";
 import { withNeonRetry } from "@/lib/neon-retry";
 import { getEventInfo } from "@/lib/queries/ticketing";
@@ -25,6 +26,8 @@ export type ActionResult<T = void> =
 interface ActorCtx {
   email: string;
   userId: string | null;
+  /** Único perfil que puede corregir el plan de días pasados (ver esDiaBloqueado). */
+  isSuperadmin: boolean;
 }
 
 /**
@@ -41,7 +44,11 @@ async function requireInversionMediosAccess(): Promise<ActorCtx> {
   if (!canAccessPath(session?.user?.permissions ?? [], "/inversion-medios")) {
     throw new Error("No tienes acceso a Control inversión PM");
   }
-  return { email, userId: session?.user?.userId ?? null };
+  return {
+    email,
+    userId: session?.user?.userId ?? null,
+    isSuperadmin: session?.user?.role === "superadmin",
+  };
 }
 
 /**
@@ -136,6 +143,7 @@ export async function upsertCellAction(input: {
   const monto = sanitizeMonto(input.montoUsd);
   if (monto === null) return { ok: false, error: "Monto inválido (USD ≥ 0)" };
   const nota = sanitizeNota(input.nota);
+  if (esDiaBloqueado(fecha, hoySantiago(), ctx.isSuperadmin)) return { ok: false, error: MSG_DIA_BLOQUEADO };
 
   const eventoError = await validarEvento(eventoId);
   if (eventoError) return { ok: false, error: eventoError };
@@ -207,6 +215,7 @@ export async function deleteCellAction(input: {
   if (!plataforma) return { ok: false, error: "Plataforma inválida" };
   const tipo = sanitizeTipo(input.tipo, plataforma);
   if (tipo === null) return { ok: false, error: "Tipo de campaña inválido" };
+  if (esDiaBloqueado(fecha, hoySantiago(), ctx.isSuperadmin)) return { ok: false, error: MSG_DIA_BLOQUEADO };
 
   try {
     await withNeonRetry(() =>
@@ -230,11 +239,16 @@ export async function deleteCellAction(input: {
 }
 
 /**
- * Borra la fila completa (evento × plataforma × tipo): todos sus días de plan.
- * Antes había que vaciar celda por celda (pedido del equipo, 2026-10-08: el
- * plan de TikTok "Sin tipo" de GLO203 eran 176 celdas). Solo toca esa clave de
- * 3 columnas — los otros tipos y plataformas del evento quedan intactos — y el
- * audit guarda las filas borradas completas para poder restaurarlas.
+ * Borra la fila (evento × plataforma × tipo) DE HOY EN ADELANTE. Antes había
+ * que vaciar celda por celda (pedido del equipo, 2026-10-08: el plan de TikTok
+ * "Sin tipo" de GLO203 eran 176 celdas). Solo toca esa clave de 3 columnas —
+ * los otros tipos y plataformas del evento quedan intactos — y el audit guarda
+ * las filas borradas completas para poder restaurarlas.
+ *
+ * Desde 2026-10-09 NUNCA borra días pasados, ni siquiera para superadmin: el
+ * plan de un día que ya pasó es la vara del desvío, y borrar la fila entera
+ * era la forma más rápida de perderla. Superadmin corrige un día pasado celda
+ * por celda.
  */
 export async function deleteRowAction(input: {
   eventoId: string;
@@ -254,6 +268,7 @@ export async function deleteRowAction(input: {
   if (!plataforma) return { ok: false, error: "Plataforma inválida" };
   const tipo = sanitizeTipo(input.tipo, plataforma);
   if (tipo === null) return { ok: false, error: "Tipo de campaña inválido" };
+  const hoy = hoySantiago();
 
   try {
     const borradas = await withNeonRetry(() =>
@@ -264,6 +279,7 @@ export async function deleteRowAction(input: {
             eq(inversionMediosDiario.eventoId, eventoId),
             eq(inversionMediosDiario.plataforma, plataforma),
             eq(inversionMediosDiario.tipo, tipo),
+            gte(inversionMediosDiario.fecha, hoy),
           ),
         )
         .returning({
@@ -276,6 +292,7 @@ export async function deleteRowAction(input: {
       eventoId,
       plataforma,
       tipo,
+      desde: hoy,
       borradas: borradas.length,
       totalUsd: borradas.reduce((a, r) => a + r.montoUsd, 0),
       filas: borradas,
@@ -350,6 +367,10 @@ export async function bulkFillPlanAction(input: {
   }
   if (fechas.length > MAX_BULK) {
     return { ok: false, error: `Máximo ${MAX_BULK} días por relleno` };
+  }
+  const hoy = hoySantiago();
+  if (fechas.some((f) => esDiaBloqueado(f, hoy, ctx.isSuperadmin))) {
+    return { ok: false, error: `El rango incluye días anteriores a hoy. ${MSG_DIA_BLOQUEADO}` };
   }
 
   const eventoError = await validarEvento(eventoId);

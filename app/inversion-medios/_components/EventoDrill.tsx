@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, CalendarRange, ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, CalendarRange, ChevronDown, ChevronRight, Lock, Plus, Trash2, X } from "lucide-react";
 import type {
   AdsMetricasEvento,
   DrillGrid,
@@ -13,7 +13,8 @@ import type {
   TicketsEvento,
 } from "@/lib/queries/inversion-medios";
 import { PM_PROPAGACION_MIN } from "@/lib/inversion-medios/rendimiento";
-import { addDiasIso, esDiaEvento, tituloDiaEvento } from "@/lib/inversion-medios/evento";
+import { addDiasIso, esDiaEvento, tituloDiaEvento, ultimoDiaEvento } from "@/lib/inversion-medios/evento";
+import { calcHolgura, desvioPorCanal, esDiaBloqueado, fmtDiaMes } from "@/lib/inversion-medios/holgura";
 import { nivelPayday, PAYDAY_HEAD, paydayCell, tituloPayday } from "@/lib/inversion-medios/payday";
 import {
   computeEtapaSegments,
@@ -30,6 +31,7 @@ import {
 } from "@/lib/inversion-medios/tipos";
 import { bulkFillPlanAction, deleteRowAction, saveEtapasAction } from "../actions";
 import CeldaPlan from "./CeldaPlan";
+import HolguraEvento, { fmtSigned, toneClass } from "./HolguraEvento";
 import RendimientoEvento from "./RendimientoEvento";
 import { compactInt, fmtUsd, formatInt } from "./format";
 
@@ -46,7 +48,11 @@ type Props = {
   /** Plan diario crudo (con tipo) de la ventana del drill — arma las filas de tipo. */
   planRows: PlanDiarioRow[];
   realMaxFecha: string;
+  /** Último día CERRADO del mart (getRealCorte): hasta acá se mide el desvío. */
+  corte: string;
   hoy: string;
+  /** Único perfil que edita el plan de días pasados (el resto los ve bloqueados). */
+  isSuperadmin: boolean;
   /** false → drill read-only (sin inputs ni rellenar rango). Hoy siempre true:
    *  quien tiene el grant de /inversion-medios puede editar el plan. */
   canEdit: boolean;
@@ -123,7 +129,9 @@ export default function EventoDrill({
   drill,
   planRows,
   realMaxFecha,
+  corte,
   hoy,
+  isSuperadmin,
   canEdit,
   etapas,
   desgloseRows,
@@ -133,14 +141,46 @@ export default function EventoDrill({
 }: Props) {
   const { dias, plataformas, totalDia, totalPlan, totalReal } = drill;
 
-  // Disponible = techo − plan (lo que queda por planificar contra el techo).
-  const disponible = techoUsd != null ? techoUsd - totalPlan : null;
+  // Holgura (2026-10-09): el plan de los días pasados YA NO se reescribe al
+  // gasto real. "Por asignar" reemplaza a "Disponible" (techo − plan, que
+  // mezclaba plan pasado en vez de gasto): techo − real cerrado − plan
+  // pendiente. Ver lib/inversion-medios/holgura.ts.
+  const ultimoDia = ultimoDiaEvento(fechaEvento, diasEvento);
+  const holgura = useMemo(
+    () => calcHolgura({ totalDia, corte, hoy, ultimoDia, techo: techoUsd }),
+    [totalDia, corte, hoy, ultimoDia, techoUsd],
+  );
+  const canalesDesvio = useMemo(() => desvioPorCanal(plataformas, corte), [plataformas, corte]);
+  // Desvío del día y acumulado, alineados a las columnas, solo hasta el corte.
+  const desvioCols = useMemo(() => {
+    const out: { dia: number | null; acc: number | null }[] = [];
+    let acc = 0;
+    for (const d of totalDia) {
+      if (!corte || d.fecha > corte) {
+        out.push({ dia: null, acc: null });
+        continue;
+      }
+      acc += d.plan - d.real;
+      out.push({ dia: d.plan - d.real, acc });
+    }
+    return out;
+  }, [totalDia, corte]);
+  // Bloqueo por calendario: antes de hoy solo edita superadmin.
+  const editableDia = (fecha: string) => !esDiaBloqueado(fecha, hoy, isSuperadmin);
+  const minEditable = isSuperadmin ? (dias[0] ?? "") : hoy;
+  const hayEditables = dias.length > 0 && dias[dias.length - 1] >= minEditable;
+  const nPasados = dias.filter((d) => d < hoy).length;
+  const hayBandaBloqueo = nPasados > 0;
   const pctPlan = techoUsd && techoUsd > 0 ? (totalPlan / techoUsd) * 100 : null;
   const pctReal = techoUsd && techoUsd > 0 ? (totalReal / techoUsd) * 100 : null;
 
   // Segmentos de las bandas de etapa alineados a las columnas de días.
   const etapaSegs = useMemo(() => computeEtapaSegments(dias, etapas), [dias, etapas]);
   const hayEtapas = etapaSegs.some((s) => s.colorIdx !== null);
+  // Hasta dos bandas sticky sobre las fechas: etapas (opcional) y días
+  // bloqueados / editables. Cada una corre la fila de fechas un BAND_H.
+  const bandaTop = hayEtapas ? BAND_H : 0;
+  const fechasTop = bandaTop + (hayBandaBloqueo ? BAND_H : 0);
 
   // Desglose real por tipo/campaña. El tipo sale del objetivo declarado en la
   // plataforma (única clasificación); la corrida es client-side para que
@@ -306,10 +346,16 @@ export default function EventoDrill({
         <Stat label="Plan total" value={fmtUsd(totalPlan)} hint={pctPlan != null ? `${pctPlan.toFixed(0)}% del techo` : "sin techo"} />
         <Stat label="Invertido (real)" value={fmtUsd(totalReal)} hint={pctReal != null ? `${pctReal.toFixed(0)}% del techo` : "sin techo"} />
         <Stat
-          label="Disponible"
-          value={disponible != null ? fmtUsd(disponible) : "—"}
-          hint={disponible != null && disponible < 0 ? "plan sobre el techo" : "techo − plan"}
-          tone={disponible != null && disponible < 0 ? "neg" : undefined}
+          label="Por asignar"
+          value={holgura.porAsignar != null ? fmtUsd(holgura.porAsignar) : "—"}
+          hint={
+            holgura.porAsignar == null
+              ? "sin techo"
+              : corte
+                ? `techo − real al ${fmtDiaMes(corte)} − plan desde el ${fmtDiaMes(addDiasIso(corte, 1))}`
+                : "techo − real cerrado − plan pendiente"
+          }
+          tone={holgura.porAsignar != null && holgura.porAsignar < 0 ? "neg" : undefined}
         />
         <Stat
           label="Ejecución"
@@ -325,6 +371,14 @@ export default function EventoDrill({
         hoyEnRango={dias.length > 0 && dias[0] <= hoy && hoy <= dias[dias.length - 1]}
       />
 
+      <HolguraEvento
+        holgura={holgura}
+        canales={canalesDesvio}
+        techoUsd={techoUsd}
+        hoy={hoy}
+        ultimoDia={ultimoDia}
+      />
+
       {canEdit && <EtapasEditor eventoId={eventoId} etapas={etapas} />}
 
       {canEdit && fill && (
@@ -337,6 +391,7 @@ export default function EventoDrill({
           tipoLabel={fill.tipoLabel}
           init={fill}
           dias={dias}
+          minFecha={minEditable}
           plan={filasTipo.get(fill.plataforma)?.find((f) => f.tipoKey === fill.tipoKey)?.plan ?? []}
           onClose={() => setFill(null)}
         />
@@ -381,9 +436,50 @@ export default function EventoDrill({
                   />
                 </tr>
               )}
+              {/* Días pasados (plan bloqueado, salvo superadmin) vs. desde hoy
+                  (editable). El rótulo va `sticky` dentro de su celda: la franja
+                  puede cubrir cientos de columnas y si no se perdería al scrollear. */}
+              {hayBandaBloqueo && (
+                <tr>
+                  <th
+                    style={{ height: BAND_H, top: bandaTop }}
+                    className="sticky left-0 z-30 w-40 min-w-40 max-w-40 border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--ink-subtle)]"
+                  >
+                    Plan
+                  </th>
+                  <th
+                    colSpan={nPasados}
+                    style={{ height: BAND_H, top: bandaTop }}
+                    className="sticky z-20 border-b border-[var(--divider)] bg-[var(--surface-alt)] px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--ink-subtle)]"
+                    title={
+                      isSuperadmin
+                        ? "Días anteriores a hoy: el resto del equipo los ve bloqueados; como superadmin puedes corregirlos."
+                        : "Días anteriores a hoy: su plan no se edita, es la base para medir el desvío. Las correcciones las hace un superadmin."
+                    }
+                  >
+                    <span className="sticky left-[172px] inline-flex items-center gap-1 whitespace-nowrap">
+                      <Lock className="h-2.5 w-2.5" />
+                      Días pasados · {isSuperadmin ? "solo superadmin edita" : "plan bloqueado"}
+                    </span>
+                  </th>
+                  {dias.length > nPasados && (
+                    <th
+                      colSpan={dias.length - nPasados}
+                      style={{ height: BAND_H, top: bandaTop }}
+                      className="sticky z-20 border-b border-l border-b-[var(--divider)] border-l-[#9F99F8] bg-[var(--purple-tint)] px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--plan)]"
+                    >
+                      <span className="sticky left-[172px] whitespace-nowrap">Desde hoy · editable</span>
+                    </th>
+                  )}
+                  <th
+                    style={{ height: BAND_H, top: bandaTop }}
+                    className="sticky z-20 w-24 min-w-24 max-w-24 border-b border-l border-[var(--divider)] bg-[var(--surface-alt)]"
+                  />
+                </tr>
+              )}
               <tr>
                 <th
-                  style={{ top: hayEtapas ? BAND_H : 0 }}
+                  style={{ top: fechasTop }}
                   className="sticky left-0 z-30 w-40 min-w-40 max-w-40 border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-2 text-left text-xs font-medium text-[var(--ink-muted)]"
                 >
                   Canal
@@ -400,7 +496,7 @@ export default function EventoDrill({
                   return (
                     <th
                       key={fecha}
-                      style={{ top: hayEtapas ? BAND_H : 0 }}
+                      style={{ top: fechasTop }}
                       title={
                         [diaEvento ? tituloDiaEvento(fecha, fechaEvento, diasEvento) : null, tituloPayday(fecha)]
                           .filter(Boolean)
@@ -426,7 +522,7 @@ export default function EventoDrill({
                   );
                 })}
                 <th
-                  style={{ top: hayEtapas ? BAND_H : 0 }}
+                  style={{ top: fechasTop }}
                   className="sticky z-20 w-24 min-w-24 max-w-24 border-b border-l border-[var(--divider)] bg-[var(--surface-alt)] px-3 py-2 text-right text-xs font-medium text-[var(--ink-muted)]"
                 >
                   Total
@@ -472,7 +568,7 @@ export default function EventoDrill({
                           plataforma={p.plataforma}
                           tipo={SIN_TIPO}
                           cell={cell}
-                          parcial={cell.fecha === hoy || cell.fecha > realMaxFecha}
+                          parcial={cell.fecha === hoy || cell.fecha > corte}
                           canEdit={false}
                         />
                       </td>
@@ -524,7 +620,7 @@ export default function EventoDrill({
                               rmkt {fmtUsd(totalRmkt, 0)}
                             </span>
                           )}
-                          {canEdit && f.editable && f.tipoKey !== SIN_TIPO && (
+                          {canEdit && f.editable && f.tipoKey !== SIN_TIPO && hayEditables && (
                             <button
                               onClick={() =>
                                 abrirFill({
@@ -552,7 +648,8 @@ export default function EventoDrill({
                               tipoKey={f.tipoKey}
                               tipoLabel={f.label}
                               plan={f.plan}
-                              totalPlan={f.totalPlan}
+                              dias={dias}
+                              hoy={hoy}
                             />
                           )}
                         </span>
@@ -579,26 +676,30 @@ export default function EventoDrill({
                               fxImputado: p.dias[i]?.fxImputado ?? false,
                               sinFx: false,
                             }}
-                            parcial={fecha === hoy || fecha > realMaxFecha}
-                            canEdit={canEdit && f.editable}
+                            parcial={fecha === hoy || fecha > corte}
+                            canEdit={canEdit && f.editable && editableDia(fecha)}
+                            bloqueado={canEdit && f.editable && !editableDia(fecha)}
                             onFill={
                               // El handle "copiar hacia adelante": celda CON plan
-                              // y con al menos un día por delante en la ventana.
-                              // Abre la card prellenada con este monto y ~15 días.
-                              canEdit && f.editable && f.tipoKey !== SIN_TIPO && f.plan[i] != null && i < dias.length - 1
-                                ? () =>
+                              // y con al menos un día editable por delante. Abre
+                              // la card prellenada con este monto y ~15 días; desde
+                              // una celda pasada arranca en el primer día editable.
+                              canEdit && f.editable && f.tipoKey !== SIN_TIPO && f.plan[i] != null && i < dias.length - 1 && hayEditables
+                                ? () => {
+                                    const ultimo = dias[dias.length - 1];
+                                    const sig = addDiasIso(fecha, 1);
+                                    const desde = sig > minEditable ? sig : minEditable;
+                                    const hasta = addDiasIso(desde, 14) <= ultimo ? addDiasIso(desde, 14) : ultimo;
                                     abrirFill({
                                       plataforma: p.plataforma,
                                       platLabel: p.label,
                                       tipoKey: f.tipoKey,
                                       tipoLabel: f.label,
-                                      desde: addDiasIso(fecha, 1),
-                                      hasta:
-                                        addDiasIso(fecha, 15) <= dias[dias.length - 1]
-                                          ? addDiasIso(fecha, 15)
-                                          : dias[dias.length - 1],
+                                      desde,
+                                      hasta,
                                       monto: String(f.plan[i]),
-                                    })
+                                    });
+                                  }
                                 : undefined
                             }
                           />
@@ -631,6 +732,40 @@ export default function EventoDrill({
                 }
                 return rows;
               })}
+
+              {/* ── Desvío y holgura (2026-10-09) ──────────────────────────
+                  Desvío del día y acumulado = plan − real de los días CERRADOS
+                  (≤ corte); holgura por día = por asignar ÷ días que quedan, en
+                  los días de hoy al último del evento. Cierran con las cards de
+                  "Holgura para lo que queda" y "Desvío vs plan". */}
+              <FilaSerie
+                label="Desvío del día"
+                sub="plan − real"
+                dias={dias}
+                hoy={hoy}
+                valores={desvioCols.map((c) => c.dia)}
+                total={corte ? holgura.desvio : null}
+                primera
+              />
+              <FilaSerie
+                label="Desvío acumulado"
+                sub="desde el inicio de la ventana"
+                dias={dias}
+                hoy={hoy}
+                valores={desvioCols.map((c) => c.acc)}
+                total={null}
+              />
+              <FilaSerie
+                label="Holgura por día"
+                sub="por asignar ÷ días que quedan"
+                dias={dias}
+                hoy={hoy}
+                valores={dias.map((d) =>
+                  holgura.porDia != null && d >= hoy && ultimoDia && d <= ultimoDia ? holgura.porDia : null,
+                )}
+                total={holgura.porAsignar}
+                ghost
+              />
 
               {/* ── Resultado del día ──────────────────────────────────────
                   Tickets de la ticketera alineados a las MISMAS columnas de día
@@ -749,7 +884,10 @@ export default function EventoDrill({
         objetivo declarado en la plataforma; <span className="text-[var(--ink)]">RMKT</span> es una marca
         de la campaña y suma dentro de su tipo. <span className="italic text-[var(--ink-subtle)]">Sin tipo</span>{" "}
         es el plan cargado antes del desglose — muévelo a su tipo (carga el monto en el tipo correcto y
-        vacía la celda de Sin tipo). El real de hoy es parcial (los datos de ads llegan a las 09:45). Las filas de{" "}
+        vacía la celda de Sin tipo). Los <span className="text-[var(--ink)]">días anteriores a hoy</span> no se
+        editan: su plan es la base del desvío (solo un superadmin los corrige). Las filas de desvío comparan
+        plan y real de los días cerrados, y la holgura por día reparte lo que queda por asignar hasta el
+        evento. El real de hoy es parcial (los datos de ads llegan a las 09:45). Las filas de{" "}
         <span className="text-[var(--ink-muted)]">Resultado del día</span> van en gris y de una línea: son
         tickets de la ticketera, no dinero, y se imputan al día de la orden.
       </p>
@@ -866,6 +1004,65 @@ function CampanasPorTipo({
   );
 }
 
+/**
+ * Fila de serie en dinero con signo (desvío / holgura), alineada a las columnas
+ * de día. `null` = el concepto no aplica ese día (después del corte, o fuera de
+ * hoy → evento) y se pinta `·`; un número, aunque sea 0, se pinta con su tono.
+ */
+function FilaSerie({
+  label,
+  sub,
+  dias,
+  hoy,
+  valores,
+  total,
+  ghost,
+  primera,
+}: {
+  label: string;
+  sub: string;
+  dias: string[];
+  hoy: string;
+  valores: (number | null)[];
+  total: number | null;
+  /** Cursiva: es una sugerencia, no un dato. */
+  ghost?: boolean;
+  /** Borde superior más marcado: separa el bloque de las filas de canal. */
+  primera?: boolean;
+}) {
+  const borde = primera ? "border-[var(--divider)]" : "border-[var(--grid)]";
+  return (
+    <tr>
+      <td
+        className={`sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t ${borde} bg-[var(--surface-sunken)] py-1.5 pl-4 pr-3 align-top`}
+      >
+        <span className="block text-[11px] font-medium text-[var(--ink)]">{label}</span>
+        <span className="block text-[10px] text-[var(--ink-subtle)]">{sub}</span>
+      </td>
+      {dias.map((fecha, i) => {
+        const v = valores[i];
+        return (
+          <td
+            key={fecha}
+            className={`w-16 min-w-16 max-w-16 whitespace-nowrap border-t ${borde} px-0.5 py-1.5 text-center align-top tabular-nums text-[11px] ${
+              fecha === hoy ? "bg-[var(--purple-tint)]/40" : paydayCell(fecha, "bg-[var(--surface-sunken)]")
+            }`}
+          >
+            {v == null ? (
+              <span className="text-[var(--divider)]">·</span>
+            ) : (
+              <span className={`${toneClass(v)} ${ghost ? "italic" : "font-medium"}`}>{fmtSigned(v)}</span>
+            )}
+          </td>
+        );
+      })}
+      <td className={`border-l border-t ${borde} bg-[var(--surface-sunken)] px-3 py-1.5 text-right align-top tabular-nums text-xs`}>
+        {total != null && <span className={`font-medium ${toneClass(total)}`}>{fmtSigned(total)}</span>}
+      </td>
+    </tr>
+  );
+}
+
 // Celda read-only de gasto real (filas de tipo/campaña del desglose).
 function ReadCell({
   value,
@@ -957,12 +1154,14 @@ type EtapaDraft = { nombre: string; fechaInicio: string };
 // ---------- Borrar fila (plataforma × TIPO) ----------
 
 /**
- * Vacía de una vez TODOS los días de plan de una fila (plataforma × tipo) del
- * evento — antes había que vaciar celda por celda. Solo aparece si la fila
- * tiene plan, y el confirm dice cuántos días y cuánta plata se van. La ventana
- * del drill siempre cubre todo el plan del evento (page.tsx la estira hasta el
- * primer/último día con plan), así que lo que se cuenta acá es lo que se borra.
- * El gasto real no se toca; el audit guarda las celdas borradas.
+ * Vacía de una vez los días de plan de una fila (plataforma × tipo) DE HOY EN
+ * ADELANTE — antes había que vaciar celda por celda. Desde 2026-10-09 nunca
+ * toca días pasados (ni para superadmin): son la base del desvío, y la action
+ * lo garantiza server-side. Solo aparece si la fila tiene plan desde hoy, y el
+ * confirm dice cuántos días y cuánta plata se van. La ventana del drill cubre
+ * todo el plan del evento (page.tsx la estira hasta el primer/último día con
+ * plan), así que lo que se cuenta acá es lo que se borra. El gasto real no se
+ * toca; el audit guarda las celdas borradas.
  */
 function BorrarFila({
   eventoId,
@@ -971,7 +1170,8 @@ function BorrarFila({
   tipoKey,
   tipoLabel,
   plan,
-  totalPlan,
+  dias,
+  hoy,
 }: {
   eventoId: string;
   plataforma: string;
@@ -979,18 +1179,27 @@ function BorrarFila({
   tipoKey: string;
   tipoLabel: string;
   plan: (number | null)[];
-  totalPlan: number;
+  /** Columnas del drill, alineadas a `plan`. */
+  dias: string[];
+  hoy: string;
 }) {
   const router = useRouter();
   const [pending, start] = useTransition();
-  const conPlan = plan.reduce<number>((a, v) => a + (v != null ? 1 : 0), 0);
+  let conPlan = 0;
+  let totalPlan = 0;
+  plan.forEach((v, i) => {
+    if (v != null && dias[i] >= hoy) {
+      conPlan += 1;
+      totalPlan += v;
+    }
+  });
   if (conPlan === 0) return null;
 
   function borrar() {
-    const dias = `${conPlan} ${conPlan === 1 ? "día" : "días"}`;
+    const n = `${conPlan} ${conPlan === 1 ? "día" : "días"}`;
     if (
       !window.confirm(
-        `¿Borrar todo el plan de ${platLabel} · ${tipoLabel}? Son ${dias} (${fmtUsd(totalPlan)}). El gasto real no se toca.`,
+        `¿Borrar el plan de ${platLabel} · ${tipoLabel} de hoy en adelante? Son ${n} (${fmtUsd(totalPlan)}). Los días pasados y el gasto real no se tocan.`,
       )
     )
       return;
@@ -1009,8 +1218,8 @@ function BorrarFila({
       onClick={borrar}
       disabled={pending}
       className="inline-flex h-4 w-4 items-center justify-center rounded text-[var(--ink-subtle)] hover:bg-[var(--grid)] hover:text-[#ED75A0] disabled:opacity-40"
-      title={`Borrar todo el plan de ${platLabel} · ${tipoLabel}`}
-      aria-label={`Borrar todo el plan de ${platLabel} · ${tipoLabel}`}
+      title={`Borrar el plan de ${platLabel} · ${tipoLabel} de hoy en adelante`}
+      aria-label={`Borrar el plan de ${platLabel} · ${tipoLabel} de hoy en adelante`}
     >
       <Trash2 className="h-3 w-3" />
     </button>
@@ -1042,6 +1251,7 @@ function RellenarRango({
   tipoLabel,
   init,
   dias,
+  minFecha,
   plan,
   onClose,
 }: {
@@ -1053,6 +1263,9 @@ function RellenarRango({
   init: { desde: string; hasta: string; monto: string };
   /** Ventana cargada del drill (las columnas de la sábana). */
   dias: string[];
+  /** Primer día editable: hoy (los pasados están bloqueados), o el inicio de
+   *  la ventana para superadmin. */
+  minFecha: string;
   /** Plan existente de ESTA fila, alineado a `dias` — alimenta el preview. */
   plan: (number | null)[];
   onClose: () => void;
@@ -1071,7 +1284,7 @@ function RellenarRango({
     ref.current?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }, []);
 
-  const min = dias[0] ?? "";
+  const min = dias[0] && dias[0] > minFecha ? dias[0] : minFecha;
   const max = dias[dias.length - 1] ?? "";
 
   // Mismo parseo de moneda que CeldaPlan: $, espacios y coma decimal.
@@ -1085,10 +1298,10 @@ function RellenarRango({
     if (!desde || !hasta || desde > hasta) return [] as number[];
     const out: number[] = [];
     for (let i = 0; i < dias.length; i++) {
-      if (dias[i] >= desde && dias[i] <= hasta) out.push(i);
+      if (dias[i] >= desde && dias[i] <= hasta && dias[i] >= min) out.push(i);
     }
     return out;
-  }, [dias, desde, hasta]);
+  }, [dias, desde, hasta, min]);
   const conPlan = rango.reduce((a, i) => a + (plan[i] != null ? 1 : 0), 0);
   const vacias = rango.length - conPlan;
   const escribe = soloVacios ? vacias : rango.length;
@@ -1099,7 +1312,9 @@ function RellenarRango({
       : desde > hasta
         ? "El rango está invertido."
         : rango.length === 0
-          ? "El rango cae fuera de la ventana cargada."
+          ? desde < min
+            ? `Los días anteriores al ${min} no se editan: elige desde ${min} en adelante.`
+            : "El rango cae fuera de la ventana cargada."
           : soloVacios
             ? `Escribe en ${vacias} ${vacias === 1 ? "día vacío" : "días vacíos"}${conPlan > 0 ? `; ${conPlan} con plan no se tocan` : ""}.`
             : conPlan > 0
