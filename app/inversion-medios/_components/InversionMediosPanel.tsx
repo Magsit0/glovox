@@ -26,6 +26,7 @@ import type {
   CarddaConsumoRow,
   CarddaFeeRow,
   DayCell,
+  GcpSemanaRow,
   EventoGridRow,
   NoAtribuidoCampanaDia,
   NoAtribuidoRow,
@@ -54,6 +55,7 @@ import { deleteCargoAction, upsertCargoAction } from "../actions";
 import { fmtDiaCorto, fmtUsd } from "./format";
 import SubtotalRango from "./SubtotalRango";
 import CampanasActivas from "./CampanasActivas";
+import GastoGcp from "./GastoGcp";
 
 type Props = {
   desde: string; // YYYY-MM-DD, inicio del rango cargado
@@ -75,6 +77,8 @@ type Props = {
   carddaConsumoSem: CarddaConsumoRow[];
   /** Fee mensual de Cardda por período. */
   carddaFee: CarddaFeeRow[];
+  /** Gasto Google Cloud por semana×servicio; `null` = la vista no se pudo leer. */
+  gcpSemanal: GcpSemanaRow[] | null;
   /** Habilita editar los cargos extra. Va con el grant del dashboard, no con el rol. */
   canEdit: boolean;
   /** País inicial del filtro (`?pais=CL|PE`); "" = todos. */
@@ -120,6 +124,7 @@ export default function InversionMediosPanel({
   carddaConsumo,
   carddaConsumoSem,
   carddaFee,
+  gcpSemanal,
   canEdit,
   paisInicial,
 }: Props) {
@@ -714,6 +719,9 @@ export default function InversionMediosPanel({
 
       {/* Facturación histórica: lo realmente cobrado a la tarjeta Cardda */}
       <FacturacionHistorica consumo={carddaConsumo} consumoSem={carddaConsumoSem} fee={carddaFee} />
+
+      {/* Gasto semanal de Google Cloud (export de facturación GCP) */}
+      <GastoGcp rows={gcpSemanal} />
 
       <p className="font-sans text-xs text-[var(--ink-subtle)]">
         Cada celda: <span className="font-medium text-[var(--plan)]">plan</span> total del día (arriba, en

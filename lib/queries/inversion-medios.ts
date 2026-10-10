@@ -66,6 +66,10 @@ const CARDDA_FEE = `\`${P}.marts.cardda_fee_mensual\``;
 // SEMANAL del consumo (el mart es mensual y no tiene hermano semanal).
 const CARDDA_TX = `\`${P}.cardda.card_transactions\``;
 const FX_REF = `\`${P}.referencia.tipo_cambio\``;
+// Gasto de Google Cloud por fecha×proyecto×servicio, neto de créditos y en USD.
+// Vista de data-governance sobre el export nativo de Cloud Billing (encendido el
+// 2026-10-10, retroactivo desde 2026-09-01).
+const GCP_DIARIO = `\`${P}.marts.gcp_gasto_diario\``;
 
 // ─────────────────────── Métricas de rendimiento (Fase 1) ───────────────────
 // Fragmentos compartidos por las queries de resultado. Van acá, junto a MART /
@@ -1168,6 +1172,52 @@ export async function getCarddaFeeMensual(): Promise<CarddaFeeRow[]> {
     feeClp: n(r.fee_clp),
     fiscalInvoiceId: r.fiscal_invoice_id == null ? null : s(r.fiscal_invoice_id),
   }));
+}
+
+// ---------- Gasto Google Cloud (semanal, read-only desde marts) ----------
+
+export type GcpSemanaRow = {
+  semana: string; // YYYY-MM-DD, lunes de la semana
+  servicio: string;
+  costoUsd: number;
+  costoClp: number | null; // solo si la cuenta factura en CLP
+  maxFecha: string; // último día con dato de la semana (para marcar parciales)
+};
+
+/**
+ * Gasto GCP por SEMANA (lunes) × servicio, neto de créditos, en USD con la tasa
+ * del propio export. Devuelve `null` si la vista no se pudo leer (p. ej. antes
+ * de que el export cree su tabla): es una sección accesoria y no debe tumbar
+ * el panel de planificación.
+ */
+export async function getGcpGastoSemanal(): Promise<GcpSemanaRow[] | null> {
+  try {
+    const rows = await query<Record<string, unknown>>(
+      `
+      SELECT
+        FORMAT_DATE('%Y-%m-%d', DATE_TRUNC(fecha, WEEK(MONDAY))) AS semana,
+        servicio,
+        SUM(costo_neto_usd)                                       AS costo_usd,
+        IF(LOGICAL_AND(moneda = 'CLP'), SUM(costo_neto), NULL)    AS costo_clp,
+        FORMAT_DATE('%Y-%m-%d', MAX(fecha))                       AS max_fecha
+      FROM ${GCP_DIARIO}
+      GROUP BY semana, servicio
+      ORDER BY semana, servicio
+      `,
+    );
+    return rows.map((r) => ({
+      semana: s(r.semana),
+      servicio: s(r.servicio),
+      costoUsd: n(r.costo_usd),
+      costoClp: r.costo_clp == null ? null : n(r.costo_clp),
+      maxFecha: s(r.max_fecha),
+    }));
+  } catch (err) {
+    console.error("[inversion-medios] fallo leyendo marts.gcp_gasto_diario", err);
+    // "Not found" = la vista aún no existe (se crea cuando el export de billing
+    // genera su tabla): se muestra como "sin datos todavía", no como error.
+    return /not found/i.test(String((err as Error)?.message ?? err)) ? [] : null;
+  }
 }
 
 // ═══════════ RENDIMIENTO DEL EVENTO (Fase 1) ════════════════════════════════

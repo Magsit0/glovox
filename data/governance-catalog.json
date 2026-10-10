@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-07T16:27:40.391900+00:00",
+  "generatedAt": "2026-10-10T06:06:36.354627+00:00",
   "sources": [
     {
       "id": "metricool",
@@ -3707,7 +3707,7 @@
         "marts.finanzas_gastos"
       ],
       "consumers": [],
-      "notes": "Snapshot por negocio del resumen diario de OCs y facturas de eventos propios (pedido del P&L, oct-2026): ítems del presupuesto sin OC (solo compras abiertas), OCs sin factura (justificado = FALSE) y OCs pagadas sin factura. Corre pegado al final de unabase_ingesta.run() (también los días sin IDs) y postea a #data-alerts (secret slack-alerts-webhook) una vez por día hábil; el propio log hace de tope de envío. Best-effort.",
+      "notes": "Snapshot por negocio del resumen diario de OCs y facturas de eventos propios (pedido del P&L, oct-2026): ítems del presupuesto sin OC (solo compras abiertas), OCs sin factura (justificado = FALSE) y OCs pagadas sin factura. Corre pegado al final de unabase_ingesta.run() (también los días sin IDs) y postea una vez por día hábil: a #data-alerts (secret slack-alerts-webhook) o, en modo prueba (ALERTA_OC_SLACK_USER), por DM del bot del agente de datos (secret slack-bot-token). destino/enviado registran a dónde salió. El propio log hace de tope de envío. Best-effort.",
       "metrics": [],
       "endpointLabel": "Derivada — resumen pipelines/finanzas/unabase/alerta_oc.py",
       "fields": [
@@ -3794,6 +3794,102 @@
           "type": "TIMESTAMP",
           "mode": "NULLABLE",
           "description": "Timestamp UTC de la carga (= check_ts; redundante para consistencia con el resto de tablas)."
+        },
+        {
+          "name": "destino",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "A dónde se envió el resumen: 'webhook' (#data-alerts) o 'dm:<ID de miembro de Slack>' (modo prueba, mensaje directo del bot). NULL en envíos previos al 10-oct-2026."
+        },
+        {
+          "name": "enviado",
+          "type": "BOOL",
+          "mode": "NULLABLE",
+          "description": "TRUE si Slack aceptó el mensaje; FALSE si faltaba la credencial (log-only). NULL en envíos previos al 10-oct-2026."
+        }
+      ]
+    },
+    {
+      "key": "finanzas.alerta_oc_pendientes_log",
+      "area": "finanzas",
+      "source": "unabase",
+      "endpoint": "Derivada — resumen pipelines/finanzas/unabase/alerta_oc.py",
+      "pipeline": "pipelines/finanzas/unabase/alerta_oc.py",
+      "schema": "finanzas_alerta_oc_pendientes_log",
+      "assetType": "table",
+      "status": "governed",
+      "loadPattern": "append",
+      "frequency": "daily",
+      "owner": "@maximiliano",
+      "upstream": [
+        "marts.finanzas_negocios",
+        "marts.finanzas_presupuesto_items",
+        "marts.finanzas_gastos"
+      ],
+      "consumers": [],
+      "notes": "Detalle del resumen diario de OCs (10-oct-2026): 1 fila por pendiente en cada envío — OC sin factura (clave = gasto_id) o ítem del presupuesto sin OC (clave = llave_item). Contra el snapshot anterior se calcula qué cambió (OCs que recibieron factura, ítems que pasaron a tener OC, OCs nuevas sin factura, nuevas pagadas sin factura). Mismo check_ts que finanzas.alerta_oc_log.",
+      "metrics": [],
+      "endpointLabel": "Derivada — resumen pipelines/finanzas/unabase/alerta_oc.py",
+      "fields": [
+        {
+          "name": "check_ts",
+          "type": "TIMESTAMP",
+          "mode": "REQUIRED",
+          "description": "Timestamp UTC del envío del resumen diario de OCs (mismo check_ts que finanzas.alerta_oc_log)."
+        },
+        {
+          "name": "negocio_id",
+          "type": "INT64",
+          "mode": "REQUIRED",
+          "description": "Negocio de producción propia vigente al que pertenece el pendiente."
+        },
+        {
+          "name": "tipo",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "'oc_sin_factura' (OC no anulada con justificado = FALSE) | 'item_sin_oc' (línea del presupuesto con gasto, sin OC ni rendición; solo negocios con compras abiertas)."
+        },
+        {
+          "name": "clave",
+          "type": "STRING",
+          "mode": "REQUIRED",
+          "description": "gasto_id de la OC (oc_sin_factura) o llave_item de la línea de presupuesto (item_sin_oc). Única dentro de (negocio_id, tipo)."
+        },
+        {
+          "name": "detalle",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Proveedor efectivo de la OC, o nombre del ítem del presupuesto."
+        },
+        {
+          "name": "folio",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Folio de la OC (NULL en ítems)."
+        },
+        {
+          "name": "estado",
+          "type": "STRING",
+          "mode": "NULLABLE",
+          "description": "Estado de la OC en Unabase: EMITIDA | PAGADA (NULL en ítems)."
+        },
+        {
+          "name": "monto",
+          "type": "FLOAT64",
+          "mode": "NULLABLE",
+          "description": "Gasto neto de la OC, o gasto presupuestado de la línea."
+        },
+        {
+          "name": "fecha",
+          "type": "DATE",
+          "mode": "NULLABLE",
+          "description": "Fecha de la OC (NULL en ítems)."
+        },
+        {
+          "name": "loaded_at",
+          "type": "TIMESTAMP",
+          "mode": "NULLABLE",
+          "description": "Timestamp UTC de la carga (= check_ts)."
         }
       ]
     },
@@ -4969,7 +5065,6 @@
         "/frees",
         "/marketing/weekly",
         "/marketing/curvas",
-        "/marketing/compradores",
         "/inversion-medios",
         "/onepager",
         "/ticketing",
@@ -5246,7 +5341,6 @@
         "/ticketing",
         "/onepager",
         "/marketing/weekly",
-        "/marketing/compradores",
         "/cierre-trimestral",
         "glovox-produccion"
       ],
@@ -5696,6 +5790,27 @@
       "notes": "Contrato estable del gasto de Google Cloud por (mes, servicio) que consume /admin/cloud. v1 lee solo el seed histórico; cutover a UNION con el export vivo (gcp_billing_export_v1_*) documentado en el .sql cuando el export acumule ≥1 mes completo.",
       "metrics": [],
       "endpointLabel": "Vista BQ",
+      "fields": []
+    },
+    {
+      "key": "marts.gcp_gasto_diario",
+      "area": "ops",
+      "source": "gcp_billing",
+      "endpoint": "Vista BQ sobre billing.gcp_billing_export_v1_018FD7_287807_31AC34",
+      "pipeline": "schemas/bigquery/views/marts_gcp_gasto_diario.sql",
+      "schema": null,
+      "assetType": "view",
+      "status": "governed",
+      "loadPattern": "view",
+      "frequency": "realtime",
+      "owner": "@maximiliano",
+      "upstream": [],
+      "consumers": [
+        "/inversion-medios"
+      ],
+      "notes": "Gasto GCP por (fecha, proyecto, servicio), neto de créditos y en USD con la tasa del propio export. Export Standard usage cost encendido 2026-10-10 (retroactivo desde 2026-09-01). Alimenta el gráfico semanal de Google Cloud en /inversion-medios.",
+      "metrics": [],
+      "endpointLabel": "Vista BQ sobre billing.gcp_billing_export_v1_018FD7_287807_31AC34",
       "fields": []
     }
   ]

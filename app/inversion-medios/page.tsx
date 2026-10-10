@@ -12,6 +12,7 @@ import {
   getCarddaConsumoMensual,
   getCarddaConsumoSemanal,
   getCarddaFeeMensual,
+  getGcpGastoSemanal,
   getCargosExtra,
   getEtapas,
   getNoAtribuidoCampanasDiario,
@@ -149,7 +150,7 @@ export default async function InversionMediosPage({
 
   // `campanasRecientes` no depende del rango cargado: es "qué corre ahora",
   // anclado a la última fecha del mart.
-  const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee, campanasRecientes] =
+  const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee, campanasRecientes, gcpSemanal] =
     await Promise.all([
       getBudgetPmMap(ids),
       getTotalesEvento(ids),
@@ -158,6 +159,7 @@ export default async function InversionMediosPage({
       getCarddaConsumoSemanal(),
       getCarddaFeeMensual(),
       getCampanasRecientes(),
+      getGcpGastoSemanal(),
     ]);
 
   const grid = mergeGrid({ eventos, from: desde, to: hasta, plan, real, budgetPm });
@@ -178,6 +180,7 @@ export default async function InversionMediosPage({
       carddaConsumo={carddaConsumo}
       carddaConsumoSem={carddaConsumoSem}
       carddaFee={carddaFee}
+      gcpSemanal={gcpSemanal}
       canEdit={canEdit}
       paisInicial={PAISES.has(paisParam) ? paisParam : ""}
     />
