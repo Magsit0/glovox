@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { Check, Pencil, RotateCcw, Trash2 } from "lucide-react";
 import {
   deletePending,

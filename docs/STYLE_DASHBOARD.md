@@ -485,6 +485,31 @@ Avoid: bouncy springs, `scale` > `1.03`, rotation on chrome, parallax.
 
 ---
 
+## NAVIGATION FEEDBACK
+
+Every click that navigates (to another dashboard, opening a cierre, changing a filter that
+rewrites the URL) must show that it was registered. This is global — it lives in
+`components/NavigationFeedback.tsx`, mounted once in `app/layout.tsx`. Dashboards do not
+build their own.
+
+- **A · Top bar**: `2px` `#9F99F8` line pinned to the top edge; grows fast, slows near 90%,
+  jumps to 100% and fades when the new URL commits.
+- **B · Clicked element**: `2px` `#9F99F8` outline (inset on table rows) plus a `26px`
+  spinner badge — right-center on short elements (rows, buttons, pills), top-right on cards.
+- Shown only if the wait exceeds `150ms`, so prefetched navigations never flicker.
+
+Rules for code:
+
+- **Never import `useRouter` from `next/navigation`.** Import it from `@/lib/use-router`;
+  its `push`/`replace` trigger the feedback. ESLint (`no-restricted-imports`) enforces it.
+- `<Link>` and plain internal `<a href>` need nothing: clicks are detected globally.
+- Clickable things that navigate should be semantic (`a`, `button`, `tr`, `[role=button]`)
+  or have `cursor-pointer`, so the spinner finds the element that was clicked.
+- This spinner confirms the *click*. It does not replace skeletons: loading charts and tables
+  still use skeletons (`loading.tsx`), never a spinner.
+
+---
+
 ## THEME TOKENS & DARK MODE
 
 Colors are no longer written as literals in components. They go through **CSS custom

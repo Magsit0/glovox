@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { useMemo } from "react";
 import type { ClaseVenta, TicketingEventOption } from "@/lib/queries/ticketing";
 import type { Country } from "@/lib/queries/comunidad";

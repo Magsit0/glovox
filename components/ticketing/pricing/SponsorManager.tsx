@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { Check, Pencil, Plus, Trash2, X } from "lucide-react";
 import type { TicketingSponsor, Country as PgCountry } from "@/db/schema";
 import {

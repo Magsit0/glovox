@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { Check, ChevronDown, Search } from "lucide-react";
 import type { FfbbEventOption } from "@/lib/ffbb/types";
 

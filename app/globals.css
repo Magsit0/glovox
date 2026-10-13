@@ -664,3 +664,45 @@ body {
     animation-delay: 0s !important;
   }
 }
+
+/* ─────────────────── Feedback de navegación ───────────────────
+ * Lo pinta components/NavigationFeedback.tsx (ver docs/STYLE_DASHBOARD.md →
+ * "Feedback de navegación"). La barra avanza rápido al principio y se frena
+ * cerca del final sin llegar nunca: no sabemos cuánto falta, solo que algo pasa.
+ * Al hacer commit salta a 100% y se desvanece.
+ */
+.nav-feedback-bar[data-phase="loading"] {
+  animation: nav-feedback-progress 12s cubic-bezier(0.1, 0.7, 0.2, 1) forwards;
+}
+.nav-feedback-bar[data-phase="finishing"] {
+  width: 100%;
+  opacity: 0;
+  transition: width 120ms ease-out, opacity 150ms ease-out 100ms;
+}
+@keyframes nav-feedback-progress {
+  from {
+    width: 0;
+  }
+  to {
+    width: 90%;
+  }
+}
+
+/* Lo que se clickeó. outline no mueve el layout; en filas va hacia adentro
+   porque las tablas viven en contenedores con overflow-hidden. */
+[data-nav-pending] {
+  outline: 2px solid #9F99F8;
+  outline-offset: 2px;
+  cursor: progress;
+}
+tr[data-nav-pending],
+td[data-nav-pending] {
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-feedback-bar[data-phase="loading"] {
+    animation: none;
+    width: 100%;
+  }
+}

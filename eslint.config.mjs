@@ -21,6 +21,26 @@ const eslintConfig = defineConfig([
     files: ["**/*.cjs"],
     rules: { "@typescript-eslint/no-require-imports": "off" },
   },
+  // router.push/replace tienen que pasar por lib/use-router.ts para que aparezca
+  // el feedback de navegación (barra + spinner). Ver components/NavigationFeedback.tsx.
+  {
+    ignores: ["lib/use-router.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "next/navigation",
+              importNames: ["useRouter"],
+              message:
+                'Importa useRouter desde "@/lib/use-router": muestra el feedback de carga al navegar.',
+            },
+          ],
+        },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;

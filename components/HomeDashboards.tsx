@@ -36,7 +36,8 @@ import {
   Check,
   ChevronRight,
 } from "lucide-react";
-import { useSearchParams, useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import {
   useEffect,
   useMemo,

@@ -1,7 +1,8 @@
 "use client";
 
 import { useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { X } from "lucide-react";
 import MultiSelectFilter from "@/components/cierre-mensual/filters/MultiSelectFilter";
 import type {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type KeyboardEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 import type { NegocioRow } from "@/lib/unabase/types";
 

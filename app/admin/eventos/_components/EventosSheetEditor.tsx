@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { AlertCircle, Check, Loader2, Plus, Save, Search, X } from "lucide-react";
 import type {
   SheetGrid,

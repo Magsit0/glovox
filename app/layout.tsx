@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Montserrat } from "next/font/google";
 import { auth } from "@/lib/auth";
 import SuperadminPendingsFab from "@/components/SuperadminPendingsFab";
+import NavigationFeedback from "@/components/NavigationFeedback";
 import "./globals.css";
 
 const montserrat = Montserrat({
@@ -34,6 +35,7 @@ export default async function RootLayout({
         >
           Skip to main content
         </a>
+        <NavigationFeedback />
         {children}
         <SuperadminPendingsFab role={role} />
       </body>

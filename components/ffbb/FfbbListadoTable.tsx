@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, type KeyboardEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import type { FfbbListadoRow } from "@/lib/ffbb/types";
 import { compactCurrency, formatCurrency, formatNumber } from "@/lib/unabase/formatting";
 

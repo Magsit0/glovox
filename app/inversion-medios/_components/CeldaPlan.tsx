@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { ArrowRight } from "lucide-react";
 import type { DrillDayCell } from "@/lib/queries/inversion-medios";
 import { deleteCellAction, upsertCellAction } from "../actions";

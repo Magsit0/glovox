@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type Option = { tipoTicket: string; tickets: number };

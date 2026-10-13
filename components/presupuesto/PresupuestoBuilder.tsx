@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { ArrowLeft, History, Save, Trash2 } from "lucide-react";
 import type { PresupuestoEvento } from "@/db/schema";
 import type { EventInfo } from "@/lib/queries/ticketing";

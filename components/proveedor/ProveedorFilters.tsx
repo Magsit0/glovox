@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { X } from "lucide-react";
 import type { ProveedorOption } from "@/lib/queries/proveedor";
 import ProveedorCombobox from "@/components/proveedor/ProveedorCombobox";

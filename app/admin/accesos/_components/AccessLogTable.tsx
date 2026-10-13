@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { useTransition } from "react";
 import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 

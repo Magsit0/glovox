@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { Plus, X } from "lucide-react";
 import type { PresupuestoEvento } from "@/db/schema";
 import type { EventoOption } from "@/lib/queries/ticketing";

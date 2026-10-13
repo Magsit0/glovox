@@ -1,6 +1,7 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import type { Country } from "@/lib/queries/comunidad";
 
 const buttons: { id: Country; label: string }[] = [

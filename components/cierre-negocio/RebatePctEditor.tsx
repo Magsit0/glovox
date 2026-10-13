@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition, type KeyboardEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { Check, Pencil, X } from "lucide-react";
 import { upsertRebatePctAction } from "@/app/cierre-negocio/rebate-actions";
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import Link from "next/link";
 import { ArrowLeft, CalendarRange, ChevronDown, ChevronRight, Lock, Plus, Trash2, X } from "lucide-react";
 import type {

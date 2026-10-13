@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter } from "@/lib/use-router";
 import { Loader2, X } from "lucide-react";
 import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 import {
