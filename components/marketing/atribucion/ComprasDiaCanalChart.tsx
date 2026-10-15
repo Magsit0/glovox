@@ -76,7 +76,7 @@ function TooltipDia({
 
 /**
  * "Compras por día y canal": barras apiladas de las órdenes web medidas por día
- * (DATE(FechaOrden), como el resto de la página) y canal real. Top 5 canales,
+ * (DATE(FechaOrdenLocal), como el resto de la página) y canal real. Top 5 canales,
  * «Otros canales» y «Sin origen conocido». Cada canal tiene color fijo
  * (COLOR_CANAL), así conserva su color entre eventos.
  */

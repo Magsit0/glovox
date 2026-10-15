@@ -108,17 +108,18 @@ const VENDIDO = `${CLASE_TICKET} IN ('VENTA','PASE TEMPORADA') AND t.EsDevuelto 
  * (244 filas 'GENERAL DGTL' fechadas un año antes), la cobertura del esquema PM_
  * cae a 74/366 y el evento de mayor gasto del panel se clasifica mal.
  *
- * TZ: `DATE(...)` SIN zona horaria, a propósito. `FechaOrden` guarda hora local
- * ingenua etiquetada como UTC (la hora media cruda de la tarde no se mueve entre
- * verano e invierno pese al cambio UTC-4 → UTC-3), y es lo que ya hace todo el
- * repo (lib/queries/curvas.ts, lib/queries/ticketing.ts).
- * `DATE(FechaOrden, 'America/Santiago')` movería de día un 5,12% de las filas.
+ * TZ: se fecha por `FechaOrdenLocal` (DATETIME, col 41 de glovox.tickets desde
+ * 2026-10-15): hora de reloj del país del evento, correcta para las tres
+ * ticketeras. `FechaOrden` mezcla semánticas (PuntoTicket/TeleTicket guardan hora
+ * local etiquetada UTC, FeverUp guarda UTC real), así que `DATE(FechaOrden)`
+ * corría de día las compras Fever posteriores a las 21:00 de Chile. Es el mismo
+ * criterio que usa el slack-data-agent.
  * El `hoy` y los bordes del rango SÍ siguen en America/Santiago (page.tsx): esas
  * son preguntas de reloj de pared, no de imputación de una orden a un día.
  */
 const FECHA_ORDEN = `DATE(CASE
-  WHEN t.EventoID = 'GLO198' AND t.TipoTicket = 'GENERAL DGTL' THEN TIMESTAMP('2026-03-18')
-  ELSE t.FechaOrden END)`;
+  WHEN t.EventoID = 'GLO198' AND t.TipoTicket = 'GENERAL DGTL' THEN DATETIME '2026-03-18'
+  ELSE t.FechaOrdenLocal END)`;
 
 /** Referido normalizado. El UPPER es OBLIGATORIO: FeverUp escribe los códigos en
  *  MINÚSCULA (pm_mt_kv_conv, pm_mt_exp_conv, pm_gg_pmax_mix) y sin esto se pierde
@@ -154,7 +155,7 @@ const PM_MUT = `(${PM_NORM} IN ('CONV','MIX','ALC','TRF','SEA')
  *  Medido: PuntoTicket 2026-02-25, TeleTicket 2026-03-10, FeverUp 2026-07-02.
  *  Sirve para distinguir "no hubo venta por PM" de "el esquema no existía". */
 const PRIMER_PM_CTE = `primer_pm AS (
-  SELECT Ticketera, MIN(DATE(FechaOrden)) AS pm_desde
+  SELECT Ticketera, MIN(DATE(FechaOrdenLocal)) AS pm_desde
   FROM ${TICKETS}
   WHERE REGEXP_CONTAINS(UPPER(TRIM(COALESCE(Referido,''))), r'^PM_')
   GROUP BY Ticketera

@@ -140,7 +140,7 @@ export default async function DemandaSection({
                 ? `${rows.length} eventos · total de tickets vendidos por evento`
                 : granularidad === "CATEGORIA"
                   ? `${rows.length} categorías · ordenadas por total de tickets descendente`
-                  : `${rows.length} ${granLabel} con datos · eje temporal = fecha de compra (FechaOrden)`}
+                  : `${rows.length} ${granLabel} con datos · eje temporal = fecha de compra (FechaOrdenLocal)`}
             </p>
           </header>
           <DemandaLineChart rows={rows} granularidad={granularidad} metrica={metrica} proyeccion={proyeccion} />

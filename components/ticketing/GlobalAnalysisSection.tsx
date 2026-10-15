@@ -65,7 +65,7 @@ export default async function GlobalAnalysisSection({
           </h2>
           <p className="mt-1 font-sans text-sm text-[#666666]">
             Vista general de todos los eventos. Inicio de venta = primera orden registrada
-            (MIN de FechaOrden). Clic en cada columna para ordenar; por defecto, fecha de evento
+            (MIN de FechaOrdenLocal). Clic en cada columna para ordenar; por defecto, fecha de evento
             descendente.
           </p>
         </div>

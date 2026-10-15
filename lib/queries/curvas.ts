@@ -133,7 +133,7 @@ function ticketConds(filters: CurvasFilters): {
   conds: string[];
   params: Record<string, unknown>;
 } {
-  const conds: string[] = ["t.FechaOrden IS NOT NULL"];
+  const conds: string[] = ["t.FechaOrdenLocal IS NOT NULL"];
   const params: Record<string, unknown> = {};
 
   if (!filters.incluirDevueltos) conds.push("t.EsDevuelto IS NOT TRUE");
@@ -257,7 +257,7 @@ export async function getCurvasCompra(
     )
     SELECT
       e.evento_id                                                       AS evento_id,
-      DATE_DIFF(DATE(e.fecha_evento), DATE(t.FechaOrden), DAY)          AS dias,
+      DATE_DIFF(DATE(e.fecha_evento), DATE(t.FechaOrdenLocal), DAY)     AS dias,
       ANY_VALUE(DATE_DIFF(DATE(e.fecha_evento), CURRENT_DATE(), DAY))   AS dias_hoy,
       -- 'tickets' = transacciones (opcion Tickets del toggle Metrica);
       -- 'personas' = asistentes, via la columna PersonasPorTicket.

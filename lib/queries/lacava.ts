@@ -126,8 +126,8 @@ export async function getLaCavaEventos(): Promise<LaCavaEvento[]> {
       SUM(IF(${ES_VENTA}, t.CargoServicio, 0))              AS cargo_servicio,
       SUM(IF(${CLASE_CASE} = 'CORTESIA' AND t.EsDevuelto IS NOT TRUE, t.PersonasPorTicket, 0)) AS cortesias,
       COUNTIF(t.EsDevuelto IS TRUE)                         AS devueltos,
-      FORMAT_DATE('%Y-%m-%d', MIN(DATE(t.FechaOrden)))      AS primera_orden,
-      FORMAT_DATE('%Y-%m-%d', MAX(DATE(t.FechaOrden)))      AS ultima_orden
+      FORMAT_DATE('%Y-%m-%d', MIN(DATE(t.FechaOrdenLocal)))      AS primera_orden,
+      FORMAT_DATE('%Y-%m-%d', MAX(DATE(t.FechaOrdenLocal)))      AS ultima_orden
     FROM ${CATEGORY} c
     JOIN ${TICKETS} t ON t.EventoID = c.EventoID
     WHERE c.CategoriaEvento = 'JUMBO'
@@ -165,13 +165,13 @@ export async function getLaCavaVentaDiaria(
     `
     WITH diario AS (
       SELECT
-        FORMAT_DATE('%Y-%m-%d', DATE(t.FechaOrden))  AS fecha,
+        FORMAT_DATE('%Y-%m-%d', DATE(t.FechaOrdenLocal))  AS fecha,
         SUM(t.PersonasPorTicket)                     AS personas,
         COUNT(*)                                     AS transacciones,
         SUM(t.Precio - IFNULL(t.Descuento, 0))       AS venta
       FROM ${TICKETS} t
       WHERE t.EventoID = @eventoId
-        AND t.FechaOrden IS NOT NULL
+        AND t.FechaOrdenLocal IS NOT NULL
         AND ${ES_VENTA}
       GROUP BY fecha
     )

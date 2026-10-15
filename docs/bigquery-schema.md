@@ -75,7 +75,8 @@ Core sales table. One row per ticket item.
 | EventoID | STRING | e.g. `GLO174` |
 | Evento | STRING | Event name |
 | FechaEvento | TIMESTAMP | Date of the event |
-| FechaOrden | TIMESTAMP | Purchase date |
+| FechaOrden | TIMESTAMP | Purchase date — mixed zones (PuntoTicket/TeleTicket local time tagged UTC, FeverUp real UTC); do not use to date sales |
+| FechaOrdenLocal | DATETIME | Purchase date in the event country's local clock, correct for all ticketeras (since 2026-10-15); use this to date/group/filter sales |
 | SucursalVenta | STRING | Sales branch |
 | TipoEnvio | STRING | Delivery type |
 | MedioPago | STRING | Payment method (Webpay, BancoChile, etc.) |

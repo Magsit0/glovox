@@ -417,7 +417,7 @@ export type GlobalEventoRow = {
   nombre: string;
   /** Venue (recinto) de glovox.categoriaEvento; vacío si no está cargado. */
   venue: string;
-  /** Inicio de venta = primera orden registrada del evento (MIN(FechaOrden)). */
+  /** Inicio de venta = primera orden registrada del evento (MIN(FechaOrdenLocal)). */
   fechaInicioVenta: string;
   /** Fecha del evento (MIN(FechaEvento)). */
   fechaEvento: string;
@@ -434,14 +434,14 @@ function diasEntre(desde: string, hasta: string): number | null {
 
 /**
  * Vista general de todos los eventos: una fila por EventoID con su fecha de
- * inicio de venta (MIN(FechaOrden) en glovox.tickets). Filtra por país según el
+ * inicio de venta (MIN(FechaOrdenLocal) en glovox.tickets). Filtra por país según el
  * prefijo del EventoID (GLO=Chile, GLP=Perú), igual que el resto del ticketing,
  * y opcionalmente por categoría de evento y/o un único evento.
  */
 export async function getGlobalEventos(
   filters: GlobalMatrizFilters,
 ): Promise<GlobalEventoRow[]> {
-  const conds: string[] = ["t.EventoID IS NOT NULL", "t.FechaOrden IS NOT NULL"];
+  const conds: string[] = ["t.EventoID IS NOT NULL", "t.FechaOrdenLocal IS NOT NULL"];
   const params: Record<string, unknown> = {};
   if (filters.country === "chile") conds.push("t.EventoID LIKE 'GLO%'");
   if (filters.country === "peru") conds.push("t.EventoID LIKE 'GLP%'");
@@ -464,7 +464,7 @@ export async function getGlobalEventos(
       t.EventoID                                         AS evento_id,
       ANY_VALUE(c.NombreGlovox)                          AS nombre,
       ANY_VALUE(c.venue)                                 AS venue,
-      FORMAT_TIMESTAMP('%Y-%m-%d', MIN(t.FechaOrden))    AS fecha_inicio_venta,
+      FORMAT_DATETIME('%Y-%m-%d', MIN(t.FechaOrdenLocal))     AS fecha_inicio_venta,
       FORMAT_TIMESTAMP('%Y-%m-%d', MIN(t.FechaEvento))   AS fecha_evento
     FROM ${TICKETS} t
     LEFT JOIN cat c ON c.EventoID = t.EventoID
@@ -712,13 +712,13 @@ export type DemandaRow = {
 
 /**
  * Tickets vendidos por semana o mes, desglosados en GENERAL / VIP / EARLY_ENTRY.
- * El eje temporal es FechaOrden (cuándo se compró), no FechaEvento.
+ * El eje temporal es FechaOrdenLocal (cuándo se compró), no FechaEvento.
  * Devueltos excluidos. Granularity interpolada de un enum controlado.
  */
 export async function getDemandaEvolucion(
   filters: DemandaQueryFilters,
 ): Promise<DemandaRow[]> {
-  const conds: string[] = ["t.EsDevuelto IS NOT TRUE", "t.FechaOrden IS NOT NULL"];
+  const conds: string[] = ["t.EsDevuelto IS NOT TRUE", "t.FechaOrdenLocal IS NOT NULL"];
   const params: Record<string, unknown> = {};
   if (filters.country === "chile") conds.push("t.EventoID LIKE 'GLO%'");
   if (filters.country === "peru") conds.push("t.EventoID LIKE 'GLP%'");
@@ -813,7 +813,7 @@ export async function getDemandaEvolucion(
     sql = `
     WITH base AS (
       SELECT
-        DATE_TRUNC(DATE(t.FechaOrden), ${trunc})   AS grupo,
+        DATE_TRUNC(DATE(t.FechaOrdenLocal), ${trunc})   AS grupo,
         t.Precio - IFNULL(t.Descuento, 0)          AS venta,
         ${PRODUCTO_CASE}                            AS producto
       FROM ${TICKETS} t
@@ -870,15 +870,15 @@ export async function getPaceCurve(eventoIds: string[]): Promise<PacePoint[]> {
       SELECT EventoID, DATE(MIN(FechaEvento)) AS event_date, COUNT(*) AS total
       FROM ${TICKETS}
       WHERE EventoID IN UNNEST(@ids) AND EsDevuelto IS NOT TRUE
-        AND FechaOrden IS NOT NULL AND FechaEvento IS NOT NULL
+        AND FechaOrdenLocal IS NOT NULL AND FechaEvento IS NOT NULL
       GROUP BY EventoID
     ),
     daily AS (
       SELECT t.EventoID,
-             GREATEST(DATE_DIFF(e.event_date, DATE(t.FechaOrden), DAY), 0) AS d,
+             GREATEST(DATE_DIFF(e.event_date, DATE(t.FechaOrdenLocal), DAY), 0) AS d,
              COUNT(*) AS tickets
       FROM ${TICKETS} t JOIN ev e ON e.EventoID = t.EventoID
-      WHERE t.EsDevuelto IS NOT TRUE AND t.FechaOrden IS NOT NULL
+      WHERE t.EsDevuelto IS NOT TRUE AND t.FechaOrdenLocal IS NOT NULL
       GROUP BY t.EventoID, d
     ),
     days AS (SELECT d FROM UNNEST(GENERATE_ARRAY(0, 120)) AS d),
@@ -965,7 +965,7 @@ export type EventInfo = {
   /** Cuántos días dura el evento (categoriaEvento.dias, 1 si no está). El evento
    *  corre de `fechaEvento` a `fechaEvento + dias - 1`. */
   dias: number;
-  fechaInicioVenta: string; // MIN(FechaOrden) de tickets
+  fechaInicioVenta: string; // MIN(FechaOrdenLocal) de tickets
 };
 
 /**
@@ -989,7 +989,7 @@ export async function getEventInfo(eventoId: string): Promise<EventInfo | null> 
       c.dias                                           AS dias,
       -- capacidad del venue: cruce de categoriaEvento.venue con glovox.venues
       (SELECT MAX(capacidad) FROM ${VENUES} v WHERE v.venue = c.venue) AS capacidad,
-      FORMAT_DATE('%Y-%m-%d', DATE(MIN(t.FechaOrden))) AS inicio,
+      FORMAT_DATE('%Y-%m-%d', DATE(MIN(t.FechaOrdenLocal))) AS inicio,
       -- fecha del evento: categoriaEvento.Fecha (fuente), fallback a tickets
       FORMAT_DATE('%Y-%m-%d', COALESCE(c.Fecha, DATE(MIN(t.FechaEvento)))) AS evento
     FROM cat c
@@ -1023,9 +1023,9 @@ export type EventTimeseriesPoint = {
 };
 
 /**
- * Serie diaria de un evento desde el inicio de venta (MIN FechaOrden) hasta el
+ * Serie diaria de un evento desde el inicio de venta (MIN FechaOrdenLocal) hasta el
  * día del evento, combinando:
- *  - tickets: glovox.tickets por DATE(FechaOrden)
+ *  - tickets: glovox.tickets por DATE(FechaOrdenLocal)
  *  - PM: paidMedia.ads_performance, SUM(gasto) por fecha, ligado por el EventoID
  *    al inicio del campaign_name
  *  - RRSS: marketing.rrss_fllws (instagram) por blog_id = categoriaEvento.CuentaIG
@@ -1040,19 +1040,19 @@ export async function getEventTimeseries(eventoId: string): Promise<EventTimeser
       QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
     ),
     win AS (
-      SELECT DATE(MIN(FechaOrden)) AS d0,
+      SELECT DATE(MIN(FechaOrdenLocal)) AS d0,
              -- cierre = fecha del evento (categoriaEvento.Fecha), fallback a tickets
-             COALESCE((SELECT Fecha FROM cuenta), DATE(MIN(FechaEvento)), DATE(MAX(FechaOrden))) AS d1
-      FROM ${TICKETS} WHERE EventoID = @id AND FechaOrden IS NOT NULL
+             COALESCE((SELECT Fecha FROM cuenta), DATE(MIN(FechaEvento)), DATE(MAX(FechaOrdenLocal))) AS d1
+      FROM ${TICKETS} WHERE EventoID = @id AND FechaOrdenLocal IS NOT NULL
     ),
     spine AS (
       SELECT d FROM win, UNNEST(GENERATE_DATE_ARRAY(d0, d1)) AS d
       WHERE d0 IS NOT NULL
     ),
     tk AS (
-      SELECT DATE(FechaOrden) AS d, COUNT(*) AS tickets
+      SELECT DATE(FechaOrdenLocal) AS d, COUNT(*) AS tickets
       FROM ${TICKETS}
-      WHERE EventoID = @id AND EsDevuelto IS NOT TRUE AND FechaOrden IS NOT NULL
+      WHERE EventoID = @id AND EsDevuelto IS NOT TRUE AND FechaOrdenLocal IS NOT NULL
       GROUP BY d
     ),
     pm AS (
@@ -1108,9 +1108,9 @@ export async function getEventCampaigns(eventoId: string): Promise<EventCampaign
   const rows = await query<Record<string, unknown>>(
     `
     WITH win AS (
-      SELECT DATE(MIN(FechaOrden)) AS d0,
-             COALESCE(DATE(MIN(FechaEvento)), DATE(MAX(FechaOrden))) AS d1
-      FROM ${TICKETS} WHERE EventoID = @id AND FechaOrden IS NOT NULL
+      SELECT DATE(MIN(FechaOrdenLocal)) AS d0,
+             COALESCE(DATE(MIN(FechaEvento)), DATE(MAX(FechaOrdenLocal))) AS d1
+      FROM ${TICKETS} WHERE EventoID = @id AND FechaOrdenLocal IS NOT NULL
     )
     SELECT
       campaign_name                            AS campaign_name,

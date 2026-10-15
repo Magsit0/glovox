@@ -52,7 +52,7 @@ export type CanalRealRow = {
 export type CoberturaMedioPagoRow = { medioPago: string; ordenes: number; vistas: number };
 
 export type CoberturaDiaRow = {
-  date: string; // YYYY-MM-DD, DATE(FechaOrden) como el resto de la página
+  date: string; // YYYY-MM-DD, DATE(FechaOrdenLocal) como el resto de la página
   ordenes: number;
   vistas: number;
   pasarela: number; // vistas cuyo canal GA4 es "Pasarela de pago"

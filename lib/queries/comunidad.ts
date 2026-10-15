@@ -117,7 +117,7 @@ export async function getKpis(country: Country = "all"): Promise<KpiRow> {
 export async function getMonthlySales(country: Country = "all"): Promise<MonthlyRow[]> {
   const rows = await query<Record<string, unknown>>(`
     SELECT
-      FORMAT_TIMESTAMP('%Y-%m', FechaOrden) AS month,
+      FORMAT_DATETIME('%Y-%m', FechaOrdenLocal) AS month,
       COUNT(*)                              AS tickets,
       SUM(PrecioFinal)                      AS revenue,
       COUNT(DISTINCT Referido)              AS referrers
@@ -192,7 +192,7 @@ export async function getActivationFunnel(country: Country = "all"): Promise<Act
       FROM ${TICKETS}
       WHERE Referido LIKE 'FF%' AND EsDevuelto = false
       ${cf}
-        AND FechaOrden >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
+        AND FechaOrdenLocal >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 90 DAY)
     )
     SELECT
       COUNT(DISTINCT u.id)                                              AS total_members,
@@ -215,12 +215,12 @@ export async function getActivationFunnel(country: Country = "all"): Promise<Act
 export async function getMonthlyNewSellers(country: Country = "all"): Promise<MonthlyActivationRow[]> {
   const rows = await query<Record<string, unknown>>(`
     SELECT
-      FORMAT_TIMESTAMP('%Y-%m', first_sale) AS month,
+      FORMAT_DATETIME('%Y-%m', first_sale)  AS month,
       COUNT(*)                               AS new_sellers
     FROM (
       SELECT
         CAST(REGEXP_EXTRACT(Referido, r'FF(\\d+)') AS INT64) AS user_id,
-        MIN(FechaOrden)                                        AS first_sale
+        MIN(FechaOrdenLocal)                                        AS first_sale
       FROM ${TICKETS}
       WHERE Referido LIKE 'FF%' AND EsDevuelto = false
       ${countryFilter(country)}
@@ -245,7 +245,7 @@ export async function getEnrichedTopSellers(country: Country = "all"): Promise<E
       COUNT(*)                                    AS tickets,
       SUM(t.PrecioFinal)                          AS revenue,
       AVG(t.PrecioFinal)                          AS avg_price,
-      FORMAT_TIMESTAMP('%Y-%m-%d', MAX(t.FechaOrden)) AS last_sale
+      FORMAT_DATETIME('%Y-%m-%d', MAX(t.FechaOrdenLocal)) AS last_sale
     FROM ${TICKETS} t
     JOIN ${USERS} u ON ${FF_JOIN}
     WHERE ${ACTIVE_FF}
@@ -322,7 +322,7 @@ export type CountryMonthlyRow = {
 export async function getMonthlyEarningsByCountry(): Promise<CountryMonthlyRow[]> {
   const rows = await query<Record<string, unknown>>(`
     SELECT
-      FORMAT_TIMESTAMP('%Y-%m', FechaOrden) AS month,
+      FORMAT_DATETIME('%Y-%m', FechaOrdenLocal) AS month,
       CASE
         WHEN EventoID LIKE 'GLO%' THEN 'chile'
         WHEN EventoID LIKE 'GLP%' THEN 'peru'
@@ -332,7 +332,7 @@ export async function getMonthlyEarningsByCountry(): Promise<CountryMonthlyRow[]
     FROM ${TICKETS}
     WHERE
       Referido LIKE 'FF%'
-      AND FechaOrden >= '2025-01-01'
+      AND FechaOrdenLocal >= '2025-01-01'
       AND (EventoID LIKE 'GLO%' OR EventoID LIKE 'GLP%')
     GROUP BY 1, 2
     ORDER BY 1, 2
@@ -353,7 +353,7 @@ export async function getDormantSellers(country: Country = "all"): Promise<Dorma
         t.Referido                                             AS referido,
         COUNT(*)                                               AS tickets_ever,
         SUM(t.PrecioFinal)                                     AS revenue_ever,
-        MAX(t.FechaOrden)                                      AS last_sale_ts
+        MAX(t.FechaOrdenLocal)                                      AS last_sale_ts
       FROM ${TICKETS} t
       WHERE ${ACTIVE_FF}
       ${countryFilter(country, "t")}
@@ -366,11 +366,11 @@ export async function getDormantSellers(country: Country = "all"): Promise<Dorma
       u.instagram  AS instagram,
       ss.tickets_ever,
       ss.revenue_ever,
-      FORMAT_TIMESTAMP('%Y-%m-%d', ss.last_sale_ts)                     AS last_sale,
+      FORMAT_DATETIME('%Y-%m-%d', ss.last_sale_ts)                      AS last_sale,
       DATE_DIFF(CURRENT_DATE(), DATE(ss.last_sale_ts), DAY)             AS days_silent
     FROM seller_stats ss
     JOIN ${USERS} u ON u.id = ss.user_id
-    WHERE ss.last_sale_ts < TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL 90 DAY)
+    WHERE ss.last_sale_ts < DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 90 DAY)
     ORDER BY ss.revenue_ever DESC
     LIMIT 30
   `);

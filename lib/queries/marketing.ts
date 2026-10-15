@@ -70,8 +70,10 @@ const USERS = `\`${P}.comunidadGlovox.users\``;
 // Definición: data-governance/schemas/bigquery/views/marts_ga4_purchases.sql
 const PURCHASES = `\`${P}.marts.ga4_purchases\``;
 
-// Override FechaOrden for GLO198 / GENERAL DGTL tickets to 2026-03-18 for chart display
-const FECHA_ORDEN_ADJ = `CASE WHEN EventoID = 'GLO198' AND TipoTicket = 'GENERAL DGTL' THEN TIMESTAMP('2026-03-18') ELSE FechaOrden END`;
+// Fecha de compra en hora local del evento (FechaOrdenLocal, DATETIME): FechaOrden
+// mezcla zonas (PuntoTicket/TeleTicket hora local etiquetada UTC, FeverUp UTC real).
+// Override GLO198 / GENERAL DGTL tickets to 2026-03-18 for chart display.
+const FECHA_ORDEN_ADJ = `CASE WHEN EventoID = 'GLO198' AND TipoTicket = 'GENERAL DGTL' THEN DATETIME '2026-03-18' ELSE FechaOrdenLocal END`;
 
 // Ticket filter from reference SQL: exclude cortesias and refunds
 const TICKET_TYPE_FILTER = `
@@ -453,7 +455,7 @@ export async function getTicketDateRange(
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
-      FORMAT_TIMESTAMP('%Y-%m-%d', MIN(${FECHA_ORDEN_ADJ})) AS start_date,
+      FORMAT_DATETIME('%Y-%m-%d', MIN(${FECHA_ORDEN_ADJ})) AS start_date,
       FORMAT_DATE('%Y-%m-%d', CASE WHEN MAX(FechaEvento) >= CURRENT_TIMESTAMP() THEN CURRENT_DATE() ELSE MAX(DATE(${FECHA_ORDEN_ADJ})) END) AS end_date
     FROM ${TICKETS}
     WHERE EventoID = @eventoId
@@ -630,7 +632,7 @@ export async function getCumulativeSalesRelative(
     daily AS (
       SELECT
         t.EventoID                                                        AS evento_id,
-        DATE_DIFF(DATE(e.fecha_evento), DATE(CASE WHEN t.EventoID = 'GLO198' AND t.TipoTicket = 'GENERAL DGTL' THEN TIMESTAMP('2026-03-18') ELSE t.FechaOrden END), DAY) AS days_to_event,
+        DATE_DIFF(DATE(e.fecha_evento), DATE(CASE WHEN t.EventoID = 'GLO198' AND t.TipoTicket = 'GENERAL DGTL' THEN DATETIME '2026-03-18' ELSE t.FechaOrdenLocal END), DAY) AS days_to_event,
         -- Personas (SUM of PersonasPorTicket). Keeps the chart aligned with the
         -- "Personas" KPI and the event's people-based goalTickets.
         SUM(t.PersonasPorTicket)                                          AS daily_tickets
@@ -860,7 +862,7 @@ export async function getFollowersEvolution(
 //   - final:   total_followers on the last day with data in the window
 // `initial`/`final` are null when no rows exist (e.g. very short past events or
 // IG accounts not yet tracked). The window ends at CURRENT_DATE() for upcoming
-// events or at MAX(FechaOrden) for past ones — same convention as the rest of
+// events or at MAX(FechaOrdenLocal) for past ones — same convention as the rest of
 // the dashboard.
 export type FollowersInfo = {
   delta: number;
@@ -1207,7 +1209,7 @@ export async function getTrafficTimeline(
 // Every query below runs over the GA4 MEASURED window (spec D6), not the sale
 // window: GA4 records purchases with their order number only since the tag
 // started (16-sep-2026 for the CL properties; earlier for Fever). Orders are
-// web-checkout only (D7, ES_WEB) and dated by DATE(FechaOrden) like the rest of
+// web-checkout only (D7, ES_WEB) and dated by DATE(FechaOrdenLocal) like the rest of
 // the page. The mart is joined by (orden_id, ticketera), so a GA4 property that
 // carries several events is split correctly per event.
 //
