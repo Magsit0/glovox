@@ -76,7 +76,7 @@ function SalesTooltip({
   hasPacks,
 }: {
   active?: boolean;
-  payload?: TooltipEntry[];
+  payload?: readonly TooltipEntry[];
   label?: unknown;
   hasPacks: boolean;
 }) {
@@ -250,7 +250,7 @@ export default function CumulativeSalesComparisonChart({
           content={(props) => (
             <SalesTooltip
               active={props.active}
-              payload={props.payload as TooltipEntry[] | undefined}
+              payload={props.payload as readonly TooltipEntry[] | undefined}
               label={props.label}
               hasPacks={hasPacks}
             />
