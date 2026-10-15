@@ -273,8 +273,13 @@ export type CumulativeSalesRow = {
 export type CumulativeSalesRelativeRow = {
   eventoId: string;
   daysToEvent: number;
+  /** Personas del día (SUM PersonasPorTicket). Nombre histórico. */
   dailyTickets: number;
   cumulativeTickets: number;
+  /** Órdenes distintas del día (una compra puede traer varios tickets). */
+  dailyOrdenes: number;
+  /** Tickets emitidos del día (filas; un pack no partido es 1 ticket). */
+  dailyFilas: number;
 };
 
 export type CurrencySpend = {
@@ -635,7 +640,11 @@ export async function getCumulativeSalesRelative(
         DATE_DIFF(DATE(e.fecha_evento), DATE(CASE WHEN t.EventoID = 'GLO198' AND t.TipoTicket = 'GENERAL DGTL' THEN DATETIME '2026-03-18' ELSE t.FechaOrdenLocal END), DAY) AS days_to_event,
         -- Personas (SUM of PersonasPorTicket). Keeps the chart aligned with the
         -- "Personas" KPI and the event's people-based goalTickets.
-        SUM(t.PersonasPorTicket)                                          AS daily_tickets
+        SUM(t.PersonasPorTicket)                                          AS daily_tickets,
+        -- Para el tooltip: órdenes (OrdenID se repite entre ticketeras) y
+        -- tickets emitidos. Difieren de personas solo en packs no partidos.
+        COUNT(DISTINCT FORMAT('%s|%d', t.Ticketera, t.OrdenID))           AS daily_ordenes,
+        COUNT(*)                                                          AS daily_filas
       FROM ${TICKETS} t
       JOIN event_dates e ON e.EventoID = t.EventoID
       WHERE t.EventoID IN UNNEST(@eventoIds)
@@ -646,6 +655,8 @@ export async function getCumulativeSalesRelative(
       evento_id,
       days_to_event,
       daily_tickets,
+      daily_ordenes,
+      daily_filas,
       SUM(daily_tickets) OVER (
         PARTITION BY evento_id
         ORDER BY days_to_event DESC
@@ -660,6 +671,8 @@ export async function getCumulativeSalesRelative(
     daysToEvent: n(r.days_to_event),
     dailyTickets: n(r.daily_tickets),
     cumulativeTickets: n(r.cumulative_tickets),
+    dailyOrdenes: n(r.daily_ordenes),
+    dailyFilas: n(r.daily_filas),
   }));
 }
 

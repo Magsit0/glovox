@@ -43,8 +43,74 @@ const COMPARE_COLORS = [
 type ChartRow = {
   daysToEvent: number;
   dailyMain: number | null;
+  ordenesMain?: number;
+  filasMain?: number;
   target?: number | null;
 } & Record<`cum_${string}`, number | null>;
+
+const fmt = (v: number) => Math.round(v).toLocaleString("es-CL");
+
+function diaLabel(label: unknown): string {
+  const v = Number(label);
+  if (!Number.isFinite(v)) return String(label);
+  if (v === 0) return "Día del evento";
+  if (v > 0) return `${v} días antes`;
+  return `${-v} días después`;
+}
+
+type TooltipEntry = {
+  dataKey?: unknown;
+  name?: unknown;
+  value?: unknown;
+  color?: string;
+  payload?: ChartRow;
+};
+
+// Tooltip propio: las series como siempre y, para el evento principal, el día
+// desglosado en órdenes / tickets / personas. Tickets y personas solo se
+// separan si el evento tiene packs no partidos; si no, son el mismo número.
+function SalesTooltip({
+  active,
+  payload,
+  label,
+  hasPacks,
+}: {
+  active?: boolean;
+  payload?: TooltipEntry[];
+  label?: unknown;
+  hasPacks: boolean;
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload;
+  const series = payload.filter(
+    (p) => p.dataKey !== "dailyMain" && Number.isFinite(Number(p.value)),
+  );
+  const hasDay = row?.dailyMain != null;
+  return (
+    <div className="bg-white border-4 border-black px-3 py-2 font-mono-data text-xs">
+      <p className="mb-1">{diaLabel(label)}</p>
+      {series.map((p) => (
+        <p key={String(p.dataKey)} style={{ color: p.color }}>
+          {String(p.name)} : {fmt(Number(p.value))}
+        </p>
+      ))}
+      {hasDay && (
+        <div className="mt-1 pt-1 border-t-2 border-black text-[#0000FF]">
+          <p className="font-bold">Día (principal)</p>
+          <p>Órdenes : {fmt(row.ordenesMain ?? 0)}</p>
+          {hasPacks ? (
+            <>
+              <p>Tickets : {fmt(row.filasMain ?? 0)}</p>
+              <p>Personas : {fmt(row.dailyMain ?? 0)}</p>
+            </>
+          ) : (
+            <p>Tickets = personas : {fmt(row.dailyMain ?? 0)}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function CumulativeSalesComparisonChart({
   series,
@@ -53,7 +119,7 @@ export default function CumulativeSalesComparisonChart({
   goalTickets,
   saleStartDaysToEvent,
 }: Props) {
-  const { chartData, eventOrder, labelByEventoId } = useMemo(() => {
+  const { chartData, eventOrder, labelByEventoId, hasPacks } = useMemo(() => {
     const labelByEventoId = new Map<string, string>();
     for (const ev of events) {
       labelByEventoId.set(ev.eventoId, `${ev.eventoId} — ${ev.nombre}`);
@@ -66,6 +132,8 @@ export default function CumulativeSalesComparisonChart({
     const eventOrder = [mainEventoId, ...orderedComparators];
 
     const byDay = new Map<number, ChartRow>();
+    let personasMain = 0;
+    let filasMain = 0;
     for (const row of series) {
       let bucket = byDay.get(row.daysToEvent);
       if (!bucket) {
@@ -76,8 +144,13 @@ export default function CumulativeSalesComparisonChart({
       bucket[cumKey] = row.cumulativeTickets;
       if (row.eventoId === mainEventoId) {
         bucket.dailyMain = row.dailyTickets;
+        bucket.ordenesMain = row.dailyOrdenes;
+        bucket.filasMain = row.dailyFilas;
+        personasMain += row.dailyTickets;
+        filasMain += row.dailyFilas;
       }
     }
+    const hasPacks = personasMain !== filasMain;
 
     const hasTarget =
       saleStartDaysToEvent != null &&
@@ -106,7 +179,7 @@ export default function CumulativeSalesComparisonChart({
       (a, b) => b.daysToEvent - a.daysToEvent,
     );
 
-    return { chartData, eventOrder, labelByEventoId };
+    return { chartData, eventOrder, labelByEventoId, hasPacks };
   }, [series, mainEventoId, events, saleStartDaysToEvent, goalTickets]);
 
   const [zoomLast50, setZoomLast50] = useState(false);
@@ -174,26 +247,14 @@ export default function CumulativeSalesComparisonChart({
           stroke="#000"
         />
         <Tooltip
-          contentStyle={{
-            backgroundColor: "#fff",
-            border: "4px solid #000",
-            borderRadius: 0,
-            fontFamily: "var(--font-ibm-plex-mono)",
-            fontSize: 12,
-          }}
-          formatter={(value, name) => {
-            const num =
-              typeof value === "number" ? value : Number(value as unknown);
-            if (!Number.isFinite(num)) return [String(value ?? ""), name];
-            return [Math.round(num).toLocaleString("es-CL"), name];
-          }}
-          labelFormatter={(label) => {
-            const v = Number(label);
-            if (!Number.isFinite(v)) return String(label);
-            if (v === 0) return "Día del evento";
-            if (v > 0) return `${v} días antes`;
-            return `${-v} días después`;
-          }}
+          content={(props) => (
+            <SalesTooltip
+              active={props.active}
+              payload={props.payload as TooltipEntry[] | undefined}
+              label={props.label}
+              hasPacks={hasPacks}
+            />
+          )}
         />
         <Legend
           wrapperStyle={{
