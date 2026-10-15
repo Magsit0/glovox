@@ -3,11 +3,14 @@ import { sql as dsql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   cargosExtraPm,
+  iniciativasPm,
+  iniciativasPmCampanas,
   inversionMediosDiario,
   inversionMediosEtapas,
   type CargoExtra,
   type EtapaCampana,
 } from "@/db/schema";
+import type { CampanaAsignada, Iniciativa } from "@/lib/inversion-medios/iniciativas";
 import { query } from "@/lib/bigquery";
 import { PM_PROPAGACION_MIN } from "@/lib/inversion-medios/rendimiento";
 import { withNeonRetry } from "@/lib/neon-retry";
@@ -433,99 +436,277 @@ export async function getRealDiarioEvento(
   }));
 }
 
-/**
- * Gasto SIN evento reconocible en categoriaEvento (campañas de temporada,
- * búsqueda genérica, naming fuera de convención, EventoIDs sin mapear) — la
- * fila "no atribuido" company-wide. Sin ella, la suma por evento subreporta
- * el gasto real de la compañía (~26% en 2026).
- */
-export async function getNoAtribuidoDiario(
-  from: string,
-  to: string,
-): Promise<NoAtribuidoRow[]> {
-  const rows = await query<Record<string, unknown>>(
-    `${REAL_BASE}
-    SELECT
-      FORMAT_DATE('%Y-%m-%d', fecha)                      AS fecha,
-      SUM(gasto_usd)                                      AS gasto_usd,
-      SUM(IF(plataforma = 'meta',   gasto_usd, 0))        AS meta_usd,
-      SUM(IF(plataforma = 'google', gasto_usd, 0))        AS google_usd,
-      SUM(IF(plataforma = 'tiktok', gasto_usd, 0))        AS tiktok_usd,
-      SUM(IF(plataforma IN ('meta','google','tiktok'), 0, gasto_usd)) AS otras_usd,
-      COUNTIF(gasto_usd IS NULL AND IFNULL(gasto, 0) > 0) AS filas_sin_fx
-    FROM base m
-    WHERE fecha BETWEEN DATE(@from) AND DATE(@to)
-      AND (
-        m.EventoID IS NULL
-        -- Complemento EXACTO de getRealDiarioRango (incluye isCanceled): lo
-        -- que no obtiene fila de evento cae acá — nada se pierde ni se duplica.
-        OR NOT EXISTS (
-          SELECT 1 FROM ${CATEGORY} c
-          WHERE c.EventoID = m.EventoID AND c.isCanceled IS NOT TRUE
-        )
-      )
-    GROUP BY fecha
-    ORDER BY fecha
-    `,
-    { from, to },
-  );
-  return rows.map((r) => ({
-    fecha: s(r.fecha),
-    gastoUsd: n(r.gasto_usd),
-    metaUsd: n(r.meta_usd),
-    googleUsd: n(r.google_usd),
-    tiktokUsd: n(r.tiktok_usd),
-    otrasUsd: n(r.otras_usd),
-    filasSinFx: n(r.filas_sin_fx),
-  }));
-}
+// ---------- Gasto SIN evento: "No atribuido" + iniciativas ----------
 
-export type NoAtribuidoCampanaDia = {
+/**
+ * Fila del mart SIN evento: EventoID NULL o sin match no-cancelado en
+ * categoriaEvento. Complemento EXACTO de getRealDiarioRango (incluye
+ * isCanceled): lo que no obtiene fila de evento cae acá — nada se pierde ni se
+ * duplica. De este universo salen las iniciativas (campañas asignadas a mano)
+ * y lo que queda es "No atribuido". Precedencia: evento por nombre > asignación
+ * > no atribuido — si una campaña asignada pasa a traer un EventoID válido, ese
+ * gasto vuelve al evento.
+ */
+const SIN_EVENTO = `(
+  m.EventoID IS NULL
+  OR NOT EXISTS (
+    SELECT 1 FROM ${CATEGORY} c
+    WHERE c.EventoID = m.EventoID AND c.isCanceled IS NOT TRUE
+  )
+)`;
+
+export type SinEventoCampanaDia = {
   plataforma: string;
+  campaignId: string;
   campaignName: string;
   fecha: string; // YYYY-MM-DD
   gastoUsd: number;
+  fxImputado: boolean;
+  filasSinFx: number;
 };
 
 /**
- * Gasto DIARIO por campaña del grupo "no atribuido" dentro del rango. Mismo
- * predicado que getNoAtribuidoDiario (mantener en sync): EventoID NULL o sin
- * match no-cancelado en categoriaEvento. Alimenta las sub-filas desplegables
- * de la fila "No atribuido" en la matriz (el cliente agrupa por campaña, se
- * queda con las de mayor gasto y agrega el resto en una fila "otras").
+ * Gasto DIARIO por campaña SIN evento dentro del rango. El cliente lo reparte
+ * entre las filas de iniciativa (campañas asignadas) y la fila "No atribuido"
+ * (el resto), y arma sus sub-filas. Repartirlo en el cliente es lo que deja que
+ * arrastrar una campaña mueva los números al instante, sin esperar a BigQuery.
+ * Reemplaza a getNoAtribuidoDiario + getNoAtribuidoCampanasDiario (2026-10-15):
+ * misma fuente y mismo predicado, ahora por `campaign_id` (el nombre cambia).
  */
-export async function getNoAtribuidoCampanasDiario(
+export async function getSinEventoCampanasDiario(
   from: string,
   to: string,
-): Promise<NoAtribuidoCampanaDia[]> {
+): Promise<SinEventoCampanaDia[]> {
   const rows = await query<Record<string, unknown>>(
     `${REAL_BASE}
     SELECT
-      IFNULL(m.plataforma, '(null)')           AS plataforma,
-      IFNULL(m.campaign_name, '(sin nombre)')  AS campaign_name,
-      FORMAT_DATE('%Y-%m-%d', m.fecha)         AS fecha,
-      SUM(m.gasto_usd)                         AS gasto_usd
+      IFNULL(m.plataforma, '(null)')                                   AS plataforma,
+      IFNULL(m.campaign_id, CONCAT('nombre:', IFNULL(m.campaign_name, ''))) AS campaign_id,
+      ANY_VALUE(IFNULL(m.campaign_name, '(sin nombre)'))               AS campaign_name,
+      FORMAT_DATE('%Y-%m-%d', m.fecha)                                 AS fecha,
+      SUM(m.gasto_usd)                                                 AS gasto_usd,
+      LOGICAL_OR(IFNULL(m.fx_imputado, FALSE) OR m.fx_carry)           AS fx_imputado,
+      COUNTIF(m.gasto_usd IS NULL AND IFNULL(m.gasto, 0) > 0)          AS filas_sin_fx
     FROM base m
     WHERE m.fecha BETWEEN DATE(@from) AND DATE(@to)
-      AND (
-        m.EventoID IS NULL
-        OR NOT EXISTS (
-          SELECT 1 FROM ${CATEGORY} c
-          WHERE c.EventoID = m.EventoID AND c.isCanceled IS NOT TRUE
-        )
-      )
-    GROUP BY plataforma, campaign_name, fecha
-    HAVING gasto_usd > 0
+      AND ${SIN_EVENTO}
+    GROUP BY 1, 2, 4
+    HAVING IFNULL(gasto_usd, 0) != 0 OR filas_sin_fx > 0
     ORDER BY fecha
     `,
     { from, to },
   );
   return rows.map((r) => ({
     plataforma: s(r.plataforma),
+    campaignId: s(r.campaign_id),
     campaignName: s(r.campaign_name),
     fecha: s(r.fecha),
     gastoUsd: n(r.gasto_usd),
+    fxImputado: b(r.fx_imputado),
+    filasSinFx: n(r.filas_sin_fx),
   }));
+}
+
+/**
+ * TODAS las iniciativas (activas primero, en su orden fijo; después las
+ * archivadas) con sus campañas asignadas (Neon). Las archivadas también vienen:
+ * sus campañas siguen siendo suyas, así que su gasto no puede volver a "No
+ * atribuido" al archivarlas. El calendario muestra su fila solo cuando tienen
+ * datos en el tramo mirado.
+ */
+export async function getIniciativas(): Promise<Iniciativa[]> {
+  const [inis, asig] = await Promise.all([
+    withNeonRetry(() =>
+      db
+        .select({ id: iniciativasPm.id, nombre: iniciativasPm.nombre, activa: iniciativasPm.activa })
+        .from(iniciativasPm)
+        .orderBy(desc(iniciativasPm.activa), asc(iniciativasPm.orden), asc(iniciativasPm.nombre)),
+    ),
+    withNeonRetry(() =>
+      db
+        .select({
+          plataforma: iniciativasPmCampanas.plataforma,
+          campaignId: iniciativasPmCampanas.campaignId,
+          campaignName: iniciativasPmCampanas.campaignName,
+          iniciativaId: iniciativasPmCampanas.iniciativaId,
+        })
+        .from(iniciativasPmCampanas)
+        .orderBy(asc(iniciativasPmCampanas.createdAt)),
+    ),
+  ]);
+  return inis.map((i) => ({
+    id: i.id,
+    nombre: i.nombre,
+    activa: i.activa,
+    campanas: asig
+      .filter((a) => a.iniciativaId === i.id)
+      .map((a) => ({ ...a, campaignName: a.campaignName ?? "" })),
+  }));
+}
+
+// Campañas asignadas como parámetro de BigQuery: "plataforma|campaign_id|ini".
+// Un array vacío no tiene tipo inferible en el cliente de BQ, así que va un
+// centinela que no calza con ninguna campaña.
+const ASIG_VACIA = "||";
+function asigParam(campanas: Pick<CampanaAsignada, "plataforma" | "campaignId" | "iniciativaId">[]): string[] {
+  const out = campanas.map((c) => `${c.plataforma}|${c.campaignId}|${c.iniciativaId}`);
+  return out.length > 0 ? out : [ASIG_VACIA];
+}
+// CTE `asig` (va DESPUÉS de REAL_BASE) + el JOIN que deja solo gasto asignado.
+const ASIG_CTE = `,
+  asig AS (
+    SELECT
+      SPLIT(x, '|')[SAFE_OFFSET(0)] AS plataforma,
+      SPLIT(x, '|')[SAFE_OFFSET(1)] AS campaign_id,
+      SPLIT(x, '|')[SAFE_OFFSET(2)] AS iniciativa_id
+    FROM UNNEST(@asig) AS x
+  )`;
+const ASIG_JOIN = `JOIN asig a
+  ON a.plataforma = IFNULL(m.plataforma, '(null)') AND a.campaign_id = m.campaign_id`;
+
+/**
+ * Real diario de UNA iniciativa (modo drill): sus campañas asignadas, solo en
+ * filas SIN evento. Misma forma que getRealDiarioEvento (incluye el "sin FX"
+ * por plataforma) para que buildDrillGrid no distinga.
+ */
+export async function getRealDiarioIniciativa(
+  ini: Iniciativa,
+  from: string,
+  to: string,
+): Promise<RealDiarioRow[]> {
+  const rows = await query<Record<string, unknown>>(
+    `${REAL_BASE}${ASIG_CTE}
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', m.fecha)                        AS fecha,
+      SUM(m.gasto_usd)                                        AS gasto_usd,
+      SUM(IF(m.plataforma = 'meta',   m.gasto_usd, 0))        AS meta_usd,
+      SUM(IF(m.plataforma = 'google', m.gasto_usd, 0))        AS google_usd,
+      SUM(IF(m.plataforma = 'tiktok', m.gasto_usd, 0))        AS tiktok_usd,
+      SUM(IF(m.plataforma IN ('meta','google','tiktok'), 0, m.gasto_usd)) AS otras_usd,
+      LOGICAL_OR(IFNULL(m.fx_imputado, FALSE) OR m.fx_carry)  AS fx_imputado,
+      COUNTIF(m.gasto_usd IS NULL AND IFNULL(m.gasto, 0) > 0) AS filas_sin_fx,
+      COUNTIF(m.plataforma = 'meta'   AND m.gasto_usd IS NULL AND IFNULL(m.gasto,0) > 0) AS meta_sinfx,
+      COUNTIF(m.plataforma = 'google' AND m.gasto_usd IS NULL AND IFNULL(m.gasto,0) > 0) AS google_sinfx,
+      COUNTIF(m.plataforma = 'tiktok' AND m.gasto_usd IS NULL AND IFNULL(m.gasto,0) > 0) AS tiktok_sinfx
+    FROM base m
+    ${ASIG_JOIN}
+    WHERE m.fecha BETWEEN DATE(@from) AND DATE(@to)
+      AND ${SIN_EVENTO}
+    GROUP BY fecha
+    ORDER BY fecha
+    `,
+    { asig: asigParam(ini.campanas), from, to },
+  );
+  return rows.map((r) => ({
+    eventoId: ini.id,
+    fecha: s(r.fecha),
+    gastoUsd: n(r.gasto_usd),
+    metaUsd: n(r.meta_usd),
+    googleUsd: n(r.google_usd),
+    tiktokUsd: n(r.tiktok_usd),
+    otrasUsd: n(r.otras_usd),
+    fxImputado: b(r.fx_imputado),
+    filasSinFx: n(r.filas_sin_fx),
+    metaSinFx: n(r.meta_sinfx) > 0,
+    googleSinFx: n(r.google_sinfx) > 0,
+    tiktokSinFx: n(r.tiktok_sinfx) > 0,
+  }));
+}
+
+/** Gasto crudo de UNA iniciativa por (fecha, plataforma, objective, campaña) — el desglose del drill. */
+export async function getRealDesgloseIniciativa(
+  ini: Iniciativa,
+  from: string,
+  to: string,
+): Promise<
+  { fecha: string; plataforma: string; objective: string; campaignName: string; gastoUsd: number }[]
+> {
+  const rows = await query<Record<string, unknown>>(
+    `${REAL_BASE}${ASIG_CTE}
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', m.fecha) AS fecha,
+      m.plataforma                     AS plataforma,
+      IFNULL(m.objective, '')          AS objective,
+      IFNULL(m.campaign_name, '')      AS campaign_name,
+      SUM(m.gasto_usd)                 AS gasto_usd
+    FROM base m
+    ${ASIG_JOIN}
+    WHERE m.fecha BETWEEN DATE(@from) AND DATE(@to)
+      AND m.gasto_usd > 0
+      AND ${SIN_EVENTO}
+    GROUP BY fecha, plataforma, objective, campaign_name
+    ORDER BY fecha
+    `,
+    { asig: asigParam(ini.campanas), from, to },
+  );
+  return rows.map((r) => ({
+    fecha: s(r.fecha),
+    plataforma: s(r.plataforma),
+    objective: s(r.objective),
+    campaignName: s(r.campaign_name),
+    gastoUsd: n(r.gasto_usd),
+  }));
+}
+
+/** Extensión del gasto real de UNA iniciativa: [min, max] o null (sin campañas o sin gasto). */
+export async function getRealExtentIniciativa(
+  ini: Iniciativa,
+): Promise<{ min: string; max: string } | null> {
+  if (ini.campanas.length === 0) return null;
+  const rows = await query<Record<string, unknown>>(
+    `${REAL_BASE}${ASIG_CTE}
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', MIN(m.fecha)) AS min_fecha,
+      FORMAT_DATE('%Y-%m-%d', MAX(m.fecha)) AS max_fecha
+    FROM base m
+    ${ASIG_JOIN}
+    WHERE IFNULL(m.gasto, 0) > 0 AND ${SIN_EVENTO}
+    `,
+    { asig: asigParam(ini.campanas) },
+  );
+  const min = s(rows[0]?.min_fecha);
+  const max = s(rows[0]?.max_fecha);
+  return min && max ? { min, max } : null;
+}
+
+/**
+ * Totales HISTÓRICOS de cada iniciativa (todo el plan y todo el gasto de sus
+ * campañas, no solo el rango cargado) — el subtítulo de su fila. Como su techo
+ * es la suma del plan, `totalPlan` ES el techo.
+ */
+export async function getTotalesIniciativas(
+  inis: Iniciativa[],
+): Promise<Record<string, { totalPlan: number; totalReal: number }>> {
+  const out: Record<string, { totalPlan: number; totalReal: number }> = {};
+  if (inis.length === 0) return out;
+  for (const i of inis) out[i.id] = { totalPlan: 0, totalReal: 0 };
+  const campanas = inis.flatMap((i) => i.campanas);
+  const [planRows, realRows] = await Promise.all([
+    withNeonRetry(() =>
+      db
+        .select({ eventoId: inversionMediosDiario.eventoId, montoUsd: inversionMediosDiario.montoUsd })
+        .from(inversionMediosDiario)
+        .where(inArray(inversionMediosDiario.eventoId, inis.map((i) => i.id))),
+    ),
+    campanas.length === 0
+      ? Promise.resolve([] as Record<string, unknown>[])
+      : query<Record<string, unknown>>(
+          `${REAL_BASE}${ASIG_CTE}
+          SELECT a.iniciativa_id, SUM(m.gasto_usd) AS gasto_usd
+          FROM base m
+          ${ASIG_JOIN}
+          WHERE ${SIN_EVENTO}
+          GROUP BY a.iniciativa_id
+          `,
+          { asig: asigParam(campanas) },
+        ),
+  ]);
+  for (const p of planRows) if (out[p.eventoId]) out[p.eventoId].totalPlan += p.montoUsd;
+  for (const r of realRows) {
+    const id = s(r.iniciativa_id);
+    if (out[id]) out[id].totalReal = n(r.gasto_usd);
+  }
+  return out;
 }
 
 export type CampanaReciente = {

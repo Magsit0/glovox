@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX "iniciativas_pm_nombre_uq" ON "iniciativas_pm" USING btree (lower("nombre"));

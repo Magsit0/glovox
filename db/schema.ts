@@ -14,6 +14,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import type { EtapaCampana } from "@/lib/inversion-medios/etapas";
 
 // Re-export para consumidores que ya importan EtapaCampana desde @/db/schema.
@@ -648,6 +649,58 @@ export const inversionMediosEtapas = pgTable("inversion_medios_etapas", {
 });
 
 export type InversionMediosEtapas = typeof inversionMediosEtapas.$inferSelect;
+
+// INVERSIÓN MEDIOS — Iniciativas: frentes de inversión SIN fecha de evento
+// (Club Glovox, Now Mag…), que se activan y apagan en distintos momentos. Su
+// plan vive en `inversion_medios_diario` con `evento_id` = `id` de la
+// iniciativa (INI001…), así que el editor del drill sirve igual. Su techo es la
+// suma de su plan (no hay budgetPm). Su gasto real NO sale del nombre de la
+// campaña: son las campañas que el equipo le asigna a mano (abajo).
+export const iniciativasPm = pgTable(
+  "iniciativas_pm",
+  {
+    // INI + 3 dígitos. Cumple el formato de EventoID de la ruta y no choca con
+    // la extracción del mart (que solo reconoce GL… o un número Fever).
+    id: text("id").primaryKey(),
+    nombre: text("nombre").notNull(),
+    activa: boolean("activa").notNull().default(true),
+    orden: integer("orden").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  // Nombre único sin distinguir mayúsculas (también contra las archivadas). Las
+  // actions lo chequean antes para dar un mensaje amable; el índice cubre la
+  // carrera de dos pestañas creando o renombrando a la vez.
+  (t) => [uniqueIndex("iniciativas_pm_nombre_uq").on(sql`lower(${t.nombre})`)],
+);
+export type IniciativaPm = typeof iniciativasPm.$inferSelect;
+
+// Campaña de ads → iniciativa, asignada arrastrando desde "No atribuido". Una
+// campaña pertenece a UNA iniciativa (PK plataforma + campaign_id: el nombre
+// cambia, el id no). Solo captura gasto SIN evento: si la campaña trae un
+// EventoID válido en el nombre, ese gasto sigue siendo del evento.
+export const iniciativasPmCampanas = pgTable(
+  "iniciativas_pm_campanas",
+  {
+    plataforma: text("plataforma").notNull(),
+    campaignId: text("campaign_id").notNull(),
+    iniciativaId: text("iniciativa_id")
+      .notNull()
+      .references(() => iniciativasPm.id, { onDelete: "cascade" }),
+    // Nombre al momento de asignar: solo para leer la lista sin ir al mart.
+    campaignName: text("campaign_name"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.plataforma, t.campaignId] }),
+    index("iniciativas_pm_campanas_iniciativa_idx").on(t.iniciativaId),
+  ],
+);
+export type IniciativaPmCampana = typeof iniciativasPmCampanas.$inferSelect;
 
 // INVERSIÓN MEDIOS — Cargos extra (CARDDA): pagos recurrentes de plataformas/
 // herramientas (DRIP, Adobe, Google Workspace, GPT, etc.) que NO son inversión

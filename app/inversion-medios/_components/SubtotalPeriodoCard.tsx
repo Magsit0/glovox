@@ -30,6 +30,8 @@ export default function SubtotalPeriodoCard({
     plan: number;
     planTrans: number;
     real: number;
+    /** Parte de `plan` que son cargos extra (toggle "sumar cargos extra"). */
+    cargos: number;
     inicioVista: string;
     finVista: string;
     futura: boolean;
@@ -85,6 +87,11 @@ export default function SubtotalPeriodoCard({
         <span className="font-display text-lg font-bold">{fmtUsd(w.real, 0)}</span>
         <span className="text-[var(--ink-subtle)]"> real</span>
       </p>
+      {w.cargos > 0 && (
+        <p className="mt-1 font-sans text-xs tabular-nums text-[var(--ink-muted)]">
+          incluye {fmtUsd(w.cargos, 0)} de cargos extra
+        </p>
+      )}
       <p className={`mt-2 inline-flex items-center gap-1.5 font-sans text-xs ${tono.txt}`}>
         <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: tono.dot }} />
         {estado}

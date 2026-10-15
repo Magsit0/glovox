@@ -33,9 +33,18 @@ import { bulkFillPlanAction, deleteRowAction, saveEtapasAction } from "../action
 import CeldaPlan from "./CeldaPlan";
 import HolguraEvento, { fmtSigned, toneClass } from "./HolguraEvento";
 import RendimientoEvento from "./RendimientoEvento";
+import { BordeAncho, BotonAncho, CONTENEDOR_NOMBRE, useAnchoColumna, W_NOMBRE } from "./AnchoColumna";
+import { COL_DRILL } from "@/lib/inversion-medios/col-nombre";
 import { compactInt, fmtUsd, formatInt } from "./format";
 
 type Props = {
+  /** "iniciativa" (Club Glovox, Now Mag…): sin fecha de evento ni tickets; el
+   *  techo es la suma del plan y su real son las campañas asignadas. */
+  modo?: "evento" | "iniciativa";
+  /** Solo iniciativas: cuántas campañas tiene asignadas. */
+  campanasAsignadas?: number;
+  /** Solo iniciativas: archivada (se ve en solo lectura). */
+  iniciativaArchivada?: boolean;
   eventoId: string;
   nombre: string;
   venue: string;
@@ -59,12 +68,15 @@ type Props = {
   etapas: EtapaCampana[];
   /** Gasto real crudo por (fecha, plataforma, objective, campaña) para el desglose. */
   desgloseRows: DesgloseRow[];
-  /** Numeradores de ads del evento en la ventana — alimentan los dos CPA. */
-  ads: AdsMetricasEvento;
-  /** Conteos de ticket + el estado del referido. */
-  tickets: TicketsEvento;
+  /** Numeradores de ads del evento en la ventana — alimentan los dos CPA.
+   *  null en una iniciativa (por ahora solo se mide gasto). */
+  ads: AdsMetricasEvento | null;
+  /** Conteos de ticket + el estado del referido. null en una iniciativa. */
+  tickets: TicketsEvento | null;
   /** Serie diaria de resultado, para el bloque "Resultado del día". */
   serieResultado: SerieResultadoRow[];
+  /** Ancho guardado de la columna de nombres de la sábana (cookie leída por la page). */
+  anchoNombreInicial: number;
 };
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -120,6 +132,9 @@ function RmktBadge() {
 }
 
 export default function EventoDrill({
+  modo = "evento",
+  campanasAsignadas = 0,
+  iniciativaArchivada = false,
   eventoId,
   nombre,
   venue,
@@ -138,8 +153,15 @@ export default function EventoDrill({
   ads,
   tickets,
   serieResultado,
+  anchoNombreInicial,
 }: Props) {
   const { dias, plataformas, totalDia, totalPlan, totalReal } = drill;
+  const esIniciativa = modo === "iniciativa";
+  // Columna de nombres AJUSTABLE (canal → tipo → campaña): arrastrar su borde,
+  // botón ⇔ o teclado; se recuerda en cookie, aparte de la del calendario.
+  // Antes era fija en 160px y las campañas salían truncadas. Ver ./AnchoColumna.tsx.
+  const sabanaRef = useRef<HTMLDivElement>(null);
+  const { calRef, ctl: ancho } = useAnchoColumna(COL_DRILL, anchoNombreInicial, sabanaRef);
 
   // Holgura (2026-10-09): el plan de los días pasados YA NO se reescribe al
   // gasto real. "Por asignar" reemplaza a "Disponible" (techo − plan, que
@@ -218,8 +240,8 @@ export default function EventoDrill({
   // puros guiones, es peor que no tenerla (las dos unidades ya están SIEMPRE
   // visibles en la card, que es donde la comparación tiene sentido).
   const refInterpretable =
-    tickets.estado === "medible" && tickets.propagacionPct >= PM_PROPAGACION_MIN;
-  const hayFilaPersonas = tickets.personas !== tickets.transacciones;
+    tickets != null && tickets.estado === "medible" && tickets.propagacionPct >= PM_PROPAGACION_MIN;
+  const hayFilaPersonas = tickets != null && tickets.personas !== tickets.transacciones;
   const [expRes, setExpRes] = useState<boolean>(
     () => refInterpretable || hayFilaPersonas,
   );
@@ -329,7 +351,9 @@ export default function EventoDrill({
           </Link>
           <h1 className="mt-1 font-display text-3xl font-bold text-[var(--ink)]">{nombre || eventoId}</h1>
           <p className="mt-1 font-sans text-sm text-[var(--ink-muted)]">
-            {eventoId}
+            {esIniciativa
+              ? `${iniciativaArchivada ? "Iniciativa archivada (solo lectura; se reactiva desde el calendario, con «ver archivadas»)" : "Iniciativa"} · ${campanasAsignadas} ${campanasAsignadas === 1 ? "campaña asignada" : "campañas asignadas"}`
+              : eventoId}
             {venue ? ` · ${venue}` : ""}
             {fechaEvento
               ? ` · evento ${fechaEvento}${diasEvento > 1 ? ` (${diasEvento} días)` : ""}`
@@ -340,36 +364,69 @@ export default function EventoDrill({
         </div>
       </header>
 
-      {/* Bloque presupuesto (como el de la planilla, a la izquierda) */}
-      <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-        <Stat label="Presupuesto (techo)" value={techoUsd != null ? fmtUsd(techoUsd) : "—"} hint="budgetPm · /admin/eventos" />
-        <Stat label="Plan total" value={fmtUsd(totalPlan)} hint={pctPlan != null ? `${pctPlan.toFixed(0)}% del techo` : "sin techo"} />
-        <Stat label="Invertido (real)" value={fmtUsd(totalReal)} hint={pctReal != null ? `${pctReal.toFixed(0)}% del techo` : "sin techo"} />
-        <Stat
-          label="Por asignar"
-          value={holgura.porAsignar != null ? fmtUsd(holgura.porAsignar) : "—"}
-          hint={
-            holgura.porAsignar == null
-              ? "sin techo"
-              : corte
-                ? `techo − real al ${fmtDiaMes(corte)} − plan desde el ${fmtDiaMes(addDiasIso(corte, 1))}`
-                : "techo − real cerrado − plan pendiente"
-          }
-          tone={holgura.porAsignar != null && holgura.porAsignar < 0 ? "neg" : undefined}
-        />
-        <Stat
-          label="Ejecución"
-          value={pctReal != null ? `${pctReal.toFixed(0)}%` : "—"}
-          hint="real / techo"
-          tone={pctReal != null && pctReal > 100 ? "neg" : undefined}
-        />
-      </div>
+      {/* Bloque presupuesto (como el de la planilla, a la izquierda). Una
+          iniciativa no tiene budgetPm: su techo ES la suma del plan, así que
+          "por asignar" no aplica y el foco es plan vs real. */}
+      {esIniciativa ? (
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+          <Stat label="Plan total (techo)" value={fmtUsd(totalPlan)} hint="suma del plan diario cargado" />
+          <Stat
+            label="Invertido (real)"
+            value={fmtUsd(totalReal)}
+            hint={
+              campanasAsignadas === 0
+                ? iniciativaArchivada
+                  ? "sin campañas asignadas"
+                  : "sin campañas: arrástralas desde No atribuido"
+                : `${campanasAsignadas} ${campanasAsignadas === 1 ? "campaña asignada" : "campañas asignadas"}`
+            }
+          />
+          <Stat
+            label={corte ? `Desvío al ${fmtDiaMes(corte)}` : "Desvío"}
+            value={corte ? fmtSigned(holgura.desvio) : "—"}
+            hint="plan − real de los días cerrados"
+            tone={holgura.desvio < -0.5 ? "neg" : undefined}
+          />
+          <Stat
+            label="Ejecución"
+            value={pctReal != null ? `${pctReal.toFixed(0)}%` : "—"}
+            hint="real / plan total"
+            tone={pctReal != null && pctReal > 100 ? "neg" : undefined}
+          />
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
+          <Stat label="Presupuesto (techo)" value={techoUsd != null ? fmtUsd(techoUsd) : "—"} hint="budgetPm · /admin/eventos" />
+          <Stat label="Plan total" value={fmtUsd(totalPlan)} hint={pctPlan != null ? `${pctPlan.toFixed(0)}% del techo` : "sin techo"} />
+          <Stat label="Invertido (real)" value={fmtUsd(totalReal)} hint={pctReal != null ? `${pctReal.toFixed(0)}% del techo` : "sin techo"} />
+          <Stat
+            label="Por asignar"
+            value={holgura.porAsignar != null ? fmtUsd(holgura.porAsignar) : "—"}
+            hint={
+              holgura.porAsignar == null
+                ? "sin techo"
+                : corte
+                  ? `techo − real al ${fmtDiaMes(corte)} − plan desde el ${fmtDiaMes(addDiasIso(corte, 1))}`
+                  : "techo − real cerrado − plan pendiente"
+            }
+            tone={holgura.porAsignar != null && holgura.porAsignar < 0 ? "neg" : undefined}
+          />
+          <Stat
+            label="Ejecución"
+            value={pctReal != null ? `${pctReal.toFixed(0)}%` : "—"}
+            hint="real / techo"
+            tone={pctReal != null && pctReal > 100 ? "neg" : undefined}
+          />
+        </div>
+      )}
 
-      <RendimientoEvento
-        ads={ads}
-        tickets={tickets}
-        hoyEnRango={dias.length > 0 && dias[0] <= hoy && hoy <= dias[dias.length - 1]}
-      />
+      {ads && tickets && (
+        <RendimientoEvento
+          ads={ads}
+          tickets={tickets}
+          hoyEnRango={dias.length > 0 && dias[0] <= hoy && hoy <= dias[dias.length - 1]}
+        />
+      )}
 
       <HolguraEvento
         holgura={holgura}
@@ -377,6 +434,7 @@ export default function EventoDrill({
         techoUsd={techoUsd}
         hoy={hoy}
         ultimoDia={ultimoDia}
+        sinHolgura={esIniciativa}
       />
 
       {canEdit && <EtapasEditor eventoId={eventoId} etapas={etapas} />}
@@ -400,8 +458,12 @@ export default function EventoDrill({
       {/* Sábana horizontal: filas = plataforma (expandibles a tipo→campaña).
           `isolate`: los sticky internos (z-10/20/30) quedan contenidos en su
           propio stacking context y no pintan sobre la GroupNav (z-30). */}
-      <div className="isolate overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)]">
-        <div className="max-h-[600px] overflow-auto overscroll-x-contain">
+      <div
+        ref={calRef}
+        className={`isolate overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)] ${CONTENEDOR_NOMBRE}`}
+        style={ancho.estiloContenedor}
+      >
+        <div ref={sabanaRef} className="max-h-[600px] overflow-auto overscroll-x-contain">
           <table className="border-separate border-spacing-0 font-sans text-sm">
             <thead>
               {/* Bandas de etapa (pre-registro, awareness, …) por rango de días. */}
@@ -409,7 +471,7 @@ export default function EventoDrill({
                 <tr>
                   <th
                     style={{ height: BAND_H }}
-                    className="sticky left-0 top-0 z-30 w-40 min-w-40 max-w-40 border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--ink-subtle)]"
+                    className={`sticky left-0 top-0 z-30 ${W_NOMBRE} border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--ink-subtle)]`}
                   >
                     Etapa
                   </th>
@@ -443,7 +505,7 @@ export default function EventoDrill({
                 <tr>
                   <th
                     style={{ height: BAND_H, top: bandaTop }}
-                    className="sticky left-0 z-30 w-40 min-w-40 max-w-40 border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--ink-subtle)]"
+                    className={`sticky left-0 z-30 ${W_NOMBRE} border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--ink-subtle)]`}
                   >
                     Plan
                   </th>
@@ -457,7 +519,7 @@ export default function EventoDrill({
                         : "Días anteriores a hoy: su plan no se edita, es la base para medir el desvío. Las correcciones las hace un superadmin."
                     }
                   >
-                    <span className="sticky left-[172px] inline-flex items-center gap-1 whitespace-nowrap">
+                    <span className="sticky left-[calc(var(--col-nombre)+12px)] inline-flex items-center gap-1 whitespace-nowrap">
                       <Lock className="h-2.5 w-2.5" />
                       Días pasados · {isSuperadmin ? "solo superadmin edita" : "plan bloqueado"}
                     </span>
@@ -468,7 +530,7 @@ export default function EventoDrill({
                       style={{ height: BAND_H, top: bandaTop }}
                       className="sticky z-20 border-b border-l border-b-[var(--divider)] border-l-[#9F99F8] bg-[var(--purple-tint)] px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--plan)]"
                     >
-                      <span className="sticky left-[172px] whitespace-nowrap">Desde hoy · editable</span>
+                      <span className="sticky left-[calc(var(--col-nombre)+12px)] whitespace-nowrap">Desde hoy · editable</span>
                     </th>
                   )}
                   <th
@@ -480,9 +542,14 @@ export default function EventoDrill({
               <tr>
                 <th
                   style={{ top: fechasTop }}
-                  className="sticky left-0 z-30 w-40 min-w-40 max-w-40 border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-2 text-left text-xs font-medium text-[var(--ink-muted)]"
+                  aria-label="Canal"
+                  className={`sticky left-0 z-30 ${W_NOMBRE} border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] py-2 pl-4 pr-3 text-left text-xs font-medium text-[var(--ink-muted)]`}
                 >
-                  Canal
+                  <span className="flex items-center gap-1.5">
+                    Canal
+                    <BotonAncho ctl={ancho} />
+                  </span>
+                  <BordeAncho ctl={ancho} />
                 </th>
                 {dias.map((fecha, i) => {
                   const dia = Number(fecha.slice(8, 10));
@@ -539,7 +606,7 @@ export default function EventoDrill({
                 // del plan vive en las filas de tipo).
                 rows.push(
                   <tr key={`canal-${p.plataforma}`} className="group">
-                    <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 align-top group-hover:bg-[var(--surface-alt)]">
+                    <td className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 align-top group-hover:bg-[var(--surface-alt)]`}>
                       <span className="inline-flex items-center gap-1.5 font-medium text-[var(--ink)]">
                         <button
                           onClick={() => toggleCanal(p.plataforma)}
@@ -591,7 +658,7 @@ export default function EventoDrill({
                   const totalRmkt = f.realNode?.totalRmkt ?? 0;
                   rows.push(
                     <tr key={`tipo-${tk}`} className="bg-[var(--surface-sunken)]">
-                      <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--grid)] bg-[var(--surface-sunken)] py-1.5 pl-7 pr-3 align-top">
+                      <td className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--grid)] bg-[var(--surface-sunken)] py-1.5 pl-7 pr-3 align-top`}>
                         <span className="inline-flex items-center gap-1 text-xs text-[var(--ink)]">
                           {campanas.length > 0 ? (
                             <button
@@ -716,7 +783,7 @@ export default function EventoDrill({
                       const c = campanas[ci];
                       rows.push(
                         <tr key={`camp-${tk}-${ci}`}>
-                          <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 truncate border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-12 pr-3 align-top text-[11px] text-[var(--ink-subtle)]" title={c.nombre}>
+                          <td className={`sticky left-0 z-10 ${W_NOMBRE} truncate border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-12 pr-3 align-top text-[11px] text-[var(--ink-subtle)]`} title={c.nombre} data-nombre>
                             {c.esRmkt && <RmktBadge />} {c.nombre}
                           </td>
                           {dias.map((fecha, i) => (
@@ -755,17 +822,21 @@ export default function EventoDrill({
                 valores={desvioCols.map((c) => c.acc)}
                 total={null}
               />
-              <FilaSerie
-                label="Holgura por día"
-                sub="por asignar ÷ días que quedan"
-                dias={dias}
-                hoy={hoy}
-                valores={dias.map((d) =>
-                  holgura.porDia != null && d >= hoy && ultimoDia && d <= ultimoDia ? holgura.porDia : null,
-                )}
-                total={holgura.porAsignar}
-                ghost
-              />
+              {/* Una iniciativa no tiene fecha de evento ni "por asignar" (su
+                  techo es su propio plan): sin fila de holgura. */}
+              {!esIniciativa && (
+                <FilaSerie
+                  label="Holgura por día"
+                  sub="por asignar ÷ días que quedan"
+                  dias={dias}
+                  hoy={hoy}
+                  valores={dias.map((d) =>
+                    holgura.porDia != null && d >= hoy && ultimoDia && d <= ultimoDia ? holgura.porDia : null,
+                  )}
+                  total={holgura.porAsignar}
+                  ghost
+                />
+              )}
 
               {/* ── Resultado del día ──────────────────────────────────────
                   Tickets de la ticketera alineados a las MISMAS columnas de día
@@ -777,10 +848,10 @@ export default function EventoDrill({
                   imputa la conversión al día del CLIC, así que el CPA diario va
                   de 0,15× a 14,52× el del evento. Tampoco de devueltos: la
                   devolución no se puede fechar. */}
-              {tickets.tieneTickets && (
+              {tickets?.tieneTickets && (
                 <>
                   <tr className="bg-[var(--surface-alt)]">
-                    <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-1.5 align-top">
+                    <td className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-1.5 align-top`}>
                       <button
                         onClick={() => setExpRes((v) => !v)}
                         className="inline-flex items-center gap-1 text-xs font-medium text-[var(--ink)] hover:text-[#9F99F8]"
@@ -808,7 +879,7 @@ export default function EventoDrill({
                   </tr>
 
                   <tr className={expRes ? "" : "hidden"}>
-                    <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-muted)]">
+                    <td className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-muted)]`}>
                       Tickets vendidos
                     </td>
                     {dias.map((fecha, i) => (
@@ -821,7 +892,7 @@ export default function EventoDrill({
 
                   {hayFilaPersonas && (
                     <tr className={expRes ? "" : "hidden"}>
-                      <td className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-subtle)]">
+                      <td className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-subtle)]`}>
                         Personas
                       </td>
                       {dias.map((fecha, i) => (
@@ -836,7 +907,7 @@ export default function EventoDrill({
                   {refInterpretable && (
                     <tr className={expRes ? "" : "hidden"}>
                       <td
-                        className="sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-subtle)]"
+                        className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-7 pr-3 align-top text-[11px] text-[var(--ink-subtle)]`}
                         title="Órdenes que llegaron a la ticketera con una etiqueta PM_ de campaña de venta."
                       >
                         Órdenes con PM_
@@ -854,7 +925,7 @@ export default function EventoDrill({
             </tbody>
             <tfoot>
               <tr>
-                <td className="sticky bottom-0 left-0 z-30 w-40 min-w-40 max-w-40 border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 text-xs font-medium text-[var(--ink)]">
+                <td className={`sticky bottom-0 left-0 z-30 ${W_NOMBRE} border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 text-xs font-medium text-[var(--ink)]`}>
                   Total diario (plan / real)
                 </td>
                 {totalDia.map((d) => (
@@ -1034,7 +1105,7 @@ function FilaSerie({
   return (
     <tr>
       <td
-        className={`sticky left-0 z-10 w-40 min-w-40 max-w-40 border-r border-t ${borde} bg-[var(--surface-sunken)] py-1.5 pl-4 pr-3 align-top`}
+        className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t ${borde} bg-[var(--surface-sunken)] py-1.5 pl-4 pr-3 align-top`}
       >
         <span className="block text-[11px] font-medium text-[var(--ink)]">{label}</span>
         <span className="block text-[10px] text-[var(--ink-subtle)]">{sub}</span>

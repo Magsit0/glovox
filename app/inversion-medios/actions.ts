@@ -8,6 +8,8 @@ import { db } from "@/db";
 import {
   auditLog,
   cargosExtraPm,
+  iniciativasPm,
+  iniciativasPmCampanas,
   inversionMediosDiario,
   inversionMediosEtapas,
   PLATAFORMAS_MEDIOS,
@@ -15,6 +17,14 @@ import {
 } from "@/db/schema";
 import { METODOS_CARGO } from "@/lib/inversion-medios/cargos";
 import { esDiaBloqueado, hoySantiago, MSG_DIA_BLOQUEADO } from "@/lib/inversion-medios/holgura";
+import {
+  esIniciativaId,
+  INICIATIVA_RE,
+  limpiarNombreIniciativa,
+  NOMBRE_INICIATIVA_MAX,
+  NOMBRE_INICIATIVA_MIN,
+  siguienteIdIniciativa,
+} from "@/lib/inversion-medios/iniciativas";
 import { SIN_TIPO, TIPOS_PLAN } from "@/lib/inversion-medios/tipos";
 import { withNeonRetry } from "@/lib/neon-retry";
 import { getEventInfo } from "@/lib/queries/ticketing";
@@ -109,8 +119,25 @@ function sanitizeTipo(v: unknown, plataforma: string): string | null {
  */
 async function validarEvento(eventoId: string): Promise<string | null> {
   if (!EVENTO_RE.test(eventoId)) return "EventoID inválido";
+  // Las iniciativas (INI001…) comparten la tabla del plan con los eventos,
+  // pero su catálogo vive en Neon, no en categoriaEvento.
+  if (esIniciativaId(eventoId)) return validarIniciativa(eventoId);
   const info = await getEventInfo(eventoId);
   if (!info) return `El evento ${eventoId} no existe en categoriaEvento`;
+  return null;
+}
+
+/** La iniciativa existe y está ACTIVA: una archivada no recibe plan ni campañas. */
+async function validarIniciativa(iniciativaId: string): Promise<string | null> {
+  if (!esIniciativaId(iniciativaId)) return "Iniciativa inválida";
+  const rows = await withNeonRetry(() =>
+    db
+      .select({ activa: iniciativasPm.activa, nombre: iniciativasPm.nombre })
+      .from(iniciativasPm)
+      .where(eq(iniciativasPm.id, iniciativaId)),
+  );
+  if (rows.length === 0) return `La iniciativa ${iniciativaId} no existe`;
+  if (!rows[0].activa) return `La iniciativa ${rows[0].nombre} está archivada: reactívala para editarla`;
   return null;
 }
 
@@ -211,6 +238,12 @@ export async function deleteCellAction(input: {
   const fecha = String(input.fecha ?? "").trim();
   const plataforma = sanitizePlataforma(input.plataforma);
   if (!EVENTO_RE.test(eventoId)) return { ok: false, error: "EventoID inválido" };
+  // Una iniciativa archivada no se edita, ni para borrar: una pestaña abierta
+  // desde antes de archivarla todavía muestra el editor.
+  if (esIniciativaId(eventoId)) {
+    const iniError = await validarIniciativa(eventoId);
+    if (iniError) return { ok: false, error: iniError };
+  }
   if (!FECHA_RE.test(fecha)) return { ok: false, error: "Fecha inválida" };
   if (!plataforma) return { ok: false, error: "Plataforma inválida" };
   const tipo = sanitizeTipo(input.tipo, plataforma);
@@ -265,6 +298,12 @@ export async function deleteRowAction(input: {
   const eventoId = String(input.eventoId ?? "").trim().toUpperCase();
   const plataforma = sanitizePlataforma(input.plataforma);
   if (!EVENTO_RE.test(eventoId)) return { ok: false, error: "EventoID inválido" };
+  // Una iniciativa archivada no se edita, ni para borrar: una pestaña abierta
+  // desde antes de archivarla todavía muestra el editor.
+  if (esIniciativaId(eventoId)) {
+    const iniError = await validarIniciativa(eventoId);
+    if (iniError) return { ok: false, error: iniError };
+  }
   if (!plataforma) return { ok: false, error: "Plataforma inválida" };
   const tipo = sanitizeTipo(input.tipo, plataforma);
   if (tipo === null) return { ok: false, error: "Tipo de campaña inválido" };
@@ -563,5 +602,316 @@ export async function deleteCargoAction(input: { id: string }): Promise<ActionRe
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Error al borrar el cargo" };
+  }
+}
+
+// ---------- Iniciativas: asignar campañas (drag & drop) ----------
+
+/** Asignación actual de una campaña (con el estado de su iniciativa), o null. */
+async function asignacionActual(
+  plataforma: string,
+  campaignId: string,
+): Promise<{ iniciativaId: string; nombre: string; activa: boolean } | null> {
+  const rows = await withNeonRetry(() =>
+    db
+      .select({
+        iniciativaId: iniciativasPmCampanas.iniciativaId,
+        nombre: iniciativasPm.nombre,
+        activa: iniciativasPm.activa,
+      })
+      .from(iniciativasPmCampanas)
+      .innerJoin(iniciativasPm, eq(iniciativasPm.id, iniciativasPmCampanas.iniciativaId))
+      .where(and(eq(iniciativasPmCampanas.plataforma, plataforma), eq(iniciativasPmCampanas.campaignId, campaignId))),
+  );
+  return rows[0] ?? null;
+}
+/** Las campañas de una archivada están congeladas: sacarlas reescribiría su historial. */
+function msgOrigenArchivado(nombre: string): string {
+  return `La iniciativa ${nombre} está archivada: reactívala para mover sus campañas`;
+}
+
+// Plataformas posibles del mart (no solo las planificables: una campaña sin
+// evento puede venir de cualquiera). campaign_id es numérico en las tres; el
+// fallback "nombre:…" lo arma getSinEventoCampanasDiario si faltara el id.
+const PLATAFORMA_CAMPANA_RE = /^[a-z_()]{2,20}$/;
+const CAMPAIGN_ID_RE = /^[\w:.\- ]{1,200}$/u;
+
+/**
+ * Asigna (o mueve) una campaña SIN evento a una iniciativa. Desde ese momento
+ * todo su gasto sin evento cuenta para la iniciativa — incluido el anterior a
+ * la asignación: la campaña ES de la iniciativa. Upsert por (plataforma,
+ * campaign_id): arrastrarla a otra iniciativa la mueve.
+ */
+export async function asignarCampanaAction(input: {
+  plataforma: string;
+  campaignId: string;
+  campaignName: string;
+  iniciativaId: string;
+}): Promise<ActionResult> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const plataforma = String(input.plataforma ?? "").trim();
+  const campaignId = String(input.campaignId ?? "").trim();
+  const campaignName = String(input.campaignName ?? "").trim().slice(0, 300) || null;
+  const iniciativaId = String(input.iniciativaId ?? "").trim().toUpperCase();
+  if (!PLATAFORMA_CAMPANA_RE.test(plataforma)) return { ok: false, error: "Plataforma inválida" };
+  if (!CAMPAIGN_ID_RE.test(campaignId)) return { ok: false, error: "Campaña inválida" };
+  const iniError = await validarIniciativa(iniciativaId);
+  if (iniError) return { ok: false, error: iniError };
+
+  try {
+    const actual = await asignacionActual(plataforma, campaignId);
+    if (actual && !actual.activa) return { ok: false, error: msgOrigenArchivado(actual.nombre) };
+    await withNeonRetry(() =>
+      db
+        .insert(iniciativasPmCampanas)
+        .values({ plataforma, campaignId, campaignName, iniciativaId, createdBy: ctx.userId })
+        .onConflictDoUpdate({
+          target: [iniciativasPmCampanas.plataforma, iniciativasPmCampanas.campaignId],
+          set: { iniciativaId, campaignName, createdBy: ctx.userId, createdAt: sql`now()` },
+        }),
+    );
+    await logAudit(ctx.userId, "inversionMedios.asignarCampana", {
+      plataforma,
+      campaignId,
+      campaignName,
+      iniciativaId,
+      desde: actual?.iniciativaId ?? null,
+    });
+    revalidatePath("/inversion-medios");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al asignar" };
+  }
+}
+
+/** Devuelve una campaña a "No atribuido" (borra su asignación). */
+export async function desasignarCampanaAction(input: {
+  plataforma: string;
+  campaignId: string;
+}): Promise<ActionResult> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const plataforma = String(input.plataforma ?? "").trim();
+  const campaignId = String(input.campaignId ?? "").trim();
+  if (!PLATAFORMA_CAMPANA_RE.test(plataforma)) return { ok: false, error: "Plataforma inválida" };
+  if (!CAMPAIGN_ID_RE.test(campaignId)) return { ok: false, error: "Campaña inválida" };
+  try {
+    const actual = await asignacionActual(plataforma, campaignId);
+    if (actual && !actual.activa) return { ok: false, error: msgOrigenArchivado(actual.nombre) };
+    await withNeonRetry(() =>
+      db
+        .delete(iniciativasPmCampanas)
+        .where(
+          and(
+            eq(iniciativasPmCampanas.plataforma, plataforma),
+            eq(iniciativasPmCampanas.campaignId, campaignId),
+          ),
+        ),
+    );
+    await logAudit(ctx.userId, "inversionMedios.desasignarCampana", {
+      plataforma,
+      campaignId,
+      desde: actual?.iniciativaId ?? null,
+    });
+    revalidatePath("/inversion-medios");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al quitar" };
+  }
+}
+
+// ---------- Iniciativas: crear, renombrar, archivar ----------
+
+const MSG_NOMBRE_INICIATIVA = `El nombre debe tener entre ${NOMBRE_INICIATIVA_MIN} y ${NOMBRE_INICIATIVA_MAX} caracteres`;
+
+/** ¿El error es la violación del índice único de nombre (carrera entre pestañas)? */
+function esNombreDuplicado(err: unknown): boolean {
+  const e = err as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } } | null;
+  const c = e?.cause ?? e;
+  return c?.code === "23505" && (c.constraint ?? "").includes("iniciativas_pm_nombre_uq");
+}
+
+/** ¿Otra iniciativa (activa o archivada) ya usa este nombre? Sin distinguir mayúsculas. */
+async function nombreIniciativaTomado(nombre: string, exceptoId?: string): Promise<string | null> {
+  const rows = await withNeonRetry(() =>
+    db.select({ id: iniciativasPm.id, nombre: iniciativasPm.nombre, activa: iniciativasPm.activa }).from(iniciativasPm),
+  );
+  const otra = rows.find((r) => r.id !== exceptoId && r.nombre.toLowerCase() === nombre.toLowerCase());
+  if (!otra) return null;
+  return otra.activa
+    ? `Ya existe una iniciativa llamada ${otra.nombre}`
+    : `Ya existe una iniciativa archivada llamada ${otra.nombre}: reactívala en vez de crear otra`;
+}
+
+/**
+ * Crea una iniciativa nueva (Club Glovox, Now Mag…): id correlativo `INI###`
+ * (contando las archivadas, nunca se reusa uno) y al final del orden. Si otra
+ * pestaña creó una en el mismo instante y tomó el id, reintenta con el siguiente.
+ */
+export async function crearIniciativaAction(input: { nombre: string }): Promise<ActionResult<{ id: string }>> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const nombre = limpiarNombreIniciativa(input.nombre);
+  if (!nombre) return { ok: false, error: MSG_NOMBRE_INICIATIVA };
+  try {
+    const tomado = await nombreIniciativaTomado(nombre);
+    if (tomado) return { ok: false, error: tomado };
+    for (let intento = 0; intento < 3; intento++) {
+      const existentes = await withNeonRetry(() =>
+        db.select({ id: iniciativasPm.id, orden: iniciativasPm.orden }).from(iniciativasPm),
+      );
+      const id = siguienteIdIniciativa(existentes.map((e) => e.id));
+      if (!INICIATIVA_RE.test(id)) return { ok: false, error: "Se acabaron los ids de iniciativa (INI999)" };
+      const orden = existentes.reduce((m, e) => Math.max(m, e.orden), 0) + 1;
+      const creada = await withNeonRetry(() =>
+        db
+          .insert(iniciativasPm)
+          .values({ id, nombre, orden })
+          .onConflictDoNothing({ target: iniciativasPm.id })
+          .returning({ id: iniciativasPm.id }),
+      );
+      if (creada.length > 0) {
+        await logAudit(ctx.userId, "inversionMedios.crearIniciativa", { id, nombre });
+        revalidatePath("/inversion-medios");
+        return { ok: true, data: { id } };
+      }
+    }
+    return { ok: false, error: "No se pudo crear la iniciativa: intenta de nuevo" };
+  } catch (err) {
+    if (esNombreDuplicado(err)) return { ok: false, error: (await nombreIniciativaTomado(nombre)) ?? "Ese nombre ya está en uso" };
+    return { ok: false, error: err instanceof Error ? err.message : "Error al crear la iniciativa" };
+  }
+}
+
+/** Cambia el nombre de una iniciativa (activa o archivada). El id no cambia. */
+export async function renombrarIniciativaAction(input: { id: string; nombre: string }): Promise<ActionResult> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const id = String(input.id ?? "").trim().toUpperCase();
+  if (!esIniciativaId(id)) return { ok: false, error: "Iniciativa inválida" };
+  const nombre = limpiarNombreIniciativa(input.nombre);
+  if (!nombre) return { ok: false, error: MSG_NOMBRE_INICIATIVA };
+  try {
+    const tomado = await nombreIniciativaTomado(nombre, id);
+    if (tomado) return { ok: false, error: tomado };
+    const r = await withNeonRetry(() =>
+      db.update(iniciativasPm).set({ nombre }).where(eq(iniciativasPm.id, id)).returning({ id: iniciativasPm.id }),
+    );
+    if (r.length === 0) return { ok: false, error: `La iniciativa ${id} no existe` };
+    await logAudit(ctx.userId, "inversionMedios.renombrarIniciativa", { id, nombre });
+    revalidatePath("/inversion-medios");
+    return { ok: true };
+  } catch (err) {
+    if (esNombreDuplicado(err)) return { ok: false, error: (await nombreIniciativaTomado(nombre, id)) ?? "Ese nombre ya está en uso" };
+    return { ok: false, error: err instanceof Error ? err.message : "Error al renombrar" };
+  }
+}
+
+/** Plan cargado desde HOY (Santiago) de una iniciativa: lo que seguiría sumando al presupuesto. */
+async function planFuturo(id: string): Promise<{ usd: number; dias: number }> {
+  const rows = await withNeonRetry(() =>
+    db
+      .select({
+        usd: sql<string | null>`COALESCE(SUM(${inversionMediosDiario.montoUsd}), 0)::text`,
+        dias: sql<string | null>`COUNT(DISTINCT ${inversionMediosDiario.fecha})::text`,
+      })
+      .from(inversionMediosDiario)
+      .where(and(eq(inversionMediosDiario.eventoId, id), gte(inversionMediosDiario.fecha, hoySantiago()))),
+  );
+  return { usd: Number(rows[0]?.usd ?? 0), dias: Number(rows[0]?.dias ?? 0) };
+}
+
+/** Lectura previa al archivado: cuánto plan desde hoy se borraría (para la confirmación). */
+export async function planFuturoIniciativaAction(input: { id: string }): Promise<ActionResult<{ usd: number; dias: number }>> {
+  try {
+    await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const id = String(input.id ?? "").trim().toUpperCase();
+  if (!esIniciativaId(id)) return { ok: false, error: "Iniciativa inválida" };
+  try {
+    return { ok: true, data: await planFuturo(id) };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al leer el plan" };
+  }
+}
+
+/**
+ * Archiva (`activa: false`) o reactiva una iniciativa. Archivar conserva el
+ * historial: el plan PASADO, sus campañas asignadas y su gasto siguen siendo
+ * suyos (el gasto no vuelve a "No atribuido"); deja de recibir plan y campañas,
+ * y su fila se ve solo cuando tiene datos en el tramo mirado.
+ * El plan DESDE HOY sí se borra al archivar (misma transacción): un frente
+ * cortado no puede seguir sumando al presupuesto del día y de la semana, y una
+ * archivada no se edita. Por eso exige `borrarPlanFuturo: true` cuando lo hay
+ * (el cliente lo confirma antes con planFuturoIniciativaAction).
+ */
+export async function archivarIniciativaAction(input: {
+  id: string;
+  archivar: boolean;
+  borrarPlanFuturo?: boolean;
+}): Promise<ActionResult> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const id = String(input.id ?? "").trim().toUpperCase();
+  if (!esIniciativaId(id)) return { ok: false, error: "Iniciativa inválida" };
+  const archivar = input.archivar === true;
+  try {
+    const hoy = hoySantiago();
+    if (archivar) {
+      const futuro = await planFuturo(id);
+      if (futuro.dias > 0 && input.borrarPlanFuturo !== true) {
+        return {
+          ok: false,
+          error: `Tiene USD ${futuro.usd.toFixed(2)} de plan desde hoy: confirma que se borra para archivarla`,
+        };
+      }
+    }
+    const { existe, borradas } = await withNeonRetry(() =>
+      db.transaction(async (tx) => {
+        const r = await tx
+          .update(iniciativasPm)
+          .set({ activa: !archivar })
+          .where(eq(iniciativasPm.id, id))
+          .returning({ id: iniciativasPm.id });
+        if (r.length === 0 || !archivar) return { existe: r.length > 0, borradas: 0 };
+        const del = await tx
+          .delete(inversionMediosDiario)
+          .where(and(eq(inversionMediosDiario.eventoId, id), gte(inversionMediosDiario.fecha, hoy)))
+          .returning({ id: inversionMediosDiario.id });
+        return { existe: true, borradas: del.length };
+      }),
+    );
+    if (!existe) return { ok: false, error: `La iniciativa ${id} no existe` };
+    await logAudit(ctx.userId, archivar ? "inversionMedios.archivarIniciativa" : "inversionMedios.reactivarIniciativa", {
+      id,
+      ...(archivar ? { planFuturoBorrado: borradas, desde: hoy } : {}),
+    });
+    revalidatePath("/inversion-medios");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al archivar" };
   }
 }

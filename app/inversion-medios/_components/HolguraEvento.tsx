@@ -48,6 +48,7 @@ export default function HolguraEvento({
   techoUsd,
   hoy,
   ultimoDia,
+  sinHolgura = false,
 }: {
   holgura: Holgura;
   canales: CanalDesvio[];
@@ -55,6 +56,9 @@ export default function HolguraEvento({
   hoy: string;
   /** Último día del evento ('' si no tiene fecha). */
   ultimoDia: string;
+  /** Omite "Holgura para lo que queda" (iniciativas: su techo ES la suma del
+   *  plan, así que "por asignar" siempre daría el desvío). Queda el desvío. */
+  sinHolgura?: boolean;
 }) {
   const { corte, realCerrado, planCerrado, planPendiente, porAsignar, diasRestantes, porDia, desvio } = holgura;
 
@@ -76,6 +80,7 @@ export default function HolguraEvento({
 
   return (
     <>
+      {!sinHolgura && (
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
           <h2 className="font-display text-lg font-bold text-[var(--ink)]">Holgura para lo que queda</h2>
@@ -135,6 +140,7 @@ export default function HolguraEvento({
           )}
         </div>
       </section>
+      )}
 
       <section className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">

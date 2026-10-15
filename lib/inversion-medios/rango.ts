@@ -1,7 +1,9 @@
 import { addDiasIso } from "./evento";
 
 export const DIAS_RANGO = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"];
-export type DiaSubtotal = { fecha: string; plan: number; real: number; conDatos: boolean };
+/** `plan`/`real` ya incluyen `cargos` cuando el toggle "sumar cargos extra"
+ *  está activo; `cargos` solo informa cuánto de eso son cargos. */
+export type DiaSubtotal = { fecha: string; plan: number; real: number; cargos: number; conDatos: boolean };
 
 /** Rangos recurrentes inclusivos, de 1 a 7 días; lunes = 0.
  * Viernes→martes cruza la semana. El scroll solo filtra las tarjetas:
@@ -13,7 +15,7 @@ export function buildRangos(dias: DiaSubtotal[], inicioDia: number, finDia: numb
   const duracion = (finDia - inicioDia + 7) % 7;
   const acc = new Map<string, {
     inicio: string; fin: string; semana: string;
-    plan: number; real: number; planTrans: number;
+    plan: number; real: number; planTrans: number; cargos: number;
     idxMinData: number; idxMaxData: number;
   }>();
   dias.forEach((dia, i) => {
@@ -23,11 +25,12 @@ export function buildRangos(dias: DiaSubtotal[], inicioDia: number, finDia: numb
     const inicio = addDiasIso(dia.fecha, -offset);
     if (!acc.has(inicio)) acc.set(inicio, {
       inicio, fin: addDiasIso(inicio, duracion), semana: addDiasIso(inicio, -inicioDia),
-      plan: 0, real: 0, planTrans: 0, idxMinData: Infinity, idxMaxData: -Infinity,
+      plan: 0, real: 0, planTrans: 0, cargos: 0, idxMinData: Infinity, idxMaxData: -Infinity,
     });
     const rango = acc.get(inicio)!;
     rango.plan += dia.plan;
     rango.real += dia.real;
+    rango.cargos += dia.cargos;
     if (dia.fecha <= realMaxFecha) rango.planTrans += dia.plan;
     if (dia.conDatos) {
       rango.idxMinData = Math.min(rango.idxMinData, i);

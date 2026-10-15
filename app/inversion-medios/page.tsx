@@ -1,9 +1,12 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import { getCategoriaEventos, getEventInfo } from "@/lib/queries/ticketing";
 import { normDias, ultimoDiaEvento } from "@/lib/inversion-medios/evento";
+import { anchoDesdeCookie, COL_CALENDARIO, COL_DRILL, type ColumnaNombre } from "@/lib/inversion-medios/col-nombre";
 import { hoySantiago } from "@/lib/inversion-medios/holgura";
+import { esIniciativaId } from "@/lib/inversion-medios/iniciativas";
 import {
   buildDrillGrid,
   getAdsMetricasEvento,
@@ -15,20 +18,24 @@ import {
   getGcpGastoSemanal,
   getCargosExtra,
   getEtapas,
-  getNoAtribuidoCampanasDiario,
-  getNoAtribuidoDiario,
+  getIniciativas,
   getPlanDiarioEvento,
   getPlanDiarioRango,
   getPlanExtent,
   getRealCorte,
   getRealDesgloseEvento,
+  getRealDesgloseIniciativa,
   getRealDiarioEvento,
+  getRealDiarioIniciativa,
   getRealDiarioRango,
   getRealExtentEvento,
+  getRealExtentIniciativa,
   getRealMaxFecha,
   getRendimientoTicketsEvento,
   getSerieResultadoEvento,
+  getSinEventoCampanasDiario,
   getTotalesEvento,
+  getTotalesIniciativas,
   mergeGrid,
   type EventoMeta,
 } from "@/lib/queries/inversion-medios";
@@ -37,16 +44,22 @@ import EventoDrill from "./_components/EventoDrill";
 
 export const dynamic = "force-dynamic";
 
+/** Ancho guardado de una columna de nombres (cookie): leerlo en el servidor
+ *  hace que el primer render ya salga con él, sin salto al hidratar. */
+async function anchoColumna(col: ColumnaNombre): Promise<number> {
+  return anchoDesdeCookie((await cookies()).get(col.cookie)?.value, col);
+}
+
 /** Primer día del mes de una fecha ISO. */
 function mesInicio(iso: string): string {
   return `${iso.slice(0, 7)}-01`;
 }
 
-/** Último día del mes de una fecha ISO. */
-function mesFin(iso: string): string {
+/** Último día del mes de una fecha ISO, corrido `meses` meses (0 = el mismo). */
+function mesFin(iso: string, meses = 0): string {
   const [y, m] = iso.slice(0, 7).split("-").map(Number);
-  const last = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  return `${iso.slice(0, 7)}-${String(last).padStart(2, "0")}`;
+  const d = new Date(Date.UTC(y, m + meses, 0));
+  return d.toISOString().slice(0, 10);
 }
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -81,17 +94,22 @@ export default async function InversionMediosPage({
 
   const evento = typeof sp.evento === "string" ? sp.evento.toUpperCase() : "";
 
-  // ---------- Modo drill (un evento) ----------
+  // ---------- Modo drill (un evento o una iniciativa) ----------
   if (EVENTO_RE.test(evento)) {
-    return <DrillView eventoId={evento} canEdit={canEdit} isSuperadmin={isSuperadmin} />;
+    return esIniciativaId(evento) ? (
+      <IniciativaDrillView iniciativaId={evento} canEdit={canEdit} isSuperadmin={isSuperadmin} />
+    ) : (
+      <DrillView eventoId={evento} canEdit={canEdit} isSuperadmin={isSuperadmin} />
+    );
   }
 
   // ---------- Modo calendario libre ----------
   const hoy = hoySantiago();
-  const [catalogo, planExtent, realMaxFecha] = await Promise.all([
+  const [catalogo, planExtent, realMaxFecha, iniciativas] = await Promise.all([
     getCategoriaEventos("all"),
     getPlanExtent(),
     getRealMaxFecha(),
+    getIniciativas(),
   ]);
 
   // Rango por defecto: cubre todo el plan cargado, el mes actual y las fechas
@@ -117,12 +135,17 @@ export default async function InversionMediosPage({
 
   const catalogoById = new Map(catalogo.map((e) => [e.eventoId, e]));
 
-  const [plan, real, noAtribuido, noAtribuidoCampanas] = await Promise.all([
+  // `sinEvento`: gasto por campaña sin evento. El cliente lo reparte entre las
+  // iniciativas (campañas asignadas) y "No atribuido" (el resto).
+  const [plan, real, sinEvento] = await Promise.all([
     getPlanDiarioRango(desde, hasta),
     getRealDiarioRango(desde, hasta),
-    getNoAtribuidoDiario(desde, hasta),
-    getNoAtribuidoCampanasDiario(desde, hasta),
+    getSinEventoCampanasDiario(desde, hasta),
   ]);
+  // El plan de las iniciativas vive en la misma tabla (evento_id = INI001…);
+  // el filtro por catálogo de abajo lo deja fuera de las filas de evento.
+  const iniIds = new Set(iniciativas.map((i) => i.id));
+  const planIniciativas = plan.filter((p) => iniIds.has(p.eventoId));
 
   // Filas del calendario: eventos de la tabla madre con plan y/o gasto en el
   // rango cargado, MÁS todos los eventos futuros del catálogo dentro del rango
@@ -150,7 +173,7 @@ export default async function InversionMediosPage({
 
   // `campanasRecientes` no depende del rango cargado: es "qué corre ahora",
   // anclado a la última fecha del mart.
-  const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee, campanasRecientes, gcpSemanal] =
+  const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee, campanasRecientes, gcpSemanal, totalesIniciativas] =
     await Promise.all([
       getBudgetPmMap(ids),
       getTotalesEvento(ids),
@@ -160,10 +183,12 @@ export default async function InversionMediosPage({
       getCarddaFeeMensual(),
       getCampanasRecientes(),
       getGcpGastoSemanal(),
+      getTotalesIniciativas(iniciativas),
     ]);
 
   const grid = mergeGrid({ eventos, from: desde, to: hasta, plan, real, budgetPm });
   const paisParam = typeof sp.pais === "string" ? sp.pais.toUpperCase() : "";
+  const anchoNombreInicial = await anchoColumna(COL_CALENDARIO);
 
   return (
     <InversionMediosPanel
@@ -171,8 +196,10 @@ export default async function InversionMediosPage({
       hasta={hasta}
       grid={grid}
       totales={Object.fromEntries(totales)}
-      noAtribuido={noAtribuido}
-      noAtribuidoCampanas={noAtribuidoCampanas}
+      sinEvento={sinEvento}
+      iniciativas={iniciativas}
+      planIniciativas={planIniciativas}
+      totalesIniciativas={totalesIniciativas}
       campanasRecientes={campanasRecientes}
       realMaxFecha={realMaxFecha}
       hoy={hoy}
@@ -183,6 +210,95 @@ export default async function InversionMediosPage({
       gcpSemanal={gcpSemanal}
       canEdit={canEdit}
       paisInicial={PAISES.has(paisParam) ? paisParam : ""}
+      cargosInicial={sp.cargos === "1"}
+      anchoNombreInicial={anchoNombreInicial}
+    />
+  );
+}
+
+/**
+ * Drill de una INICIATIVA (Club Glovox, Now Mag…): el mismo editor de plan que
+ * un evento, sin fecha de evento ni tickets. Su real son las campañas
+ * asignadas; su techo, la suma de todo su plan.
+ */
+async function IniciativaDrillView({
+  iniciativaId,
+  canEdit,
+  isSuperadmin,
+}: {
+  iniciativaId: string;
+  canEdit: boolean;
+  isSuperadmin: boolean;
+}) {
+  const [iniciativas, realMaxFecha, realCorte, anchoNombreInicial] = await Promise.all([
+    getIniciativas(),
+    getRealMaxFecha(),
+    getRealCorte(),
+    anchoColumna(COL_DRILL),
+  ]);
+  const ini = iniciativas.find((i) => i.id === iniciativaId);
+  if (!ini) {
+    return (
+      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-10 sm:px-8">
+        <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-12 text-center">
+          <p className="font-sans text-sm text-[var(--ink-subtle)]">
+            La iniciativa {iniciativaId} no existe.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Ventana: sin fecha de evento que la acote. Va del primer dato (o el inicio
+  // del mes en curso) al último dato o, como mínimo, el fin del mes
+  // subsiguiente — así siempre hay columnas para planificar hacia adelante,
+  // porque una iniciativa se activa en cualquier momento.
+  const hoy = hoySantiago();
+  const [planAll, realExtent] = await Promise.all([
+    getPlanDiarioEvento(iniciativaId),
+    getRealExtentIniciativa(ini),
+  ]);
+  const fechas = [
+    ...planAll.map((p) => p.fecha),
+    realExtent?.min,
+    realExtent?.max,
+  ].filter((x): x is string => !!x).sort();
+  const from = [fechas[0], mesInicio(hoy)].filter(Boolean).sort()[0];
+  const to = [fechas[fechas.length - 1] ?? "", mesFin(hoy, 2)].sort().reverse()[0];
+
+  const [real, etapas, desgloseRows] = await Promise.all([
+    getRealDiarioIniciativa(ini, from, to),
+    getEtapas(iniciativaId),
+    getRealDesgloseIniciativa(ini, from, to),
+  ]);
+  const drill = buildDrillGrid({ from, to, plan: planAll, real });
+
+  return (
+    <EventoDrill
+      modo="iniciativa"
+      campanasAsignadas={ini.campanas.length}
+      iniciativaArchivada={!ini.activa}
+      eventoId={iniciativaId}
+      nombre={ini.nombre}
+      venue=""
+      fechaEvento=""
+      diasEvento={1}
+      // Techo de una iniciativa = la suma de su plan (la ventana cubre todo).
+      techoUsd={drill.totalPlan}
+      drill={drill}
+      planRows={planAll}
+      realMaxFecha={realMaxFecha}
+      corte={realCorte || realMaxFecha}
+      hoy={hoy}
+      // Archivada = solo lectura: las actions la rechazan igual (validarIniciativa).
+      canEdit={canEdit && ini.activa}
+      isSuperadmin={isSuperadmin}
+      etapas={etapas}
+      desgloseRows={desgloseRows}
+      ads={null}
+      tickets={null}
+      serieResultado={[]}
+      anchoNombreInicial={anchoNombreInicial}
     />
   );
 }
@@ -196,10 +312,11 @@ async function DrillView({
   canEdit: boolean;
   isSuperadmin: boolean;
 }) {
-  const [info, realMaxFecha, realCorte] = await Promise.all([
+  const [info, realMaxFecha, realCorte, anchoNombreInicial] = await Promise.all([
     getEventInfo(eventoId),
     getRealMaxFecha(),
     getRealCorte(),
+    anchoColumna(COL_DRILL),
   ]);
   if (!info) {
     return (
@@ -283,6 +400,7 @@ async function DrillView({
       ads={ads}
       tickets={tickets}
       serieResultado={serieResultado}
+      anchoNombreInicial={anchoNombreInicial}
     />
   );
 }

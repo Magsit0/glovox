@@ -1,17 +1,33 @@
 "use client";
 
 import {
+  Fragment,
   memo,
   useCallback,
   useEffect,
   useMemo,
+  useOptimistic,
   useRef,
   useState,
   useTransition,
 } from "react";
 import { useRouter } from "@/lib/use-router";
 import Link from "next/link";
-import { CalendarDays, ChevronDown, ChevronLeft, ChevronRight, Pencil, Plus, Trash2, X } from "lucide-react";
+import {
+  Archive,
+  ArchiveRestore,
+  ArrowRightLeft,
+  CalendarDays,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  GripVertical,
+  Pencil,
+  Plus,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -28,11 +44,13 @@ import type {
   DayCell,
   GcpSemanaRow,
   EventoGridRow,
-  NoAtribuidoCampanaDia,
   NoAtribuidoRow,
+  PlanDiarioRow,
+  SinEventoCampanaDia,
 } from "@/lib/queries/inversion-medios";
 import type { CargoExtra } from "@/db/schema";
 import {
+  cobrosPorDia,
   costoMensual,
   costoSemanal,
   METODO_LABEL,
@@ -50,12 +68,33 @@ import {
   type FacturacionMes,
 } from "@/lib/inversion-medios/facturacion";
 import { esDiaEvento, tituloDiaEvento } from "@/lib/inversion-medios/evento";
+import {
+  campanaKey,
+  DND_CAMPANA,
+  limpiarNombreIniciativa,
+  NOMBRE_INICIATIVA_MAX,
+  NOMBRE_INICIATIVA_MIN,
+  type CampanaArrastrada,
+  type Iniciativa,
+} from "@/lib/inversion-medios/iniciativas";
+import { COL_CALENDARIO } from "@/lib/inversion-medios/col-nombre";
+import { ordenarPorRecencia } from "@/lib/inversion-medios/orden-campanas";
 import { nivelPayday, PAYDAY_HEAD, paydayCell, tituloPayday } from "@/lib/inversion-medios/payday";
-import { deleteCargoAction, upsertCargoAction } from "../actions";
+import {
+  archivarIniciativaAction,
+  asignarCampanaAction,
+  crearIniciativaAction,
+  planFuturoIniciativaAction,
+  deleteCargoAction,
+  desasignarCampanaAction,
+  renombrarIniciativaAction,
+  upsertCargoAction,
+} from "../actions";
 import { fmtDiaCorto, fmtUsd } from "./format";
 import SubtotalRango from "./SubtotalRango";
 import CampanasActivas from "./CampanasActivas";
 import GastoGcp from "./GastoGcp";
+import { BordeAncho, BotonAncho, CONTENEDOR_NOMBRE, topeAncho, useAnchoColumna, W_NOMBRE } from "./AnchoColumna";
 
 type Props = {
   desde: string; // YYYY-MM-DD, inicio del rango cargado
@@ -63,9 +102,15 @@ type Props = {
   grid: EventoGridRow[];
   /** Totales del evento COMPLETO (histórico), no solo del rango cargado. */
   totales: Record<string, { totalPlan: number; totalReal: number }>;
-  noAtribuido: NoAtribuidoRow[];
-  /** Gasto diario por campaña del grupo "no atribuido" (sub-filas desplegables). */
-  noAtribuidoCampanas: NoAtribuidoCampanaDia[];
+  /** Gasto diario por campaña SIN evento. El cliente lo reparte entre las
+   *  iniciativas (campañas asignadas) y "No atribuido" (el resto). */
+  sinEvento: SinEventoCampanaDia[];
+  /** Iniciativas (Club Glovox, Now Mag…) con sus campañas asignadas. */
+  iniciativas: Iniciativa[];
+  /** Plan diario de las iniciativas en el rango cargado. */
+  planIniciativas: PlanDiarioRow[];
+  /** Totales históricos por iniciativa (su techo es `totalPlan`). */
+  totalesIniciativas: Record<string, { totalPlan: number; totalReal: number }>;
   /** Campañas con gasto en los últimos 7 días del mart ("Campañas activas"). */
   campanasRecientes: CampanaReciente[];
   realMaxFecha: string;
@@ -83,23 +128,77 @@ type Props = {
   canEdit: boolean;
   /** País inicial del filtro (`?pais=CL|PE`); "" = todos. */
   paisInicial: string;
+  /** Toggle inicial "sumar cargos extra" (`?cargos=1`). */
+  cargosInicial: boolean;
+  /** Ancho guardado de la columna de nombres (cookie leída por la page): el
+   *  primer render ya sale con él, sin salto al hidratar. */
+  anchoNombreInicial: number;
 };
 
-// Geometría fija de la grilla (box-border: el ancho incluye el borde).
+// Geometría de la grilla (box-border: el ancho incluye el borde). Las columnas
+// de día son fijas; la de nombres (eventos, iniciativas, campañas) es ajustable.
 const COL_W = 64; // w-16
-const STICKY_W = 224; // w-56
+
+// La columna de nombres (eventos, iniciativas, campañas) es AJUSTABLE: ver
+// ./AnchoColumna.tsx (`useAnchoColumna`, `W_NOMBRE`, `--col-nombre`).
+
 // Máximo de sub-filas individuales al desplegar "No atribuido" (el resto se
 // agrega en una fila "otras N campañas" para no inflar el DOM).
 const NA_MAX_FILAS = 20;
 
 const PAIS_LABEL: Record<string, string> = { CL: "Chile", PE: "Perú" };
-// Arreglos vacíos ESTABLES: con un país elegido el "no atribuido" se vacía, y un
-// `[]` literal nuevo en cada render rompería los useMemo que dependen de él.
-const SIN_NA: NoAtribuidoRow[] = [];
-const SIN_NA_CAMP: NoAtribuidoCampanaDia[] = [];
+// Arreglo vacío ESTABLE: con un país elegido el gasto sin evento (no atribuido
+// e iniciativas) se vacía, y un `[]` literal nuevo en cada render rompería los
+// useMemo que dependen de él.
+const SIN_SIN_EVENTO: SinEventoCampanaDia[] = [];
+
+/** Agregado diario de gasto sin evento (fila No atribuido o de iniciativa). */
+function naVacio(fecha: string): NoAtribuidoRow & { fxImputado: boolean } {
+  return { fecha, gastoUsd: 0, metaUsd: 0, googleUsd: 0, tiktokUsd: 0, otrasUsd: 0, filasSinFx: 0, fxImputado: false };
+}
+
+/** Campaña sin evento con su serie del rango cargado (sub-filas). */
+type CampanaSinEvento = {
+  key: string;
+  plataforma: string;
+  campaignId: string;
+  nombre: string;
+  dias: number[];
+  total: number;
+};
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
 const DIAS_SEMANA = ["D", "L", "M", "M", "J", "V", "S"];
+
+/** Lee la campaña arrastrada del DataTransfer (null si lo soltado no es una campaña). */
+function leerArrastre(dt: DataTransfer): CampanaArrastrada | null {
+  const raw = dt.getData(DND_CAMPANA);
+  if (!raw) return null;
+  try {
+    const c = JSON.parse(raw) as Partial<CampanaArrastrada>;
+    if (typeof c.plataforma !== "string" || typeof c.campaignId !== "string") return null;
+    return {
+      plataforma: c.plataforma,
+      campaignId: c.campaignId,
+      campaignName: typeof c.campaignName === "string" ? c.campaignName : "",
+      desde: typeof c.desde === "string" ? c.desde : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Valor del <select> "Mover a…" que devuelve la campaña a No atribuido.
+const NA_VALOR = "__no_atribuido__";
+
+/** Cambia un parámetro de la URL sin ir al servidor (filtros de cliente, compartibles). */
+function setQueryParam(name: string, value: string | null) {
+  const params = new URLSearchParams(window.location.search);
+  if (value) params.set(name, value);
+  else params.delete(name);
+  const qs = params.toString();
+  window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+}
 
 function shiftMes(iso: string, delta: number, edge: "inicio" | "fin"): string {
   const [y, m] = iso.slice(0, 7).split("-").map(Number);
@@ -115,8 +214,10 @@ export default function InversionMediosPanel({
   hasta,
   grid,
   totales,
-  noAtribuido,
-  noAtribuidoCampanas,
+  sinEvento,
+  iniciativas,
+  planIniciativas,
+  totalesIniciativas,
   campanasRecientes,
   realMaxFecha,
   hoy,
@@ -127,6 +228,8 @@ export default function InversionMediosPanel({
   gcpSemanal,
   canEdit,
   paisInicial,
+  cargosInicial,
+  anchoNombreInicial,
 }: Props) {
   const router = useRouter();
   // Filtro de país (categoriaEvento.Pais). El gasto "no atribuido" no tiene
@@ -143,15 +246,20 @@ export default function InversionMediosPanel({
   const elegirPais = useCallback((p: string) => {
     setPais(p);
     // Solo la URL (compartible) — sin ida al servidor: el filtro es de cliente.
-    const params = new URLSearchParams(window.location.search);
-    if (p) params.set("pais", p);
-    else params.delete("pais");
-    const qs = params.toString();
-    window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+    setQueryParam("pais", p || null);
   }, []);
-  const qsPais = pais ? `&pais=${pais}` : "";
-  const noAtribuidoVis = pais ? SIN_NA : noAtribuido;
-  const noAtribuidoCampanasVis = pais ? SIN_NA_CAMP : noAtribuidoCampanas;
+  // Toggle "sumar cargos extra" al total diario y semanal (`?cargos=1`). Los
+  // cargos son de compañía, sin país: con un país elegido no se suman.
+  const [conCargos, setConCargos] = useState(cargosInicial);
+  const elegirCargos = useCallback((v: boolean) => {
+    setConCargos(v);
+    setQueryParam("cargos", v ? "1" : null);
+  }, []);
+  const sumarCargos = conCargos && !pais;
+  const qsExtra = `${pais ? `&pais=${pais}` : ""}${conCargos ? "&cargos=1" : ""}`;
+  // Con un país elegido sale todo el gasto sin evento: no tiene país (ni el no
+  // atribuido ni las iniciativas, que se arman con él).
+  const sinEventoVis = pais ? SIN_SIN_EVENTO : sinEvento;
   // Resumen superior: KPIs globales o desglose por canal (mismo tramo visible).
   const [modo, setModo] = useState<"resumen" | "canal">("resumen");
   // Listado de campañas "no atribuido" (desplegable desde su fila). naShown =
@@ -190,75 +298,277 @@ export default function InversionMediosPanel({
     [rows],
   );
 
-  const noAtribuidoByFecha = useMemo(
-    () => new Map(noAtribuidoVis.map((r) => [r.fecha, r])),
-    [noAtribuidoVis],
+  const fechaIdx = useMemo(() => new Map(dias.map((f, i) => [f, i])), [dias]);
+
+  // ---------- Iniciativas: asignación de campañas (optimista) ----------
+  // Lo que dice el servidor y, encima, lo que se acaba de arrastrar mientras la
+  // action viaja: la campaña cambia de fila al instante, y al volver la página
+  // revalidada el estado optimista se descarta solo.
+  const asignServidor = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const i of iniciativas) {
+      for (const c of i.campanas) m.set(campanaKey(c.plataforma, c.campaignId), i.id);
+    }
+    return m;
+  }, [iniciativas]);
+  const [asign, moverOptimista] = useOptimistic(
+    asignServidor,
+    (m: Map<string, string>, mov: { key: string; a: string | null }) => {
+      const n = new Map(m);
+      if (mov.a) n.set(mov.key, mov.a);
+      else n.delete(mov.key);
+      return n;
+    },
   );
+  const [, startMover] = useTransition();
+  const [errorMover, setErrorMover] = useState<string | null>(null);
+  // Campaña que se está arrastrando: las filas que la aceptan se marcan.
+  const [arrastrando, setArrastrando] = useState<CampanaArrastrada | null>(null);
+  // La fila "No atribuido" como destino (devolver una campaña de una iniciativa).
+  const [naEncima, setNaEncima] = useState(false);
+  const [iniOpen, setIniOpen] = useState<Set<string>>(() => new Set());
+  const toggleIni = useCallback(
+    (id: string) =>
+      setIniOpen((s) => {
+        const n = new Set(s);
+        if (n.has(id)) n.delete(id);
+        else n.add(id);
+        return n;
+      }),
+    [],
+  );
+  /** Mueve una campaña a una iniciativa (`a`) o de vuelta a No atribuido (null). */
+  const mover = useCallback(
+    (c: CampanaArrastrada, a: string | null) => {
+      setArrastrando(null);
+      if (c.desde === a) return;
+      setErrorMover(null);
+      // Abre la iniciativa de destino: que se vea dónde quedó la campaña.
+      if (a) setIniOpen((s) => (s.has(a) ? s : new Set(s).add(a)));
+      startMover(async () => {
+        moverOptimista({ key: campanaKey(c.plataforma, c.campaignId), a });
+        const res = a
+          ? await asignarCampanaAction({
+              plataforma: c.plataforma,
+              campaignId: c.campaignId,
+              campaignName: c.campaignName,
+              iniciativaId: a,
+            })
+          : await desasignarCampanaAction({ plataforma: c.plataforma, campaignId: c.campaignId });
+        if (!res.ok) setErrorMover(res.error);
+      });
+    },
+    [moverOptimista],
+  );
+  // Destinos del arrastre / "Mover a…": solo las ACTIVAS (una archivada no
+  // recibe campañas). Para nombrar grupos (Campañas activas) van todas.
+  const destinos = useMemo(
+    () => iniciativas.filter((i) => i.activa).map((i) => ({ id: i.id, nombre: i.nombre })),
+    [iniciativas],
+  );
+  const nombresIniciativas = useMemo(
+    () => iniciativas.map((i) => ({ id: i.id, nombre: i.nombre })),
+    [iniciativas],
+  );
+  const iniActiva = useMemo(() => new Map(iniciativas.map((i) => [i.id, i.activa])), [iniciativas]);
+  const nArchivadas = iniciativas.length - destinos.length;
+  // "ver archivadas": muestra TODAS las archivadas, tengan o no datos en el
+  // tramo — sin esto, una archivada sin gasto quedaba invisible y no había cómo
+  // reactivarla (y el aviso de nombre repetido pedía justo eso).
+  const [verArchivadas, setVerArchivadas] = useState(false);
+
+  // ---------- Reparto del gasto sin evento ----------
+  // Cada campaña sin evento va a su iniciativa si está asignada, o a "No
+  // atribuido" si no: las dos partes suman siempre el total sin evento.
+  const reparto = useMemo(() => {
+    type Agg = NoAtribuidoRow & { fxImputado: boolean };
+    const na = new Map<string, Agg>();
+    const ini = new Map<string, Map<string, Agg>>();
+    const camps = new Map<string, CampanaSinEvento & { ultima: string }>();
+    for (const r of sinEventoVis) {
+      const col = fechaIdx.get(r.fecha);
+      if (col === undefined) continue;
+      const key = campanaKey(r.plataforma, r.campaignId);
+      const iniId = asign.get(key);
+      let porFecha = na;
+      if (iniId) {
+        if (!ini.has(iniId)) ini.set(iniId, new Map());
+        porFecha = ini.get(iniId)!;
+      }
+      let d = porFecha.get(r.fecha);
+      if (!d) {
+        d = naVacio(r.fecha);
+        porFecha.set(r.fecha, d);
+      }
+      d.gastoUsd += r.gastoUsd;
+      if (r.plataforma === "meta") d.metaUsd += r.gastoUsd;
+      else if (r.plataforma === "google") d.googleUsd += r.gastoUsd;
+      else if (r.plataforma === "tiktok") d.tiktokUsd += r.gastoUsd;
+      else d.otrasUsd += r.gastoUsd;
+      d.filasSinFx += r.filasSinFx;
+      d.fxImputado ||= r.fxImputado;
+      let c = camps.get(key);
+      if (!c) {
+        c = {
+          key,
+          plataforma: r.plataforma,
+          campaignId: r.campaignId,
+          nombre: r.campaignName,
+          dias: new Array<number>(dias.length).fill(0),
+          total: 0,
+          ultima: "",
+        };
+        camps.set(key, c);
+      }
+      c.dias[col] += r.gastoUsd;
+      c.total += r.gastoUsd;
+      // El nombre vigente es el del último día con gasto (las campañas se renombran).
+      if (r.fecha >= c.ultima) {
+        c.ultima = r.fecha;
+        c.nombre = r.campaignName;
+      }
+    }
+    return { na, ini, camps };
+  }, [sinEventoVis, fechaIdx, asign, dias]);
+  const noAtribuidoByFecha = reparto.na;
 
   // Etiqueta del período CARGADO del calendario (desde–hasta) para los totales
   // de las sub-filas — "en el rango" a secas resultaba ambiguo.
   const rangoCargadoLabel = `${fmtDiaCorto(desde)} – ${fmtDiaCorto(hasta)}`;
   const verMasNa = useCallback(() => setNaShown((n) => n + NA_MAX_FILAS), []);
 
-  // Sub-filas de "No atribuido": una por campaña (las de mayor gasto) + una
-  // fila agregada "otras N". Las individuales se liberan por tandas (naShown)
-  // para no inflar el DOM (187 campañas × ~200 columnas serían ~40k celdas de
-  // una vez); la partición top+otras == fila NA cierra siempre.
-  const naCamps = useMemo(() => {
-    const idx = new Map(dias.map((f, i) => [f, i]));
-    const acc = new Map<
-      string,
-      { plataforma: string; nombre: string; dias: number[]; total: number }
-    >();
-    for (const r of noAtribuidoCampanasVis) {
-      const col = idx.get(r.fecha);
-      if (col === undefined || !r.gastoUsd) continue;
-      const k = `${r.plataforma}|${r.campaignName}`;
-      if (!acc.has(k)) {
-        acc.set(k, {
-          plataforma: r.plataforma,
-          nombre: r.campaignName,
-          dias: new Array(dias.length).fill(0),
+  // Campañas de "No atribuido" (sin orden: el orden depende del tramo mirado y
+  // se aplica más abajo, en `naCamps`). `arrastre` va armado acá, en un memo que
+  // NO depende del scroll, para que cada objeto sea el mismo al scrollear y
+  // NaCampRow siga memoizada.
+  const naBase = useMemo(
+    () =>
+      [...reparto.camps.values()]
+        .filter((c) => !asign.has(c.key) && c.total > 0)
+        .map((c) => ({
+          ...c,
+          arrastre: {
+            plataforma: c.plataforma,
+            campaignId: c.campaignId,
+            campaignName: c.nombre,
+            desde: null,
+          } satisfies CampanaArrastrada,
+        })),
+    [reparto, asign],
+  );
+
+  // Campañas de cada iniciativa: las que tienen gasto en el rango cargado y,
+  // además, las asignadas SIN gasto en él (igual se listan, para poder
+  // quitarlas o moverlas).
+  const iniCamps = useMemo(() => {
+    type Fila = CampanaSinEvento & { arrastre: CampanaArrastrada };
+    const out = new Map<string, Fila[]>(iniciativas.map((i) => [i.id, []]));
+    const vistos = new Set<string>();
+    const push = (iniId: string, c: CampanaSinEvento) => {
+      out.get(iniId)?.push({
+        ...c,
+        arrastre: { plataforma: c.plataforma, campaignId: c.campaignId, campaignName: c.nombre, desde: iniId },
+      });
+      vistos.add(c.key);
+    };
+    for (const c of reparto.camps.values()) {
+      const iniId = asign.get(c.key);
+      if (iniId) push(iniId, c);
+    }
+    for (const i of iniciativas) {
+      for (const c of i.campanas) {
+        const key = campanaKey(c.plataforma, c.campaignId);
+        const iniId = asign.get(key);
+        if (!iniId || vistos.has(key)) continue;
+        push(iniId, {
+          key,
+          plataforma: c.plataforma,
+          campaignId: c.campaignId,
+          nombre: c.campaignName || c.campaignId,
+          dias: new Array<number>(dias.length).fill(0),
           total: 0,
         });
       }
-      const a = acc.get(k)!;
-      a.dias[col] += r.gastoUsd;
-      a.total += r.gastoUsd;
     }
-    const all = [...acc.values()].sort((a, b) => b.total - a.total);
-    const top = all.slice(0, naShown);
-    let resto: { nombre: string; dias: number[]; total: number; ocultas: number } | null = null;
-    if (all.length > naShown) {
-      const diasResto = new Array(dias.length).fill(0);
-      let total = 0;
-      for (const c of all.slice(naShown)) {
-        c.dias.forEach((v, i) => (diasResto[i] += v));
-        total += c.total;
-      }
-      resto = {
-        nombre: `otras ${all.length - naShown} campañas`,
-        dias: diasResto,
-        total,
-        ocultas: all.length - naShown,
+    return out;
+  }, [reparto, asign, iniciativas, dias]);
+
+  // Filas de iniciativa: plan de Neon + real de sus campañas, con la MISMA
+  // forma que una fila de evento (reusan la celda del calendario).
+  const iniRows = useMemo<EventoGridRow[]>(() => {
+    const planTot = new Map<string, number>();
+    for (const p of planIniciativas) {
+      const k = `${p.eventoId}|${p.fecha}`;
+      planTot.set(k, (planTot.get(k) ?? 0) + p.montoUsd);
+    }
+    return iniciativas.map((i) => {
+      const reales = reparto.ini.get(i.id);
+      let totalPlan = 0;
+      let totalReal = 0;
+      const days: DayCell[] = dias.map((fecha) => {
+        const pk = `${i.id}|${fecha}`;
+        const plan = planTot.has(pk) ? planTot.get(pk)! : null;
+        const r = reales?.get(fecha);
+        if (plan != null) totalPlan += plan;
+        if (r) totalReal += r.gastoUsd;
+        return {
+          fecha,
+          plan,
+          planNota: null,
+          real: r ? r.gastoUsd : null,
+          metaUsd: r?.metaUsd ?? 0,
+          googleUsd: r?.googleUsd ?? 0,
+          tiktokUsd: r?.tiktokUsd ?? 0,
+          otrasUsd: r?.otrasUsd ?? 0,
+          fxImputado: r?.fxImputado ?? false,
+          sinFx: (r?.filasSinFx ?? 0) > 0,
+        };
+      });
+      return {
+        eventoId: i.id,
+        nombre: i.nombre,
+        fechaEvento: "",
+        diasEvento: 1,
+        pais: "",
+        ordenFecha: "",
+        techoUsd: null,
+        days,
+        totalPlan,
+        totalReal,
+        pctPlanVsTecho: 0,
+        pctRealVsTecho: 0,
       };
-    }
-    return { top, resto, totalCampanas: all.length };
-  }, [noAtribuidoCampanasVis, dias, naShown]);
+    });
+  }, [iniciativas, planIniciativas, reparto, dias]);
+  // Filas que SUMAN plan y real (KPIs, canal, totales): eventos + iniciativas.
+  // Con un país elegido las iniciativas salen, como el no atribuido.
+  const rowsTot = useMemo(() => (pais ? rows : [...rows, ...iniRows]), [pais, rows, iniRows]);
+
+  // Cobros de los cargos extra en cada día del rango (solo si se suman).
+  const cobros = useMemo(() => cobrosPorDia(cargos, dias), [cargos, dias]);
 
   // ---------- Viewport: qué tramo del calendario se está mirando ----------
   const scrollRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef(0);
   const [view, setView] = useState<{ a: number; b: number }>({ a: 0, b: 30 });
 
+  // Columna de nombres ajustable (arrastre, botón ⇔, teclado; se recuerda en
+  // cookie). Ver ./AnchoColumna.tsx.
+  const { calRef, ctl: ancho } = useAnchoColumna(COL_CALENDARIO, anchoNombreInicial, scrollRef);
+
+  // Depende del ancho de la columna de nombres: más ancha = menos días a la vista
+  // (KPIs y filas visibles se recalculan con el tramo real).
   const medirViewport = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // El tope se calcula con offsetWidth (= `100cqw` del tope en CSS); los días
+    // visibles, con el área útil (clientWidth, sin la barra de scroll).
+    const nombreW = topeAncho(ancho.anchoGuardado, el.offsetWidth, COL_CALENDARIO);
     const a = Math.max(0, Math.floor(el.scrollLeft / COL_W));
-    const visibleCols = Math.max(1, Math.ceil((el.clientWidth - STICKY_W) / COL_W));
+    const visibleCols = Math.max(1, Math.ceil((el.clientWidth - nombreW) / COL_W));
     const b = Math.min(dias.length - 1, a + visibleCols - 1);
     setView((v) => (v.a === a && v.b === b ? v : { a, b }));
-  }, [dias.length]);
+  }, [dias.length, ancho.anchoGuardado]);
 
   const onScroll = useCallback(() => {
     cancelAnimationFrame(rafRef.current);
@@ -308,6 +618,40 @@ export default function InversionMediosPanel({
   // edición en curso si su fila sale del tramo mientras se escribe.
   // Un evento cuya fecha aún NO pasó al inicio del tramo se muestra SIEMPRE,
   // tenga o no datos: su plan $0 es la alerta de que falta cargar presupuesto.
+  // ---------- Orden de las sub-filas de campaña: RECENCIA en el tramo ----------
+  // Primero las que gastaron en el tramo mirado, de la más reciente a la menos
+  // (ver lib/inversion-medios/orden-campanas.ts). Antes era el gasto total del
+  // período cargado, y las que explicaban el gasto de ayer quedaban enterradas
+  // en "otras N". Sub-filas de "No atribuido": las primeras `naShown`
+  // individuales + una fila agregada "otras N" (control del DOM: 187 campañas ×
+  // ~200 columnas serían ~40k celdas); la partición top+otras == fila NA cierra
+  // siempre. Con ≤ naShown campañas con gasto en el tramo, "otras" ya no
+  // esconde ninguna que se vea en pantalla.
+  const naCamps = useMemo(() => {
+    const all = ordenarPorRecencia(naBase, view.a, view.b);
+    const top = all.slice(0, naShown);
+    let resto: { nombre: string; dias: number[]; total: number; ocultas: number } | null = null;
+    if (all.length > naShown) {
+      const diasResto = new Array(dias.length).fill(0);
+      let total = 0;
+      for (const c of all.slice(naShown)) {
+        c.dias.forEach((v, i) => (diasResto[i] += v));
+        total += c.total;
+      }
+      resto = {
+        nombre: `otras ${all.length - naShown} campañas`,
+        dias: diasResto,
+        total,
+        ocultas: all.length - naShown,
+      };
+    }
+    return { top, resto, totalCampanas: all.length };
+  }, [naBase, view.a, view.b, naShown, dias.length]);
+  const iniCampsOrden = useMemo(
+    () => new Map([...iniCamps].map(([id, l]) => [id, ordenarPorRecencia(l, view.a, view.b)])),
+    [iniCamps, view.a, view.b],
+  );
+
   const visibleIds = useMemo(() => {
     const out = new Set<string>();
     const inicioTramo = dias[view.a] ?? "";
@@ -332,7 +676,7 @@ export default function InversionMediosPanel({
     let plan = 0;
     let real = 0;
     let na = 0;
-    for (const r of rows) {
+    for (const r of rowsTot) {
       for (let j = view.a; j <= view.b && j < r.days.length; j++) {
         const c = r.days[j];
         if (c.plan != null) plan += c.plan;
@@ -343,7 +687,7 @@ export default function InversionMediosPanel({
       na += noAtribuidoByFecha.get(dias[j])?.gastoUsd ?? 0;
     }
     return { plan, real, na };
-  }, [rows, view, dias, noAtribuidoByFecha]);
+  }, [rowsTot, view, dias, noAtribuidoByFecha]);
 
   // ---------- Desglose por canal del tramo visible ----------
   // El gasto real trae split por plataforma en cada celda (y en no-atribuido);
@@ -355,7 +699,7 @@ export default function InversionMediosPanel({
     let tiktok = 0;
     let otras = 0;
     let plan = 0;
-    for (const r of rows) {
+    for (const r of rowsTot) {
       for (let j = view.a; j <= view.b && j < r.days.length; j++) {
         const c = r.days[j];
         meta += c.metaUsd;
@@ -377,33 +721,48 @@ export default function InversionMediosPanel({
     }
     // real incluye "otras" → reconcilia con kpis.real (gasto_usd total).
     return { meta, google, tiktok, otras, plan, real: meta + google + tiktok + otras };
-  }, [rows, view, dias, noAtribuidoByFecha]);
+  }, [rowsTot, view, dias, noAtribuidoByFecha]);
 
-  // Totales por día (columna) — sobre todas las filas cargadas.
+  // Totales por día (columna) — sobre todas las filas cargadas: eventos +
+  // iniciativas y, con el toggle, los cargos extra en su día de pago. Un cargo
+  // se presupuesta ese día y se da por cobrado ese mismo día (suma al real
+  // cuando el día ya tiene dato).
   const totalesDia = useMemo(
     () =>
       dias.map((fecha, i) => {
         let plan = 0;
         let real = 0;
-        for (const ev of rows) {
+        let conDatos = false;
+        for (const ev of rowsTot) {
           const c = ev.days[i];
           if (c.plan != null) plan += c.plan;
           if (c.real != null) real += c.real;
+          if (c.plan != null || c.real != null) conDatos = true;
         }
-        return { fecha, plan, real };
+        const cargosDia = sumarCargos
+          ? (cobros.porFecha.get(fecha) ?? []).reduce((a, c) => a + c.montoUsd, 0)
+          : 0;
+        return {
+          fecha,
+          plan: plan + cargosDia,
+          real: real + (fecha <= realMaxFecha ? cargosDia : 0),
+          cargos: cargosDia,
+          conDatos: conDatos || cargosDia > 0,
+        };
       }),
-    [rows, dias],
+    [rowsTot, dias, sumarCargos, cobros, realMaxFecha],
   );
 
-  // Mismo alcance del subtotal semanal: todos los eventos + gasto no atribuido.
-  // Independiente del scroll; no modifica los totales de la fila del calendario.
+  // Mismo alcance del subtotal semanal: eventos + iniciativas + gasto no
+  // atribuido (+ cargos con el toggle). Independiente del scroll; no modifica
+  // los totales de la fila del calendario.
   const totalesDiaOperacion = useMemo(
-    () => totalesDia.map((dia, i) => ({
+    () => totalesDia.map((dia) => ({
       ...dia,
       real: dia.real + (noAtribuidoByFecha.get(dia.fecha)?.gastoUsd ?? 0),
-      conDatos: dataIdx.some((fila) => fila[i]) || (noAtribuidoByFecha.get(dia.fecha)?.gastoUsd ?? 0) > 0,
+      conDatos: dia.conDatos || (noAtribuidoByFecha.get(dia.fecha)?.gastoUsd ?? 0) > 0,
     })),
-    [totalesDia, noAtribuidoByFecha, dataIdx],
+    [totalesDia, noAtribuidoByFecha],
   );
 
   const rangoLabel =
@@ -524,11 +883,34 @@ export default function InversionMediosPanel({
         realMaxFecha={realMaxFecha}
         hoy={hoy}
         pais={pais}
+        asignaciones={asign}
+        iniciativas={nombresIniciativas}
       />
+
+      {errorMover && (
+        <p
+          role="alert"
+          className="flex items-center gap-2 rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-4 py-3 font-sans text-sm text-[var(--ink)]"
+        >
+          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#ED75A0]" />
+          No se pudo mover la campaña: {errorMover}
+          <button
+            onClick={() => setErrorMover(null)}
+            className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded text-[var(--ink-muted)] hover:bg-[var(--surface-alt)]"
+            aria-label="Cerrar aviso"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </p>
+      )}
 
       {/* Calendario. `isolate`: contiene los sticky internos (z-10/20/30) en su
           propio stacking context para que no pinten sobre la GroupNav (z-30). */}
-      <div className="isolate overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)]">
+      <div
+        ref={calRef}
+        className={`isolate overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)] ${CONTENEDOR_NOMBRE}`}
+        style={ancho.estiloContenedor}
+      >
         <div
           ref={scrollRef}
           onScroll={onScroll}
@@ -537,11 +919,24 @@ export default function InversionMediosPanel({
           <table className="border-separate border-spacing-0 font-sans text-sm">
             <thead>
               <tr>
-                <th className="sticky left-0 top-0 z-30 w-56 min-w-56 max-w-56 border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-2 text-left text-xs font-medium text-[var(--ink-muted)]">
-                  Evento
+                <th
+                  aria-label="Evento"
+                  className={`sticky left-0 top-0 z-30 ${W_NOMBRE} border-b border-r border-[var(--divider)] bg-[var(--surface-alt)] py-2 pl-4 pr-3 text-left text-xs font-medium text-[var(--ink-muted)]`}
+                >
+                  {/* El botón va junto al título (a la izquierda): así nunca
+                      queda fuera de pantalla, por ancha que sea la columna. */}
+                  <span className="flex items-center gap-1.5">
+                    Evento
+                    <BotonAncho ctl={ancho} />
+                  </span>
                   <span className="block font-normal text-[var(--ink-subtle)]">
                     {visibleIds.size} en el tramo visible
                   </span>
+                  {/* Borde arrastrable: cambia el ancho de TODA la columna de
+                      nombres. Doble clic = ajustar a los nombres visibles. Con
+                      puntero grueso (touch) el área crece hacia la derecha, sobre
+                      el encabezado del primer día, que no es interactivo. */}
+                  <BordeAncho ctl={ancho} />
                 </th>
                 {dias.map((fecha, i) => {
                   const dia = Number(fecha.slice(8, 10));
@@ -593,12 +988,128 @@ export default function InversionMediosPanel({
                   <td colSpan={dias.length} className="border-t border-[var(--divider)]" />
                 </tr>
               )}
+              {/* ── INICIATIVAS: frentes sin fecha de evento (Club Glovox, Now
+                  Mag…), debajo de los eventos y arriba de "No atribuido", de
+                  donde se les arrastran campañas. Sin país: se ocultan al
+                  filtrar, igual que el no atribuido del que salen. */}
+              {!pais && (
+                <>
+                  <tr>
+                    <td className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-1.5 align-top`}>
+                      <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--ink-muted)]">
+                        Iniciativas
+                      </span>
+                      <p className="text-[11px] leading-snug text-[var(--ink-subtle)]">
+                        sin fecha de evento · arrastra campañas desde No atribuido
+                      </p>
+                      <div className="flex flex-wrap items-center gap-x-3">
+                        {canEdit && <NuevaIniciativa />}
+                        {nArchivadas > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setVerArchivadas((v) => !v)}
+                            aria-pressed={verArchivadas}
+                            className="mt-1 text-xs text-[var(--ink-muted)] underline-offset-2 transition-colors hover:text-[var(--ink)] hover:underline"
+                          >
+                            {verArchivadas ? "ocultar archivadas" : `ver archivadas (${nArchivadas})`}
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                    <td colSpan={dias.length} className="border-t border-[var(--divider)] bg-[var(--surface-alt)]" />
+                  </tr>
+                  {iniRows.map((r) => {
+                    const camps = iniCampsOrden.get(r.eventoId) ?? [];
+                    const abierta = iniOpen.has(r.eventoId);
+                    const activa = iniActiva.get(r.eventoId) ?? true;
+                    // Archivada: su fila aparece solo si tiene plan o gasto en el
+                    // tramo mirado (como un evento pasado). Oculta por CSS, no
+                    // desmontada (misma mecánica que las filas de evento).
+                    const oculta =
+                      !activa &&
+                      !verArchivadas &&
+                      !r.days.slice(view.a, view.b + 1).some((d) => d.plan != null || d.real != null);
+                    return (
+                      <Fragment key={r.eventoId}>
+                        <FilaIniciativa
+                          activa={activa}
+                          hidden={oculta}
+                          canEdit={canEdit}
+                          fila={r}
+                          totales={totalesIniciativas[r.eventoId]}
+                          nCampanas={camps.length}
+                          abierta={abierta}
+                          onToggle={toggleIni}
+                          arrastrando={arrastrando}
+                          onSoltar={mover}
+                          hoy={hoy}
+                          realMaxFecha={realMaxFecha}
+                        />
+                        {abierta &&
+                          !oculta &&
+                          camps.map((c) => (
+                            <NaCampRow
+                              key={c.key}
+                              nombre={c.nombre}
+                              dot={PLAT_DOT[c.plataforma] ?? "#B4B2A9"}
+                              dotTitle={PLAT_LABEL[c.plataforma] ?? c.plataforma}
+                              diasVals={c.dias}
+                              fechas={dias}
+                              total={c.total}
+                              rango={rangoCargadoLabel}
+                              hidden={false}
+                              // Archivada: sus campañas quedan congeladas (sacarlas
+                              // reescribiría su historial); el servidor también lo rechaza.
+                              arrastre={activa ? c.arrastre : undefined}
+                              destinos={activa ? destinos : undefined}
+                              onMover={activa ? mover : undefined}
+                              onArrastrar={setArrastrando}
+                            />
+                          ))}
+                      </Fragment>
+                    );
+                  })}
+                </>
+              )}
               {/* Fila NO ATRIBUIDO: el gasto sin evento nunca desaparece… salvo
-                  con un país elegido, porque no tiene país. */}
-              <tr className={pais ? "hidden" : "bg-[var(--surface-alt)]"}>
-                <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-2">
+                  con un país elegido, porque no tiene país. También es zona para
+                  soltar: una campaña de una iniciativa arrastrada acá vuelve a
+                  "No atribuido". */}
+              <tr
+                className={pais ? "hidden" : "bg-[var(--surface-alt)]"}
+                onDragOver={(e) => {
+                  if (!arrastrando?.desde || !e.dataTransfer.types.includes(DND_CAMPANA)) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  if (!naEncima) setNaEncima(true);
+                }}
+                onDragLeave={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setNaEncima(false);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  setNaEncima(false);
+                  const c = leerArrastre(e.dataTransfer);
+                  if (c) mover(c, null);
+                }}
+              >
+                <td
+                  className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--divider)] px-4 py-2 ${
+                    naEncima
+                      ? "bg-[var(--purple-tint)] ring-2 ring-inset ring-[#9F99F8]"
+                      : arrastrando?.desde
+                        ? "bg-[var(--surface-alt)] outline-dashed outline-1 -outline-offset-4 outline-[#9F99F8]"
+                        : "bg-[var(--surface-alt)]"
+                  }`}
+                >
                   <span className="font-medium text-[var(--ink-muted)]">No atribuido</span>
-                  <p className="text-xs text-[var(--ink-subtle)]">campañas sin evento reconocible</p>
+                  <p className="text-xs text-[var(--ink-subtle)]">
+                    {arrastrando?.desde
+                      ? "suelta acá para quitarla de la iniciativa"
+                      : destinos.length > 0
+                        ? "sin evento · arrástralas a una iniciativa"
+                        : "campañas sin evento reconocible"}
+                  </p>
                   {naCamps.totalCampanas > 0 && (
                     <button
                       onClick={() => setNaOpen((o) => !o)}
@@ -629,7 +1140,7 @@ export default function InversionMediosPanel({
               {naOpen &&
                 naCamps.top.map((c) => (
                   <NaCampRow
-                    key={`${c.plataforma}|${c.nombre}`}
+                    key={c.key}
                     nombre={c.nombre}
                     dot={PLAT_DOT[c.plataforma] ?? "#B4B2A9"}
                     dotTitle={PLAT_LABEL[c.plataforma] ?? c.plataforma}
@@ -638,6 +1149,10 @@ export default function InversionMediosPanel({
                     total={c.total}
                     rango={rangoCargadoLabel}
                     hidden={!c.dias.slice(view.a, view.b + 1).some((v) => v > 0)}
+                    arrastre={destinos.length > 0 ? c.arrastre : undefined}
+                    destinos={destinos}
+                    onMover={mover}
+                    onArrastrar={setArrastrando}
                   />
                 ))}
               {naOpen && naCamps.resto && (
@@ -655,10 +1170,42 @@ export default function InversionMediosPanel({
                   onVerMas={verMasNa}
                 />
               )}
+              {/* Cargos extra en su día de pago (toggle del subtotal semanal).
+                  Justo arriba del total del día, que los suma. */}
+              {sumarCargos && (
+                <tr className="bg-[var(--surface-alt)]">
+                  <td className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--divider)] bg-[var(--surface-alt)] px-4 py-2`}>
+                    <span className="font-medium text-[var(--ink-muted)]">Cargos extra</span>
+                    <p className="text-xs text-[var(--ink-subtle)]">en su día de pago (Adobe, DRIP…)</p>
+                  </td>
+                  {dias.map((fecha) => {
+                    const cs = cobros.porFecha.get(fecha) ?? [];
+                    const total = cs.reduce((a, c) => a + c.montoUsd, 0);
+                    return (
+                      <td
+                        key={fecha}
+                        title={cs.map((c) => `${c.proveedor} ${fmtUsd(c.montoUsd)}`).join(" · ") || undefined}
+                        className={`w-16 min-w-16 max-w-16 border-t border-[var(--divider)] px-1 py-2 text-center tabular-nums text-xs ${paydayCell(fecha)}`}
+                      >
+                        {total > 0 ? (
+                          <>
+                            <span className="block font-medium text-[var(--plan)]">{fmtUsd(total, 0)}</span>
+                            <span className="block text-[11px] text-[var(--ink)]">
+                              {fecha <= realMaxFecha ? fmtUsd(total, 0) : <span className="text-[var(--divider)]">·</span>}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="text-[var(--divider)]">·</span>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              )}
             </tbody>
             <tfoot>
               <tr>
-                <td className="sticky bottom-0 left-0 z-30 w-56 min-w-56 max-w-56 border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 text-xs font-medium text-[var(--ink)]">
+                <td className={`sticky bottom-0 left-0 z-30 ${W_NOMBRE} border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 text-xs font-medium text-[var(--ink)]`}>
                   Total día (plan / real)
                 </td>
                 {totalesDia.map((d) => (
@@ -683,7 +1230,7 @@ export default function InversionMediosPanel({
           <button
             onClick={() =>
               router.push(
-                `/inversion-medios?desde=${shiftMes(desde, -1, "inicio")}&hasta=${hasta}${qsPais}`,
+                `/inversion-medios?desde=${shiftMes(desde, -1, "inicio")}&hasta=${hasta}${qsExtra}`,
               )
             }
             className="inline-flex items-center gap-1 font-sans text-xs text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
@@ -696,7 +1243,7 @@ export default function InversionMediosPanel({
           <button
             onClick={() =>
               router.push(
-                `/inversion-medios?desde=${desde}&hasta=${shiftMes(hasta, 1, "fin")}${qsPais}`,
+                `/inversion-medios?desde=${desde}&hasta=${shiftMes(hasta, 1, "fin")}${qsExtra}`,
               )
             }
             className="inline-flex items-center gap-1 font-sans text-xs text-[var(--ink-muted)] transition-colors hover:text-[var(--ink)]"
@@ -712,6 +1259,10 @@ export default function InversionMediosPanel({
         view={view}
         rangoLabel={rangoLabel}
         lunesDestacados={lunesDestacados}
+        conCargos={conCargos}
+        onConCargos={elegirCargos}
+        cargosBloqueados={!!pais}
+        cargosSinDia={cobros.sinDia.map((c) => c.proveedor)}
       />
 
       {/* Cargos extra CARDDA (pagos recurrentes de plataformas) */}
@@ -734,6 +1285,12 @@ export default function InversionMediosPanel({
         ). El real de hoy es parcial (los datos de ads llegan a las 09:45). La atribución usa
         el EventoID al inicio del nombre de campaña — lo que no calza queda en &ldquo;No
         atribuido&rdquo;, que no tiene país y por eso se oculta al filtrar por Chile o Perú.
+        Las <span className="text-[var(--ink)]">iniciativas</span> (Club Glovox, Now Mag) no tienen fecha
+        de evento: su gasto son las campañas sin evento que se les arrastran desde &ldquo;No
+        atribuido&rdquo; (todo el gasto de la campaña, también el anterior), y su techo es la suma de
+        su plan. Si una campaña asignada pasa a traer un EventoID en el nombre, ese gasto vuelve al
+        evento. Con <span className="text-[var(--ink)]">Sumar cargos extra</span> (en el subtotal por
+        semana), el total del día y las semanas incluyen los cargos en su día de pago.
         Los días en <span className="font-medium text-[var(--payday-ink)]">verde</span> son la
         ventana de payday (pago de sueldos en Chile, aprox. del 28 al 3): más intenso el
         último día del mes, más suave hacia D±3.
@@ -771,6 +1328,10 @@ const NaCampRow = memo(function NaCampRow({
   rango,
   hidden,
   onVerMas,
+  arrastre,
+  destinos,
+  onMover,
+  onArrastrar,
 }: {
   nombre: string;
   dot: string;
@@ -784,30 +1345,86 @@ const NaCampRow = memo(function NaCampRow({
   hidden: boolean;
   /** Solo la fila agregada "otras N": libera 20 filas individuales más. */
   onVerMas?: () => void;
+  /** Campaña arrastrable a una iniciativa (o de vuelta). Sin esto la fila es
+   *  fija (la agregada "otras N", o si no hay iniciativas). */
+  arrastre?: CampanaArrastrada;
+  /** Iniciativas para el "Mover a…" (alternativa al arrastre: teclado, touch). */
+  destinos?: { id: string; nombre: string }[];
+  onMover?: (c: CampanaArrastrada, a: string | null) => void;
+  onArrastrar?: (c: CampanaArrastrada | null) => void;
 }) {
+  const puntoYNombre = (
+    <>
+      <span
+        className="h-1.5 w-1.5 shrink-0 rounded-full"
+        style={{ backgroundColor: dot }}
+        title={dotTitle}
+      />
+      <span className="truncate" title={nombre} data-nombre>
+        {nombre}
+      </span>
+    </>
+  );
   return (
-    <tr className={`bg-[var(--surface-sunken)] ${hidden ? "hidden" : ""}`}>
-      <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[var(--grid)] bg-[var(--surface-sunken)] py-1.5 pl-7 pr-3">
+    <tr className={`group/na bg-[var(--surface-sunken)] ${hidden ? "hidden" : ""}`}>
+      <td className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--grid)] bg-[var(--surface-sunken)] py-1.5 pl-3 pr-2`}>
         <span className="flex items-center gap-1.5 font-sans text-xs text-[var(--ink)]">
-          <span
-            className="h-1.5 w-1.5 shrink-0 rounded-full"
-            style={{ backgroundColor: dot }}
-            title={dotTitle}
-          />
-          <span className="truncate" title={nombre}>
-            {nombre}
-          </span>
+          {arrastre ? (
+            <span
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData(DND_CAMPANA, JSON.stringify(arrastre));
+                e.dataTransfer.effectAllowed = "move";
+                onArrastrar?.(arrastre);
+              }}
+              onDragEnd={() => onArrastrar?.(null)}
+              className="flex min-w-0 flex-1 cursor-grab items-center gap-1.5 active:cursor-grabbing"
+              title={`${nombre} — arrástrala a ${arrastre.desde ? "otra iniciativa o a No atribuido" : "una iniciativa"}`}
+            >
+              <GripVertical className="h-3 w-3 shrink-0 text-[var(--ink-subtle)]" />
+              {puntoYNombre}
+            </span>
+          ) : (
+            <span className="flex min-w-0 flex-1 items-center gap-1.5 pl-[18px]">{puntoYNombre}</span>
+          )}
+          {arrastre && destinos && onMover && (arrastre.desde || destinos.length > 0) && (
+            <label
+              className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--ink-subtle)] opacity-0 transition-opacity focus-within:opacity-100 hover:bg-[var(--grid)] hover:text-[var(--ink)] group-hover/na:opacity-100 pointer-coarse:opacity-100"
+              title="Mover a…"
+            >
+              <ArrowRightLeft className="h-3 w-3" />
+              <select
+                aria-label={`Mover ${nombre} a…`}
+                value=""
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v) onMover(arrastre, v === NA_VALOR ? null : v);
+                }}
+                className="absolute inset-0 cursor-pointer opacity-0"
+              >
+                <option value="">Mover a…</option>
+                {destinos
+                  .filter((d) => d.id !== arrastre.desde)
+                  .map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.nombre}
+                    </option>
+                  ))}
+                {arrastre.desde && <option value={NA_VALOR}>No atribuido (quitar)</option>}
+              </select>
+            </label>
+          )}
         </span>
         <p
-          className="pl-3 text-[11px] tabular-nums text-[var(--ink-subtle)]"
+          className="pl-[18px] text-[11px] tabular-nums text-[var(--ink-subtle)]"
           title={`Gasto total de la campaña en el período cargado del calendario (${rango})`}
         >
-          {fmtUsd(total, 0)} · {rango}
+          {total > 0 ? `${fmtUsd(total, 0)} · ${rango}` : `sin gasto en ${rango}`}
         </p>
         {onVerMas && (
           <button
             onClick={onVerMas}
-            className="mt-0.5 pl-3 font-sans text-[11px] font-medium text-[var(--plan)] transition-colors hover:text-[var(--plan-hover)]"
+            className="mt-0.5 pl-[18px] font-sans text-[11px] font-medium text-[var(--plan)] transition-colors hover:text-[var(--plan-hover)]"
           >
             mostrar 20 más
           </button>
@@ -849,11 +1466,12 @@ const FilaEvento = memo(function FilaEvento({
 
   return (
     <tr className={`group ${hidden ? "hidden" : ""}`}>
-      <td className="sticky left-0 z-10 w-56 min-w-56 max-w-56 border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 align-top group-hover:bg-[var(--surface-alt)]">
+      <td className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 align-top group-hover:bg-[var(--surface-alt)]`}>
         <Link
           href={`/inversion-medios?evento=${ev.eventoId}`}
           className="block truncate font-medium text-[var(--ink)] hover:text-[#9F99F8]"
           title={ev.nombre || ev.eventoId}
+          data-nombre
         >
           {ev.nombre || ev.eventoId}
         </Link>
@@ -916,6 +1534,378 @@ const FilaEvento = memo(function FilaEvento({
           </td>
         );
       })}
+    </tr>
+  );
+});
+
+// ---------- Nueva iniciativa (encabezado de la sección) ----------
+
+/**
+ * "+ Nueva iniciativa": formulario en línea en el encabezado de la sección.
+ * Crea la iniciativa con el siguiente id `INI###` y al final del orden; aparece
+ * al revalidarse la página, lista para recibir campañas y plan.
+ */
+function NuevaIniciativa() {
+  const [abierto, setAbierto] = useState(false);
+  const [nombre, setNombre] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  // Al cerrar el formulario el foco vuelve al botón (si no, cae en <body>).
+  const botonRef = useRef<HTMLButtonElement>(null);
+  const volverFoco = useRef(false);
+  useEffect(() => {
+    if (!abierto && volverFoco.current) {
+      volverFoco.current = false;
+      botonRef.current?.focus();
+    }
+  }, [abierto]);
+  const cerrar = () => {
+    volverFoco.current = true;
+    setAbierto(false);
+    setNombre("");
+    setError(null);
+  };
+  const crear = () => {
+    const limpio = limpiarNombreIniciativa(nombre);
+    if (!limpio) return setError(`Entre ${NOMBRE_INICIATIVA_MIN} y ${NOMBRE_INICIATIVA_MAX} caracteres`);
+    setError(null);
+    start(async () => {
+      const res = await crearIniciativaAction({ nombre: limpio });
+      // Dentro de la transición: el formulario se cierra junto con la página
+      // revalidada (la fila nueva aparece en el mismo cuadro).
+      if (!res.ok) start(() => setError(res.error));
+      else start(() => cerrar());
+    });
+  };
+
+  if (!abierto) {
+    return (
+      <button
+        ref={botonRef}
+        type="button"
+        onClick={() => setAbierto(true)}
+        className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-[var(--plan)] transition-colors hover:text-[var(--plan-hover)]"
+      >
+        <Plus className="h-3 w-3" /> Nueva iniciativa
+      </button>
+    );
+  }
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        crear();
+      }}
+      className="mt-1.5 flex w-full flex-col gap-1.5"
+    >
+      <input
+        autoFocus
+        value={nombre}
+        onChange={(e) => setNombre(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") cerrar();
+        }}
+        maxLength={NOMBRE_INICIATIVA_MAX}
+        placeholder="Nombre (ej. Marca Glovox)"
+        aria-label="Nombre de la nueva iniciativa"
+        className="w-full rounded-md border border-[var(--divider)] bg-[var(--surface)] px-2 py-1 text-xs text-[var(--ink)] placeholder:text-[var(--ink-subtle)] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+      />
+      <div className="flex items-center gap-1.5">
+        <button
+          type="submit"
+          disabled={pending}
+          className="rounded-md bg-[#9F99F8] px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-[#8780F0] disabled:opacity-60"
+        >
+          {pending ? "Creando…" : "Crear"}
+        </button>
+        <button
+          type="button"
+          onClick={cerrar}
+          className="rounded-md px-2 py-1 text-xs text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
+        >
+          Cancelar
+        </button>
+      </div>
+      {error && (
+        <p role="alert" className="text-[11px] leading-snug text-[#ED75A0]">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
+// ---------- Fila de iniciativa ----------
+
+/**
+ * Fila de una iniciativa (Club Glovox, Now Mag…): la misma celda que un evento
+ * (plan arriba, real abajo) pero sin día de evento ni budgetPm — su techo es la
+ * suma de su plan. Es zona para SOLTAR campañas: borde punteado mientras se
+ * arrastra una que puede recibir, y relleno al pasar por encima.
+ */
+const FilaIniciativa = memo(function FilaIniciativa({
+  activa,
+  hidden,
+  canEdit,
+  fila,
+  totales,
+  nCampanas,
+  abierta,
+  onToggle,
+  arrastrando,
+  onSoltar,
+  hoy,
+  realMaxFecha,
+}: {
+  /** false = archivada: no recibe campañas, se reactiva desde acá. */
+  activa: boolean;
+  hidden: boolean;
+  canEdit: boolean;
+  fila: EventoGridRow;
+  /** Totales HISTÓRICOS (todo el plan = el techo, todo el gasto asignado). */
+  totales?: { totalPlan: number; totalReal: number };
+  nCampanas: number;
+  abierta: boolean;
+  onToggle: (id: string) => void;
+  arrastrando: CampanaArrastrada | null;
+  onSoltar: (c: CampanaArrastrada, iniciativaId: string) => void;
+  hoy: string;
+  realMaxFecha: string;
+}) {
+  const [encima, setEncima] = useState(false);
+  const acepta = activa && arrastrando != null && arrastrando.desde !== fila.eventoId;
+  const resaltada = encima && acepta;
+  const totalPlan = totales?.totalPlan ?? fila.totalPlan;
+  const totalReal = totales?.totalReal ?? fila.totalReal;
+
+  // Renombrar en línea y archivar / reactivar (las actions revalidan la página).
+  const [editando, setEditando] = useState(false);
+  const [nombre, setNombre] = useState(fila.nombre);
+  const [error, setError] = useState<string | null>(null);
+  const [pending, start] = useTransition();
+  // Al cerrar el editor el foco vuelve al lápiz (si no, cae en <body>).
+  const lapizRef = useRef<HTMLButtonElement>(null);
+  const volverFoco = useRef(false);
+  useEffect(() => {
+    if (!editando && volverFoco.current) {
+      volverFoco.current = false;
+      lapizRef.current?.focus();
+    }
+  }, [editando]);
+  const cerrarEdicion = () => {
+    volverFoco.current = true;
+    setEditando(false);
+    setError(null);
+  };
+  const guardarNombre = () => {
+    const limpio = limpiarNombreIniciativa(nombre);
+    if (!limpio) return setError(`Entre ${NOMBRE_INICIATIVA_MIN} y ${NOMBRE_INICIATIVA_MAX} caracteres`);
+    if (limpio === fila.nombre) return cerrarEdicion();
+    start(async () => {
+      const res = await renombrarIniciativaAction({ id: fila.eventoId, nombre: limpio });
+      // Dentro de la transición: el editor se cierra junto con la página
+      // revalidada, sin mostrar un instante el nombre viejo.
+      if (!res.ok) start(() => setError(res.error));
+      else start(() => cerrarEdicion());
+    });
+  };
+  const archivar = (archivarla: boolean) => {
+    start(async () => {
+      let borrarPlanFuturo = false;
+      if (archivarla) {
+        // Cuánto plan desde hoy tiene: se borra al archivar (un frente cortado
+        // no puede seguir sumando al presupuesto). El pasado se conserva.
+        const pf = await planFuturoIniciativaAction({ id: fila.eventoId });
+        if (!pf.ok) return start(() => setError(pf.error));
+        const futuro = pf.data && pf.data.dias > 0 ? pf.data : null;
+        const ok = window.confirm(
+          `¿Archivar «${fila.nombre}»?\n\n` +
+            (futuro
+              ? `Tiene ${fmtUsd(futuro.usd, 0)} de plan desde hoy (${futuro.dias} ${futuro.dias === 1 ? "día" : "días"}): ese plan futuro se BORRA al archivarla, para que no siga sumando al presupuesto del día y de la semana.\n\n`
+              : "") +
+            "Deja de recibir plan y campañas. Su historial se conserva: el plan pasado, sus campañas y su gasto siguen siendo suyos. Su fila solo aparece cuando tiene datos en los días que estás mirando (o con «ver archivadas»), y puedes reactivarla cuando quieras.",
+        );
+        if (!ok) return;
+        borrarPlanFuturo = futuro != null;
+      }
+      const res = await archivarIniciativaAction({ id: fila.eventoId, archivar: archivarla, borrarPlanFuturo });
+      start(() => setError(res.ok ? null : res.error));
+    });
+  };
+  const iconBtn =
+    "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--ink-muted)] opacity-0 transition-opacity hover:bg-[var(--grid)] hover:text-[var(--ink)] focus:opacity-100 focus-visible:outline-2 focus-visible:outline-[#9F99F8] group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-100 disabled:opacity-40";
+
+  return (
+    <tr
+      className={`group ${hidden ? "hidden" : ""}`}
+      onDragOver={(e) => {
+        if (!acepta || !e.dataTransfer.types.includes(DND_CAMPANA)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (!encima) setEncima(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEncima(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setEncima(false);
+        const c = leerArrastre(e.dataTransfer);
+        if (c) onSoltar(c, fila.eventoId);
+      }}
+    >
+      <td
+        className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--divider)] px-4 py-2 align-top ${
+          resaltada
+            ? "bg-[var(--purple-tint)] ring-2 ring-inset ring-[#9F99F8]"
+            : acepta
+              ? "bg-[var(--surface)] outline-dashed outline-1 -outline-offset-4 outline-[#9F99F8]"
+              : "bg-[var(--surface)] group-hover:bg-[var(--surface-alt)]"
+        }`}
+      >
+        {editando ? (
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              guardarNombre();
+            }}
+            className="flex items-center gap-1"
+          >
+            <input
+              autoFocus
+              value={nombre}
+              onChange={(e) => setNombre(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") cerrarEdicion();
+              }}
+              maxLength={NOMBRE_INICIATIVA_MAX}
+              aria-label={`Nuevo nombre de ${fila.nombre}`}
+              className="min-w-0 flex-1 rounded-md border border-[var(--divider)] bg-[var(--surface)] px-2 py-0.5 text-sm text-[var(--ink)] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
+            />
+            <button type="submit" disabled={pending} className={`${iconBtn} opacity-100`} aria-label="Guardar nombre">
+              <Check className="h-3.5 w-3.5" />
+            </button>
+            <button type="button" onClick={cerrarEdicion} className={`${iconBtn} opacity-100`} aria-label="Cancelar">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </form>
+        ) : (
+          <span className="flex items-center gap-1">
+            <Link
+              href={`/inversion-medios?evento=${fila.eventoId}`}
+              className={`block min-w-0 flex-1 truncate font-medium hover:text-[#9F99F8] ${
+                activa ? "text-[var(--ink)]" : "text-[var(--ink-muted)]"
+              }`}
+              title={
+                activa
+                  ? `${fila.nombre} — abrir para planificar por plataforma (techo = suma del plan)`
+                  : `${fila.nombre} — abrir en solo lectura (archivada)`
+              }
+              data-nombre
+            >
+              {fila.nombre}
+            </Link>
+            {canEdit && (
+              <>
+                <button
+                  ref={lapizRef}
+                  type="button"
+                  onClick={() => {
+                    setNombre(fila.nombre);
+                    setError(null);
+                    setEditando(true);
+                  }}
+                  className={iconBtn}
+                  title="Cambiar el nombre"
+                  aria-label={`Cambiar el nombre de ${fila.nombre}`}
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+                {activa && (
+                  <button
+                    type="button"
+                    onClick={() => archivar(true)}
+                    disabled={pending}
+                    className={iconBtn}
+                    title="Archivar (se conserva su historial)"
+                    aria-label={`Archivar ${fila.nombre}`}
+                  >
+                    <Archive className="h-3 w-3" />
+                  </button>
+                )}
+              </>
+            )}
+          </span>
+        )}
+        <p
+          className="text-xs tabular-nums text-[var(--ink-subtle)]"
+          title="Totales históricos. El techo de una iniciativa es la suma de su plan."
+        >
+          Plan <span className="font-medium text-[var(--plan)]">{fmtUsd(totalPlan, 0)}</span> · Real{" "}
+          <span className="font-medium text-[var(--ink)]">{fmtUsd(totalReal, 0)}</span>
+        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs">
+          {resaltada ? (
+            <span className="font-medium text-[var(--plan)]">suelta para asignar la campaña</span>
+          ) : (
+            <>
+              {!activa && (
+                <span
+                  className="inline-flex items-center rounded-full border border-[var(--divider)] bg-[var(--surface)] px-2 py-0.5 font-medium text-[var(--ink-muted)]"
+                  title="Archivada: no recibe plan ni campañas; su historial se conserva"
+                >
+                  Archivada
+                </span>
+              )}
+              {!activa && canEdit && (
+                <button
+                  type="button"
+                  onClick={() => archivar(false)}
+                  disabled={pending}
+                  className="inline-flex items-center gap-1 font-medium text-[var(--plan)] transition-colors hover:text-[var(--plan-hover)] disabled:opacity-60"
+                >
+                  <ArchiveRestore className="h-3 w-3" /> Reactivar
+                </button>
+              )}
+              {activa && totalPlan === 0 && (
+                <span
+                  className="inline-flex items-center rounded-full bg-[var(--evento-tint)] px-2 py-0.5 font-medium text-[var(--evento-ink)]"
+                  title="La iniciativa no tiene plan cargado — ábrela y llena el plan por plataforma"
+                >
+                  Sin plan
+                </span>
+              )}
+              {nCampanas > 0 ? (
+                <button
+                  onClick={() => onToggle(fila.eventoId)}
+                  aria-expanded={abierta}
+                  className="inline-flex items-center gap-1 font-medium text-[var(--plan)] transition-colors hover:text-[var(--plan-hover)]"
+                >
+                  {abierta ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+                  {abierta ? "ocultar campañas" : `ver campañas (${nCampanas})`}
+                </button>
+              ) : (
+                <span className="text-[var(--ink-subtle)]">sin campañas</span>
+              )}
+            </>
+          )}
+        </div>
+        {error && (
+          <p role="alert" className="mt-1 text-[11px] leading-snug text-[#ED75A0]">
+            {error}
+          </p>
+        )}
+      </td>
+      {fila.days.map((cell) => (
+        <td
+          key={cell.fecha}
+          className={`w-16 min-w-16 max-w-16 border-t border-[var(--divider)] p-0 text-center align-top ${
+            cell.fecha === hoy ? "bg-[var(--purple-tint)]/40" : paydayCell(cell.fecha)
+          }`}
+        >
+          <CeldaResumen cell={cell} parcial={cell.fecha === hoy || cell.fecha > realMaxFecha} />
+        </td>
+      ))}
     </tr>
   );
 });

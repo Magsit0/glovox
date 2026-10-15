@@ -225,6 +225,20 @@
       "when": 1790018864606,
       "tag": "0031_common_jack_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1792089880582,
+      "tag": "0032_ambiguous_whistler",
+      "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1792095071897,
+      "tag": "0033_last_valkyrie",
+      "breakpoints": true
     }
   ]
 }

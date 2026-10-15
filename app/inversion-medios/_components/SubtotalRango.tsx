@@ -11,12 +11,22 @@ const OPCIONES = [
 ];
 const control = "min-h-11 rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 font-sans text-sm text-[var(--ink)] transition-colors hover:bg-[var(--surface-alt)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--plan)]";
 
-export default function SubtotalRango({ dias, realMaxFecha, view, rangoLabel, lunesDestacados }: {
+export default function SubtotalRango({
+  dias, realMaxFecha, view, rangoLabel, lunesDestacados,
+  conCargos, onConCargos, cargosBloqueados, cargosSinDia,
+}: {
   dias: DiaSubtotal[];
   realMaxFecha: string;
   view: { a: number; b: number };
   rangoLabel: string;
   lunesDestacados: { actual: string; siguiente: string; subsiguiente: string };
+  /** Toggle "sumar cargos extra": por defecto las semanas son solo campañas. */
+  conCargos: boolean;
+  onConCargos: (v: boolean) => void;
+  /** Con un país elegido no se suman (los cargos son de compañía, sin país). */
+  cargosBloqueados: boolean;
+  /** Proveedores cuyo día de pago no se reconoce: no se pueden ubicar ni sumar. */
+  cargosSinDia: string[];
 }) {
   const id = useId();
   const [seleccion, setSeleccion] = useState({ inicio: 0, fin: 6 });
@@ -37,6 +47,7 @@ export default function SubtotalRango({ dias, realMaxFecha, view, rangoLabel, lu
         <h2 id={`${id}-titulo`} className="font-display text-lg font-bold text-[var(--ink)]">Subtotal por semana</h2>
         <span className="font-sans text-xs text-[var(--ink-subtle)]">
           {semanaCompleta ? "semanas" : "rangos"} del tramo visible ({rangoLabel}) · {semanaCompleta ? "monto de la semana completa" : "monto del rango completo"}
+          {conCargos && !cargosBloqueados ? " · campañas + cargos extra" : " · solo campañas"}
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Días del rango recurrente">
@@ -71,7 +82,25 @@ export default function SubtotalRango({ dias, realMaxFecha, view, rangoLabel, lu
           {seleccion.inicio === seleccion.fin ? "Un día por semana" : "Ambos días incluidos"}
           {seleccion.fin < seleccion.inicio ? " · termina la semana siguiente" : ""}
         </span>
+        {/* Cargos extra (Adobe, DRIP…) en su día de pago. Afecta también al
+            "Total día" del calendario, que es de donde salen estas semanas. */}
+        <button type="button" role="switch" aria-checked={conCargos && !cargosBloqueados}
+          disabled={cargosBloqueados}
+          title={cargosBloqueados ? "Los cargos extra son de compañía: no se suman al filtrar por país" : "Suma los cargos extra en su día de pago al total del día y de la semana"}
+          className={`${control} ml-auto inline-flex items-center gap-2 disabled:cursor-not-allowed disabled:opacity-60`}
+          onClick={() => onConCargos(!conCargos)}>
+          <span aria-hidden className={`relative inline-flex h-4 w-7 shrink-0 rounded-full transition-colors ${conCargos && !cargosBloqueados ? "bg-[#9F99F8]" : "bg-[var(--divider)]"}`}>
+            <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-[var(--surface)] transition-[left] ${conCargos && !cargosBloqueados ? "left-3.5" : "left-0.5"}`} />
+          </span>
+          Sumar cargos extra
+        </button>
       </div>
+      {conCargos && !cargosBloqueados && cargosSinDia.length > 0 && (
+        <p className="flex items-start gap-2 font-sans text-xs text-[var(--ink-muted)]">
+          <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-[#F6C544]" />
+          Sin día de pago reconocible, no se suman: {cargosSinDia.join(", ")}. Ponles el día (ej. &ldquo;15&rdquo; o &ldquo;30&rdquo;) en Cargos extra CARDDA.
+        </p>
+      )}
       {visibles.length > 0 ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {visibles.map((r) => (

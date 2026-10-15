@@ -5,6 +5,7 @@ import Link from "next/link";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import type { CampanaReciente } from "@/lib/queries/inversion-medios";
 import { addDiasIso } from "@/lib/inversion-medios/evento";
+import { campanaKey } from "@/lib/inversion-medios/iniciativas";
 import { esRemarketing, tipoDeObjetivo } from "@/lib/inversion-medios/tipos";
 import { fmtDiaCorto, fmtUsd } from "./format";
 
@@ -47,6 +48,8 @@ type Fila = {
 
 type Grupo = {
   key: string;
+  tipo: "evento" | "iniciativa" | "na";
+  /** EventoID o id de la iniciativa; null en "No atribuido". */
   eventoId: string | null;
   nombre: string;
   fecha: string;
@@ -56,35 +59,51 @@ type Grupo = {
   semana: number;
 };
 
-function agrupar(filas: Fila[]): Grupo[] {
-  const porEvento = new Map<string, Grupo>();
+/**
+ * Agrupa por evento; las campañas SIN evento van a su iniciativa si están
+ * asignadas (mismo reparto que el calendario) y, si no, a "No atribuido".
+ */
+function agrupar(
+  filas: Fila[],
+  asignaciones: Map<string, string>,
+  iniciativas: { id: string; nombre: string }[],
+): Grupo[] {
+  const nombreIni = new Map(iniciativas.map((i) => [i.id, i.nombre]));
+  const ordenIni = new Map(iniciativas.map((i, idx) => [i.id, idx]));
+  const porGrupo = new Map<string, Grupo>();
   for (const f of filas) {
-    const key = f.c.eventoId ?? "";
-    let g = porEvento.get(key);
+    const iniId = f.c.eventoId ? undefined : asignaciones.get(campanaKey(f.c.plataforma, f.c.campaignId));
+    const tipo: Grupo["tipo"] = f.c.eventoId ? "evento" : iniId && nombreIni.has(iniId) ? "iniciativa" : "na";
+    const id = tipo === "evento" ? f.c.eventoId : tipo === "iniciativa" ? iniId! : null;
+    const key = `${tipo}:${id ?? ""}`;
+    let g = porGrupo.get(key);
     if (!g) {
       g = {
         key,
-        eventoId: f.c.eventoId,
-        nombre: f.c.eventoNombre,
-        fecha: f.c.eventoFecha,
+        tipo,
+        eventoId: id,
+        nombre: tipo === "evento" ? f.c.eventoNombre : tipo === "iniciativa" ? nombreIni.get(id!)! : "",
+        fecha: tipo === "evento" ? f.c.eventoFecha : "",
         filas: [],
         prev: 0,
         ult: 0,
         semana: 0,
       };
-      porEvento.set(key, g);
+      porGrupo.set(key, g);
     }
     g.filas.push(f);
     g.prev += f.prev;
     g.ult += f.ult;
     g.semana += f.semana;
   }
-  const grupos = [...porEvento.values()];
+  const grupos = [...porGrupo.values()];
   for (const g of grupos) g.filas.sort((a, b) => b.semana - a.semana);
-  // Mismo orden que las filas del calendario (fecha del evento); el gasto sin
-  // evento va al final, como la fila "No atribuido".
+  // Mismo orden que el calendario: eventos por fecha, luego las iniciativas
+  // (en su orden fijo) y al final "No atribuido".
+  const rango = { evento: 0, iniciativa: 1, na: 2 } as const;
   return grupos.sort((a, b) => {
-    if (!a.eventoId !== !b.eventoId) return a.eventoId ? -1 : 1;
+    if (a.tipo !== b.tipo) return rango[a.tipo] - rango[b.tipo];
+    if (a.tipo === "iniciativa") return (ordenIni.get(a.eventoId!) ?? 0) - (ordenIni.get(b.eventoId!) ?? 0);
     return (
       (a.fecha || "9999").localeCompare(b.fecha || "9999") ||
       (a.eventoId ?? "").localeCompare(b.eventoId ?? "")
@@ -111,6 +130,8 @@ export default function CampanasActivas({
   realMaxFecha,
   hoy,
   pais,
+  asignaciones,
+  iniciativas,
 }: {
   campanas: CampanaReciente[];
   /** Última fecha del mart: el ancla de la ventana. */
@@ -118,6 +139,9 @@ export default function CampanasActivas({
   hoy: string;
   /** Filtro de país del calendario ("" = todos). Lo no atribuido no tiene país. */
   pais: string;
+  /** Campaña ("plataforma|campaign_id") → iniciativa, con lo recién arrastrado. */
+  asignaciones: Map<string, string>;
+  iniciativas: { id: string; nombre: string }[];
 }) {
   const [open, setOpen] = useState(false);
   const [modo, setModo] = useState<"activas" | "detenidas">("activas");
@@ -156,8 +180,8 @@ export default function CampanasActivas({
   const activas = useMemo(() => filas.filter((f) => f.activa), [filas]);
   const detenidas = useMemo(() => filas.filter((f) => !f.activa), [filas]);
   const grupos = useMemo(
-    () => agrupar(modo === "activas" ? activas : detenidas),
-    [modo, activas, detenidas],
+    () => agrupar(modo === "activas" ? activas : detenidas, asignaciones, iniciativas),
+    [modo, activas, detenidas, asignaciones, iniciativas],
   );
 
   const porPlataforma = useMemo(() => {
@@ -311,9 +335,11 @@ export default function CampanasActivas({
                             <span className="font-medium text-[var(--ink-muted)]">No atribuido</span>
                           )}
                           <span className="ml-2 text-xs text-[var(--ink-subtle)]">
-                            {g.eventoId
-                              ? `${g.eventoId}${g.fecha ? ` · evento ${fmtFecha(g.fecha, ref)}` : ""}`
-                              : "sin evento reconocible en el nombre"}
+                            {g.tipo === "iniciativa"
+                              ? "iniciativa"
+                              : g.eventoId
+                                ? `${g.eventoId}${g.fecha ? ` · evento ${fmtFecha(g.fecha, ref)}` : ""}`
+                                : "sin evento ni iniciativa"}
                             {` · ${g.filas.length} ${g.filas.length === 1 ? "campaña" : "campañas"}`}
                           </span>
                         </td>
