@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { Pencil, Search } from "lucide-react";
+import { ArrowUpRight, Check, Link2, Pencil, Search } from "lucide-react";
 import type { NegocioRow } from "@/lib/unabase/types";
 import { toggleVariableEnviadoAction } from "../actions";
 
@@ -82,8 +82,25 @@ export default function AdminNegociosTable({
   const [overrides, setOverrides] = useState<Record<string, MarcaLocal>>({});
   // id del negocio cuyo período se está editando inline (lápiz del pill).
   const [editandoPeriodo, setEditandoPeriodo] = useState<string | null>(null);
+  // id cuyo link al cierre se acaba de copiar (feedback ✓ de 1,5 s).
+  const [copiadoId, setCopiadoId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [, startTransition] = useTransition();
+
+  // Detalle del cierre: misma URL que abre goToInforme() en CierreTable.
+  const cierreHref = (id: string) => `/cierre-negocio?id=${id}`;
+
+  async function copiarLink(id: string) {
+    try {
+      await navigator.clipboard.writeText(
+        `${window.location.origin}${cierreHref(id)}`,
+      );
+      setCopiadoId(id);
+      setTimeout(() => setCopiadoId((prev) => (prev === id ? null : prev)), 1500);
+    } catch {
+      setError("No se pudo copiar el link al portapapeles");
+    }
+  }
 
   const marcaDe = (id: string): MarcaLocal =>
     overrides[id] ?? marcas[id] ?? { enviado: false, periodo: null };
@@ -263,12 +280,15 @@ export default function AdminNegociosTable({
                     {col.label}
                   </th>
                 ))}
+                <th className="sticky top-0 z-20 whitespace-nowrap bg-[#FAFAFA] px-4 py-3 text-right font-medium uppercase tracking-wide text-[#666666]">
+                  Cierre
+                </th>
               </tr>
             </thead>
             <tbody>
               {filtered.length === 0 ? (
                 <tr>
-                  <td colSpan={COLUMNS.length + 1} className="px-4 py-12 text-center font-sans text-sm text-[#999999]">
+                  <td colSpan={COLUMNS.length + 2} className="px-4 py-12 text-center font-sans text-sm text-[#999999]">
                     Sin resultados.
                   </td>
                 </tr>
@@ -344,6 +364,31 @@ export default function AdminNegociosTable({
                           {col.format ? col.format(row[col.key]) : row[col.key] || "—"}
                         </td>
                       ))}
+                      <td className="whitespace-nowrap px-4 py-2 text-right">
+                        <span className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => copiarLink(row.id)}
+                            title="Copiar link al cierre"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] transition-colors hover:bg-[#F5F5F5] hover:text-[#333333]"
+                          >
+                            {copiadoId === row.id ? (
+                              <Check className="h-4 w-4 text-[#B1D750]" />
+                            ) : (
+                              <Link2 className="h-4 w-4" />
+                            )}
+                          </button>
+                          <a
+                            href={cierreHref(row.id)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title="Ir al cierre"
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[#666666] transition-colors hover:bg-[#F5F5F5] hover:text-[#333333]"
+                          >
+                            <ArrowUpRight className="h-4 w-4" />
+                          </a>
+                        </span>
+                      </td>
                     </tr>
                   );
                 })
