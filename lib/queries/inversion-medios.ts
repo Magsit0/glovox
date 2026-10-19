@@ -36,6 +36,8 @@ const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
 // `fx_imputado`. El mart NO se toca (sigue read-only y gobernando el FX final:
 // cuando llega el FX real del día, la conversión del mart reemplaza a esta).
 // `base` expone las MISMAS columnas del mart con `gasto_usd` ya efectivo.
+// /marketing/weekly aplica el MISMO criterio en `ADS_EFECTIVO`
+// (lib/queries/marketing.ts): si cambias el arrastre acá, cámbialo allá también.
 const REAL_BASE = `
   WITH fx_last AS (
     SELECT currency, fx_units_per_usd

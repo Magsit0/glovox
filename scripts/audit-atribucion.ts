@@ -9,6 +9,10 @@
  * pendientes de eventos en venta) se chequean como mínimo. Termina con código
  * distinto de 0 si algún valor queda fuera de tolerancia.
  *
+ * También chequea el gasto del panel "Paid Media" (getPaidMediaSummary) en
+ * eventos ya cerrados, para cubrir la atribución de gasto a evento (clave del
+ * nombre de campaña, mapa legado y su corte MAPA_HASTA).
+ *
  * Solo lectura (SELECT). Uso: npm run audit:atribucion
  */
 import {
@@ -16,6 +20,7 @@ import {
   getContenidosQueVenden,
   getFunnelCompra,
   getFunnelData,
+  getPaidMediaSummary,
   getRendimientoConjuntos,
 } from "@/lib/queries/marketing";
 import {
@@ -100,6 +105,11 @@ type Esperado = {
   refGg: number;
   gastoV: number;
   gastoT: number;
+  // Gasto Google USD del evento en la ventana medida. Hasta 2026-10-19 era 0
+  // fijo: Google solo entraba por paidMedia.campaign_event_map, que ningún
+  // evento vigente tenía. Ahora se atribuye por el código del nombre de la
+  // campaña (EVENTO_ID_SQL); valores calculados aparte con SQL, no copiados.
+  gastoG: number;
   cpaPixel: number;
   cpaGa4: number;
   cpaRef: number | null; // null = se oculta (propagación de PM_ bajo el 8%)
@@ -111,49 +121,49 @@ const ESPERADO: Record<string, Esperado> = {
     estado: "parcial", desde: "2026-09-17", hasta: "2026-09-27", propiedades: 1,
     medibles: 354, vistas: 303, cov: 85.6, pase: 195, fueraWeb: 0, antes: 134, pendientes: 94,
     pixelV: 278, pixelT: 280, ga4Meta: 20, refMt: 16, ga4Gg: 20, refGg: 8,
-    gastoV: 1447.39, gastoT: 2229.66, cpaPixel: 5.2, cpaGa4: 72.4, cpaRef: null, enVenta: true,
+    gastoV: 1447.39, gastoT: 2229.66, gastoG: 142.94, cpaPixel: 5.2, cpaGa4: 72.4, cpaRef: null, enVenta: true,
   },
   GLO212: {
     estado: "parcial", desde: "2026-09-17", hasta: "2026-09-27", propiedades: 1,
     medibles: 97, vistas: 82, cov: 84.5, pase: 0, fueraWeb: 0, antes: 698, pendientes: 2,
     pixelV: 65, pixelT: 70, ga4Meta: 25, refMt: 23, ga4Gg: 2, refGg: 0,
-    gastoV: 791.66, gastoT: 1595.28, cpaPixel: 12.2, cpaGa4: 31.7, cpaRef: 34.4, enVenta: true,
+    gastoV: 791.66, gastoT: 1595.28, gastoG: 48.19, cpaPixel: 12.2, cpaGa4: 31.7, cpaRef: 34.4, enVenta: true,
   },
   GLO203: {
     estado: "parcial", desde: "2026-09-17", hasta: "2026-09-27", propiedades: 1,
     medibles: 56, vistas: 29, cov: 51.8, pase: 0, fueraWeb: 0, antes: 2648, pendientes: 1,
     pixelV: 21, pixelT: 21, ga4Meta: 4, refMt: 0, ga4Gg: 4, refGg: 0,
-    gastoV: 116.23, gastoT: 172.87, cpaPixel: 5.5, cpaGa4: 29.1, cpaRef: null, enVenta: true,
+    gastoV: 116.23, gastoT: 172.87, gastoG: 23.09, cpaPixel: 5.5, cpaGa4: 29.1, cpaRef: null, enVenta: true,
   },
   GLO214: {
     estado: "parcial", desde: "2026-09-17", hasta: "2026-09-19", propiedades: 1,
     medibles: 123, vistas: 68, cov: 55.3, pase: 0, fueraWeb: 0, antes: 40, pendientes: 0,
     pixelV: 22, pixelT: 28, ga4Meta: 3, refMt: 5, ga4Gg: 1, refGg: 0,
-    gastoV: 233.69, gastoT: 483.71, cpaPixel: 10.6, cpaGa4: 77.9, cpaRef: null, enVenta: false,
+    gastoV: 233.69, gastoT: 483.71, gastoG: 127.47, cpaPixel: 10.6, cpaGa4: 77.9, cpaRef: null, enVenta: false,
   },
   "708092": {
     estado: "parcial", desde: "2026-08-24", hasta: "2026-09-20", propiedades: 1,
     medibles: 617, vistas: 439, cov: 71.2, pase: 0, fueraWeb: 157, antes: 261, pendientes: 0,
     pixelV: 315, pixelT: 316, ga4Meta: 84, refMt: 87, ga4Gg: 0, refGg: 0,
-    gastoV: 2773.14, gastoT: 3747.25, cpaPixel: 8.8, cpaGa4: 33.0, cpaRef: 31.9, enVenta: false,
+    gastoV: 2773.14, gastoT: 3747.25, gastoG: 0, cpaPixel: 8.8, cpaGa4: 33.0, cpaRef: 31.9, enVenta: false,
   },
   "660905": {
     estado: "parcial", desde: "2026-06-17", hasta: "2026-08-02", propiedades: 1,
     medibles: 1609, vistas: 1353, cov: 84.1, pase: 0, fueraWeb: 654, antes: 54, pendientes: 0,
     pixelV: 747, pixelT: 753, ga4Meta: 276, refMt: 3, ga4Gg: 268, refGg: 0,
-    gastoV: 3131.67, gastoT: 5321.61, cpaPixel: 4.2, cpaGa4: 11.3, cpaRef: null, enVenta: false,
+    gastoV: 3131.67, gastoT: 5321.61, gastoG: 1121.24, cpaPixel: 4.2, cpaGa4: 11.3, cpaRef: null, enVenta: false,
   },
   "669533": {
     estado: "parcial", desde: "2026-07-01", hasta: "2026-09-12", propiedades: 2,
     medibles: 507, vistas: 297, cov: 58.6, pase: 0, fueraWeb: 22, antes: 149, pendientes: 0,
     pixelV: 177, pixelT: 177, ga4Meta: 34, refMt: 26, ga4Gg: 1, refGg: 1,
-    gastoV: 2763.82, gastoT: 4213.61, cpaPixel: 15.6, cpaGa4: 81.3, cpaRef: null, enVenta: false,
+    gastoV: 2763.82, gastoT: 4213.61, gastoG: 0, cpaPixel: 15.6, cpaGa4: 81.3, cpaRef: null, enVenta: false,
   },
   "738502": {
     estado: "completa", desde: "2026-08-28", hasta: "2026-09-27", propiedades: 1,
     medibles: 169, vistas: 86, cov: 50.9, pase: 0, fueraWeb: 0, antes: 0, pendientes: 13,
     pixelV: 16, pixelT: 17, ga4Meta: 6, refMt: 3, ga4Gg: 0, refGg: 0,
-    gastoV: 637.39, gastoT: 961.09, cpaPixel: 39.8, cpaGa4: 106.2, cpaRef: null, enVenta: true,
+    gastoV: 637.39, gastoT: 961.09, gastoG: 0, cpaPixel: 39.8, cpaGa4: 106.2, cpaRef: null, enVenta: true,
   },
 };
 
@@ -189,7 +199,7 @@ function auditarEvento(ev: string, a: AtribucionCompras, e: Esperado) {
   comparar(ev, "Referido PM_GG", "ord", e.refGg, a.google.referido);
   comparar(ev, "gasto Meta Ventas USD", "usd", e.gastoV, a.meta.gastoVentasUsd);
   comparar(ev, "gasto Meta total USD", "usd", e.gastoT, a.meta.gastoTotalUsd);
-  comparar(ev, "gasto Google USD", "usd", 0, a.google.gastoUsd);
+  comparar(ev, "gasto Google USD", "usd", e.gastoG, a.google.gastoUsd);
   comparar(ev, "CPA pixel", "info", e.cpaPixel, r1(cpa(a.meta.gastoVentasUsd, a.meta.pixelVentas)));
   comparar(ev, "CPA GA4", "info", e.cpaGa4, r1(cpa(a.meta.gastoVentasUsd, a.meta.ga4)));
   const muestra = muestraCpaReferido(a);
@@ -376,6 +386,28 @@ async function main() {
     comparar(ev, "funnel · alcance", "eq", f.alcance, compra.alcance);
     comparar(ev, "funnel · otros eventos incluidos", "info", undefined, compra.otrosEventos.join(", ") || "—");
     pasos.forEach((p, i) => comparar(ev, `funnel · ${p.step}`, "info", f.pasos[i], p.users));
+  }
+
+  // Panel "Paid Media" (getPaidMediaSummary): gasto atribuido en eventos YA
+  // CERRADOS (su gasto no cambia). Cubre los tres caminos de la atribución:
+  // clave del nombre (GLO207, con Google por nombre), mapa legado (GLO195,
+  // GLO198, PPR025) y el corte MAPA_HASTA (GLO172 = 0: su Google es la Always On
+  // de la temporada 25-26, que el mapa ya reparte en GLO178–GLO195; sin el corte
+  // se contaba dos veces). Valores calculados aparte con SQL el 2026-10-19.
+  const PANEL_PM: Record<string, { total: number; meta: number; google: number; tiktok: number }> = {
+    GLO195: { total: 4459.99, meta: 3774.91, google: 560.74, tiktok: 124.34 },
+    GLO172: { total: 0, meta: 0, google: 0, tiktok: 0 },
+    GLO207: { total: 7149.07, meta: 6171.2, google: 977.87, tiktok: 0 },
+    PPR025: { total: 11679.77, meta: 11118.86, google: 560.91, tiktok: 0 },
+    GLO198: { total: 11459.92, meta: 10222.94, google: 1124.47, tiktok: 112.52 },
+  };
+  for (const [ev, x] of Object.entries(PANEL_PM)) {
+    const pm = await getPaidMediaSummary(ev);
+    const plataforma = (p: string) => pm.spendByPlatform.find((r) => r.platform === p)?.spendUsd ?? 0;
+    comparar(ev, "panel PM · gasto total USD", "usd", x.total, pm.totalSpend);
+    comparar(ev, "panel PM · Meta USD", "usd", x.meta, plataforma("meta"));
+    comparar(ev, "panel PM · Google USD", "usd", x.google, plataforma("google"));
+    comparar(ev, "panel PM · TikTok USD", "usd", x.tiktok, plataforma("tiktok"));
   }
 
   // ---------- Reporte ----------

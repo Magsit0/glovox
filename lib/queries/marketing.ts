@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { query } from "@/lib/bigquery";
+import { eventoIdSql } from "@/lib/queries/paidMedia";
 import {
   countryTicketeraFilter,
   hasCountryScope,
@@ -31,13 +32,64 @@ const TICKETS = `\`${P}.glovox.tickets\``;
 // date, from `referencia.tipo_cambio`. It used to read the raw table and divide
 // by the flat `paidMedia.fx_rates` (CLP=900 for every date since 2023), which
 // drifted up to 11% against /paid-media on the same event. Rows still carry
-// multiple currencies and combined Meta + Google spend, with no EventoID — see
+// multiple currencies and combined Meta + Google + TikTok spend — see
 // `attributedAds()` for how each row is tied back to an event.
 const ADS = `\`${P}.marts.paidmedia_ads_performance\``;
-// Maps a Google `campaign_id` to the EventoID(s) it funds (1 campaign -> many
-// events for season-long campaigns). Meta needs no map (EventoID is derived from
-// the campaign name). Populated manually in BigQuery.
+// LEGACY manual map: Google `campaign_id` -> EventoID(s) it funded (1 campaign ->
+// many events, back when the season "Always On" kept ONE name all season). The
+// team now renames each Google campaign with the code of the event it pushes, so
+// the event key (`eventoIdSql`) covers current campaigns and the map is no longer
+// maintained. It stays so the historical events that only got Google through it
+// (GLO178–GLO195, GLO198, …) keep their numbers. Its rows always apply inside the
+// event's sale window, which also makes the stale entries of reused campaign_ids
+// (20442347431, 20461554912, 23787452117) harmless today.
 const CAMP_MAP = `\`${P}.paidMedia.campaign_event_map\``;
+// Last day the map governed: end of the sale window of the last mapped event
+// (GLO198, 2026-05-10). Up to this date, Google rows of a MAPPED campaign are
+// attributed ONLY through the map, exactly as before 2026-10-19. Without it, the
+// event key would also give them to the code in their name: the 2025-26 season
+// Always On (20442347431, named "GLO172 …" from 2025-01-01 to 2026-04-19) would
+// count in full on GLO172 (US$2.436, none of it in GLO172's sale window) on top
+// of GLO178–GLO195, which already get it through the map. After this date the map
+// matches nothing (every mapped window has ended), so the key alone decides.
+const MAPA_HASTA = "2026-05-10";
+
+// Paid-media rows with an EFFECTIVE `gasto_usd` plus the event key.
+//
+// FX: the mart leaves `gasto_usd` NULL while the day's exchange rate is not
+// published yet — in practice only TODAY, and for EVERY currency (USD too: the
+// join is by currency × fecha). Same consumer-side carry-forward as `REAL_BASE`
+// in lib/queries/inversion-medios.ts (decision 2026-08-24): convert with the
+// LAST known `fx_units_per_usd` of that currency; once the real FX lands, the
+// mart's own conversion replaces it. Without this, today's spend dropped out of
+// every USD total (the panel showed "USD 1.157,3" over a "US$1145.2" total).
+//
+// Matches /inversion-medios on every day. /paid-media does not carry FX forward,
+// so on the current day this dashboard shows that day's spend and /paid-media
+// shows it as "sin FX"; closed days match exactly.
+//
+// Event key: `eventoIdSql`, the SAME expression /paid-media uses (governed
+// EventoID, falling back to the first 6 chars when the governed regex misses —
+// PPR025).
+const ADS_EFECTIVO = `(
+    SELECT
+      m.* EXCEPT (gasto_usd),
+      COALESCE(m.gasto_usd, SAFE_DIVIDE(m.gasto, fx.fx_units_per_usd)) AS gasto_usd,
+      ${eventoIdSql("m")} AS evento_key
+    FROM ${ADS} m
+    LEFT JOIN (
+      SELECT currency, fx_units_per_usd
+      FROM (
+        SELECT
+          currency,
+          fx_units_per_usd,
+          ROW_NUMBER() OVER (PARTITION BY currency ORDER BY fecha DESC) AS rn
+        FROM ${ADS}
+        WHERE fx_units_per_usd IS NOT NULL AND currency IS NOT NULL
+      )
+      WHERE rn = 1
+    ) fx ON fx.currency = m.currency
+  )`;
 const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
 // Multi-network followers table (replaces the legacy `rrssFollowers`). Columns:
 // blog_id INT64, label STRING, network STRING, date DATE, delta_followers INT64,
@@ -140,17 +192,28 @@ function ordenesWebMedidasCte(tSql: string): string {
     )`;
 }
 
-// ---------- Paid-media attribution (ads_performance) ----------
+// ---------- Paid-media attribution ----------
 //
-// `ads_performance` has no EventoID. Each row is tied to an event two ways:
-//   - Meta:   EventoID = SUBSTR(campaign_name, 1, 6) — each campaign is event-specific.
-//   - Google: campaign_id is mapped to its event(s) via `campaign_event_map`. A single
-//             season campaign funds many events, so its daily spend is attributed to an
-//             event only on days inside that event's sale window. A campaign mapped to
-//             overlapping events double-counts by design (agreed product decision).
+// A row belongs to @eventoId when EITHER:
+//   1. its event key (`evento_key`, see ADS_EFECTIVO) is @eventoId — every platform
+//      (Meta, Google, TikTok) — except Google rows of a mapped campaign up to
+//      MAPA_HASTA, which belong to the map only. The key comes from the campaign
+//      name each row carries, and the team renames the Google campaigns per event
+//      ("GLO211 Piknic Always On" → "GLO216 …"), so each day goes to the event it
+//      pushed. Caveat: the ingest re-pulls the last 3 days with the CURRENT name
+//      (every row's loaded_at is fecha + 3), so a rename also relabels the 3 days
+//      before it — e.g. 4–6 Oct 2026 went to GLO216, after GLO211's 3 Oct event.
+//      Before 2026-10-19 Google ONLY came from the manual map, which nobody fills
+//      anymore: no running event had Google spend in this dashboard.
+//   2. it is a Google row of a campaign listed for @eventoId in the legacy
+//      `campaign_event_map`, on a day inside the event's sale window. A campaign
+//      mapped to overlapping events double-counts by design (agreed decision).
+// Both conditions live in ONE WHERE (OR), so a row matching both counts once, and
+// the MAPA_HASTA exclusion keeps a row from going to one event by key and to
+// another through the map.
 //
-// Spend is multi-currency (USD / CLP / BRL …); the governed view already carries
-// `gasto_usd`, converted with each row's own date rate. Callers sum that column.
+// Spend is multi-currency (USD / CLP / BRL …); callers sum the effective
+// `gasto_usd` from ADS_EFECTIVO.
 
 // People counting: `glovox.tickets.PersonasPorTicket` (INT64) says how many
 // PEOPLE a ticket row represents — 1 for the vast majority, N for multi-person
@@ -179,31 +242,38 @@ function ticketPeriodCte(tSql: string): string {
     )`;
 }
 
-// Rows from `ads_performance` attributed to @eventoId (param required by callers).
-// Requires a `ticket_period` CTE in the same query. `windowMeta=true` also clips Meta
-// to the sale window (used by the time-series breakdown); false sums all Meta spend.
-function attributedAds(windowMeta: boolean): string {
-  // `gasto` stays for the per-currency native breakdown; `gasto_usd` is what
-  // every total and ratio sums. It is NULL when `referencia.tipo_cambio` has no
-  // rate for that date yet — SUM skips it rather than pretending it is zero.
-  // `objective` and `adset_id` feed the GA4 attribution section (sales spend for
-  // the CPA, spend per Meta adset). Every caller selects named columns.
+// Rows attributed to @eventoId (param required by callers). Requires a
+// `ticket_period` CTE in the same query (always exactly one row, so the CROSS
+// JOIN never drops or multiplies rows). `windowEvento=true` also clips the
+// key-matched rows (condition 1 above) to the sale window — the time-series
+// breakdown; false sums all of the event's spend. Map rows are always clipped.
+function attributedAds(windowEvento: boolean): string {
+  // `gasto` stays for the per-currency native breakdown; `gasto_usd` (effective,
+  // see ADS_EFECTIVO) is what every total and ratio sums. `objective` and
+  // `adset_id` feed the GA4 attribution section (sales spend for the CPA, spend
+  // per Meta adset). Every caller selects named columns.
   const cols = `a.plataforma, a.fecha, a.campaign_id, a.campaign_name, a.objective, a.adset_id, a.currency, a.gasto, a.gasto_usd, a.conversiones`;
   return `
     SELECT ${cols}
-    FROM ${ADS} a
-    ${windowMeta ? `CROSS JOIN ticket_period pm` : ``}
-    WHERE a.plataforma = 'meta' AND a.gasto > 0
-      AND SUBSTR(a.campaign_name, 1, 6) = @eventoId
-      ${windowMeta ? `AND a.fecha BETWEEN pm.start_date AND pm.end_date` : ``}
-    UNION ALL
-    SELECT ${cols}
-    FROM ${ADS} a
-    JOIN ${CAMP_MAP} m ON a.campaign_id = m.campaign_id
-    CROSS JOIN ticket_period pg
-    WHERE a.plataforma = 'google' AND a.gasto > 0
-      AND m.EventoID = @eventoId
-      AND a.fecha BETWEEN pg.start_date AND pg.end_date`;
+    FROM ${ADS_EFECTIVO} a
+    CROSS JOIN ticket_period tp
+    WHERE a.gasto > 0
+      AND (
+        (a.evento_key = @eventoId
+          -- COALESCE: a Google row with NULL campaign_id makes the IN NULL; it
+          -- must stay in the key branch, not vanish.
+          AND NOT COALESCE(
+            a.plataforma = 'google'
+              AND a.fecha <= DATE '${MAPA_HASTA}'
+              AND a.campaign_id IN (SELECT campaign_id FROM ${CAMP_MAP}),
+            FALSE)
+          ${windowEvento ? `AND a.fecha BETWEEN tp.start_date AND tp.end_date` : ``})
+        OR (a.plataforma = 'google'
+          AND a.fecha BETWEEN tp.start_date AND tp.end_date
+          AND a.campaign_id IN (
+            SELECT campaign_id FROM ${CAMP_MAP} WHERE EventoID = @eventoId
+          ))
+      )`;
 }
 
 // ---------- Data scope ----------

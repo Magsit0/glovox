@@ -200,8 +200,15 @@ function addListFilter(
  * que tiene EventoID NULL en sus 158 filas; la heurística sola pierde los
  * EventoID de 7 caracteres (GLA5736 se trunca a GLA573) y los numéricos con
  * separador (`15068 - DGTL` → `15068 `).
+ *
+ * Exportada: /marketing/weekly (lib/queries/marketing.ts) atribuye con esta
+ * MISMA expresión, para que los dos dashboards no puedan divergir. Es una
+ * función con el alias explícito (en vez de reescribir el texto con .replace)
+ * para que ningún consumidor dependa de la forma exacta del string.
  */
-const EVENTO_ID_SQL = `COALESCE(NULLIF(TRIM(EventoID), ''), UPPER(LEFT(campaign_name, 6)))`;
+export function eventoIdSql(alias: string): string {
+  return `COALESCE(NULLIF(TRIM(${alias}.EventoID), ''), UPPER(LEFT(${alias}.campaign_name, 6)))`;
+}
 
 /** Catálogo de eventos agregado a UNA fila por EventoID.
  *  `glovox.categoriaEvento` tiene 230 filas para 225 EventoID distintos
@@ -1034,7 +1041,7 @@ function eventoBaseCte(
   const cte = `
     WITH base AS (
       SELECT
-        ${EVENTO_ID_SQL.replace(/EventoID/g, "a.EventoID").replace(/campaign_name/g, "a.campaign_name")} AS evento_id,
+        ${eventoIdSql("a")} AS evento_id,
         a.campaign_id,
         a.campaign_name,
         a.account_name,
