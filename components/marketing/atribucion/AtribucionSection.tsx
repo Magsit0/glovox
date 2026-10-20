@@ -3,6 +3,7 @@ import {
   getAtribucionCompras,
   getContenidosQueVenden,
   getRendimientoConjuntos,
+  getRendimientoPiezas,
   type Scope,
 } from "@/lib/queries/marketing";
 import {
@@ -11,11 +12,13 @@ import {
   type ContenidosQueVenden,
   type Moneda,
   type RendimientoConjuntos,
+  type RendimientoPiezas,
   type VentanaMedida,
 } from "@/lib/marketing/atribucion";
 import AtribucionVista, { AtribucionMarco, BloqueCargando, BloqueError } from "./AtribucionVista";
 import ContenidosTable from "./ContenidosTable";
 import ConjuntosMetaTable from "./ConjuntosMetaTable";
+import PiezasMetaTable from "./PiezasMetaTable";
 
 export { ANCLA_ATRIBUCION } from "./AtribucionVista";
 
@@ -30,7 +33,8 @@ type Props = {
  * la página. Una consulta principal (getAtribucionCompras, compartida por
  * React.cache con el panel Paid Media y el Funnel) alimenta las lentes, el
  * origen real, la salud y el gráfico por día; "Qué contenido vende" y
- * "Rendimiento por conjunto" traen su propia consulta y llegan en streaming.
+ * "Rendimiento por conjunto" y "Rendimiento por pieza" traen su propia consulta y
+ * llegan en streaming.
  * Un error de BigQuery deja un mensaje en la sección, no tumba la página.
  */
 export default async function AtribucionSection({ eventoId, country }: Props) {
@@ -70,6 +74,13 @@ export default async function AtribucionSection({ eventoId, country }: Props) {
           </Suspense>
         )
       }
+      piezas={
+        ventana && (
+          <Suspense fallback={<BloqueCargando titulo="Rendimiento por pieza (Meta)" />}>
+            <PiezasSlot eventoId={eventoId} country={country} ventana={ventana} />
+          </Suspense>
+        )
+      }
     />
   );
 }
@@ -106,4 +117,13 @@ async function ConjuntosSlot({ eventoId, country, ventana, cobertura }: SlotProp
       eventoId={eventoId}
     />
   );
+}
+
+async function PiezasSlot({ eventoId, country, ventana }: SlotProps) {
+  const data: RendimientoPiezas | null = await getRendimientoPiezas(eventoId, country, ventana).catch((err: unknown) => {
+    console.error(`[atribucion] getRendimientoPiezas(${eventoId})`, err);
+    return null;
+  });
+  if (!data) return <BloqueError titulo="Rendimiento por pieza (Meta)" />;
+  return <PiezasMetaTable data={data} desde={ventana.desde} hasta={ventana.hasta} eventoId={eventoId} />;
 }

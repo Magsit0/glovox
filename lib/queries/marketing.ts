@@ -12,6 +12,7 @@ import {
   CANAL_META,
   CANAL_SIN_ORIGEN,
   HASTA_ABIERTO,
+  TOP_PIEZAS,
   estadoMedicion,
   mergeUtmOrdenes,
   monedaDePais,
@@ -20,7 +21,9 @@ import {
   type ContenidosQueVenden,
   type FuenteCanal,
   type FunnelCompra,
+  type PiezaMetaRow,
   type RendimientoConjuntos,
+  type RendimientoPiezas,
   type VentanaMedida,
 } from "@/lib/marketing/atribucion";
 import { tipoDeObjetivo } from "@/lib/inversion-medios/tipos";
@@ -121,6 +124,13 @@ const USERS = `\`${P}.comunidadGlovox.users\``;
 // El inicio de la medición de cada propiedad es MIN(fecha_ga4) de esta vista.
 // Definición: data-governance/schemas/bigquery/views/marts_ga4_purchases.sql
 const PURCHASES = `\`${P}.marts.ga4_purchases\``;
+// Meta por anuncio y su ficha de creativo (data-governance): base de "Rendimiento
+// por pieza". ad_performance trae el gasto en moneda nativa y sin EventoID; la
+// atribución al evento y el USD salen de cruzarla con `attributedAds` por
+// (fecha, adset_id) — ver getRendimientoPiezas.
+const AD_PERF = `\`${P}.meta_ads.ad_performance\``;
+const AD_CREATIVES = `\`${P}.meta_ads.ad_creatives\``;
+const PIEZA_ALCANCE = `\`${P}.meta_ads.pieza_alcance\``;
 
 // Fecha de compra en hora local del evento (FechaOrdenLocal, DATETIME): FechaOrden
 // mezcla zonas (PuntoTicket/TeleTicket hora local etiquetada UTC, FeverUp UTC real).
@@ -1766,6 +1776,151 @@ export async function getRendimientoConjuntos(
     ),
     ga4Meta: n(r.ga4_meta),
     ga4MetaSinConjunto: n(r.ga4_meta_sin_conjunto),
+  };
+}
+
+/**
+ * "Rendimiento por pieza (Meta)": gasto, impresiones, visitas y pixel por pieza
+ * (imagen o video, con todos los anuncios que la usan) en la ventana medida.
+ *
+ * El gasto por anuncio (meta_ads.ad_performance) se cruza por (fecha, adset_id)
+ * con los conjuntos que attributedAds ya atribuyó al evento: así la pieza hereda
+ * la misma atribución y el mismo USD (factor gasto_usd / gasto del conjunto ese
+ * día) que "Rendimiento por conjunto", y los totales de las dos tablas cuadran.
+ *
+ * El alcance viene precalculado por Meta para el grupo de anuncios de la pieza
+ * en todo el evento (meta_ads.pieza_alcance): es personas únicas, no se suma.
+ * GA4 no trae el ID del anuncio, así que esta tabla no tiene órdenes GA4.
+ * Solo las primeras TOP_PIEZAS traen miniatura, para no inflar el payload.
+ */
+export async function getRendimientoPiezas(
+  eventoId: string,
+  country: Scope["country"],
+  medible: VentanaMedida,
+): Promise<RendimientoPiezas> {
+  const t = ticketeraFilter({ country });
+  const rows = await queryGa4Cached(
+    `
+    WITH ${ticketPeriodCte(t.sql)},
+    ads_evt AS (${attributedAds(false)}),
+    adset_dia AS (
+      SELECT e.fecha, e.adset_id, SAFE_DIVIDE(SUM(e.gasto_usd), SUM(e.gasto)) AS usd_por_unidad
+      FROM ads_evt e
+      WHERE e.plataforma = 'meta'
+        AND e.fecha BETWEEN DATE(@medDesde) AND DATE(@medHasta)
+      GROUP BY e.fecha, e.adset_id
+    ),
+    por_anuncio AS (
+      SELECT
+        ap.ad_id,
+        ANY_VALUE(ap.ad_name) AS ad_name,
+        ANY_VALUE(ap.campaign_objective) AS objective,
+        SUM(ap.gasto * d.usd_por_unidad) AS gasto_usd,
+        SUM(ap.impresiones) AS impresiones,
+        SUM(ap.visitas_landing) AS visitas_landing,
+        SUM(ap.compras_clic_7d) AS compras_clic,
+        SUM(ap.compras_vista_1d) AS compras_vista,
+        SUM(ap.conversiones) AS pixel
+      FROM ${AD_PERF} ap
+      JOIN adset_dia d ON d.fecha = ap.fecha AND d.adset_id = ap.adset_id
+      GROUP BY ap.ad_id
+    ),
+    anuncios AS (
+      SELECT a.*, COALESCE(c.pieza_id, CONCAT('anuncio:', a.ad_id)) AS pieza_id, c.ad_id IS NULL AS sin_ficha
+      FROM por_anuncio a
+      LEFT JOIN ${AD_CREATIVES} c ON c.ad_id = a.ad_id
+    ),
+    piezas AS (
+      SELECT
+        pieza_id,
+        objective,
+        ARRAY_AGG(ad_name ORDER BY gasto_usd DESC, ad_id LIMIT 1)[OFFSET(0)] AS nombre,
+        COUNT(*) AS anuncios,
+        SUM(gasto_usd) AS gasto_usd,
+        SUM(impresiones) AS impresiones,
+        SUM(visitas_landing) AS visitas_landing,
+        SUM(compras_clic) AS compras_clic,
+        SUM(compras_vista) AS compras_vista,
+        SUM(pixel) AS pixel
+      FROM anuncios
+      GROUP BY pieza_id, objective
+    ),
+    ficha AS (
+      SELECT
+        pieza_id,
+        ARRAY_AGG(STRUCT(pieza_tipo, n_formatos, miniatura_b64, permalink)
+          ORDER BY miniatura_b64 IS NULL, loaded_at DESC LIMIT 1)[OFFSET(0)] AS f
+      FROM ${AD_CREATIVES}
+      WHERE pieza_id IN (SELECT pieza_id FROM piezas)
+      GROUP BY pieza_id
+    ),
+    ranked AS (
+      SELECT p.*, ROW_NUMBER() OVER (ORDER BY p.gasto_usd DESC, p.impresiones DESC, p.pieza_id) AS rk
+      FROM piezas p
+    ),
+    -- Una fila por (pieza, objetivo) ANTES del join: Meta mide el alcance por
+    -- cuenta, y una pieza subida a dos cuentas trae dos filas. Sin agregar, el
+    -- join duplicaría la pieza (y su gasto). Con más de una cuenta el alcance no
+    -- se puede deduplicar entre cuentas: va NULL y la UI explica por qué.
+    alcance AS (
+      SELECT pieza_id, campaign_objective, COUNT(*) AS cuentas, IF(COUNT(*) = 1, MAX(alcance), NULL) AS alcance
+      FROM ${PIEZA_ALCANCE}
+      WHERE evento_id = @eventoId
+      GROUP BY pieza_id, campaign_objective
+    )
+    SELECT
+      ARRAY(
+        SELECT AS STRUCT
+          r.pieza_id,
+          r.nombre,
+          r.objective,
+          r.anuncios,
+          ROUND(r.gasto_usd, 2) AS gasto_usd,
+          r.impresiones,
+          r.visitas_landing,
+          r.compras_clic,
+          r.compras_vista,
+          r.pixel,
+          f.f.pieza_tipo AS tipo,
+          f.f.n_formatos AS formatos,
+          IF(r.rk <= @topPiezas, f.f.miniatura_b64, NULL) AS miniatura,
+          f.f.permalink AS permalink,
+          al.alcance,
+          IFNULL(al.cuentas, 0) AS alcance_cuentas
+        FROM ranked r
+        LEFT JOIN ficha f ON f.pieza_id = r.pieza_id
+        LEFT JOIN alcance al ON al.pieza_id = r.pieza_id AND al.campaign_objective = r.objective
+        ORDER BY r.rk
+      ) AS piezas,
+      (SELECT COUNT(*) FROM anuncios WHERE sin_ficha AND gasto_usd > 0) AS sin_ficha
+    `,
+    { eventoId, medDesde: medible.desde, medHasta: medible.hasta, topPiezas: TOP_PIEZAS, ...t.params },
+  );
+  const r = rows[0] ?? {};
+  const piezas = Array.isArray(r.piezas) ? (r.piezas as Record<string, unknown>[]) : [];
+  return {
+    rows: piezas.map(
+      (p): PiezaMetaRow => ({
+        piezaId: s(p.pieza_id),
+        nombre: s(p.nombre),
+        tipo: s(p.tipo),
+        formatos: n(p.formatos) || 1,
+        anuncios: n(p.anuncios),
+        objective: s(p.objective),
+        objetivo: s(p.objective) ? tipoDeObjetivo("meta", s(p.objective)) : "",
+        gastoUsd: n(p.gasto_usd),
+        impresiones: n(p.impresiones),
+        alcance: p.alcance == null ? null : n(p.alcance),
+        alcanceCuentas: n(p.alcance_cuentas),
+        visitasLanding: n(p.visitas_landing),
+        comprasClic: n(p.compras_clic),
+        comprasVista: n(p.compras_vista),
+        pixel: n(p.pixel),
+        miniatura: s(p.miniatura) || null,
+        permalink: s(p.permalink) || null,
+      }),
+    ),
+    anunciosSinFicha: n(r.sin_ficha),
   };
 }
 

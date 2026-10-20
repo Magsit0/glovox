@@ -23,22 +23,30 @@ type Props = {
   // Solo se muestran cuando hay ventana medida.
   contenidos: React.ReactNode;
   conjuntos: React.ReactNode;
+  piezas: React.ReactNode;
 };
 
 /**
  * Vista de la sección "Atribución de compras": sin consultas (las hace
  * AtribucionSection), para que la composición se pueda renderizar con datos
  * fijos. Cabecera con chips y aviso de medición parcial; con ventana medida,
- * tres filas (lentes | origen real | salud; compras por día | contenidos;
- * conjuntos Meta); sin ella, una línea que explica el estado.
+ * cuatro filas (lentes | origen real | salud; compras por día | contenidos;
+ * conjuntos Meta; piezas Meta); sin ella, una línea que explica el estado.
  */
-export default function AtribucionVista({ a, eventoId, contenidos, conjuntos }: Props) {
+export default function AtribucionVista({ a, eventoId, contenidos, conjuntos, piezas }: Props) {
   const ventana = ventanaMedida(a);
   return (
     <AtribucionMarco>
       <Cabecera a={a} />
       {ventana ? (
-        <Cuerpo a={a} ventana={ventana} eventoId={eventoId} contenidos={contenidos} conjuntos={conjuntos} />
+        <Cuerpo
+          a={a}
+          ventana={ventana}
+          eventoId={eventoId}
+          contenidos={contenidos}
+          conjuntos={conjuntos}
+          piezas={piezas}
+        />
       ) : (
         <MensajeEstado a={a} />
       )}
@@ -151,12 +159,14 @@ function Cuerpo({
   eventoId,
   contenidos,
   conjuntos,
+  piezas,
 }: {
   a: AtribucionCompras;
   ventana: VentanaMedida;
   eventoId: string;
   contenidos: React.ReactNode;
   conjuntos: React.ReactNode;
+  piezas: React.ReactNode;
 }) {
   return (
     <>
@@ -202,6 +212,11 @@ function Cuerpo({
       {/* Fila 3: rendimiento por conjunto (Meta) */}
       <div className="mt-6 pt-6 border-t-2 border-black">
         {conjuntos}
+      </div>
+
+      {/* Fila 4: rendimiento por pieza (Meta): un nivel más abajo que los conjuntos */}
+      <div className="mt-6 pt-6 border-t-2 border-black">
+        {piezas}
       </div>
     </>
   );

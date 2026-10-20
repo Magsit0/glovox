@@ -18,6 +18,7 @@ import {
   type CanalRealRow,
   type ConjuntoMetaRow,
   type ContenidoRow,
+  type PiezaMetaRow,
   type FuenteCanal,
   type Moneda,
 } from "@/lib/marketing/atribucion";
@@ -250,6 +251,50 @@ export function buildConjuntosCsv(rows: ConjuntoMetaRow[]): CsvTable {
       r.ordenesGa4,
       cpaCell(r.gastoUsd, r.pixel),
       cpaCell(r.gastoUsd, r.ordenesGa4),
+    ]),
+  };
+}
+
+/**
+ * CSV de "Rendimiento por pieza (Meta)": todas las piezas (no solo el top que
+ * muestra la tabla), sin la miniatura. El alcance va vacío cuando no se midió y
+ * el CPA clic solo en piezas de Ventas, igual que la tabla.
+ */
+export function buildPiezasCsv(rows: PiezaMetaRow[]): CsvTable {
+  return {
+    headers: [
+      "Pieza",
+      "ID pieza",
+      "Tipo",
+      "Formatos",
+      "Anuncios",
+      "Objetivo",
+      "Gasto (USD)",
+      "Impresiones",
+      "Alcance del evento (personas únicas)",
+      "Visitas landing",
+      "Compras pixel clic 7d",
+      "Compras pixel vista 1d",
+      "Pixel (atribución del conjunto)",
+      "CPA clic (USD)",
+      "Link",
+    ],
+    rows: rows.map((r): CsvCell[] => [
+      textCell(r.nombre),
+      textCell(r.piezaId),
+      textCell(r.tipo),
+      r.formatos,
+      r.anuncios,
+      textCell(r.objetivo),
+      round(r.gastoUsd, 2),
+      r.impresiones,
+      r.alcance ?? "",
+      r.visitasLanding,
+      r.comprasClic,
+      r.comprasVista,
+      r.pixel,
+      r.objective === "OUTCOME_SALES" && r.gastoUsd > 0 && r.comprasClic > 0 ? round(r.gastoUsd / r.comprasClic, 2) : "",
+      textCell(r.permalink ?? ""),
     ]),
   };
 }

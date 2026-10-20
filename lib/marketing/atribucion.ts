@@ -615,6 +615,41 @@ export type RendimientoConjuntos = {
   ga4MetaSinConjunto: number; // de ellas, sin adset identificable
 };
 
+// ---------- Rendimiento por pieza (Meta) ----------
+
+/** Filas visibles (con miniatura) en "Rendimiento por pieza"; el CSV lleva la lista completa. */
+export const TOP_PIEZAS = 15;
+
+/**
+ * Una pieza = una imagen o un video de Meta, con todos los anuncios que la usan
+ * (meta_ads.ad_creatives). Una fila por pieza y objetivo de campaña: la misma
+ * pieza en Ventas y en Cobertura se mide por separado.
+ */
+export type PiezaMetaRow = {
+  piezaId: string; // "imagen:<hash>", "video:<id>", "post:<ig>", "creativo:<id>"; "anuncio:<ad_id>" si aún no tiene ficha
+  nombre: string; // nombre del anuncio con más gasto de la pieza en la ventana
+  tipo: string; // Imagen | Video | Publicación | Otro; "" sin ficha
+  formatos: number; // > 1 en creativos dinámicos (p. ej. feed + story)
+  anuncios: number; // anuncios que la usan con gasto en la ventana
+  objective: string; // enum crudo (OUTCOME_SALES…)
+  objetivo: string; // etiqueta de /inversion-medios (Ventas, Cobertura…)
+  gastoUsd: number; // ventana medida
+  impresiones: number; // ventana medida
+  alcance: number | null; // personas únicas de la pieza en todo el evento, sin duplicar (lo calcula Meta); null si no se midió o si corre en varias cuentas
+  alcanceCuentas: number; // cuentas en que se midió (0 = sin medir; > 1 = alcance null, no se deduplica entre cuentas)
+  visitasLanding: number; // ventana medida
+  comprasClic: number; // pixel, clic en el anuncio (7 días)
+  comprasVista: number; // pixel, vio el anuncio sin clic (1 día)
+  pixel: number; // conversiones con la atribución de cada conjunto: suma igual que en "Rendimiento por conjunto"
+  miniatura: string | null; // JPEG base64; solo en las primeras TOP_PIEZAS
+  permalink: string | null; // post de Instagram del anuncio
+};
+
+export type RendimientoPiezas = {
+  rows: PiezaMetaRow[]; // gasto desc
+  anunciosSinFicha: number; // anuncios con gasto sin ficha de creativo (se muestran por anuncio)
+};
+
 // ---------- Funnel: paso "Compran" ----------
 
 /** Paso que el Funnel agrega en modo "Desde medición GA4" (FunnelRow.step / stepOrder). */
