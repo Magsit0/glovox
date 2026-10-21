@@ -5,7 +5,7 @@ import {
   index,
   integer,
   jsonb,
-  pgEnum,
+  pgSchema,
   pgTable,
   primaryKey,
   serial,
@@ -20,11 +20,24 @@ import type { EtapaCampana } from "@/lib/inversion-medios/etapas";
 // Re-export para consumidores que ya importan EtapaCampana desde @/db/schema.
 export type { EtapaCampana };
 
-export const roleEnum = pgEnum("user_role", ["superadmin", "user"]);
-export const countryEnum = pgEnum("country", ["CL", "PE"]);
-export const pendingStatusEnum = pgEnum("pending_status", ["pending", "done"]);
+// Cómo se reparte Neon entre los proyectos (un mismo servidor):
+//  - Base `glovox-data`:
+//      · schema `data`   → tablas EXCLUSIVAS de glovox-data (las de este archivo).
+//      · schema `ops`    → tablas exclusivas de glovox-operaciones.
+//      · schema `public` → solo las COMPARTIDAS por ambos proyectos
+//                          (compras_insumo, proveedores, insumos_catalogo).
+//      · schema `drizzle`→ una tabla de control de migraciones por proyecto.
+//  - Base `glovox-produccion`: aparte, con su schema `produccion`.
+// Es una separación por nombre, no un aislamiento: las dos apps entran con el
+// mismo rol y pueden leerse si califican el nombre. Tabla nueva propia de
+// glovox-data → `dataSchema.table(...)`; `pgTable` solo para las compartidas.
+export const dataSchema = pgSchema("data");
 
-export const users = pgTable("users", {
+export const roleEnum = dataSchema.enum("user_role", ["superadmin", "user"]);
+export const countryEnum = dataSchema.enum("country", ["CL", "PE"]);
+export const pendingStatusEnum = dataSchema.enum("pending_status", ["pending", "done"]);
+
+export const users = dataSchema.table("users", {
   id: uuid("id").defaultRandom().primaryKey(),
   email: text("email").notNull().unique(),
   role: roleEnum("role").notNull().default("user"),
@@ -41,7 +54,7 @@ export const users = pgTable("users", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
 
-export const dashboards = pgTable("dashboards", {
+export const dashboards = dataSchema.table("dashboards", {
   key: text("key").primaryKey(),
   pathPrefix: text("path_prefix").notNull().unique(),
   label: text("label").notNull(),
@@ -53,7 +66,7 @@ export const dashboards = pgTable("dashboards", {
   description: text("description").notNull().default(""),
 });
 
-export const userDashboardAccess = pgTable(
+export const userDashboardAccess = dataSchema.table(
   "user_dashboard_access",
   {
     userId: uuid("user_id")
@@ -70,7 +83,7 @@ export const userDashboardAccess = pgTable(
   (t) => [primaryKey({ columns: [t.userId, t.dashboardKey] })],
 );
 
-export const superadminPendings = pgTable("superadmin_pendings", {
+export const superadminPendings = dataSchema.table("superadmin_pendings", {
   id: uuid("id").defaultRandom().primaryKey(),
   dashboardKey: text("dashboard_key")
     .notNull()
@@ -94,7 +107,7 @@ export const superadminPendings = pgTable("superadmin_pendings", {
 // que el equipo edita en vivo desde `/governance`: override de estado, owner,
 // notas y tags. Scaffolding para la edición (v2); en v1 `/governance` es solo
 // lectura y el estado sale del manifiesto.
-export const governanceAssetState = pgTable("governance_asset_state", {
+export const governanceAssetState = dataSchema.table("governance_asset_state", {
   // == CatalogAsset.key (FQN "dataset.tabla")
   assetKey: text("asset_key").primaryKey(),
   statusOverride: text("status_override"),
@@ -107,7 +120,7 @@ export const governanceAssetState = pgTable("governance_asset_state", {
     .notNull(),
 });
 
-export const auditLog = pgTable("audit_log", {
+export const auditLog = dataSchema.table("audit_log", {
   id: uuid("id").defaultRandom().primaryKey(),
   actorId: uuid("actor_id"),
   action: text("action").notNull(),
@@ -118,7 +131,7 @@ export const auditLog = pgTable("audit_log", {
     .notNull(),
 });
 
-export const dashboardAccessLog = pgTable(
+export const dashboardAccessLog = dataSchema.table(
   "dashboard_access_log",
   {
     id: serial("id").primaryKey(),
@@ -142,6 +155,8 @@ export const dashboardAccessLog = pgTable(
 // FF&BB — Compras de insumos imputadas por Operaciones. La fuente de verdad
 // vive acá; el dashboard cruza contra `onfire.soldItems` × `formulaTragoBQ`
 // (BigQuery) por `eventoId` + `insumo` para calcular consumo vs comprado.
+// COMPARTIDA con glovox-operaciones (la define también su schema.ts): se queda
+// en `public`. Moverla obliga a cambiar los dos proyectos a la vez.
 export const comprasInsumo = pgTable(
   "compras_insumo",
   {
@@ -193,7 +208,7 @@ export const comprasInsumo = pgTable(
 
 // FF&BB — Catálogo de proveedores. Source-of-truth para el dropdown de
 // "proveedor" en el form de imputar compras. Operaciones puede agregar
-// nuevos desde el combobox inline.
+// nuevos desde el combobox inline. COMPARTIDA con glovox-operaciones: `public`.
 export const proveedores = pgTable("proveedores", {
   id: uuid("id").defaultRandom().primaryKey(),
   nombre: text("nombre").notNull().unique(),
@@ -205,7 +220,8 @@ export const proveedores = pgTable("proveedores", {
 
 // FF&BB — Catálogo de insumos. El "nombre" se usa para cruzar con
 // `formulaTragoBQ` (BigQuery) por igualdad de string. Las otras columnas
-// (grupo, mL, marca, porCaja) son metadata operativa.
+// (grupo, mL, marca, porCaja) son metadata operativa. COMPARTIDA con
+// glovox-operaciones (agrega columnas propias, p.ej. `tipo`): `public`.
 export const insumosCatalogo = pgTable("insumos_catalogo", {
   id: uuid("id").defaultRandom().primaryKey(),
   nombre: text("nombre").notNull().unique(),
@@ -223,7 +239,7 @@ export const insumosCatalogo = pgTable("insumos_catalogo", {
 // UN facturador es identificado únicamente por su RUT. Un mismo facturador
 // puede emitir facturas representando a varias marcas comerciales distintas
 // (caso típico: agencia o holding intermediario).
-export const marcaFacturadores = pgTable("marca_facturadores", {
+export const marcaFacturadores = dataSchema.table("marca_facturadores", {
   id: uuid("id").defaultRandom().primaryKey(),
   rut: text("rut").notNull().unique(),
   razonSocial: text("razon_social").notNull(),
@@ -243,7 +259,7 @@ export const marcaFacturadores = pgTable("marca_facturadores", {
 // como filas separadas en la matriz, manteniendo el RUT del facturador en
 // común. El nombre de la marca es UNIQUE → previene duplicados accidentales
 // tipo "Entel" vs "Entel PCS" como marcas distintas si en realidad son lo mismo.
-export const marcaClientes = pgTable("marca_clientes", {
+export const marcaClientes = dataSchema.table("marca_clientes", {
   id: uuid("id").defaultRandom().primaryKey(),
   nombre: text("nombre").notNull().unique(),
   facturadorId: uuid("facturador_id")
@@ -273,7 +289,7 @@ export const marcaClientes = pgTable("marca_clientes", {
 // bruto se calcula server-side a partir del neto + IVA (19%). Persistimos
 // snapshot de rut/cliente para mantener el registro estable aunque el cliente
 // cambie de nombre o RUT.
-export const marcaIngresos = pgTable(
+export const marcaIngresos = dataSchema.table(
   "marca_ingresos",
   {
     id: uuid("id").defaultRandom().primaryKey(),
@@ -301,7 +317,7 @@ export const marcaIngresos = pgTable(
 // aparte porque es un concepto distinto al fee de auspicio. Reusa el catálogo
 // `marca_clientes` (sólo las marcas con `tiene_plan_medios = true`). El bruto
 // se calcula desde el neto + IVA (19%); snapshot de rut/cliente igual que marcas.
-export const mediosIngresos = pgTable(
+export const mediosIngresos = dataSchema.table(
   "medios_ingresos",
   {
     id: uuid("id").defaultRandom().primaryKey(),
@@ -330,7 +346,7 @@ export const mediosIngresos = pgTable(
 // `precio` es el monto que paga la marca y `exento` decide el IVA. Por defecto
 // TRUE (exento) → neto = precio, IVA = 0; si FALSE (afecto), el precio es bruto
 // (IVA incluido) → neto = precio/1,19. Snapshot de rut/cliente del facturador.
-export const productoIngresos = pgTable(
+export const productoIngresos = dataSchema.table(
   "producto_ingresos",
   {
     id: uuid("id").defaultRandom().primaryKey(),
@@ -358,7 +374,7 @@ export const productoIngresos = pgTable(
 // `razon_social` son OPCIONALES: muchos clientes son personas sin RUT
 // capturado. El identificador de la fila es `nombre` (UNIQUE, normalizado).
 // `tipo_cliente` (empresa|natural) sólo afecta el label del formulario.
-export const mesasVipClientes = pgTable("mesas_vip_clientes", {
+export const mesasVipClientes = dataSchema.table("mesas_vip_clientes", {
   id: uuid("id").defaultRandom().primaryKey(),
   nombre: text("nombre").notNull().unique(),
   rut: text("rut"),
@@ -381,7 +397,7 @@ export const mesasVipClientes = pgTable("mesas_vip_clientes", {
 // precio (lib/constants/mesasVip.ts) es informativo — no se persiste.
 // `estado_pago` (pendiente|abono|pagado) controla si el cliente está al día.
 // Snapshot de rut/cliente para estabilidad histórica.
-export const mesasVipIngresos = pgTable(
+export const mesasVipIngresos = dataSchema.table(
   "mesas_vip_ingresos",
   {
     id: uuid("id").defaultRandom().primaryKey(),
@@ -410,7 +426,7 @@ export const mesasVipIngresos = pgTable(
 // Default 55% cuando no hay fila (lib/constants/rebate.ts). `porcentaje` se
 // guarda en puntos porcentuales (55 = 55%). Keyed por EventoID (los primeros
 // 6 caracteres de la referencia del negocio, ej. "GLO194").
-export const rebateConfig = pgTable("rebate_config", {
+export const rebateConfig = dataSchema.table("rebate_config", {
   eventoId: text("evento_id").primaryKey(),
   porcentaje: doublePrecision("porcentaje").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
@@ -430,7 +446,7 @@ export const rebateConfig = pgTable("rebate_config", {
 // lib/ticketing-pricing/config.ts). Las columnas de cabecera son para listar y
 // filtrar; las fórmulas (CPS, ingresos, rebate) se derivan en cliente y
 // servidor con lib/ticketing-pricing/formulas.ts, no se persisten.
-export const ticketingPlanes = pgTable(
+export const ticketingPlanes = dataSchema.table(
   "ticketing_planes",
   {
     id: uuid("id").defaultRandom().primaryKey(),
@@ -486,7 +502,7 @@ export type NewRebateConfig = typeof rebateConfig.$inferInsert;
 // cupo NO viven acá — varían por evento y se cargan en el `doc` del plan. Soft
 // delete vía `activo` (desactivar no rompe planes viejos, que guardan el nombre
 // denormalizado). Único por (país, nombre).
-export const ticketingSponsors = pgTable(
+export const ticketingSponsors = dataSchema.table(
   "ticketing_sponsors",
   {
     id: uuid("id").defaultRandom().primaryKey(),
@@ -517,7 +533,7 @@ export type NewTicketingSponsor = typeof ticketingSponsors.$inferInsert;
 // Las fórmulas (ingreso proyectado, techo, cascada) se derivan en cliente y
 // servidor con lib/budget-forecast/formulas.ts, no se persisten. Las columnas de
 // cabecera son para listar/filtrar.
-export const presupuestosEvento = pgTable(
+export const presupuestosEvento = dataSchema.table(
   "presupuestos_evento",
   {
     id: uuid("id").defaultRandom().primaryKey(),
@@ -555,7 +571,7 @@ export interface AgendaItem {
 // superadmins (no hay scope por usuario). `fecha` es la PK (YYYY-MM-DD) → upsert
 // directo por día; `updatedBy` deja rastro de quién editó al final. No alimenta
 // ningún dashboard ni BigQuery.
-export const adminAgendaNotas = pgTable("admin_agenda_notas", {
+export const adminAgendaNotas = dataSchema.table("admin_agenda_notas", {
   fecha: date("fecha").primaryKey(),
   items: jsonb("items").$type<AgendaItem[]>().notNull().default([]),
   // DEPRECATED (agenda v1, texto libre). El código ya NO la lee ni escribe: se
@@ -583,7 +599,7 @@ export type NewAdminAgendaNota = typeof adminAgendaNotas.$inferInsert;
 // TOTAL del día del evento = SUMA de las 3 plataformas. `fecha` completa
 // YYYY-MM-DD. El gasto REAL no se persiste acá: se lee de
 // marts.paidmedia_ads_performance (gasto_usd por EventoID × fecha × plataforma).
-export const inversionMediosDiario = pgTable(
+export const inversionMediosDiario = dataSchema.table(
   "inversion_medios_diario",
   {
     id: uuid("id").defaultRandom().primaryKey(),
@@ -635,7 +651,7 @@ export type NewInversionMediosDiario = typeof inversionMediosDiario.$inferInsert
 // color suave arriba del calendario en el drill. El color se deriva del índice.
 // El tipo EtapaCampana vive en un módulo CLIENT-SAFE (lo consume el drill cliente)
 // para no arrastrar Drizzle/BigQuery al bundle del navegador.
-export const inversionMediosEtapas = pgTable("inversion_medios_etapas", {
+export const inversionMediosEtapas = dataSchema.table("inversion_medios_etapas", {
   eventoId: text("evento_id").primaryKey(),
   etapas: jsonb("etapas").$type<EtapaCampana[]>().notNull().default([]),
   createdAt: timestamp("created_at", { withTimezone: true })
@@ -656,7 +672,7 @@ export type InversionMediosEtapas = typeof inversionMediosEtapas.$inferSelect;
 // iniciativa (INI001…), así que el editor del drill sirve igual. Su techo es la
 // suma de su plan (no hay budgetPm). Su gasto real NO sale del nombre de la
 // campaña: son las campañas que el equipo le asigna a mano (abajo).
-export const iniciativasPm = pgTable(
+export const iniciativasPm = dataSchema.table(
   "iniciativas_pm",
   {
     // INI + 3 dígitos. Cumple el formato de EventoID de la ruta y no choca con
@@ -680,7 +696,7 @@ export type IniciativaPm = typeof iniciativasPm.$inferSelect;
 // campaña pertenece a UNA iniciativa (PK plataforma + campaign_id: el nombre
 // cambia, el id no). Solo captura gasto SIN evento: si la campaña trae un
 // EventoID válido en el nombre, ese gasto sigue siendo del evento.
-export const iniciativasPmCampanas = pgTable(
+export const iniciativasPmCampanas = dataSchema.table(
   "iniciativas_pm_campanas",
   {
     plataforma: text("plataforma").notNull(),
@@ -708,7 +724,7 @@ export type IniciativaPmCampana = typeof iniciativasPmCampanas.$inferSelect;
 // el resumen normaliza cada cargo a costo mensual y semanal para presupuestar.
 // `diaPago` es texto libre (ej. "15", "1 de marzo", "lunes") solo informativo.
 // `metodo` ∈ METODOS_CARGO (definido en @/lib/inversion-medios/cargos, client-safe).
-export const cargosExtraPm = pgTable("cargos_extra_pm", {
+export const cargosExtraPm = dataSchema.table("cargos_extra_pm", {
   id: uuid("id").defaultRandom().primaryKey(),
   proveedor: text("proveedor").notNull(),
   detalle: text("detalle"),
@@ -732,7 +748,7 @@ export type CargoExtra = typeof cargosExtraPm.$inferSelect;
 // `negocio_id` (ID de Unabase, el mismo string que lista la tabla de admin);
 // upsert al togglear, last-write-wins. El detalle de quién/cuándo queda en la
 // fila y el historial de toggles en `audit_log`.
-export const negocioVariableEnvio = pgTable("negocio_variable_envio", {
+export const negocioVariableEnvio = dataSchema.table("negocio_variable_envio", {
   negocioId: text("negocio_id").primaryKey(),
   enviado: boolean("enviado").notNull().default(true),
   // Mes/año del variable al que corresponde el envío ("yyyy-mm"). Lo fija el

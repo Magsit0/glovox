@@ -29,14 +29,14 @@ const pool = new Pool({
 try {
   for (const s of SPONSORS) {
     await pool.query(
-      `INSERT INTO ticketing_sponsors (nombre, country)
+      `INSERT INTO data.ticketing_sponsors (nombre, country)
        VALUES ($1, $2)
        ON CONFLICT (country, nombre) DO NOTHING`,
       [s.nombre, s.country],
     );
   }
   const r = await pool.query(
-    "SELECT nombre, country, activo FROM ticketing_sponsors ORDER BY country, nombre",
+    "SELECT nombre, country, activo FROM data.ticketing_sponsors ORDER BY country, nombre",
   );
   console.log(`Catálogo de sponsors (${r.rows.length}):`);
   for (const row of r.rows) {

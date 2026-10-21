@@ -4,6 +4,8 @@ import type { Config } from "drizzle-kit";
 // DATABASE_URL. `db:migrate` / `db:studio` need it in .env.local. `db:push` is
 // intentionally neutralized (exit 1): the Neon DB is shared with
 // glovox-operaciones and push would drop the other project's columns.
+// Reparto de la base (detalle en db/schema.ts): `data` = glovox-data,
+// `ops` = glovox-operaciones, `public` = las 3 tablas compartidas.
 export default {
   schema: "./db/schema.ts",
   out: "./db/migrations",

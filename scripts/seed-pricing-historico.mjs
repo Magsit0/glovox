@@ -109,16 +109,16 @@ const pool = new Pool({ connectionString: url });
 
 try {
   for (const p of PLANES) {
-    await pool.query("DELETE FROM ticketing_planes WHERE nombre = $1", [p.nombre]);
+    await pool.query("DELETE FROM data.ticketing_planes WHERE nombre = $1", [p.nombre]);
     const res = await pool.query(
-      `INSERT INTO ticketing_planes (nombre, country, fecha_evento, doc)
+      `INSERT INTO data.ticketing_planes (nombre, country, fecha_evento, doc)
        VALUES ($1, $2, $3, $4::jsonb)
        RETURNING id`,
       [p.nombre, p.country, p.fechaEvento, JSON.stringify(p.doc)],
     );
     console.log(`✓ ${p.nombre} (${p.country}) → ${res.rows[0].id} · ${p.doc.celdas.length} celdas`);
   }
-  const count = await pool.query("SELECT count(*)::int AS n FROM ticketing_planes");
+  const count = await pool.query("SELECT count(*)::int AS n FROM data.ticketing_planes");
   console.log(`Total planes en ticketing_planes: ${count.rows[0].n}`);
 } finally {
   await pool.end();
