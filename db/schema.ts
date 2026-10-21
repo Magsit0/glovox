@@ -762,6 +762,33 @@ export const negocioVariableEnvio = dataSchema.table("negocio_variable_envio", {
 });
 export type NegocioVariableEnvio = typeof negocioVariableEnvio.$inferSelect;
 
+// EDITORES POR CAPACIDAD — Lista acotada de personas que pueden ejercer una
+// capacidad. Hoy una: `metas-evento` = definir goalTickets y budgetPm de un
+// evento desde el drill de /inversion-medios (escribe la celda de la hoja
+// CategoriaEvento y la fila de glovox.categoriaEvento), con tope de 2 editores
+// (MAX_EDITORES en lib/editores-capacidad.ts, que lo hace cumplir al asignar).
+// Los superadmins siempre pueden y no van en la tabla (puedeEjercer). Una fila
+// por (capacidad, persona). Se asigna desde /admin/users y el historial
+// queda en audit_log. Se lee en cada carga y en cada guardado: NO viaja en el
+// JWT, que solo se refresca al iniciar sesión, así que quitar a alguien rige de
+// inmediato. Nació como `editores_unicos` (un titular, PK = capacidad; 0035) y
+// pasó a lista en la 0036.
+export const editoresCapacidad = dataSchema.table(
+  "editores_capacidad",
+  {
+    capacidad: text("capacidad").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    asignadoPor: uuid("asignado_por"),
+    asignadoAt: timestamp("asignado_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.capacidad, t.userId] })],
+);
+export type EditorCapacidad = typeof editoresCapacidad.$inferSelect;
+
 export type Role = (typeof roleEnum.enumValues)[number];
 export type Country = (typeof countryEnum.enumValues)[number];
 export type PendingStatus = (typeof pendingStatusEnum.enumValues)[number];

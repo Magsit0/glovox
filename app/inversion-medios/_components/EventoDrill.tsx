@@ -3,7 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "@/lib/use-router";
 import Link from "next/link";
-import { ArrowLeft, CalendarRange, ChevronDown, ChevronRight, Lock, Plus, Trash2, X } from "lucide-react";
+import { ArrowLeft, CalendarRange, ChevronDown, ChevronRight, Plus, Trash2, X } from "lucide-react";
 import type {
   AdsMetricasEvento,
   DrillGrid,
@@ -32,6 +32,7 @@ import {
 import { bulkFillPlanAction, deleteRowAction, saveEtapasAction } from "../actions";
 import CeldaPlan from "./CeldaPlan";
 import HolguraEvento, { fmtSigned, toneClass } from "./HolguraEvento";
+import { StatMeta } from "./MetaEventoEditor";
 import RendimientoEvento from "./RendimientoEvento";
 import { BordeAncho, BotonAncho, CONTENEDOR_NOMBRE, useAnchoColumna, W_NOMBRE } from "./AnchoColumna";
 import { COL_DRILL } from "@/lib/inversion-medios/col-nombre";
@@ -77,6 +78,10 @@ type Props = {
   serieResultado: SerieResultadoRow[];
   /** Ancho guardado de la columna de nombres de la sábana (cookie leída por la page). */
   anchoNombreInicial: number;
+  /** true solo para un editor de `metas-evento` con el evento abierto: muestra
+   *  el lápiz de goalTickets/budgetPm (el input lee la hoja al abrirse). false o
+   *  ausente = drill sin edición de metas (sin lápiz ni aviso). */
+  editarMetas?: boolean;
 };
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -154,9 +159,13 @@ export default function EventoDrill({
   tickets,
   serieResultado,
   anchoNombreInicial,
+  editarMetas = false,
 }: Props) {
   const { dias, plataformas, totalDia, totalPlan, totalReal } = drill;
   const esIniciativa = modo === "iniciativa";
+  // Edición de metas: solo existe para un editor (la page manda `editarMetas`).
+  const metaTecho = editarMetas && !esIniciativa ? { eventoId, campo: "budgetPm" as const } : null;
+  const metaGoal = editarMetas && !esIniciativa ? { eventoId, campo: "goalTickets" as const } : null;
   // Columna de nombres AJUSTABLE (canal → tipo → campaña): arrastrar su borde,
   // botón ⇔ o teclado; se recuerda en cookie, aparte de la del calendario.
   // Antes era fija en 160px y las campañas salían truncadas. Ver ./AnchoColumna.tsx.
@@ -396,7 +405,16 @@ export default function EventoDrill({
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
-          <Stat label="Presupuesto (techo)" value={techoUsd != null ? fmtUsd(techoUsd) : "—"} hint="budgetPm · /admin/eventos" />
+          {metaTecho ? (
+            <StatMeta
+              label="Presupuesto (techo)"
+              value={techoUsd != null ? fmtUsd(techoUsd) : "—"}
+              hint="budgetPm en USD · se guarda en la planilla de eventos"
+              meta={metaTecho}
+            />
+          ) : (
+            <Stat label="Presupuesto (techo)" value={techoUsd != null ? fmtUsd(techoUsd) : "—"} hint="budgetPm · /admin/eventos" />
+          )}
           <Stat label="Plan total" value={fmtUsd(totalPlan)} hint={pctPlan != null ? `${pctPlan.toFixed(0)}% del techo` : "sin techo"} />
           <Stat label="Invertido (real)" value={fmtUsd(totalReal)} hint={pctReal != null ? `${pctReal.toFixed(0)}% del techo` : "sin techo"} />
           <Stat
@@ -425,6 +443,7 @@ export default function EventoDrill({
           ads={ads}
           tickets={tickets}
           hoyEnRango={dias.length > 0 && dias[0] <= hoy && hoy <= dias[dias.length - 1]}
+          metaGoal={metaGoal}
         />
       )}
 
@@ -435,6 +454,7 @@ export default function EventoDrill({
         hoy={hoy}
         ultimoDia={ultimoDia}
         sinHolgura={esIniciativa}
+        metaTecho={metaTecho}
       />
 
       {canEdit && <EtapasEditor eventoId={eventoId} etapas={etapas} />}
@@ -513,16 +533,10 @@ export default function EventoDrill({
                     colSpan={nPasados}
                     style={{ height: BAND_H, top: bandaTop }}
                     className="sticky z-20 border-b border-[var(--divider)] bg-[var(--surface-alt)] px-2 py-1 text-left text-[10px] font-medium uppercase tracking-wide text-[var(--ink-subtle)]"
-                    title={
-                      isSuperadmin
-                        ? "Días anteriores a hoy: el resto del equipo los ve bloqueados; como superadmin puedes corregirlos."
-                        : "Días anteriores a hoy: su plan no se edita, es la base para medir el desvío. Las correcciones las hace un superadmin."
-                    }
                   >
-                    <span className="sticky left-[calc(var(--col-nombre)+12px)] inline-flex items-center gap-1 whitespace-nowrap">
-                      <Lock className="h-2.5 w-2.5" />
-                      Días pasados · {isSuperadmin ? "solo superadmin edita" : "plan bloqueado"}
-                    </span>
+                    {/* Sin rótulo de permisos: quién puede corregir estos días lo
+                        decide la action (esDiaBloqueado), la franja solo los nombra. */}
+                    <span className="sticky left-[calc(var(--col-nombre)+12px)] whitespace-nowrap">Días pasados</span>
                   </th>
                   {dias.length > nPasados && (
                     <th
@@ -955,8 +969,8 @@ export default function EventoDrill({
         objetivo declarado en la plataforma; <span className="text-[var(--ink)]">RMKT</span> es una marca
         de la campaña y suma dentro de su tipo. <span className="italic text-[var(--ink-subtle)]">Sin tipo</span>{" "}
         es el plan cargado antes del desglose — muévelo a su tipo (carga el monto en el tipo correcto y
-        vacía la celda de Sin tipo). Los <span className="text-[var(--ink)]">días anteriores a hoy</span> no se
-        editan: su plan es la base del desvío (solo un superadmin los corrige). Las filas de desvío comparan
+        vacía la celda de Sin tipo). El plan de los <span className="text-[var(--ink)]">días anteriores a hoy</span>{" "}
+        es la base del desvío. Las filas de desvío comparan
         plan y real de los días cerrados, y la holgura por día reparte lo que queda por asignar hasta el
         evento. El real de hoy es parcial (los datos de ads llegan a las 09:45). Las filas de{" "}
         <span className="text-[var(--ink-muted)]">Resultado del día</span> van en gris y de una línea: son

@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import { getCategoriaEventos, getEventInfo } from "@/lib/queries/ticketing";
-import { normDias, ultimoDiaEvento } from "@/lib/inversion-medios/evento";
+import { metasAbiertas, normDias, ultimoDiaEvento } from "@/lib/inversion-medios/evento";
+import { puedeEjercer } from "@/lib/editores-capacidad";
 import { anchoDesdeCookie, COL_CALENDARIO, COL_DRILL, type ColumnaNombre } from "@/lib/inversion-medios/col-nombre";
 import { hoySantiago } from "@/lib/inversion-medios/holgura";
 import { esIniciativaId } from "@/lib/inversion-medios/iniciativas";
@@ -99,7 +100,12 @@ export default async function InversionMediosPage({
     return esIniciativaId(evento) ? (
       <IniciativaDrillView iniciativaId={evento} canEdit={canEdit} isSuperadmin={isSuperadmin} />
     ) : (
-      <DrillView eventoId={evento} canEdit={canEdit} isSuperadmin={isSuperadmin} />
+      <DrillView
+        eventoId={evento}
+        canEdit={canEdit}
+        isSuperadmin={isSuperadmin}
+        userId={session.user.userId ?? null}
+      />
     );
   }
 
@@ -307,16 +313,19 @@ async function DrillView({
   eventoId,
   canEdit,
   isSuperadmin,
+  userId,
 }: {
   eventoId: string;
   canEdit: boolean;
   isSuperadmin: boolean;
+  userId: string | null;
 }) {
-  const [info, realMaxFecha, realCorte, anchoNombreInicial] = await Promise.all([
+  const [info, realMaxFecha, realCorte, anchoNombreInicial, editorMetas] = await Promise.all([
     getEventInfo(eventoId),
     getRealMaxFecha(),
     getRealCorte(),
     anchoColumna(COL_DRILL),
+    puedeEjercer("metas-evento", userId).catch(() => false),
   ]);
   if (!info) {
     return (
@@ -376,6 +385,10 @@ async function DrillView({
       getRendimientoTicketsEvento(eventoId, from, to),
       getSerieResultadoEvento(eventoId, from, to),
     ]);
+  // Lápiz de metas: editor de `metas-evento` o superadmin (lectura fresca de la base) y
+  // evento abierto. La hoja NO se lee acá: el input la lee al abrirse
+  // (leerMetaEventoAction), así un render del drill no gasta cuota de Sheets.
+  const editarMetas = editorMetas && metasAbiertas(info.fechaEvento, info.dias, hoy);
 
   const planVentana = planAll.filter((p) => p.fecha >= from && p.fecha <= to);
   const drill = buildDrillGrid({ from, to, plan: planVentana, real });
@@ -401,6 +414,7 @@ async function DrillView({
       tickets={tickets}
       serieResultado={serieResultado}
       anchoNombreInicial={anchoNombreInicial}
+      editarMetas={editarMetas}
     />
   );
 }

@@ -18,6 +18,7 @@
 import { getSheetsClient } from "@/lib/google-sheets";
 import { db } from "@/db";
 import { auditLog } from "@/db/schema";
+import { findEventoIdCol } from "@/lib/eventos-create";
 
 /**
  * `USER_ENTERED`: Sheets interpreta el valor como si lo tipeara una persona, así
@@ -351,6 +352,136 @@ export async function appendRow(
   });
 
   await logAudit(actorId, `${target}.sheet.append`, { email, cols: values.length });
+}
+
+// ---------- Celdas numéricas de UN evento (editor de metas) ----------
+
+/**
+ * Valor de celda sin formato → número, null (vacía) o el TEXTO tal cual si no es
+ * un número (alguien escribió "TBD" o "-"). El texto se conserva para poder
+ * compararlo en la verificación de conflicto y reemplazarlo; convertirlo a NaN
+ * dejaba la celda imposible de corregir (NaN !== NaN).
+ */
+function celdaValor(v: unknown): number | string | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "number") return v;
+  const s = String(v).trim();
+  if (s === "") return null;
+  return /^-?\d+(\.\d+)?$/.test(s) ? Number(s) : s;
+}
+
+export interface CeldasEvento {
+  spreadsheetId: string;
+  sheetTitle: string;
+  /** Filas 0-based (fila 0 = encabezados) donde aparece el EventoID. */
+  filas: number[];
+  /** Índice de columna 0-based por encabezado pedido. */
+  columnas: Record<string, number>;
+  /** Valores sin formato por encabezado, alineados a `filas` (ver celdaValor). */
+  valores: Record<string, (number | string | null)[]>;
+}
+
+/**
+ * Lee, para un EventoID, columnas numéricas de la pestaña Eventos ubicándolas
+ * por NOMBRE de encabezado (robusto al orden) y la fila por EventoID, NO por
+ * posición: la hoja se ordena o se le insertan filas a mano. Lee solo esas
+ * columnas y sin formato (`UNFORMATTED_VALUE`: un 1.500 llega como 1500, no como
+ * el texto con separador de miles). El EventoID puede repetirse (GLO042 ×6):
+ * vienen todas sus filas. null si el evento no está en la hoja.
+ */
+export async function readCeldasEvento(
+  eventoId: string,
+  headers: string[],
+): Promise<CeldasEvento | null> {
+  const { spreadsheetId, sheetTitle } = await resolveTarget("eventos");
+  const client = getSheetsClient();
+  const headerRes = await client.spreadsheets.values.get({
+    spreadsheetId,
+    range: `${quoteSheet(sheetTitle)}!1:1`,
+    majorDimension: "ROWS",
+  });
+  const header = (headerRes.data.values?.[0] ?? []).map((v) =>
+    v === null || v === undefined ? "" : String(v),
+  );
+  const idCol = findEventoIdCol(header);
+  if (idCol < 0) throw new Error("La hoja no tiene la columna EventoID");
+  const columnas: Record<string, number> = {};
+  for (const h of headers) {
+    const c = header.findIndex((x) => x.trim().toLowerCase() === h.toLowerCase());
+    if (c < 0) throw new Error(`La hoja no tiene la columna ${h}`);
+    columnas[h] = c;
+  }
+
+  const cols = [idCol, ...headers.map((h) => columnas[h])];
+  const res = await client.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges: cols.map((c) => `${quoteSheet(sheetTitle)}!${colToA1(c)}:${colToA1(c)}`),
+    majorDimension: "COLUMNS",
+    valueRenderOption: "UNFORMATTED_VALUE",
+  });
+  const colVals = (res.data.valueRanges ?? []).map((vr) => (vr.values?.[0] ?? []) as unknown[]);
+  const ids = colVals[0] ?? [];
+  const id = eventoId.trim().toUpperCase();
+  const filas: number[] = [];
+  for (let r = 1; r < ids.length; r++) {
+    if (String(ids[r] ?? "").trim().toUpperCase() === id) filas.push(r);
+  }
+  if (filas.length === 0) return null;
+
+  const valores: Record<string, (number | string | null)[]> = {};
+  headers.forEach((h, i) => {
+    const col = colVals[i + 1] ?? [];
+    valores[h] = filas.map((r) => celdaValor(col[r]));
+  });
+  return { spreadsheetId, sheetTitle, filas, columnas, valores };
+}
+
+/** La hoja cambió entre que se leyó y se intentó escribir, o no admite la escritura. */
+export class ConflictoHojaError extends Error {}
+
+/**
+ * Un EventoID repetido cuyas filas no coinciden en `header`: no hay un valor
+ * actual único contra el cual verificar. Se corrige a mano en la hoja.
+ */
+export function filasDistintas(valores: (number | string | null)[]): boolean {
+  return new Set(valores).size > 1;
+}
+export const MSG_FILAS_DISTINTAS =
+  "Este evento aparece en varias filas de la planilla con valores distintos en esta columna. Hay que unificarlas en la planilla antes de editarlo aquí.";
+
+/**
+ * Escribe UN número (o vacía la celda con null) en la columna `header` de cada
+ * fila del EventoID, y nada más de la hoja. Concurrencia optimista: relee esas
+ * celdas justo antes y, si alguna ya no vale `esperado` (el valor de la hoja que
+ * vio el editor: número, texto o null), aborta sin escribir. `RAW` con un number
+ * de JS: queda numérica (la columna alimenta un INT64 en BQ) y no puede colarse
+ * una fórmula. Devuelve las celdas A1 escritas.
+ */
+export async function writeNumeroEvento(
+  eventoId: string,
+  header: string,
+  esperado: number | string | null,
+  nuevo: number | null,
+): Promise<string[]> {
+  const celdas = await readCeldasEvento(eventoId, [header]);
+  if (!celdas) throw new ConflictoHojaError(`El evento ${eventoId} no está en la planilla.`);
+  const actuales = celdas.valores[header];
+  if (filasDistintas(actuales)) throw new ConflictoHojaError(MSG_FILAS_DISTINTAS);
+  if (actuales[0] !== esperado) {
+    throw new ConflictoHojaError(
+      "El valor cambió en la planilla mientras lo editabas. Cierra el editor y ábrelo de nuevo para ver el actual.",
+    );
+  }
+  const col = celdas.columnas[header];
+  const ranges = celdas.filas.map((r) => cellA1(celdas.sheetTitle, r, col));
+  await getSheetsClient().spreadsheets.values.batchUpdate({
+    spreadsheetId: celdas.spreadsheetId,
+    requestBody: {
+      valueInputOption: "RAW",
+      data: ranges.map((range) => ({ range, values: [[nuevo ?? ""]] })),
+    },
+  });
+  return ranges;
 }
 
 // ---------- Registro de tipos por columna (pestaña _tipos) ----------

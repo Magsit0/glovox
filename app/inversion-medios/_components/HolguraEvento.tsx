@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { DefinirMeta, type MetaEditable } from "./MetaEventoEditor";
 import {
   CartesianGrid,
   Line,
@@ -49,6 +50,7 @@ export default function HolguraEvento({
   hoy,
   ultimoDia,
   sinHolgura = false,
+  metaTecho = null,
 }: {
   holgura: Holgura;
   canales: CanalDesvio[];
@@ -59,6 +61,8 @@ export default function HolguraEvento({
   /** Omite "Holgura para lo que queda" (iniciativas: su techo ES la suma del
    *  plan, así que "por asignar" siempre daría el desvío). Queda el desvío. */
   sinHolgura?: boolean;
+  /** Solo para un editor de `metas-evento`: sin techo, ofrece definirlo acá. */
+  metaTecho?: MetaEditable | null;
 }) {
   const { corte, realCerrado, planCerrado, planPendiente, porAsignar, diasRestantes, porDia, desvio } = holgura;
 
@@ -92,9 +96,16 @@ export default function HolguraEvento({
         </div>
         <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-4">
           {techoUsd == null ? (
-            <p className="font-sans text-sm text-[var(--ink-subtle)]">
-              El evento no tiene techo cargado: el presupuesto (budgetPm) se define en /admin/eventos.
-            </p>
+            metaTecho ? (
+              <div className="flex flex-wrap items-center gap-3">
+                <p className="font-sans text-sm text-[var(--ink-subtle)]">El evento no tiene techo cargado.</p>
+                <DefinirMeta meta={metaTecho} label="Definir techo" />
+              </div>
+            ) : (
+              <p className="font-sans text-sm text-[var(--ink-subtle)]">
+                El evento no tiene techo cargado: el presupuesto (budgetPm) se define en /admin/eventos.
+              </p>
+            )
           ) : (
             <>
               <div className="flex flex-wrap items-stretch gap-2.5">

@@ -12,6 +12,7 @@ import {
   type CreateUserInput,
 } from "@/lib/admin-users-service";
 import type { Country, Role } from "@/db/schema";
+import { EditoresError, esCapacidad, setEditores } from "@/lib/editores-capacidad";
 
 const ROLES: Role[] = ["superadmin", "user"];
 const COUNTRIES: Country[] = ["CL", "PE"];
@@ -65,4 +66,31 @@ export async function restoreUserAction(userId: string) {
   const ctx = await requireSuperadmin();
   await restoreUser(ctx.email, userId);
   revalidatePath("/admin/users");
+}
+
+/**
+ * Lista completa de editores de una capacidad (hoy: `metas-evento`, hasta 2).
+ * Lista vacía = nadie. Rige al instante: la capacidad se lee de la base en cada
+ * carga y en cada guardado, no del token. El tope lo valida setEditores.
+ * Los rechazos esperados vuelven como valor: un error lanzado desde una server
+ * action llega al cliente de producción con un mensaje genérico, sin el texto.
+ */
+export async function setEditoresAction(
+  capacidad: string,
+  userIds: string[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const ctx = await requireSuperadmin();
+  if (!esCapacidad(capacidad)) return { ok: false, error: "Capacidad inválida" };
+  if (!Array.isArray(userIds) || userIds.some((id) => typeof id !== "string")) {
+    return { ok: false, error: "Lista de usuarios inválida" };
+  }
+  try {
+    await setEditores(capacidad, userIds, ctx.userId);
+  } catch (err) {
+    if (err instanceof EditoresError) return { ok: false, error: err.message };
+    console.error("[admin/users] setEditores falló", err);
+    return { ok: false, error: "No se pudo guardar. Intenta de nuevo." };
+  }
+  revalidatePath("/admin/users");
+  return { ok: true };
 }

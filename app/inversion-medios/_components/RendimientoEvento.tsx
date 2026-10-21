@@ -37,6 +37,7 @@
 import type { AdsMetricasEvento, EstadoReferido, TicketsEvento } from "@/lib/queries/inversion-medios";
 import { BRECHA_SANA_MAX, PM_PROPAGACION_MIN } from "@/lib/inversion-medios/rendimiento";
 import { div, fmtConv, fmtPct, formatInt, formatUnitCost, fmtUsd } from "./format";
+import { StatMeta, type MetaEditable } from "./MetaEventoEditor";
 
 /** Motivo CORTO, para la nota de la card degradada. */
 const MOTIVO_CORTO: Record<EstadoReferido, string> = {
@@ -72,10 +73,13 @@ export default function RendimientoEvento({
   ads,
   tickets,
   hoyEnRango,
+  metaGoal = null,
 }: {
   ads: AdsMetricasEvento;
   tickets: TicketsEvento;
   hoyEnRango: boolean;
+  /** Solo para un editor de `metas-evento`: habilita editar la meta. */
+  metaGoal?: MetaEditable | null;
 }) {
   const t = tickets;
 
@@ -127,16 +131,31 @@ export default function RendimientoEvento({
           )}
         </Stat>
 
-        <Stat
-          label="% de la meta"
-          value={fmtPct(pctMeta, 1)}
-          hint={
-            t.goalTickets
-              ? `${formatInt(t.personas)} de ${formatInt(t.goalTickets)} personas`
-              : "sin meta cargada"
-          }
-          title="Meta de tickets del evento (goalTickets, se carga en /admin/eventos junto con el techo). Está en personas, por eso se compara contra personas."
-        />
+        {metaGoal ? (
+          <StatMeta
+            label="% de la meta"
+            value={fmtPct(pctMeta, 1)}
+            hint={
+              t.goalTickets
+                ? `${formatInt(t.personas)} de ${formatInt(t.goalTickets)} personas`
+                : "sin meta cargada"
+            }
+            hintClassName="mt-1.5 font-sans text-[11px] leading-tight text-[var(--ink-subtle)]"
+            title="Meta de tickets del evento (goalTickets), en personas: por eso se compara contra personas. Se guarda en la planilla de eventos."
+            meta={metaGoal}
+          />
+        ) : (
+          <Stat
+            label="% de la meta"
+            value={fmtPct(pctMeta, 1)}
+            hint={
+              t.goalTickets
+                ? `${formatInt(t.personas)} de ${formatInt(t.goalTickets)} personas`
+                : "sin meta cargada"
+            }
+            title="Meta de tickets del evento (goalTickets, se carga en /admin/eventos junto con el techo). Está en personas, por eso se compara contra personas."
+          />
+        )}
 
         {t.devueltas > 0 && (
           <Stat

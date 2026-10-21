@@ -148,7 +148,7 @@ export default function CeldaPlan({
         // Read-only: mismo lugar que el plan, sin input.
         <span
           className="px-1 py-0.5 text-center tabular-nums text-xs font-medium text-[var(--plan)]"
-          title={bloqueado ? "Día pasado: el plan no se edita (es la base del desvío). Las correcciones las hace un superadmin." : undefined}
+          title={bloqueado ? "Día pasado: su plan es la base del desvío." : undefined}
         >
           {saved != null ? fmtUsd(saved, 0) : <span className="text-[var(--divider)]">·</span>}
         </span>

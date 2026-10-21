@@ -28,6 +28,11 @@ import {
 import { SIN_TIPO, TIPOS_PLAN } from "@/lib/inversion-medios/tipos";
 import { withNeonRetry } from "@/lib/neon-retry";
 import { getEventInfo } from "@/lib/queries/ticketing";
+import { puedeEjercer } from "@/lib/editores-capacidad";
+import { ConflictoHojaError } from "@/lib/eventos-sheet-service";
+import { guardarMetaEvento, leerBaseMeta } from "@/lib/eventos-metas-service";
+import { metasAbiertas } from "@/lib/inversion-medios/evento";
+import { esCampoMeta, MAX_META, parseMeta, type BaseMeta, type CampoMeta } from "@/lib/inversion-medios/metas";
 
 export type ActionResult<T = void> =
   | { ok: true; data?: T; warning?: string }
@@ -913,5 +918,107 @@ export async function archivarIniciativaAction(input: {
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Error al archivar" };
+  }
+}
+
+// ---------- Metas del evento (goalTickets / budgetPm) ----------
+
+// Respuesta única ante cualquier rechazo de permiso: quien no es editor no
+// tiene controles en pantalla, así que no hay nada que explicarle.
+const NO_GUARDADO = "No se pudo guardar";
+
+/**
+ * Puerta común de las dos actions de metas: grant del panel + editor (o superadmin) de
+ * `metas-evento` (leído de la base AHORA, no del token) + evento válido y
+ * abierto. La fecha sale de getEventInfo, la MISMA fuente con la que la page
+ * decide si muestra el lápiz (Fecha del catálogo, o la de tickets si falta).
+ */
+async function puertaMetas(
+  eventoIdRaw: unknown,
+  campoRaw: unknown,
+): Promise<{ ok: true; ctx: ActorCtx; eventoId: string; campo: CampoMeta } | { ok: false; error: string }> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+    if (!(await puedeEjercer("metas-evento", ctx.userId))) return { ok: false, error: NO_GUARDADO };
+  } catch {
+    return { ok: false, error: NO_GUARDADO };
+  }
+  const eventoId = String(eventoIdRaw ?? "").toUpperCase();
+  if (!EVENTO_RE.test(eventoId) || esIniciativaId(eventoId)) return { ok: false, error: "Evento inválido" };
+  if (!esCampoMeta(campoRaw)) return { ok: false, error: "Campo inválido" };
+  const info = await getEventInfo(eventoId);
+  if (!info) return { ok: false, error: `El evento ${eventoId} no existe en categoriaEvento` };
+  if (!metasAbiertas(info.fechaEvento, info.dias, hoySantiago())) {
+    return { ok: false, error: "El evento ya terminó; su meta y su techo quedan cerrados" };
+  }
+  return { ok: true, ctx, eventoId, campo: campoRaw };
+}
+
+/** Valor actual de la hoja para el campo: la base del input al abrir el editor. */
+export async function leerMetaEventoAction(input: {
+  eventoId: string;
+  campo: string;
+}): Promise<ActionResult<{ base: BaseMeta }>> {
+  try {
+    const p = await puertaMetas(input?.eventoId, input?.campo);
+    if (!p.ok) return p;
+    const r = await leerBaseMeta(p.eventoId, p.campo);
+    return r.ok ? { ok: true, data: { base: r.base } } : r;
+  } catch (err) {
+    console.error(`[inversion-medios] leerMetaEvento ${String(input?.eventoId)}`, err);
+    return { ok: false, error: "No se pudo leer la planilla. Intenta de nuevo." };
+  }
+}
+
+/**
+ * Define la meta de tickets (personas) o el techo de inversión (USD) de un
+ * evento. Escribe la celda de ese evento en la hoja CategoriaEvento y la fila de
+ * glovox.categoriaEvento (lib/eventos-metas-service.ts). `esperado` es el valor
+ * de la HOJA que el editor leyó al abrir el input: si cambió entremedio, no se
+ * escribe.
+ */
+export async function saveMetaEventoAction(input: {
+  eventoId: string;
+  campo: string;
+  esperado: BaseMeta;
+  valor: string;
+}): Promise<ActionResult> {
+  const esperado = input?.esperado;
+  const esperadoValido =
+    esperado === null ||
+    (typeof esperado === "number" && Number.isFinite(esperado)) ||
+    (typeof esperado === "string" && esperado.length <= 500);
+  if (!esperadoValido) return { ok: false, error: "Datos inválidos" };
+
+  const nuevo = parseMeta(String(input?.valor ?? ""));
+  if (nuevo === undefined) return { ok: false, error: "Escribe un número entero, sin decimales" };
+
+  try {
+    const p = await puertaMetas(input?.eventoId, input?.campo);
+    if (!p.ok) return p;
+    const { ctx, eventoId, campo } = p;
+    if (nuevo !== null && nuevo > MAX_META[campo]) return { ok: false, error: "El valor es demasiado alto" };
+    if (nuevo === esperado) return { ok: true };
+
+    const { bqOk } = await guardarMetaEvento({
+      eventoId,
+      campo,
+      esperado,
+      nuevo,
+      actorId: ctx.userId,
+      email: ctx.email,
+    });
+    revalidatePath("/inversion-medios");
+    return bqOk
+      ? { ok: true }
+      : {
+          ok: true,
+          warning: "Quedó guardado en la planilla; los dashboards lo mostrarán tras la próxima sincronización.",
+        };
+  } catch (err) {
+    if (err instanceof ConflictoHojaError) return { ok: false, error: err.message };
+    console.error(`[inversion-medios] saveMetaEvento ${String(input?.eventoId)}.${String(input?.campo)}`, err);
+    return { ok: false, error: "No se pudo guardar en la planilla. Intenta de nuevo." };
   }
 }

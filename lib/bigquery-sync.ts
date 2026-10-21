@@ -108,6 +108,41 @@ async function getExternalColumns(
     .map((f) => ({ name: f.name as string, type: f.type ?? "STRING" }));
 }
 
+/** Columnas INT64 de categoriaEvento que el editor de metas actualiza puntualmente. */
+const CAMPOS_PUNTUALES = new Set(["goalTickets", "budgetPm"]);
+
+/**
+ * UPDATE puntual de UNA columna de glovox.categoriaEvento para un EventoID (todas
+ * sus filas, si está repetido), sin rematerializar la tabla: el sync completo
+ * publicaría cualquier otra edición de la hoja que aún no se quiere subir. Va
+ * después de escribir la misma celda en la hoja, así que el próximo sync
+ * completo reproduce el mismo valor. El nombre de columna no es parametrizable
+ * en SQL: sale de una lista cerrada. Devuelve las filas afectadas.
+ */
+export async function updateCampoCategoriaEvento(
+  eventoId: string,
+  campo: string,
+  valor: number | null,
+): Promise<number> {
+  if (!CAMPOS_PUNTUALES.has(campo)) throw new Error(`Campo no actualizable: ${campo}`);
+  const bq = getBigQuerySyncClient();
+  const [job] = await bq.createQueryJob({
+    query:
+      "UPDATE `" + PROJECT + ".glovox.categoriaEvento`\n" +
+      "SET `" + campo + "` = @valor\n" +
+      "WHERE EventoID = @eventoId",
+    params: { valor, eventoId },
+    types: { valor: "INT64", eventoId: "STRING" },
+  });
+  await job.getQueryResults();
+  const [meta] = await job.getMetadata();
+  const n = Number(
+    (meta as { statistics?: { query?: { numDmlAffectedRows?: string } } }).statistics?.query
+      ?.numDmlAffectedRows ?? 0,
+  );
+  return Number.isFinite(n) ? n : 0;
+}
+
 /**
  * Sincroniza una pestaña del Sheet → su tabla nativa en BigQuery: refresca la
  * externa, arma el CREATE OR REPLACE con los casts de tipo registrados, lo

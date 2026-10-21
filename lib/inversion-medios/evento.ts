@@ -75,3 +75,18 @@ export function tituloDiaEvento(
     ) + 1;
   return `Día ${idx} de ${total} del evento`;
 }
+
+/**
+ * ¿Se pueden definir todavía la meta y el techo del evento? Hasta su ÚLTIMO día
+ * inclusive (un multi-día sigue abierto en su día 2). Un evento terminado queda
+ * cerrado: su meta y su techo son la vara con la que ya se midieron el cierre y
+ * el desvío. Sin fecha declarada sigue abierto (se está planificando).
+ */
+export function metasAbiertas(
+  fechaEvento: string,
+  dias: number | null | undefined,
+  hoy: string,
+): boolean {
+  if (!fechaEvento) return true;
+  return ultimoDiaEvento(fechaEvento, dias) >= hoy;
+}
