@@ -26,11 +26,14 @@ export const SIN_TIPO_LABEL = "Sin tipo";
  * se clasifica solo (objective→OBJ_MAP) y los labels cruzan por igualdad.
  * Un tipo real fuera de esta lista (ej. "App", "Shopping") se muestra en el
  * drill como fila SOLO-LECTURA; para planificarlo, se agrega acá.
+ * TikTok "Ventas" se agregó el 2026-10-23 a pedido del equipo: la primera
+ * campaña de ventas en TikTok (GLO212) aparecía como "Conversiones" de solo
+ * lectura y no se podía planificar.
  */
 export const TIPOS_PLAN: Record<string, readonly string[]> = {
   meta: ["Ventas", "Cobertura", "Tráfico", "Interacción", "Formularios"],
   google: ["P.Max", "Search", "YouTube", "Display", "Demand Gen"],
-  tiktok: ["Cobertura", "Tráfico"],
+  tiktok: ["Ventas", "Cobertura", "Tráfico"],
 };
 
 /** Fila cruda del mart: gasto real por (fecha, plataforma, objective, campaña). */
@@ -71,8 +74,13 @@ const OBJ_MAP: Record<string, Record<string, string>> = {
     TRAFFIC: "Tráfico",
     VIDEO_VIEWS: "Video",
     ENGAGEMENT: "Interacción",
-    WEB_CONVERSIONS: "Conversiones",
-    CONVERSIONS: "Conversiones",
+    // El objetivo de ventas de TikTok: en su interfaz en español se llama
+    // "Ventas" y el equipo nombra estas campañas "… | Ventas". Misma etiqueta
+    // que Meta OUTCOME_SALES para que el plan se lea igual en los dos canales;
+    // el CPA pixel NO depende de esta etiqueta (filtra Meta OUTCOME_SALES).
+    WEB_CONVERSIONS: "Ventas",
+    CONVERSIONS: "Ventas",
+    PRODUCT_SALES: "Ventas",
   },
 };
 
