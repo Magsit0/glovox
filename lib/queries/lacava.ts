@@ -407,3 +407,80 @@ export async function getLaCavaMedios(
     venta: n(r.venta),
   }));
 }
+
+export type LaCavaBeneficio =
+  | "Normal"
+  | "Prime"
+  | "Cencosud"
+  | "Prime + Cencosud"
+  | "Colaboradores"
+  | "Otros";
+
+export type LaCavaBeneficioRow = {
+  beneficio: LaCavaBeneficio;
+  transacciones: number;
+  personas: number;
+  venta: number;
+};
+
+/**
+ * Tipo de ticket según el beneficio usado (solo ventas reales). La ticketera
+ * no guarda el beneficio: se deduce del precio de lista, el % de descuento y
+ * el medio de pago, según el plan de ticketing de cada edición.
+ *  - código COLABORADOR… → Colaboradores
+ *  - precio de la preventa exclusiva Prime (`precioPreventaPrime`, 2026:
+ *    $10.000): sin descuento → Prime; con Tarjeta Cencosud ($9.000) →
+ *    Prime + Cencosud
+ *  - sin descuento → Normal
+ *  - Tarjeta Cencosud con ≥ 20% → Prime + Cencosud (2026: 30%)
+ *  - Tarjeta Cencosud con menos → Cencosud (2026: 10%; 2025: 15%)
+ *  - otro medio con descuento < 100% → Prime (2026: 20%; 2025: 20–25%)
+ *  - el resto (descuento total, etc.) → Otros
+ */
+export async function getLaCavaBeneficios(
+  eventoId: string,
+  /** Precio de lista de la preventa exclusiva Prime; 0 si la edición no tuvo. */
+  precioPreventaPrime = 0,
+): Promise<LaCavaBeneficioRow[]> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH base AS (
+      SELECT
+        t.Precio AS precio,
+        t.PersonasPorTicket AS personas,
+        t.Precio - IFNULL(t.Descuento, 0) AS venta,
+        SAFE_DIVIDE(IFNULL(t.Descuento, 0), NULLIF(t.Precio, 0)) AS pct,
+        IFNULL(t.MedioPago, '') LIKE '%Cencosud%' AS cencosud,
+        UPPER(IFNULL(t.CodigoPromocion, '')) LIKE 'COLABORADOR%' AS colaborador
+      FROM ${TICKETS} t
+      WHERE t.EventoID = @eventoId
+        AND ${ES_VENTA}
+    )
+    SELECT
+      CASE
+        WHEN colaborador THEN 'Colaboradores'
+        WHEN @precioPreventaPrime > 0 AND precio = @precioPreventaPrime AND cencosud
+          AND IFNULL(pct, 0) >= 0.005 THEN 'Prime + Cencosud'
+        WHEN @precioPreventaPrime > 0 AND precio = @precioPreventaPrime THEN 'Prime'
+        WHEN IFNULL(pct, 0) < 0.005 THEN 'Normal'
+        WHEN cencosud AND pct >= 0.195 THEN 'Prime + Cencosud'
+        WHEN cencosud THEN 'Cencosud'
+        WHEN pct < 0.995 THEN 'Prime'
+        ELSE 'Otros'
+      END                AS beneficio,
+      COUNT(*)           AS transacciones,
+      SUM(personas)      AS personas,
+      SUM(venta)         AS venta
+    FROM base
+    GROUP BY beneficio
+    ORDER BY personas DESC
+    `,
+    { eventoId, precioPreventaPrime },
+  );
+  return rows.map((r) => ({
+    beneficio: s(r.beneficio) as LaCavaBeneficio,
+    transacciones: n(r.transacciones),
+    personas: n(r.personas),
+    venta: n(r.venta),
+  }));
+}

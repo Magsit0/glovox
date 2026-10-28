@@ -6,6 +6,7 @@ import { canAccessPath } from "@/lib/permissions";
 import { isValidShareToken } from "@/lib/lacava/share-token";
 import {
   getLaCavaEventos,
+  getLaCavaBeneficios,
   getLaCavaMedios,
   getLaCavaPrecios,
   getLaCavaTipos,
@@ -31,7 +32,7 @@ import ContadorKpi from "@/components/lacava/ContadorKpi";
 import RevelarAlVer from "@/components/lacava/RevelarAlVer";
 import type { PlanTarget } from "@/components/lacava/PlanVentaCard";
 import PreciosCard from "@/components/lacava/PreciosCard";
-import MediosPagoCard from "@/components/lacava/MediosPagoCard";
+import TiposYMediosCard from "@/components/lacava/TiposYMediosCard";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +52,15 @@ const PLAN_VENTA: Record<string, { minimo: number; objetivo: number }> = {
  */
 const SOLD_OUT_POR_JORNADA: Record<string, SoldOutPorJornada> = {
   GLO209: { 5: 2122, 6: 2250, 0: 831 },
+};
+
+/**
+ * Precio de lista de la preventa exclusiva Jumbo Prime, por edición (plan de
+ * ticketing en Drive: "Plan Ticketing La Cava Jumbo 2026"). Ese tramo es
+ * Prime aunque no tenga descuento; con Tarjeta Cencosud, Prime + Cencosud.
+ */
+const PRECIO_PREVENTA_PRIME: Record<string, number> = {
+  GLO209: 10000,
 };
 
 const compactClp = new Intl.NumberFormat("es-CL", {
@@ -123,11 +133,12 @@ export default async function LaCavaPage({
     : defaultId;
   const evento = eventos.find((e) => e.eventoId === selectedId) as LaCavaEvento;
 
-  const [dias, tipos, precios, medios, ventaPorJornada, curvaRows] = await Promise.all([
+  const [dias, tipos, precios, medios, beneficios, ventaPorJornada, curvaRows] = await Promise.all([
     getLaCavaVentaDiaria(selectedId),
     getLaCavaTipos(selectedId),
     getLaCavaPrecios(selectedId),
     getLaCavaMedios(selectedId),
+    getLaCavaBeneficios(selectedId, PRECIO_PREVENTA_PRIME[selectedId]),
     getLaCavaVentaPorJornada(selectedId),
     // Misma matemática que /marketing/curvas. Trae JUMBO (curvas del gráfico
     // comparativo) + FBM (Bocas Moradas: los comparables de las trayectorias
@@ -357,13 +368,8 @@ export default async function LaCavaPage({
         }
       />
 
-      {/* Medios de pago */}
-      <Card
-        title="Medios de pago"
-        subtitle="Venta neta por medio de pago (solo ventas pagadas)."
-      >
-        <MediosPagoCard key={selectedId} medios={medios} />
-      </Card>
+      {/* Tipos de ticket (beneficio) y medios de pago, con toggle */}
+      <TiposYMediosCard key={selectedId} beneficios={beneficios} medios={medios} />
 
       {/* Tramos de precio */}
       <Card
