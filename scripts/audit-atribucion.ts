@@ -116,6 +116,10 @@ type Esperado = {
   enVenta: boolean; // la venta sigue abierta: las órdenes pendientes siguen creciendo
 };
 
+// fueraWeb de los eventos Fever (660905, 669533, 708092) bajó el 2026-10-28: la
+// clase sale de glovox.tickets.ventaNoventa y las órdenes hechas solo de cortesías
+// (Fever las marcaba VENTA) dejaron de contar como órdenes. Nuevo = valor de la
+// spec − esas órdenes, contadas aparte con SQL: 654−268, 22−18, 157−64.
 const ESPERADO: Record<string, Esperado> = {
   GLO211: {
     estado: "parcial", desde: "2026-09-17", hasta: "2026-09-27", propiedades: 1,
@@ -143,19 +147,19 @@ const ESPERADO: Record<string, Esperado> = {
   },
   "708092": {
     estado: "parcial", desde: "2026-08-24", hasta: "2026-09-20", propiedades: 1,
-    medibles: 617, vistas: 439, cov: 71.2, pase: 0, fueraWeb: 157, antes: 261, pendientes: 0,
+    medibles: 617, vistas: 439, cov: 71.2, pase: 0, fueraWeb: 93, antes: 261, pendientes: 0,
     pixelV: 315, pixelT: 316, ga4Meta: 84, refMt: 87, ga4Gg: 0, refGg: 0,
     gastoV: 2773.14, gastoT: 3747.25, gastoG: 0, cpaPixel: 8.8, cpaGa4: 33.0, cpaRef: 31.9, enVenta: false,
   },
   "660905": {
     estado: "parcial", desde: "2026-06-17", hasta: "2026-08-02", propiedades: 1,
-    medibles: 1609, vistas: 1353, cov: 84.1, pase: 0, fueraWeb: 654, antes: 54, pendientes: 0,
+    medibles: 1609, vistas: 1353, cov: 84.1, pase: 0, fueraWeb: 386, antes: 54, pendientes: 0,
     pixelV: 747, pixelT: 753, ga4Meta: 276, refMt: 3, ga4Gg: 268, refGg: 0,
     gastoV: 3131.67, gastoT: 5321.61, gastoG: 1121.24, cpaPixel: 4.2, cpaGa4: 11.3, cpaRef: null, enVenta: false,
   },
   "669533": {
     estado: "parcial", desde: "2026-07-01", hasta: "2026-09-12", propiedades: 2,
-    medibles: 507, vistas: 297, cov: 58.6, pase: 0, fueraWeb: 22, antes: 149, pendientes: 0,
+    medibles: 507, vistas: 297, cov: 58.6, pase: 0, fueraWeb: 4, antes: 149, pendientes: 0,
     pixelV: 177, pixelT: 177, ga4Meta: 34, refMt: 26, ga4Gg: 1, refGg: 1,
     gastoV: 2763.82, gastoT: 4213.61, gastoG: 0, cpaPixel: 15.6, cpaGa4: 81.3, cpaRef: null, enVenta: false,
   },

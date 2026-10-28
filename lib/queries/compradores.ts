@@ -11,9 +11,9 @@
  * `*Nominado` = ASISTENTE. Este dashboard trabaja sobre el asistente; el
  * comprador va solo como respaldo en el modo "por ticket".
  *
- * Clase de ticket: ESPEJO del CASE de `TICKET_TYPE_FILTER` (marketing.ts) y de
- * `CLASE_CASE` (curvas.ts). "Ventas" = VENTA + PASE TEMPORADA; "Cortesías" =
- * CORTESIA + MESA VIP (ambas entran por `MedioPago = 'Otro'`). Los devueltos
+ * Clase de ticket: se LEE de `glovox.tickets.ventaNoventa` (lib/tickets/clase.ts),
+ * igual que `TICKET_TYPE_FILTER` (marketing.ts) y las curvas. "Ventas" = VENTA +
+ * PASE TEMPORADA; "Cortesías" = CORTESIA + MESA VIP. Los devueltos
  * (`EsDevuelto`) quedan siempre fuera: no son asistentes.
  *
  * Todo SQL con parámetros nombrados; el único texto interpolado son constantes
@@ -33,6 +33,7 @@ import {
   type CompradoresModo,
   type ExportRow,
 } from "@/lib/compradores/filtros";
+import { CLASES_CORTESIA, CLASES_VENTA, sqlClases } from "@/lib/tickets/clase";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 const TICKETS = `\`${P}.glovox.tickets\``;
@@ -57,14 +58,10 @@ function s(v: unknown): string {
 
 // ---------- Clase de ticket ----------
 
-/** Espejo del CASE de marketing.ts / curvas.ts (alias `t`). */
-const CLASE_CASE = `
-  CASE
-    WHEN t.MedioPago = 'Otro' AND (LOWER(t.TipoTicket) LIKE '%pase%' OR LOWER(t.TipoTicket) LIKE '%pass%') THEN 'PASE TEMPORADA'
-    WHEN t.MedioPago = 'Otro' AND LOWER(t.TipoTicket) LIKE '%mesa%' THEN 'MESA VIP'
-    WHEN t.MedioPago = 'Otro' THEN 'CORTESIA'
-    ELSE 'VENTA'
-  END`;
+/** Clase del ticket (alias `t`): la declara glovox.tickets.ventaNoventa. */
+const CLASE_COL = "t.ventaNoventa";
+const IN_VENTA = sqlClases(CLASES_VENTA);
+const IN_CORTESIA = sqlClases(CLASES_CORTESIA);
 
 // ---------- Fuente de los datos de contacto ----------
 
@@ -116,8 +113,8 @@ function baseCtes(filters: CompradoresFilters, scope: DataScope | undefined): Sq
   }
 
   const condsFiltro: string[] = ["TRUE"];
-  if (filters.tipo === "ventas") condsFiltro.push("clase IN ('VENTA', 'PASE TEMPORADA')");
-  if (filters.tipo === "cortesias") condsFiltro.push("clase IN ('CORTESIA', 'MESA VIP')");
+  if (filters.tipo === "ventas") condsFiltro.push(`clase IN ${IN_VENTA}`);
+  if (filters.tipo === "cortesias") condsFiltro.push(`clase IN ${IN_CORTESIA}`);
   if (filters.contacto === "email") condsFiltro.push("email_contacto IS NOT NULL");
   if (filters.contacto === "telefono") condsFiltro.push("telefono_contacto IS NOT NULL");
 
@@ -140,7 +137,7 @@ function baseCtes(filters: CompradoresFilters, scope: DataScope | undefined): Sq
         ev.categoria                                             AS categoria_evento,
         FORMAT_DATE('%Y-%m-%d', COALESCE(ev.fecha, DATE(t.FechaEvento))) AS fecha_evento,
         t.FechaOrdenLocal                                        AS fecha_orden,
-        ${CLASE_CASE}                                            AS clase,
+        ${CLASE_COL}                                             AS clase,
         t.TipoTicket                                             AS tipo_ticket,
         t.CategoriaTicket                                        AS categoria_ticket,
         t.OrdenID                                                AS orden_id,
@@ -308,8 +305,8 @@ export async function getCompradoresResumen(
     SELECT
       COUNT(*)                                                     AS tickets,
       IFNULL(SUM(personas), 0)                                     AS personas,
-      COUNTIF(clase IN ('VENTA', 'PASE TEMPORADA'))                AS ventas,
-      COUNTIF(clase IN ('CORTESIA', 'MESA VIP'))                   AS cortesias,
+      COUNTIF(clase IN ${IN_VENTA})                                AS ventas,
+      COUNTIF(clase IN ${IN_CORTESIA})                             AS cortesias,
       COUNTIF(nombre_contacto IS NOT NULL)                         AS con_nombre,
       COUNTIF(email_contacto IS NOT NULL)                          AS con_email,
       COUNTIF(telefono_contacto IS NOT NULL)                       AS con_telefono,
@@ -331,8 +328,8 @@ export async function getCompradoresResumen(
       ANY_VALUE(fecha_evento)                         AS fecha,
       ANY_VALUE(ticketera)                            AS ticketera,
       COUNT(*)                                        AS tickets,
-      COUNTIF(clase IN ('VENTA', 'PASE TEMPORADA'))   AS ventas,
-      COUNTIF(clase IN ('CORTESIA', 'MESA VIP'))      AS cortesias,
+      COUNTIF(clase IN ${IN_VENTA})                   AS ventas,
+      COUNTIF(clase IN ${IN_CORTESIA})                AS cortesias,
       COUNTIF(email_contacto IS NOT NULL)             AS con_email,
       COUNTIF(telefono_contacto IS NOT NULL)          AS con_telefono,
       COUNT(DISTINCT email_contacto)                  AS emails_unicos

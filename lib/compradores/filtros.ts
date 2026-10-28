@@ -8,6 +8,8 @@
  * `lib/queries/compradores.ts`.
  */
 
+import { CLASES_CORTESIA, type Clase } from "@/lib/tickets/clase";
+
 export type CompradoresTipo = "todos" | "ventas" | "cortesias";
 export type CompradoresContacto = "todos" | "email" | "telefono";
 export type CompradoresModo = "persona" | "ticket";
@@ -110,10 +112,10 @@ export function filtersToSearchParams(f: CompradoresFilters): URLSearchParams {
 
 // ---------- Clase de ticket ----------
 
-export type Clase = "VENTA" | "PASE TEMPORADA" | "CORTESIA" | "MESA VIP";
-
-export const CLASES_VENTA: readonly Clase[] = ["VENTA", "PASE TEMPORADA"];
-export const CLASES_CORTESIA: readonly Clase[] = ["CORTESIA", "MESA VIP"];
+// La clase y sus listas se definen en un solo lugar (lib/tickets/clase.ts, que
+// documenta de dónde sale: glovox.tickets.ventaNoventa). Acá solo se reexportan
+// para no cambiar los imports existentes.
+export { CLASES_VENTA, CLASES_CORTESIA, type Clase } from "@/lib/tickets/clase";
 
 export const CLASE_LABEL: Record<Clase, string> = {
   VENTA: "Venta",

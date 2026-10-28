@@ -12,6 +12,7 @@ import {
 } from "@/db/schema";
 import type { CampanaAsignada, Iniciativa } from "@/lib/inversion-medios/iniciativas";
 import { query } from "@/lib/bigquery";
+import { esVentaSql } from "@/lib/tickets/clase";
 import { PM_PROPAGACION_MIN } from "@/lib/inversion-medios/rendimiento";
 import { withNeonRetry } from "@/lib/neon-retry";
 
@@ -94,18 +95,13 @@ const TICKETS = `\`${P}.glovox.tickets\``;
 const META_VENTAS = `(m.plataforma = 'meta' AND m.objective = 'OUTCOME_SALES')`;
 
 /**
- * Clase de ticket. ESPEJO EXACTO de TICKET_TYPE_FILTER
- * (lib/queries/marketing.ts:51-59) con alias `t`, para que los conteos de este
- * panel sean comparables con /marketing y /ticketing. Excluye CORTESIA (20,6% de
- * las filas del universo, hasta 64,6% en GLP002) y MESA VIP; CONSERVA VENTA y
- * PASE TEMPORADA.
+ * Ticket vendido: mismo criterio que TICKET_TYPE_FILTER de
+ * lib/queries/marketing.ts, con alias `t`, para que los conteos de este panel
+ * sean comparables con /marketing y /ticketing. La clase se LEE de
+ * glovox.tickets.ventaNoventa (lib/tickets/clase.ts): excluye CORTESIA y
+ * MESA VIP; CONSERVA VENTA y PASE TEMPORADA. Sin devoluciones.
  */
-const CLASE_TICKET = `CASE
-  WHEN t.MedioPago = 'Otro' AND (LOWER(t.TipoTicket) LIKE '%pase%' OR LOWER(t.TipoTicket) LIKE '%pass%') THEN 'PASE TEMPORADA'
-  WHEN t.MedioPago = 'Otro' AND LOWER(t.TipoTicket) LIKE '%mesa%' THEN 'MESA VIP'
-  WHEN t.MedioPago = 'Otro' THEN 'CORTESIA'
-  ELSE 'VENTA' END`;
-const VENDIDO = `${CLASE_TICKET} IN ('VENTA','PASE TEMPORADA') AND t.EsDevuelto IS FALSE`;
+const VENDIDO = `${esVentaSql("t.ventaNoventa")} AND t.EsDevuelto IS FALSE`;
 
 /**
  * Ajuste de display ya vigente en el repo (lib/queries/marketing.ts:48). SIN

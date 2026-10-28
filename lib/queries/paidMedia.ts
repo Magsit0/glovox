@@ -1,4 +1,5 @@
 import { query } from "@/lib/bigquery";
+import { esVentaSql } from "@/lib/tickets/clase";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 
@@ -34,7 +35,8 @@ const TICKETS = `\`${P}.glovox.tickets\``;
  * Misma definicion que `/marketing/weekly` (TICKET_TYPE_FILTER) y
  * `/inversion-medios` (VENDIDO), para que los tres paneles no se contradigan:
  *  - Se cuentan VENTA y PASE TEMPORADA; se excluyen CORTESIA y MESA VIP, que no
- *    son venta, y las devoluciones (`EsDevuelto`).
+ *    son venta, y las devoluciones (`EsDevuelto`). La clase se LEE de
+ *    `glovox.tickets.ventaNoventa` (lib/tickets/clase.ts).
  *  - La unidad es PERSONAS, no transacciones: `glovox.tickets.PersonasPorTicket`
  *    vale 1 para la enorme mayoria de las filas y N para los packs que la
  *    ticketera no partio en una fila por asistente. Es la unidad correcta acá
@@ -54,12 +56,7 @@ const TICKETS_VENDIDOS_CTE = `tickets AS (
         -- evento traen fechas distintas cuando la jornada cruza medianoche.
         DATE(MAX(t.FechaEvento)) AS fecha_evento
       FROM ${TICKETS} t
-      WHERE CASE
-              WHEN t.MedioPago = 'Otro' AND (LOWER(t.TipoTicket) LIKE '%pase%' OR LOWER(t.TipoTicket) LIKE '%pass%') THEN 'PASE TEMPORADA'
-              WHEN t.MedioPago = 'Otro' AND LOWER(t.TipoTicket) LIKE '%mesa%' THEN 'MESA VIP'
-              WHEN t.MedioPago = 'Otro' THEN 'CORTESIA'
-              ELSE 'VENTA'
-            END IN ('VENTA', 'PASE TEMPORADA')
+      WHERE ${esVentaSql("t.ventaNoventa")}
         AND t.EsDevuelto IS FALSE
         AND t.EventoID IS NOT NULL
       GROUP BY t.EventoID

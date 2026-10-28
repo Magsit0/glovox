@@ -17,6 +17,7 @@
  * Solo lectura. Todos los valores de usuario van por parámetros `@x`.
  */
 import { query } from "@/lib/bigquery";
+import { esVentaSql } from "@/lib/tickets/clase";
 import type { Country } from "@/lib/queries/comunidad";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
@@ -60,22 +61,12 @@ export type CurvasFilters = {
   incluirCortesias: boolean;
 };
 
-/**
- * Clase de ticket. ESPEJO del CASE de `TICKET_TYPE_FILTER` de
- * `lib/queries/marketing.ts` para que la curva global sea comparable con la de
- * venta diaria: "sin cortesías" conserva VENTA + PASE TEMPORADA y descarta
- * CORTESIA y MESA VIP (ambas entran por `MedioPago='Otro'`).
- *
- * Ojo: el espejo es solo el CASE. Allá viene pegado `AND EsDevuelto IS FALSE`;
- * acá la devolución es un toggle aparte (ver `ticketConds`).
- */
-const CLASE_CASE = `
-  CASE
-    WHEN t.MedioPago = 'Otro' AND (LOWER(t.TipoTicket) LIKE '%pase%' OR LOWER(t.TipoTicket) LIKE '%pass%') THEN 'PASE TEMPORADA'
-    WHEN t.MedioPago = 'Otro' AND LOWER(t.TipoTicket) LIKE '%mesa%' THEN 'MESA VIP'
-    WHEN t.MedioPago = 'Otro' THEN 'CORTESIA'
-    ELSE 'VENTA'
-  END`;
+// Clase de ticket: se LEE de glovox.tickets.ventaNoventa (lib/tickets/clase.ts),
+// igual que la venta diaria (`TICKET_TYPE_FILTER` de lib/queries/marketing.ts),
+// así la curva global es comparable con la de venta diaria: "sin cortesías"
+// conserva VENTA + PASE TEMPORADA y descarta CORTESIA y MESA VIP. Allá viene
+// pegado `AND EsDevuelto IS FALSE`; acá la devolución es un toggle aparte (ver
+// `ticketConds`).
 
 /*
  * Personas: las cuenta la columna `glovox.tickets.PersonasPorTicket` (INT64),
@@ -138,7 +129,7 @@ function ticketConds(filters: CurvasFilters): {
 
   if (!filters.incluirDevueltos) conds.push("t.EsDevuelto IS NOT TRUE");
   if (!filters.incluirCortesias)
-    conds.push(`${CLASE_CASE} IN ('VENTA', 'PASE TEMPORADA')`);
+    conds.push(esVentaSql("t.ventaNoventa"));
   if (filters.comunidad === "solo") conds.push("t.VentaComunidad IS TRUE");
   if (filters.comunidad === "sin") conds.push("t.VentaComunidad IS NOT TRUE");
   if (filters.tipoTickets?.length) {

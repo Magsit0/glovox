@@ -12,28 +12,23 @@
  * Convenciones espejo de `lib/queries/marketing.ts`:
  *  - venta neta = SUM(Precio - Descuento), el CargoServicio se reporta aparte.
  *  - personas = SUM(PersonasPorTicket); transacciones = COUNT(*).
- *  - clase de ticket: MedioPago='Otro' → cortesía/pase/mesa; el resto es VENTA.
+ *  - clase de ticket: se LEE de glovox.tickets.ventaNoventa (lib/tickets/clase.ts).
  *  - los devueltos quedan fuera de todos los agregados de venta.
  *
  * Solo lectura. Valores de usuario siempre por parámetros `@x`.
  */
 import { query } from "@/lib/bigquery";
+import { esVentaSql } from "@/lib/tickets/clase";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 const TICKETS = `\`${P}.glovox.tickets\``;
 const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
 
-/** Espejo del CASE de `TICKET_TYPE_FILTER` de lib/queries/marketing.ts. */
-const CLASE_CASE = `
-  CASE
-    WHEN t.MedioPago = 'Otro' AND (LOWER(t.TipoTicket) LIKE '%pase%' OR LOWER(t.TipoTicket) LIKE '%pass%') THEN 'PASE TEMPORADA'
-    WHEN t.MedioPago = 'Otro' AND LOWER(t.TipoTicket) LIKE '%mesa%' THEN 'MESA VIP'
-    WHEN t.MedioPago = 'Otro' THEN 'CORTESIA'
-    ELSE 'VENTA'
-  END`;
+/** Clase del ticket (alias `t`): la declara glovox.tickets.ventaNoventa. */
+const CLASE_COL = "t.ventaNoventa";
 
 /** Fila que cuenta como venta real (incluye pases, excluye devueltos). */
-const ES_VENTA = `${CLASE_CASE} IN ('VENTA', 'PASE TEMPORADA') AND t.EsDevuelto IS NOT TRUE`;
+const ES_VENTA = `${esVentaSql(CLASE_COL)} AND t.EsDevuelto IS NOT TRUE`;
 
 /** CTE con el último día del evento (@eventoId): ancla de las jornadas. */
 const FIN_CTE = `fin AS (
@@ -171,9 +166,9 @@ export async function getLaCavaEventos(): Promise<LaCavaEvento[]> {
       COUNTIF(${ES_VENTA})                                  AS transacciones,
       SUM(IF(${ES_VENTA}, t.Precio - IFNULL(t.Descuento, 0), 0)) AS venta_neta,
       SUM(IF(${ES_VENTA}, t.CargoServicio, 0))              AS cargo_servicio,
-      SUM(IF(${CLASE_CASE} = 'CORTESIA' AND t.EsDevuelto IS NOT TRUE, t.PersonasPorTicket, 0)) AS cortesias,
-      SUM(IF(${CLASE_CASE} IN ('VENTA', 'PASE TEMPORADA') AND t.EsDevuelto IS TRUE, t.PersonasPorTicket, 0)) AS devueltas,
-      SUM(IF(${CLASE_CASE} IN ('VENTA', 'PASE TEMPORADA') AND t.EsDevuelto IS TRUE, t.Precio - IFNULL(t.Descuento, 0), 0)) AS venta_devuelta,
+      SUM(IF(${CLASE_COL} = 'CORTESIA' AND t.EsDevuelto IS NOT TRUE, t.PersonasPorTicket, 0)) AS cortesias,
+      SUM(IF(${esVentaSql(CLASE_COL)} AND t.EsDevuelto IS TRUE, t.PersonasPorTicket, 0)) AS devueltas,
+      SUM(IF(${esVentaSql(CLASE_COL)} AND t.EsDevuelto IS TRUE, t.Precio - IFNULL(t.Descuento, 0), 0)) AS venta_devuelta,
       FORMAT_DATE('%Y-%m-%d', MIN(DATE(t.FechaOrdenLocal)))      AS primera_orden,
       FORMAT_DATE('%Y-%m-%d', MAX(DATE(t.FechaOrdenLocal)))      AS ultima_orden
     FROM ${CATEGORY} c
@@ -304,7 +299,7 @@ export async function getLaCavaTipos(
         DATE(t.FechaEvento) AS dia_original,
         ${DIA_JORNADA} AS dia_jornada,
         COALESCE(NULLIF(TRIM(t.TipoTicket), ''), '(sin tipo)') AS tipo_ticket,
-        ${CLASE_CASE} AS clase,
+        ${CLASE_COL} AS clase,
         t.EsDevuelto IS TRUE AS devuelto,
         t.PersonasPorTicket AS personas,
         t.Precio - IFNULL(t.Descuento, 0) AS venta

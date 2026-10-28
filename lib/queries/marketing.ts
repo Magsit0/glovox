@@ -1,6 +1,7 @@
 import { cache } from "react";
 import { query } from "@/lib/bigquery";
 import { eventoIdSql } from "@/lib/queries/paidMedia";
+import { esVentaSql } from "@/lib/tickets/clase";
 import {
   countryTicketeraFilter,
   hasCountryScope,
@@ -137,22 +138,21 @@ const PIEZA_ALCANCE = `\`${P}.meta_ads.pieza_alcance\``;
 // Override GLO198 / GENERAL DGTL tickets to 2026-03-18 for chart display.
 const FECHA_ORDEN_ADJ = `CASE WHEN EventoID = 'GLO198' AND TipoTicket = 'GENERAL DGTL' THEN DATETIME '2026-03-18' ELSE FechaOrdenLocal END`;
 
-// Ticket filter from reference SQL: exclude cortesias and refunds
+// Sold tickets: VENTA + PASE TEMPORADA (CLASES_VENTA), never refunds. The class
+// is READ from glovox.tickets.ventaNoventa (lib/tickets/clase.ts), never
+// recalculated: the old `MedioPago = 'Otro'` rule only exists in PuntoTicket and
+// counted every Fever courtesy as a sale.
 const TICKET_TYPE_FILTER = `
-  CASE
-    WHEN MedioPago = 'Otro' AND (LOWER(TipoTicket) LIKE '%pase%' OR LOWER(TipoTicket) LIKE '%pass%') THEN 'PASE TEMPORADA'
-    WHEN MedioPago = 'Otro' AND LOWER(TipoTicket) LIKE '%mesa%' THEN 'MESA VIP'
-    WHEN MedioPago = 'Otro' THEN 'CORTESIA'
-    ELSE 'VENTA'
-  END IN ('VENTA', 'PASE TEMPORADA')
+  ${esVentaSql("ventaNoventa")}
   AND EsDevuelto IS FALSE
 `;
 
-// Ticket row that went through the web checkout (spec D7): sold online and paid
-// with a checkout method. Box office, invitations, free tickets and season
-// passes (MedioPago 'Otro') can never fire a GA4 `purchase`, so they stay out of
-// every GA4 coverage denominator. Aggregated per order with LOGICAL_AND.
-const ES_WEB = `COALESCE(LOWER(SucursalVenta) IN ('internet', 'marketplace') AND MedioPago NOT IN ('Otro', 'Free', 'Cash'), FALSE)`;
+// Ticket row that went through the web checkout (spec D7): sold online, a paid
+// sale (ventaNoventa = 'VENTA') and paid with a checkout method. Box office
+// (Cash), invitations, courtesies and season passes can never fire a GA4
+// `purchase`, so they stay out of every GA4 coverage denominator. Aggregated per
+// order with LOGICAL_AND.
+const ES_WEB = `COALESCE(LOWER(SucursalVenta) IN ('internet', 'marketplace') AND ventaNoventa = 'VENTA' AND MedioPago NOT IN ('Free', 'Cash'), FALSE)`;
 
 // Referido (already UPPER(TRIM())) → the SAME channel labels as marts.ga4_purchases,
 // so an order whose channel comes from GA4 and one whose channel comes from the
@@ -1366,7 +1366,9 @@ export const getAtribucionCompras = cache(async function getAtribucionCompras(
         ANY_VALUE(MedioPago) AS medio_pago,
         -- Deterministic: the (max) non-empty code of the order, '' when it has none.
         COALESCE(MAX(NULLIF(${REFERIDO_NORM}, '')), '') AS ref,
-        LOGICAL_OR(MedioPago = 'Otro') AS es_pase,
+        -- TICKET_TYPE_FILTER already dropped courtesies and mesas VIP (Fever's
+        -- included), so the only non-VENTA class left here is PASE TEMPORADA.
+        LOGICAL_OR(ventaNoventa != 'VENTA') AS es_pase,
         LOGICAL_AND(${ES_WEB}) AS es_web,
         SUM(PersonasPorTicket) AS personas,
         SUM(Precio - COALESCE(Descuento, 0)) AS venta

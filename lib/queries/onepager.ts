@@ -1,9 +1,19 @@
 import { query } from "@/lib/bigquery";
+import { esVentaSql } from "@/lib/tickets/clase";
 
 const P          = process.env.BIGQUERY_PROJECT_ID;
 const TICKETS    = `\`${P}.glovox.tickets\``;
 const SOLD_ITEMS = `\`${P}.onfire.soldItems\``;
 const CATEGORY   = `\`${P}.glovox.categoriaEvento\``;
+
+/**
+ * Clase del onepager, con DOS valores: 'VENTA' (VENTA + PASE TEMPORADA) y
+ * 'CORTESIA' (CORTESIA + MESA VIP). La clase se LEE de glovox.tickets.ventaNoventa
+ * (lib/tickets/clase.ts); `col` es esa columna con el alias de la query.
+ */
+function claseOnepager(col: string): string {
+  return `IF(${esVentaSql(col)}, 'VENTA', 'CORTESIA')`;
+}
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -168,16 +178,14 @@ export async function getOnepagerListadoKpis(): Promise<OnepagerListadoRow[]> {
       SELECT
         EventoID                                                AS evento_id,
         SUM(Precio - IFNULL(Descuento, 0))                      AS venta,
-        -- Mismo criterio "VENTA" usado en ticketsCte/baseCte: cualquier
-        -- MedioPago distinto de 'Otro' es venta; con 'Otro' sólo cuenta si
-        -- el TipoTicket contiene 'pase' (el resto son cortesías).
+        -- Mismo criterio "VENTA" usado en ticketsCte/baseCte (VENTA + PASE
+        -- TEMPORADA según glovox.tickets.ventaNoventa; el resto son cortesías).
         -- Comprados en PERSONAS (2026-09-01), no en filas. Antes era COUNTIF, y
         -- un pase familiar de 4 contaba 1: la columna quedaba en otra unidad que
         -- "Asistentes" (que son personas), así que restarlas NO daba las cortesías.
         -- En GLO181: 4.969 filas contra 6.850 personas realmente compradas.
         SUM(
-          IF(MedioPago != 'Otro' OR LOWER(TipoTicket) LIKE '%pase%',
-             PersonasPorTicket, 0)
+          IF(${esVentaSql("ventaNoventa")}, PersonasPorTicket, 0)
         )                                                        AS tickets_comprados
       FROM ${TICKETS}
       GROUP BY EventoID
@@ -286,12 +294,7 @@ function ticketsCte() {
       a.EventoID,
       CONCAT(a.EventoID,' - ',b.NombreGlovox)                AS NombreID,
       FORMAT_DATE('%Y-%m-%d', a.FechaEvento)                 AS FechaEvento,
-      CASE
-        WHEN MedioPago = 'Otro' AND LOWER(TipoTicket) LIKE '%pase%' THEN 'VENTA'
-        WHEN MedioPago = 'Otro' AND LOWER(TipoTicket) LIKE '%mesa%' THEN 'CORTESIA'
-        WHEN MedioPago = 'Otro'                              THEN 'CORTESIA'
-        ELSE 'VENTA'
-      END                                                     AS ventaNoventa,
+      ${claseOnepager("a.ventaNoventa")}                     AS ventaNoventa,
       a.SucursalVenta                                         AS PuntoVenta,
       a.MedioPago                                             AS MedioPago,
       a.CategoriaTicket                                       AS Categoria,
@@ -367,12 +370,7 @@ function baseCte() {
       SELECT 'TICKETS' AS Ingreso, a.EventoID,
         CONCAT(a.EventoID,' - ',b.NombreGlovox) AS NombreID,
         FORMAT_DATE('%Y-%m-%d', a.FechaEvento) AS FechaEvento,
-        CASE
-          WHEN MedioPago = 'Otro' AND LOWER(TipoTicket) LIKE '%pase%' THEN 'VENTA'
-          WHEN MedioPago = 'Otro' AND LOWER(TipoTicket) LIKE '%mesa%' THEN 'CORTESIA'
-          WHEN MedioPago = 'Otro' THEN 'CORTESIA'
-          ELSE 'VENTA'
-        END AS ventaNoventa,
+        ${claseOnepager("a.ventaNoventa")} AS ventaNoventa,
         a.SucursalVenta AS PuntoVenta, a.MedioPago AS MedioPago,
         a.CategoriaTicket AS Categoria, a.TipoTicket AS TipoProducto,
         CASE
@@ -649,11 +647,7 @@ export async function getOnepagerLlegadas(
           DATETIME_TRUNC(HoraQuemado, MINUTE),
           INTERVAL MOD(EXTRACT(MINUTE FROM HoraQuemado), 15) MINUTE
         )                                                     AS slot,
-        CASE
-          WHEN MedioPago = 'Otro' AND LOWER(TipoTicket) LIKE '%pase%' THEN 'VENTA'
-          WHEN MedioPago = 'Otro'                                     THEN 'CORTESIA'
-          ELSE 'VENTA'
-        END                                                   AS venta_noventa,
+        ${claseOnepager("ventaNoventa")}                     AS venta_noventa,
         PersonasPorTicket                                     AS personas
       FROM ${TICKETS}
       WHERE EventoID = @eventoId

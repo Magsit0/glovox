@@ -16,6 +16,7 @@
  * Uso: npm run audit:referido
  */
 import { query } from "@/lib/bigquery";
+import { esVentaSql } from "@/lib/tickets/clase";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 const MART = `\`${P}.marts.paidmedia_ads_performance\``;
@@ -49,11 +50,7 @@ async function propagacion() {
         COUNT(DISTINCT IF(vendido AND pm_venta, t.OrdenID, NULL)) AS pm_ordenes
       FROM (
         SELECT t.*,
-          (CASE
-            WHEN t.MedioPago='Otro' AND (LOWER(t.TipoTicket) LIKE '%pase%' OR LOWER(t.TipoTicket) LIKE '%pass%') THEN 'PASE TEMPORADA'
-            WHEN t.MedioPago='Otro' AND LOWER(t.TipoTicket) LIKE '%mesa%' THEN 'MESA VIP'
-            WHEN t.MedioPago='Otro' THEN 'CORTESIA' ELSE 'VENTA' END
-           ) IN ('VENTA','PASE TEMPORADA') AND t.EsDevuelto IS FALSE AS vendido,
+          ${esVentaSql("t.ventaNoventa")} AND t.EsDevuelto IS FALSE AS vendido,
           (REGEXP_CONTAINS(UPPER(TRIM(COALESCE(t.Referido,''))), r'^PM_MT_[A-Z0-9]+_CONV$')
            OR REGEXP_CONTAINS(UPPER(TRIM(COALESCE(t.Referido,''))), r'^PM_GG_(PMAX|SEARCH|SEA|SHOPPING)_')) AS pm_venta
         FROM ${TICKETS} t

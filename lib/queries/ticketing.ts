@@ -66,17 +66,18 @@ function filterList<T extends string>(values?: T[]): T[] {
 }
 
 /**
- * Clasificación de cada ticket en VENTA / CORTESIA / OTRO.
- *  - OTRO     → MedioPago='Otro' + TipoTicket contiene 'pase' (accesos especiales)
- *  - CORTESIA → MedioPago='Otro' (entradas liberadas)
- *  - VENTA    → cualquier medio de pago real
+ * Clasificación de cada ticket en VENTA / CORTESIA / OTRO, a partir de la clase
+ * que declara glovox.tickets.ventaNoventa (lib/tickets/clase.ts):
+ *  - OTRO     → PASE TEMPORADA (accesos especiales)
+ *  - CORTESIA → CORTESIA y MESA VIP (entradas liberadas)
+ *  - VENTA    → VENTA
  * Alineado con la lógica VENTA/CORTESIA del onepager, separando los pases.
  */
 const CLASE_VENTA_CASE = `
-  CASE
-    WHEN a.MedioPago = 'Otro' AND LOWER(a.TipoTicket) LIKE '%pase%' THEN 'OTRO'
-    WHEN a.MedioPago = 'Otro'                                       THEN 'CORTESIA'
-    ELSE 'VENTA'
+  CASE a.ventaNoventa
+    WHEN 'VENTA'          THEN 'VENTA'
+    WHEN 'PASE TEMPORADA' THEN 'OTRO'
+    ELSE 'CORTESIA'
   END`;
 
 const VIP_GRAL_CASE = `
@@ -600,6 +601,11 @@ export async function getGlobalPrecioMatriz(
       LEFT JOIN cat c ON t.EventoID = c.EventoID
       WHERE t.EsDevuelto IS NOT TRUE
         AND t.Precio > 0
+        -- Igual que marts.ticketing_demand_by_stage desde 2026-10-28: Fever
+        -- marca sus cortesías con precio 0,01 (pasan el filtro de arriba) y
+        -- PuntoTicket tiene cortesías con precio de lista; la clase la declara
+        -- glovox.tickets.ventaNoventa.
+        AND t.ventaNoventa != 'CORTESIA'
         AND ${catConds.join("\n        AND ")}
     )
     SELECT etapa_norm, categoria, COUNT(*) AS tickets
