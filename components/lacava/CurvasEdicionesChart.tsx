@@ -65,7 +65,14 @@ function labelDia(dias: number): string {
  * (absoluta / % del total propio) sin ir al servidor: las cuatro variantes
  * vienen precalculadas.
  */
-export default function CurvasEdicionesChart({ variants }: { variants: CurvaVariant[] }) {
+export default function CurvasEdicionesChart({
+  variants,
+  animar = true,
+}: {
+  variants: CurvaVariant[];
+  /** false = estático, mientras el gráfico espera fuera de pantalla. */
+  animar?: boolean;
+}) {
   const [metric, setMetric] = useState<"personas" | "venta">("personas");
   const [normalizar, setNormalizar] = useState(false);
   const [ventana, setVentana] = useState<number | null>(null); // null = todo
@@ -156,7 +163,15 @@ export default function CurvasEdicionesChart({ variants }: { variants: CurvaVari
       </div>
 
       <ResponsiveContainer width="100%" height={380}>
-        <LineChart data={visibles} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
+        {/* La key remonta el gráfico en cada cambio de vista para que las
+            curvas se vuelvan a trazar desde cero: el morph de recharts entre
+            ventanas con distinto número de puntos deforma las líneas, y el
+            punto "hoy" saltaría a su posición nueva antes que la curva. */}
+        <LineChart
+          key={`${metric}-${normalizar}-${ventana ?? "todo"}`}
+          data={visibles}
+          margin={{ top: 8, right: 16, bottom: 8, left: 8 }}
+        >
           <CartesianGrid {...lacavaGridProps} />
           <XAxis
             dataKey="dias"
@@ -202,12 +217,13 @@ export default function CurvasEdicionesChart({ variants }: { variants: CurvaVari
               dot={false}
               activeDot={{ r: 4 }}
               connectNulls={false}
-              isAnimationActive={false}
+              isAnimationActive={animar ? "auto" : false}
             />
           ))}
           {cortes.map((c) => (
             <ReferenceDot
               key={`corte-${c.key}`}
+              className="lacava-aparece-al-final"
               x={c.x}
               y={c.y}
               r={5}

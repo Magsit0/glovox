@@ -27,6 +27,8 @@ type Props = {
   goalTickets?: number;
   /** YYYY-MM-DD del evento: si es futuro, el eje se extiende hasta esa fecha. */
   fechaEvento?: string;
+  /** false = estático, mientras el gráfico espera fuera de pantalla. */
+  animar?: boolean;
 };
 
 type ChartRow = {
@@ -59,7 +61,12 @@ function fmtFecha(iso: string): string {
  * y línea con el acumulado, igual que el gráfico de /marketing/weekly. Toggle
  * Personas / Recaudación sin volver al servidor (los dos vienen en `data`).
  */
-export default function VentaDiariaChart({ data, goalTickets, fechaEvento }: Props) {
+export default function VentaDiariaChart({
+  data,
+  goalTickets,
+  fechaEvento,
+  animar = true,
+}: Props) {
   const [metric, setMetric] = useState<Metric>("personas");
 
   const chartData: ChartRow[] = useMemo(() => {
@@ -111,7 +118,9 @@ export default function VentaDiariaChart({ data, goalTickets, fechaEvento }: Pro
       </div>
       <ResponsiveContainer width="100%" height={360}>
         <ComposedChart data={chartData} margin={{ top: 8, right: 16, bottom: 8, left: 8 }}>
-          <CartesianGrid {...lacavaGridProps} />
+          {/* Sin yAxisId la grilla toma un eje implícito vacío y solo
+              dibuja el borde superior e inferior. */}
+          <CartesianGrid {...lacavaGridProps} yAxisId="acumulado" />
           <XAxis
             dataKey="fecha"
             tickLine={false}
@@ -149,6 +158,7 @@ export default function VentaDiariaChart({ data, goalTickets, fechaEvento }: Pro
             fill={LACAVA.dorado}
             radius={[4, 4, 0, 0]}
             barSize={8}
+            isAnimationActive={animar ? "auto" : false}
           />
           <Line
             yAxisId="acumulado"
@@ -160,6 +170,7 @@ export default function VentaDiariaChart({ data, goalTickets, fechaEvento }: Pro
             dot={false}
             activeDot={{ r: 4 }}
             connectNulls={false}
+            isAnimationActive={animar ? "auto" : false}
           />
           {mostrarMeta && (
             <ReferenceLine

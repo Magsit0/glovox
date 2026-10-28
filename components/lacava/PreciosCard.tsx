@@ -17,6 +17,8 @@ import {
   lacavaGridProps,
   lacavaSeriesColor,
 } from "./theme";
+import { useEntraEnVista } from "./useEntraEnVista";
+import RevelarAlVer from "./RevelarAlVer";
 
 const entero = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 });
 const clp = new Intl.NumberFormat("es-CL", {
@@ -35,6 +37,8 @@ type ChartRow = { precio: string } & Record<string, number | string>;
  * segmentada por % de descuento aplicado.
  */
 export default function PreciosCard({ precios }: { precios: LaCavaPrecioRow[] }) {
+  // Las barras esperan invisibles hasta entrar en pantalla y ahí se trazan.
+  const [barrasRef, enVista] = useEntraEnVista<HTMLDivElement>(0.25);
   const { chartData, buckets, tabla } = useMemo(() => {
     // Buckets de descuento presentes, orden ascendente (0 primero).
     const buckets = [...new Set(precios.map((p) => p.pctDescuento))].sort(
@@ -82,8 +86,14 @@ export default function PreciosCard({ precios }: { precios: LaCavaPrecioRow[] })
 
   return (
     <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+      <div ref={barrasRef} className={enVista ? "" : "lacava-espera-vista"}>
       <ResponsiveContainer width="100%" height={300}>
-        <BarChart data={chartData} barCategoryGap="30%" margin={{ top: 8, right: 8, bottom: 8, left: 8 }}>
+        <BarChart
+          key={String(enVista)}
+          data={chartData}
+          barCategoryGap="30%"
+          margin={{ top: 8, right: 8, bottom: 8, left: 8 }}
+        >
           <CartesianGrid {...lacavaGridProps} />
           <XAxis
             dataKey="precio"
@@ -109,11 +119,17 @@ export default function PreciosCard({ precios }: { precios: LaCavaPrecioRow[] })
               stackId="personas"
               fill={lacavaSeriesColor(i)}
               radius={i === buckets.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
-              isAnimationActive={false}
+              // Todos los tramos parten juntos: con partidas escalonadas, los
+              // de arriba subían desde el eje atravesando el tramo de abajo.
+              isAnimationActive={enVista ? "auto" : false}
+              animationBegin={0}
+              animationDuration={900}
+              animationEasing="ease-out"
             />
           ))}
         </BarChart>
       </ResponsiveContainer>
+      </div>
 
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap gap-4">
@@ -131,6 +147,7 @@ export default function PreciosCard({ precios }: { precios: LaCavaPrecioRow[] })
             </span>
           ))}
         </div>
+        <RevelarAlVer>
         <div className="overflow-hidden rounded-lg border" style={{ borderColor: LACAVA.borde }}>
           <table className="w-full border-collapse">
             <thead style={{ backgroundColor: LACAVA.crema }}>
@@ -175,6 +192,7 @@ export default function PreciosCard({ precios }: { precios: LaCavaPrecioRow[] })
             </tbody>
           </table>
         </div>
+        </RevelarAlVer>
         <p className="font-sans text-xs" style={{ color: LACAVA.tintaSutil }}>
           El descuento corresponde al beneficio usado en la compra (Tarjeta
           Cencosud, Jumbo Prime o ambos). La venta neta ya lo descuenta.

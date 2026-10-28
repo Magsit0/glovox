@@ -4,17 +4,15 @@ import { useMemo } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import type { LaCavaMedioRow } from "@/lib/queries/lacava";
 import { LACAVA, lacavaSeriesColor } from "./theme";
+import { useEntraEnVista } from "./useEntraEnVista";
+import ContadorKpi from "./ContadorKpi";
+import RevelarAlVer from "./RevelarAlVer";
 
 const entero = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 });
 const clp = new Intl.NumberFormat("es-CL", {
   style: "currency",
   currency: "CLP",
   maximumFractionDigits: 0,
-});
-const clpCompacto = new Intl.NumberFormat("es-CL", {
-  notation: "compact",
-  compactDisplay: "short",
-  maximumFractionDigits: 1,
 });
 
 /** Cuántos medios se muestran con color propio; el resto se agrupa en "Otros". */
@@ -25,6 +23,8 @@ const TOP = 5;
  * los medios principales + "Otros", y tabla completa con montos.
  */
 export default function MediosPagoCard({ medios }: { medios: LaCavaMedioRow[] }) {
+  // El donut espera invisible hasta entrar en pantalla y ahí se traza.
+  const [donutRef, enVista] = useEntraEnVista<HTMLDivElement>(0.25);
   const totalVenta = medios.reduce((acc, m) => acc + m.venta, 0);
   const totalTransacciones = medios.reduce((acc, m) => acc + m.transacciones, 0);
 
@@ -52,10 +52,15 @@ export default function MediosPagoCard({ medios }: { medios: LaCavaMedioRow[] })
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="relative h-52">
+    // A ancho completo: donut y leyenda a la izquierda, tabla a la derecha.
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:items-start">
+      <div className="flex flex-col gap-6">
+      <div
+        ref={donutRef}
+        className={`relative h-52 ${enVista ? "" : "lacava-espera-vista"}`}
+      >
         <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
+          <PieChart key={String(enVista)}>
             <Pie
               data={donutData}
               dataKey="venta"
@@ -63,7 +68,10 @@ export default function MediosPagoCard({ medios }: { medios: LaCavaMedioRow[] })
               innerRadius="62%"
               outerRadius="90%"
               stroke="none"
-              isAnimationActive={false}
+              isAnimationActive={enVista ? "auto" : false}
+              // Sin la espera default (400 ms): el anillo y la cifra del
+              // centro arrancan juntos.
+              animationBegin={0}
             >
               {donutData.map((d, i) => (
                 <Cell key={d.nombre} fill={lacavaSeriesColor(i)} />
@@ -77,7 +85,7 @@ export default function MediosPagoCard({ medios }: { medios: LaCavaMedioRow[] })
             className="font-lacava text-3xl font-bold leading-none"
             style={{ color: LACAVA.tinta }}
           >
-            ${clpCompacto.format(totalVenta)}
+            <ContadorKpi valor={totalVenta} formato="clpCompacto" />
           </span>
           <span className="mt-1 font-sans text-xs" style={{ color: LACAVA.tintaSuave }}>
             venta neta
@@ -101,7 +109,9 @@ export default function MediosPagoCard({ medios }: { medios: LaCavaMedioRow[] })
           </span>
         ))}
       </div>
+      </div>
 
+      <RevelarAlVer>
       <div
         className="overflow-auto rounded-lg border"
         style={{ borderColor: LACAVA.borde, maxHeight: 380 }}
@@ -154,6 +164,7 @@ export default function MediosPagoCard({ medios }: { medios: LaCavaMedioRow[] })
           </tfoot>
         </table>
       </div>
+      </RevelarAlVer>
     </div>
   );
 }

@@ -35,6 +35,30 @@ const CLASE_CASE = `
 /** Fila que cuenta como venta real (incluye pases, excluye devueltos). */
 const ES_VENTA = `${CLASE_CASE} IN ('VENTA', 'PASE TEMPORADA') AND t.EsDevuelto IS NOT TRUE`;
 
+/** CTE con el último día del evento (@eventoId): ancla de las jornadas. */
+const FIN_CTE = `fin AS (
+      SELECT DATE(MAX(FechaEvento)) AS ultimo_dia
+      FROM ${TICKETS}
+      WHERE EventoID = @eventoId
+    )`;
+
+/**
+ * Jornada vigente de un ticket (alias `t`, con `fin` como `f`): el día del
+ * calendario actual con el MISMO día de la semana que su `FechaEvento`,
+ * anclado al último día del evento. Así los tickets comprados antes de un
+ * reagendamiento (que conservan la fecha original) caen en su jornada
+ * equivalente: viernes 6 nov → viernes 11 dic. Supone jornadas dentro de una
+ * misma semana (un fin de semana largo); sin reagendamiento, el día no cambia.
+ */
+const DIA_JORNADA = `DATE_SUB(
+        f.ultimo_dia,
+        INTERVAL MOD(
+          EXTRACT(DAYOFWEEK FROM f.ultimo_dia)
+            - EXTRACT(DAYOFWEEK FROM DATE(t.FechaEvento)) + 7,
+          7
+        ) DAY
+      )`;
+
 function n(v: unknown): number {
   if (v == null) return 0;
   if (typeof v === "object" && "value" in (v as object))
@@ -65,7 +89,10 @@ export type LaCavaEvento = {
   cargoServicio: number;
   /** Personas en cortesías (no devueltas). Fuera de `personas`/`ventaNeta`. */
   cortesias: number;
-  devueltos: number;
+  /** Entradas VENDIDAS (venta o pase) que se reembolsaron. Fuera de `personas`. */
+  devueltas: number;
+  /** Venta neta (Precio - Descuento) de esas entradas devueltas. */
+  ventaDevuelta: number;
   primeraOrden: string; // YYYY-MM-DD
   ultimaOrden: string; // YYYY-MM-DD
 };
@@ -79,14 +106,32 @@ export type LaCavaDiaRow = {
   ventaAcum: number;
 };
 
+export type LaCavaJornadaDiaRow = {
+  /** YYYY-MM-DD de la jornada (calendario vigente). */
+  diaEvento: string;
+  /** YYYY-MM-DD de la orden (hora local). */
+  fecha: string;
+  personas: number;
+  venta: number;
+};
+
 export type LaCavaTipoRow = {
-  /** YYYY-MM-DD del día del evento para el que vale el ticket (FechaEvento). */
+  /** YYYY-MM-DD de la jornada (calendario vigente) para la que vale el ticket. */
   diaEvento: string;
   tipoTicket: string;
   clase: string; // VENTA | CORTESIA | PASE TEMPORADA | MESA VIP
   transacciones: number;
   personas: number;
   venta: number;
+  /** De `personas`, las compradas para una fecha anterior a un reagendamiento. */
+  reasignadas: number;
+  /** Entradas VENDIDAS (venta o pase) de esta jornada que se devolvieron.
+   *  No están en `personas` ni en `venta`. */
+  devueltas: number;
+  /** De `devueltas`, las compradas para una fecha anterior a un reagendamiento. */
+  devueltasReasignadas: number;
+  /** Venta neta (Precio - Descuento) de esas entradas devueltas. */
+  ventaDevuelta: number;
 };
 
 export type LaCavaPrecioRow = {
@@ -118,14 +163,17 @@ export async function getLaCavaEventos(): Promise<LaCavaEvento[]> {
       ANY_VALUE(c.NombreGlovox)                             AS nombre,
       ANY_VALUE(c.Temporada)                                AS temporada,
       FORMAT_TIMESTAMP('%Y-%m-%d', MAX(t.FechaEvento))      AS fecha_evento,
-      DATE_DIFF(DATE(MAX(t.FechaEvento)), CURRENT_DATE(), DAY) AS dias_para_evento,
+      -- Hoy en Chile, el mismo reloj que FechaOrdenLocal (CURRENT_DATE() es UTC:
+      -- desde las 21:00 de Chile ya sería mañana).
+      DATE_DIFF(DATE(MAX(t.FechaEvento)), CURRENT_DATE('America/Santiago'), DAY) AS dias_para_evento,
       COALESCE(ANY_VALUE(c.goalTickets), 0)                 AS goal_tickets,
       SUM(IF(${ES_VENTA}, t.PersonasPorTicket, 0))          AS personas,
       COUNTIF(${ES_VENTA})                                  AS transacciones,
       SUM(IF(${ES_VENTA}, t.Precio - IFNULL(t.Descuento, 0), 0)) AS venta_neta,
       SUM(IF(${ES_VENTA}, t.CargoServicio, 0))              AS cargo_servicio,
       SUM(IF(${CLASE_CASE} = 'CORTESIA' AND t.EsDevuelto IS NOT TRUE, t.PersonasPorTicket, 0)) AS cortesias,
-      COUNTIF(t.EsDevuelto IS TRUE)                         AS devueltos,
+      SUM(IF(${CLASE_CASE} IN ('VENTA', 'PASE TEMPORADA') AND t.EsDevuelto IS TRUE, t.PersonasPorTicket, 0)) AS devueltas,
+      SUM(IF(${CLASE_CASE} IN ('VENTA', 'PASE TEMPORADA') AND t.EsDevuelto IS TRUE, t.Precio - IFNULL(t.Descuento, 0), 0)) AS venta_devuelta,
       FORMAT_DATE('%Y-%m-%d', MIN(DATE(t.FechaOrdenLocal)))      AS primera_orden,
       FORMAT_DATE('%Y-%m-%d', MAX(DATE(t.FechaOrdenLocal)))      AS ultima_orden
     FROM ${CATEGORY} c
@@ -148,7 +196,8 @@ export async function getLaCavaEventos(): Promise<LaCavaEvento[]> {
     ventaNeta: n(r.venta_neta),
     cargoServicio: n(r.cargo_servicio),
     cortesias: n(r.cortesias),
-    devueltos: n(r.devueltos),
+    devueltas: n(r.devueltas),
+    ventaDevuelta: n(r.venta_devuelta),
     primeraOrden: s(r.primera_orden),
     ultimaOrden: s(r.ultima_orden),
   }));
@@ -198,27 +247,87 @@ export async function getLaCavaVentaDiaria(
 }
 
 /**
- * Desglose por día del evento × tipo de ticket × clase. La Cava dura varios
- * días y cada ticket vale para un día específico (su `FechaEvento`), así que
- * el día es la primera dimensión. Incluye cortesías y pases (para eso está la
- * clase); solo excluye devueltos.
+ * Venta diaria (solo ventas reales) de cada jornada del evento, por fecha de
+ * orden local: la curva de cada día hacia su sold out (pestaña "Venta por
+ * día"). Los tickets de fechas previas a un reagendamiento ya vienen en su
+ * jornada vigente.
+ */
+export async function getLaCavaVentaPorJornada(
+  eventoId: string,
+): Promise<LaCavaJornadaDiaRow[]> {
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH ${FIN_CTE}
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', ${DIA_JORNADA})        AS dia_evento,
+      FORMAT_DATE('%Y-%m-%d', DATE(t.FechaOrdenLocal)) AS fecha,
+      SUM(t.PersonasPorTicket)                        AS personas,
+      SUM(t.Precio - IFNULL(t.Descuento, 0))          AS venta
+    FROM ${TICKETS} t
+    CROSS JOIN fin f
+    WHERE t.EventoID = @eventoId
+      AND t.FechaOrdenLocal IS NOT NULL
+      AND t.FechaEvento IS NOT NULL
+      AND ${ES_VENTA}
+    GROUP BY dia_evento, fecha
+    ORDER BY dia_evento, fecha
+    `,
+    { eventoId },
+  );
+  return rows.map((r) => ({
+    diaEvento: s(r.dia_evento),
+    fecha: s(r.fecha),
+    personas: n(r.personas),
+    venta: n(r.venta),
+  }));
+}
+
+/**
+ * Desglose por jornada del evento × tipo de ticket × clase. La Cava dura
+ * varios días y cada ticket vale para un día específico (su `FechaEvento`).
+ * Incluye cortesías y pases (para eso está la clase). Los devueltos van
+ * aparte, en `devueltas`: no suman a `personas`, `venta` ni `transacciones`.
+ * Una fila puede traer personas = 0 si todo lo de ese tipo se devolvió.
+ *
+ * Reagendamientos: cuando el evento cambia de fecha, los tickets vendidos
+ * antes conservan su `FechaEvento` original (La Cava 2026 pasó del 6–8 nov
+ * al 11–13 dic); cada uno se asigna a su jornada vigente (ver DIA_JORNADA).
  */
 export async function getLaCavaTipos(
   eventoId: string,
 ): Promise<LaCavaTipoRow[]> {
   const rows = await query<Record<string, unknown>>(
     `
+    WITH ${FIN_CTE},
+    base AS (
+      SELECT
+        DATE(t.FechaEvento) AS dia_original,
+        ${DIA_JORNADA} AS dia_jornada,
+        COALESCE(NULLIF(TRIM(t.TipoTicket), ''), '(sin tipo)') AS tipo_ticket,
+        ${CLASE_CASE} AS clase,
+        t.EsDevuelto IS TRUE AS devuelto,
+        t.PersonasPorTicket AS personas,
+        t.Precio - IFNULL(t.Descuento, 0) AS venta
+      FROM ${TICKETS} t
+      CROSS JOIN fin f
+      WHERE t.EventoID = @eventoId
+        AND t.FechaEvento IS NOT NULL
+    )
     SELECT
-      FORMAT_DATE('%Y-%m-%d', DATE(t.FechaEvento))           AS dia_evento,
-      COALESCE(NULLIF(TRIM(t.TipoTicket), ''), '(sin tipo)') AS tipo_ticket,
-      ${CLASE_CASE}                                          AS clase,
-      COUNT(*)                                               AS transacciones,
-      SUM(t.PersonasPorTicket)                               AS personas,
-      SUM(t.Precio - IFNULL(t.Descuento, 0))                 AS venta
-    FROM ${TICKETS} t
-    WHERE t.EventoID = @eventoId
-      AND t.EsDevuelto IS NOT TRUE
-      AND t.FechaEvento IS NOT NULL
+      FORMAT_DATE('%Y-%m-%d', dia_jornada)                    AS dia_evento,
+      tipo_ticket,
+      clase,
+      COUNTIF(NOT devuelto)                                   AS transacciones,
+      SUM(IF(devuelto, 0, personas))                          AS personas,
+      SUM(IF(devuelto, 0, venta))                             AS venta,
+      SUM(IF(NOT devuelto AND dia_original != dia_jornada, personas, 0)) AS reasignadas,
+      -- Devoluciones: solo entradas vendidas (venta o pase), igual que la
+      -- card "Devoluciones" de getLaCavaEventos.
+      SUM(IF(devuelto AND clase IN ('VENTA', 'PASE TEMPORADA'), personas, 0)) AS devueltas,
+      SUM(IF(devuelto AND clase IN ('VENTA', 'PASE TEMPORADA')
+               AND dia_original != dia_jornada, personas, 0))   AS devueltas_reasignadas,
+      SUM(IF(devuelto AND clase IN ('VENTA', 'PASE TEMPORADA'), venta, 0)) AS venta_devuelta
+    FROM base
     GROUP BY dia_evento, tipo_ticket, clase
     ORDER BY dia_evento, personas DESC
     `,
@@ -231,6 +340,10 @@ export async function getLaCavaTipos(
     transacciones: n(r.transacciones),
     personas: n(r.personas),
     venta: n(r.venta),
+    reasignadas: n(r.reasignadas),
+    devueltas: n(r.devueltas),
+    devueltasReasignadas: n(r.devueltas_reasignadas),
+    ventaDevuelta: n(r.venta_devuelta),
   }));
 }
 

@@ -279,6 +279,81 @@ body {
   font-family: var(--font-lacava), "Playfair Display", Georgia, serif;
 }
 
+/* La Cava: el punto "hoy" de las curvas aparece cuando termina el trazado
+   de la línea (1500 ms, el default de recharts). */
+@keyframes lacava-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.lacava-aparece-al-final {
+  animation: lacava-fade-in 300ms ease-out 1400ms both;
+}
+
+/* La Cava: barras de avance que se dibujan de izquierda a derecha. Se revela
+   con clip-path (no con scaleX) para no deformar los extremos redondeados. */
+@keyframes lacava-revelar {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+.lacava-barra-revela {
+  animation: lacava-revelar 1100ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* La Cava: un gráfico espera invisible hasta entrar en pantalla; ahí se
+   vuelve a montar con su animación de trazado (useEntraEnVista). */
+.lacava-espera-vista {
+  opacity: 0;
+}
+
+/* La Cava: el valor final de una KPI espera oculto a que el navegador
+   arranque la cuenta desde cero (ContadorKpi). Si el JS no llega, aparece
+   igual a los 2 s. */
+.lacava-cuenta-espera {
+  animation: lacava-fade-in 200ms ease-out 2s both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lacava-aparece-al-final,
+  .lacava-barra-revela,
+  .lacava-cuenta-espera {
+    animation: none;
+  }
+  .lacava-espera-vista {
+    opacity: 1;
+  }
+}
+
+/* Sin JS no hay quien arranque las revelaciones pausadas: todo a la vista. */
+@media (scripting: none) {
+  .lacava-barra-revela {
+    animation: none;
+  }
+  .lacava-espera-vista {
+    opacity: 1;
+  }
+}
+
+/* Al imprimir o guardar como PDF no hay animación que esperar: lo que espera
+   a entrar en pantalla saldría vacío. */
+@media print {
+  .lacava-aparece-al-final,
+  .lacava-barra-revela,
+  .lacava-cuenta-espera {
+    animation: none !important;
+  }
+  .lacava-espera-vista {
+    opacity: 1 !important;
+  }
+}
+
 /* Horizontal card strips scroll with arrows / swipe; the native bar would
    only add height inside the bordered bars. */
 @utility scrollbar-none {

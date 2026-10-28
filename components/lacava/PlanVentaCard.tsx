@@ -55,12 +55,16 @@ export default function PlanVentaCard({
   base,
   diasRestantes,
   targets,
+  animar = true,
 }: {
   puntos: PuntoTrayectoria[];
   base: number;
   diasRestantes: number;
   targets: PlanTarget[];
+  /** false = estático, mientras el gráfico espera fuera de pantalla. */
+  animar?: boolean;
 }) {
+  const animacion = animar ? ("auto" as const) : false;
   if (puntos.length === 0) {
     return (
       <p className="font-sans text-sm" style={{ color: LACAVA.tintaSutil }}>
@@ -99,8 +103,10 @@ export default function PlanVentaCard({
                 className="mt-3 h-1.5 overflow-hidden rounded-full"
                 style={{ backgroundColor: LACAVA.grid }}
               >
+                {/* Se dibuja al montarse: GraficosCard monta este panel
+                    recién cuando entra en pantalla. */}
                 <div
-                  className="h-full rounded-full"
+                  className="lacava-barra-revela h-full rounded-full"
                   style={{ width: `${avance}%`, backgroundColor: t.color }}
                 />
               </div>
@@ -135,6 +141,9 @@ export default function PlanVentaCard({
             width={56}
           />
           <Tooltip cursor={{ stroke: LACAVA.borde }} content={<PlanTooltip />} />
+          {/* Trazado en dos tiempos: primero la venta real hasta hoy y,
+              cuando termina, se despliega el abanico hacia el evento.
+              "auto" anima salvo que el sistema pida reducir movimiento. */}
           <Area
             dataKey="banda"
             name="Banda mínimo–meta"
@@ -142,7 +151,10 @@ export default function PlanVentaCard({
             fill={LACAVA.dorado}
             fillOpacity={0.18}
             connectNulls={false}
-            isAnimationActive={false}
+            isAnimationActive={animacion}
+            animationBegin={900}
+            animationDuration={1200}
+            animationEasing="ease-out"
           />
           <Line
             type="monotone"
@@ -154,7 +166,10 @@ export default function PlanVentaCard({
             dot={false}
             activeDot={{ r: 3 }}
             connectNulls={false}
-            isAnimationActive={false}
+            isAnimationActive={animacion}
+            animationBegin={900}
+            animationDuration={1200}
+            animationEasing="ease-out"
           />
           <Line
             type="monotone"
@@ -165,7 +180,8 @@ export default function PlanVentaCard({
             dot={false}
             activeDot={{ r: 4 }}
             connectNulls={false}
-            isAnimationActive={false}
+            isAnimationActive={animacion}
+            animationDuration={1000}
           />
           {targets.map((t) => (
             <ReferenceLine

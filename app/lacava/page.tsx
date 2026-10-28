@@ -10,6 +10,7 @@ import {
   getLaCavaPrecios,
   getLaCavaTipos,
   getLaCavaVentaDiaria,
+  getLaCavaVentaPorJornada,
   type LaCavaEvento,
 } from "@/lib/queries/lacava";
 import { getCurvasCompra } from "@/lib/queries/curvas";
@@ -18,12 +19,17 @@ import { buildPlanTrayectorias } from "@/lib/lacava/proyeccion";
 import { formatCurrency, formatNumber } from "@/lib/unabase/formatting";
 import { LACAVA } from "@/components/lacava/theme";
 import LaCavaLogo from "@/components/lacava/LaCavaLogo";
-import VentaDiariaChart from "@/components/lacava/VentaDiariaChart";
-import CurvasEdicionesChart, {
-  type CurvaVariant,
-} from "@/components/lacava/CurvasEdicionesChart";
-import TiposTicketCard from "@/components/lacava/TiposTicketCard";
-import PlanVentaCard, { type PlanTarget } from "@/components/lacava/PlanVentaCard";
+import type { CurvaVariant } from "@/components/lacava/CurvasEdicionesChart";
+import {
+  agruparJornadas,
+  sumarDias,
+  type SoldOutPorJornada,
+} from "@/components/lacava/jornadas";
+import DetalleDevoluciones from "@/components/lacava/DetalleDevoluciones";
+import GraficosCard from "@/components/lacava/GraficosCard";
+import ContadorKpi from "@/components/lacava/ContadorKpi";
+import RevelarAlVer from "@/components/lacava/RevelarAlVer";
+import type { PlanTarget } from "@/components/lacava/PlanVentaCard";
 import PreciosCard from "@/components/lacava/PreciosCard";
 import MediosPagoCard from "@/components/lacava/MediosPagoCard";
 
@@ -38,9 +44,22 @@ const PLAN_VENTA: Record<string, { minimo: number; objetivo: number }> = {
   GLO209: { minimo: 4500, objetivo: 5500 },
 };
 
+/**
+ * Objetivo de venta por jornada = sold out (capacidad de cada día), por
+ * edición y día de la semana (0 = domingo … 6 = sábado). Por día de la
+ * semana y no por fecha, para que sobreviva a un reagendamiento.
+ */
+const SOLD_OUT_POR_JORNADA: Record<string, SoldOutPorJornada> = {
+  GLO209: { 5: 2122, 6: 2250, 0: 831 },
+};
+
 const compactClp = new Intl.NumberFormat("es-CL", {
   notation: "compact",
   compactDisplay: "short",
+  maximumFractionDigits: 1,
+});
+const pctUnDecimal = new Intl.NumberFormat("es-CL", {
+  style: "percent",
   maximumFractionDigits: 1,
 });
 const fechaLarga = new Intl.DateTimeFormat("es-CL", {
@@ -104,11 +123,12 @@ export default async function LaCavaPage({
     : defaultId;
   const evento = eventos.find((e) => e.eventoId === selectedId) as LaCavaEvento;
 
-  const [dias, tipos, precios, medios, curvaRows] = await Promise.all([
+  const [dias, tipos, precios, medios, ventaPorJornada, curvaRows] = await Promise.all([
     getLaCavaVentaDiaria(selectedId),
     getLaCavaTipos(selectedId),
     getLaCavaPrecios(selectedId),
     getLaCavaMedios(selectedId),
+    getLaCavaVentaPorJornada(selectedId),
     // Misma matemática que /marketing/curvas. Trae JUMBO (curvas del gráfico
     // comparativo) + FBM (Bocas Moradas: los comparables de las trayectorias
     // del plan de venta).
@@ -120,6 +140,12 @@ export default async function LaCavaPage({
       incluirCortesias: false,
     }),
   ]);
+
+  // Jornadas del evento (venta, sold out y devoluciones por día): alimentan la
+  // pestaña "Venta por día" y el detalle de la card de devoluciones.
+  const jornadas = agruparJornadas(tipos, SOLD_OUT_POR_JORNADA[selectedId]);
+  // Hoy en Chile según BigQuery, el mismo reloj que diasParaEvento.
+  const hoy = sumarDias(evento.fechaEvento, -evento.diasParaEvento);
 
   const jumboIds = new Set(eventos.map((e) => e.eventoId));
   const rowsJumbo = curvaRows.filter((r) => jumboIds.has(r.eventoId));
@@ -202,6 +228,8 @@ export default async function LaCavaPage({
   const emitidas = evento.personas + evento.cortesias;
   const ticketPromedio =
     evento.transacciones > 0 ? evento.ventaNeta / evento.transacciones : 0;
+  // Base de la tasa de devolución: todo lo que se llegó a vender, vigente o no.
+  const vendidasTotal = evento.personas + evento.devueltas;
 
   return (
     <Shell
@@ -214,9 +242,14 @@ export default async function LaCavaPage({
         />
       }
     >
-      {/* KPIs de la edición seleccionada */}
-      <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        <KpiCard label="Personas vendidas" value={formatNumber(evento.personas)}>
+      {/* KPIs de la edición seleccionada. Cinco cards: en una fila desde xl;
+          entre sm y xl, la principal ocupa el ancho y las otras van de a dos. */}
+      <section className="grid grid-cols-1 gap-6 sm:grid-cols-2 xl:grid-cols-5">
+        <KpiCard
+          label="Entradas vendidas"
+          value={<ContadorKpi valor={evento.personas} formato="entero" />}
+          className="sm:col-span-2 xl:col-span-1"
+        >
           {evento.goalTickets > 0 ? (
             <>
               <p className="mt-3 font-sans text-xs" style={{ color: LACAVA.tintaSuave }}>
@@ -226,13 +259,17 @@ export default async function LaCavaPage({
                 className="mt-2 h-1.5 overflow-hidden rounded-full"
                 style={{ backgroundColor: LACAVA.grid }}
               >
-                <div
-                  className="h-full rounded-full"
-                  style={{
-                    width: `${Math.min(100, metaPct ?? 0)}%`,
-                    backgroundColor: LACAVA.jumbo,
-                  }}
-                />
+                {/* Se traza al entrar en pantalla: en el teléfono las KPIs
+                    quedan bajo el pliegue. */}
+                <RevelarAlVer key={selectedId} umbral={1} className="h-full">
+                  <div
+                    className="h-full rounded-full"
+                    style={{
+                      width: `${Math.min(100, metaPct ?? 0)}%`,
+                      backgroundColor: LACAVA.jumbo,
+                    }}
+                  />
+                </RevelarAlVer>
               </div>
             </>
           ) : (
@@ -243,85 +280,97 @@ export default async function LaCavaPage({
         </KpiCard>
         <KpiCard
           label="Venta neta tickets"
-          value={`$${compactClp.format(Math.round(evento.ventaNeta))}`}
+          value={<ContadorKpi valor={evento.ventaNeta} formato="clpCompacto" />}
         >
           <p className="mt-3 font-sans text-xs" style={{ color: LACAVA.tintaSuave }}>
             + {formatCurrency(evento.cargoServicio)} de cargo por servicio
           </p>
         </KpiCard>
-        <KpiCard label="Ticket promedio" value={formatCurrency(ticketPromedio)}>
+        <KpiCard
+          label="Ticket promedio"
+          value={<ContadorKpi valor={ticketPromedio} formato="clp" />}
+        >
           <p className="mt-3 font-sans text-xs" style={{ color: LACAVA.tintaSuave }}>
             {formatNumber(evento.transacciones)} transacciones · neto de descuentos
           </p>
         </KpiCard>
-        <KpiCard label="Cortesías" value={formatNumber(evento.cortesias)}>
+        <KpiCard
+          label="Cortesías"
+          value={<ContadorKpi valor={evento.cortesias} formato="entero" />}
+        >
           <p className="mt-3 font-sans text-xs" style={{ color: LACAVA.tintaSuave }}>
             {emitidas > 0
               ? `${Math.round((evento.cortesias / emitidas) * 100)}% de lo emitido`
               : "Sin emisiones"}
-            {evento.devueltos > 0 && ` · ${formatNumber(evento.devueltos)} devueltos`}
+          </p>
+        </KpiCard>
+        <KpiCard
+          label="Devoluciones"
+          value={<ContadorKpi valor={evento.devueltas} formato="entero" />}
+          accion={<DetalleDevoluciones jornadas={jornadas} />}
+        >
+          <p className="mt-3 font-sans text-xs" style={{ color: LACAVA.tintaSuave }}>
+            {evento.devueltas > 0 && vendidasTotal > 0
+              ? `${pctUnDecimal.format(evento.devueltas / vendidasTotal)} de lo vendido · $${compactClp.format(Math.round(evento.ventaDevuelta))} en venta neta`
+              : "Sin entradas devueltas"}
           </p>
         </KpiCard>
       </section>
 
-      {/* Evolución de venta (como /marketing/weekly) */}
+      {/* Gráficos principales en una sola card con pestañas: evolución, plan,
+          curvas y venta por día comparten el espacio para acortar el scroll. */}
+      <GraficosCard
+        evolucion={{
+          subtitle: `Venta diaria y acumulada de ${evento.nombre}. En venta desde el ${fmtFecha(evento.primeraOrden)}.`,
+          dias,
+          goalTickets: evento.goalTickets || undefined,
+          fechaEvento: evento.fechaEvento,
+        }}
+        plan={
+          planTargets.length > 0 && trayectorias?.disponible
+            ? {
+                subtitle:
+                  "Compromisos comerciales de la edición y avance real contra cada uno: banda entre el mínimo y la meta, trayectoria central hacia el objetivo.",
+                puntos: trayectorias.puntos,
+                base: trayectorias.base,
+                diasRestantes: trayectorias.diasRestantes,
+                targets: planTargets,
+              }
+            : undefined
+        }
+        curvas={{
+          subtitle:
+            "Acumulado de todas las ediciones de La Cava alineado por días de compra anticipada. La curva en venta se corta en el día de hoy.",
+          variants,
+        }}
+        ventaPorDia={
+          jornadas.length > 0
+            ? {
+                subtitle: jornadas.some((j) => (j.objetivo ?? 0) > 0)
+                  ? "Venta acumulada de cada jornada hacia su sold out. Elige el día; el resumen incluye todas las jornadas con su recaudación."
+                  : "Venta acumulada de cada jornada del evento. Elige el día; el resumen incluye todas las jornadas con su recaudación.",
+                jornadas,
+                series: ventaPorJornada,
+                hoy,
+              }
+            : undefined
+        }
+      />
+
+      {/* Medios de pago */}
       <Card
-        title="Evolución de venta"
-        subtitle={`Venta diaria y acumulada de ${evento.nombre}. En venta desde el ${fmtFecha(evento.primeraOrden)}.`}
+        title="Medios de pago"
+        subtitle="Venta neta por medio de pago (solo ventas pagadas)."
       >
-        <VentaDiariaChart
-          data={dias}
-          goalTickets={evento.goalTickets || undefined}
-          fechaEvento={evento.fechaEvento}
-        />
+        <MediosPagoCard key={selectedId} medios={medios} />
       </Card>
-
-      {/* Plan de venta: compromisos comerciales declarados (vista cliente) */}
-      {planTargets.length > 0 && trayectorias?.disponible && (
-        <Card
-          title="Plan de venta"
-          subtitle="Compromisos comerciales de la edición y avance real contra cada uno: banda entre el mínimo y la meta, trayectoria central hacia el objetivo."
-        >
-          <PlanVentaCard
-            puntos={trayectorias.puntos}
-            base={trayectorias.base}
-            diasRestantes={trayectorias.diasRestantes}
-            targets={planTargets}
-          />
-        </Card>
-      )}
-
-
-      {/* Curvas comparativas entre ediciones (como /marketing/curvas) */}
-      <Card
-        title="Curvas de venta por edición"
-        subtitle="Acumulado de todas las ediciones de La Cava alineado por días de compra anticipada. La curva en venta se corta en el día de hoy."
-      >
-        <CurvasEdicionesChart variants={variants} />
-      </Card>
-
-      {/* Tipos + medios de pago */}
-      <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        <Card
-          title="Tickets por día"
-          subtitle="Personas emitidas para cada jornada del evento, con su tipo y clase (venta pagada vs cortesía)."
-        >
-          <TiposTicketCard tipos={tipos} />
-        </Card>
-        <Card
-          title="Medios de pago"
-          subtitle="Venta neta por medio de pago (solo ventas pagadas)."
-        >
-          <MediosPagoCard medios={medios} />
-        </Card>
-      </section>
 
       {/* Tramos de precio */}
       <Card
         title="Tramos de precio y descuentos"
         subtitle="Personas por precio de lista (preventas / general), segmentadas por el descuento del beneficio Cencosud / Jumbo Prime."
       >
-        <PreciosCard precios={precios} />
+        <PreciosCard key={selectedId} precios={precios} />
       </Card>
 
       {/* Comparativa entre ediciones */}
@@ -330,7 +379,9 @@ export default async function LaCavaPage({
         subtitle="Resumen de todas las ediciones de La Cava."
         noPadding
       >
-        <EdicionesTable eventos={eventos} selectedId={selectedId} />
+        <RevelarAlVer key={selectedId}>
+          <EdicionesTable eventos={eventos} selectedId={selectedId} />
+        </RevelarAlVer>
       </Card>
     </Shell>
   );
@@ -407,7 +458,8 @@ function Header({
                 style={{ color: LACAVA.marfil, opacity: 0.75 }}
               >
                 Venta de tickets de las ediciones de La Cava: ritmo diario,
-                curvas comparadas, tipos de ticket y medios de pago.
+                venta por jornada hacia su sold out, curvas comparadas, tramos
+                de precio y medios de pago.
               </p>
             </div>
           </div>
@@ -547,20 +599,28 @@ function Countdown({ evento }: { evento: LaCavaEvento }) {
 function KpiCard({
   label,
   value,
+  accion,
+  className = "",
   children,
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
+  /** Control opcional en la esquina superior derecha (ej. "Ver detalle"). */
+  accion?: React.ReactNode;
+  className?: string;
   children?: React.ReactNode;
 }) {
   return (
     <article
-      className="rounded-lg border bg-white p-6 shadow-sm"
+      className={`rounded-lg border bg-white p-6 shadow-sm ${className}`}
       style={{ borderColor: LACAVA.borde }}
     >
-      <p className="font-sans text-xs" style={{ color: LACAVA.tintaSuave }}>
-        {label}
-      </p>
+      <div className="flex items-start justify-between gap-2">
+        <p className="font-sans text-xs" style={{ color: LACAVA.tintaSuave }}>
+          {label}
+        </p>
+        {accion && <div className="-mr-1.5 -mt-0.5 shrink-0">{accion}</div>}
+      </div>
       <p
         className="mt-2 font-lacava text-4xl font-bold leading-none"
         style={{ color: LACAVA.verde }}
