@@ -183,20 +183,21 @@ export default function PlanVentaCard({
             isAnimationActive={animacion}
             animationDuration={1000}
           />
-          {targets.map((t) => (
+          {targets.map((t, i) => (
             <ReferenceLine
               key={t.key}
               y={t.valor}
               stroke={t.color}
               strokeOpacity={0.55}
               strokeDasharray="2 5"
-              label={{
-                value: `${t.label} ${entero.format(t.valor)}`,
-                position: "insideTopLeft",
-                fontFamily: "var(--font-sans)",
-                fontSize: 11,
-                fill: t.color,
-              }}
+              label={
+                <EtiquetaCompromiso
+                  texto={`${t.label} ${entero.format(t.valor)}`}
+                  color={t.color}
+                  posicion={i}
+                  total={targets.length}
+                />
+              }
             />
           ))}
           {hoy && (
@@ -229,6 +230,49 @@ export default function PlanVentaCard({
         predicción.
       </p>
     </div>
+  );
+}
+
+/**
+ * Etiqueta de un compromiso sobre su línea. Los compromisos quedan muy cerca
+ * en el eje (4.800 / 5.000 / 5.203), así que cada uno va en otro tramo de su
+ * línea: el primero a la izquierda, el último en el extremo derecho y los del
+ * medio a un 30% (antes de "hoy"). El halo blanco la despeja de las líneas
+ * vecinas que la cruzan.
+ */
+function EtiquetaCompromiso({
+  viewBox,
+  texto,
+  color,
+  posicion,
+  total,
+}: {
+  viewBox?: { x?: number; y?: number; width?: number };
+  texto: string;
+  color: string;
+  posicion: number;
+  total: number;
+}) {
+  if (viewBox?.x == null || viewBox.y == null) return null;
+  const ancho = viewBox.width ?? 0;
+  const ultimo = total > 1 && posicion === total - 1;
+  const x = ultimo ? viewBox.x + ancho - 6 : viewBox.x + 6 + ancho * 0.3 * posicion;
+  return (
+    <text
+      x={x}
+      y={viewBox.y - 5}
+      textAnchor={ultimo ? "end" : "start"}
+      fontFamily="var(--font-sans)"
+      fontSize={11}
+      fontWeight={500}
+      fill={color}
+      stroke="#FFFFFF"
+      strokeWidth={4}
+      strokeLinejoin="round"
+      paintOrder="stroke"
+    >
+      {texto}
+    </text>
   );
 }
 
