@@ -42,8 +42,15 @@ type Props = {
   /** "iniciativa" (Club Glovox, Now Mag…): sin fecha de evento ni tickets; el
    *  techo es la suma del plan y su real son las campañas asignadas. */
   modo?: "evento" | "iniciativa";
-  /** Solo iniciativas: cuántas campañas tiene asignadas. */
+  /** Solo iniciativas: cuántas campañas tiene asignadas (a mano + por regla). */
   campanasAsignadas?: number;
+  /** Solo iniciativas: de esas, cuántas capturan sus reglas automáticas. */
+  campanasPorRegla?: number;
+  /** Solo iniciativas: sus reglas automáticas, ya descritas. */
+  reglas?: string[];
+  /** Solo iniciativas: la ventana se recortó y empieza acá (tiene gasto anterior,
+   *  que se ve en el calendario). */
+  historiaDesde?: string;
   /** Solo iniciativas: archivada (se ve en solo lectura). */
   iniciativaArchivada?: boolean;
   eventoId: string;
@@ -136,9 +143,25 @@ function RmktBadge() {
   );
 }
 
+/** "964 campañas asignadas (962 por regla)". */
+function textoCampanas(total: number, porRegla: number): string {
+  const base = `${total} ${total === 1 ? "campaña asignada" : "campañas asignadas"}`;
+  return porRegla > 0 ? `${base} (${porRegla} por regla)` : base;
+}
+
+// Campañas por tipo que se dibujan de entrada al abrir un tipo en la grilla (y
+// cuántas más libera "mostrar más"): una iniciativa con regla puede tener
+// cientos (los boosts de Instagram) × cientos de días.
+const DRILL_MAX_CAMP = 25;
+// Filas por tipo en la tabla "Campañas por tipo" (sin columnas de día).
+const TABLA_MAX_CAMP = 30;
+
 export default function EventoDrill({
   modo = "evento",
   campanasAsignadas = 0,
+  campanasPorRegla = 0,
+  reglas = [],
+  historiaDesde,
   iniciativaArchivada = false,
   eventoId,
   nombre,
@@ -177,17 +200,36 @@ export default function EventoDrill({
   // mezclaba plan pasado en vez de gasto): techo − real cerrado − plan
   // pendiente. Ver lib/inversion-medios/holgura.ts.
   const ultimoDia = ultimoDiaEvento(fechaEvento, diasEvento);
-  const holgura = useMemo(
-    () => calcHolgura({ totalDia, corte, hoy, ultimoDia, techo: techoUsd }),
-    [totalDia, corte, hoy, ultimoDia, techoUsd],
+  // Iniciativa: plan y real se comparan desde su PRIMER día con plan. Una regla
+  // le trae toda la historia de sus campañas (FER Y CAMI: boosts desde 2025-01)
+  // y el plan parte cuando se crea la iniciativa: sin este corte el desvío salía
+  // −$30k y la ejecución 763% por gasto de antes de que hubiera plan. Un evento
+  // compara todo (su plan cubre la campaña entera).
+  const inicioComparacion = esIniciativa ? (totalDia.find((d) => d.plan > 0)?.fecha ?? "") : "";
+  const totalDiaComp = useMemo(
+    () => (inicioComparacion ? totalDia.filter((d) => d.fecha >= inicioComparacion) : totalDia),
+    [totalDia, inicioComparacion],
   );
-  const canalesDesvio = useMemo(() => desvioPorCanal(plataformas, corte), [plataformas, corte]);
+  const holgura = useMemo(
+    () => calcHolgura({ totalDia: totalDiaComp, corte, hoy, ultimoDia, techo: techoUsd }),
+    [totalDiaComp, corte, hoy, ultimoDia, techoUsd],
+  );
+  const canalesDesvio = useMemo(
+    () =>
+      desvioPorCanal(
+        inicioComparacion
+          ? plataformas.map((p) => ({ ...p, dias: p.dias.filter((c) => c.fecha >= inicioComparacion) }))
+          : plataformas,
+        corte,
+      ),
+    [plataformas, corte, inicioComparacion],
+  );
   // Desvío del día y acumulado, alineados a las columnas, solo hasta el corte.
   const desvioCols = useMemo(() => {
     const out: { dia: number | null; acc: number | null }[] = [];
     let acc = 0;
     for (const d of totalDia) {
-      if (!corte || d.fecha > corte) {
+      if (!corte || d.fecha > corte || (inicioComparacion && d.fecha < inicioComparacion)) {
         out.push({ dia: null, acc: null });
         continue;
       }
@@ -195,7 +237,7 @@ export default function EventoDrill({
       out.push({ dia: d.plan - d.real, acc });
     }
     return out;
-  }, [totalDia, corte]);
+  }, [totalDia, corte, inicioComparacion]);
   // Bloqueo por calendario: antes de hoy solo edita superadmin.
   const editableDia = (fecha: string) => !esDiaBloqueado(fecha, hoy, isSuperadmin);
   const minEditable = isSuperadmin ? (dias[0] ?? "") : hoy;
@@ -203,7 +245,9 @@ export default function EventoDrill({
   const nPasados = dias.filter((d) => d < hoy).length;
   const hayBandaBloqueo = nPasados > 0;
   const pctPlan = techoUsd && techoUsd > 0 ? (totalPlan / techoUsd) * 100 : null;
-  const pctReal = techoUsd && techoUsd > 0 ? (totalReal / techoUsd) * 100 : null;
+  // En una iniciativa, la ejecución cuenta el real desde su primer día con plan.
+  const realComparado = inicioComparacion ? totalDiaComp.reduce((acc, d) => acc + d.real, 0) : totalReal;
+  const pctReal = techoUsd && techoUsd > 0 ? (realComparado / techoUsd) * 100 : null;
 
   // Segmentos de las bandas de etapa alineados a las columnas de días.
   const etapaSegs = useMemo(() => computeEtapaSegments(dias, etapas), [dias, etapas]);
@@ -224,6 +268,7 @@ export default function EventoDrill({
   // se va a trabajar.
   const [expCanal, setExpCanal] = useState<Set<string>>(() => new Set());
   const [expTipo, setExpTipo] = useState<Set<string>>(new Set());
+  const [campShown, setCampShown] = useState<Map<string, number>>(() => new Map());
 
   // Serie de resultado alineada a las columnas de día. El memo depende de
   // [dias, serieResultado] y NUNCA del tramo mirado: recalcular al scrollear
@@ -361,7 +406,7 @@ export default function EventoDrill({
           <h1 className="mt-1 font-display text-3xl font-bold text-[var(--ink)]">{nombre || eventoId}</h1>
           <p className="mt-1 font-sans text-sm text-[var(--ink-muted)]">
             {esIniciativa
-              ? `${iniciativaArchivada ? "Iniciativa archivada (solo lectura; se reactiva desde el calendario, con «ver archivadas»)" : "Iniciativa"} · ${campanasAsignadas} ${campanasAsignadas === 1 ? "campaña asignada" : "campañas asignadas"}`
+              ? `${iniciativaArchivada ? "Iniciativa archivada (solo lectura; se reactiva desde el calendario, con «ver archivadas»)" : "Iniciativa"} · ${textoCampanas(campanasAsignadas, campanasPorRegla)}`
               : eventoId}
             {venue ? ` · ${venue}` : ""}
             {fechaEvento
@@ -370,6 +415,12 @@ export default function EventoDrill({
             · plan por plataforma en USD
             {realMaxFecha ? ` · real al ${realMaxFecha}` : ""}
           </p>
+          {esIniciativa && reglas.length > 0 && (
+            <p className="mt-1 font-sans text-xs text-[var(--ink-subtle)]">
+              Regla automática: se le asignan solas las campañas sin evento de {reglas.join("; ")}, también
+              las que se creen después.
+            </p>
+          )}
         </div>
       </header>
 
@@ -387,19 +438,25 @@ export default function EventoDrill({
                 ? iniciativaArchivada
                   ? "sin campañas asignadas"
                   : "sin campañas: arrástralas desde No atribuido"
-                : `${campanasAsignadas} ${campanasAsignadas === 1 ? "campaña asignada" : "campañas asignadas"}`
+                : `${textoCampanas(campanasAsignadas, campanasPorRegla)}${
+                    historiaDesde ? ` · desde el ${fmtDiaMes(historiaDesde)} (lo anterior, en el calendario)` : ""
+                  }`
             }
           />
           <Stat
             label={corte ? `Desvío al ${fmtDiaMes(corte)}` : "Desvío"}
             value={corte ? fmtSigned(holgura.desvio) : "—"}
-            hint="plan − real de los días cerrados"
+            hint={
+              inicioComparacion
+                ? `plan − real de los días cerrados desde el ${fmtDiaMes(inicioComparacion)} (inicio del plan)`
+                : "plan − real de los días cerrados"
+            }
             tone={holgura.desvio < -0.5 ? "neg" : undefined}
           />
           <Stat
             label="Ejecución"
             value={pctReal != null ? `${pctReal.toFixed(0)}%` : "—"}
-            hint="real / plan total"
+            hint={inicioComparacion ? `real desde el ${fmtDiaMes(inicioComparacion)} / plan total` : "real / plan total"}
             tone={pctReal != null && pctReal > 100 ? "neg" : undefined}
           />
         </div>
@@ -793,7 +850,8 @@ export default function EventoDrill({
                     </tr>,
                   );
                   if (tAbierto) {
-                    for (let ci = 0; ci < campanas.length; ci++) {
+                    const tope = campShown.get(tk) ?? DRILL_MAX_CAMP;
+                    for (let ci = 0; ci < campanas.length && ci < tope; ci++) {
                       const c = campanas[ci];
                       rows.push(
                         <tr key={`camp-${tk}-${ci}`}>
@@ -805,6 +863,32 @@ export default function EventoDrill({
                           ))}
                           <td className="border-l border-t border-[var(--grid)] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
                             {fmtUsd(c.total, 0)}
+                          </td>
+                        </tr>,
+                      );
+                    }
+                    if (campanas.length > tope) {
+                      // El resto sumado en una fila: la partición cierra contra el tipo.
+                      const resto = campanas.slice(tope);
+                      const diasResto = dias.map((_, i) => resto.reduce((acc, c) => acc + c.dias[i], 0));
+                      rows.push(
+                        <tr key={`camp-${tk}-resto`}>
+                          <td className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--grid)] bg-[var(--surface)] py-1 pl-12 pr-3 align-top text-[11px] text-[var(--ink-subtle)]`}>
+                            <span className="block truncate">otras {resto.length} campañas</span>
+                            <button
+                              onClick={() =>
+                                setCampShown((m) => new Map(m).set(tk, tope + DRILL_MAX_CAMP))
+                              }
+                              className="font-sans text-[11px] font-medium text-[var(--plan)] transition-colors hover:text-[var(--plan-hover)]"
+                            >
+                              mostrar {Math.min(DRILL_MAX_CAMP, resto.length)} más
+                            </button>
+                          </td>
+                          {dias.map((fecha, i) => (
+                            <ReadCell key={fecha} value={diasResto[i]} fecha={fecha} hoy={fecha === hoy} muted />
+                          ))}
+                          <td className="border-l border-t border-[var(--grid)] px-3 py-1 text-right align-top tabular-nums text-[11px] text-[var(--ink-subtle)]">
+                            {fmtUsd(resto.reduce((acc, c) => acc + c.total, 0), 0)}
                           </td>
                         </tr>,
                       );
@@ -1060,9 +1144,9 @@ function CampanasPorTipo({
                     </td>
                     <td className="px-4 py-2" />
                   </tr>
-                  {tipo.campanas.map((c) => (
+                  {tipo.campanas.slice(0, TABLA_MAX_CAMP).map((c) => (
                     <tr
-                      key={c.nombre}
+                      key={c.key}
                       className="border-b border-[var(--divider)] transition-colors duration-150 hover:bg-[var(--surface-alt)]"
                     >
                       <td className="px-4 py-2.5 pl-10 font-sans text-sm text-[var(--ink)]">
@@ -1079,6 +1163,23 @@ function CampanasPorTipo({
                       </td>
                     </tr>
                   ))}
+                  {tipo.campanas.length > TABLA_MAX_CAMP && (() => {
+                    const resto = tipo.campanas.slice(TABLA_MAX_CAMP);
+                    const total = resto.reduce((acc, c) => acc + c.total, 0);
+                    return (
+                      <tr className="border-b border-[var(--divider)]">
+                        <td className="px-4 py-2.5 pl-10 font-sans text-sm text-[var(--ink-subtle)]">
+                          otras {resto.length} campañas
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[var(--ink-subtle)]">
+                          {fmtUsd(total)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-sans text-sm tabular-nums text-[var(--ink-subtle)]">
+                          {tipo.total > 0 ? `${((total / tipo.total) * 100).toFixed(0)}%` : "·"}
+                        </td>
+                      </tr>
+                    );
+                  })()}
                 </Fragment>
               ))}
             </tbody>

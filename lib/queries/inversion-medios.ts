@@ -5,12 +5,18 @@ import {
   cargosExtraPm,
   iniciativasPm,
   iniciativasPmCampanas,
+  iniciativasPmReglas,
   inversionMediosDiario,
   inversionMediosEtapas,
   type CargoExtra,
   type EtapaCampana,
 } from "@/db/schema";
-import type { CampanaAsignada, Iniciativa } from "@/lib/inversion-medios/iniciativas";
+import {
+  campanaKey,
+  type CampanaAsignada,
+  type Iniciativa,
+  type ReglaIniciativa,
+} from "@/lib/inversion-medios/iniciativas";
 import { query } from "@/lib/bigquery";
 import { esVentaSql } from "@/lib/tickets/clase";
 import { PM_PROPAGACION_MIN } from "@/lib/inversion-medios/rendimiento";
@@ -457,6 +463,8 @@ export type SinEventoCampanaDia = {
   plataforma: string;
   campaignId: string;
   campaignName: string;
+  /** Cuenta publicitaria (Glovox, Bosque Sónico…): el nombre solo no la distingue. */
+  cuenta: string;
   fecha: string; // YYYY-MM-DD
   gastoUsd: number;
   fxImputado: boolean;
@@ -481,6 +489,7 @@ export async function getSinEventoCampanasDiario(
       IFNULL(m.plataforma, '(null)')                                   AS plataforma,
       IFNULL(m.campaign_id, CONCAT('nombre:', IFNULL(m.campaign_name, ''))) AS campaign_id,
       ANY_VALUE(IFNULL(m.campaign_name, '(sin nombre)'))               AS campaign_name,
+      ANY_VALUE(IFNULL(m.account_name, ''))                            AS cuenta,
       FORMAT_DATE('%Y-%m-%d', m.fecha)                                 AS fecha,
       SUM(m.gasto_usd)                                                 AS gasto_usd,
       LOGICAL_OR(IFNULL(m.fx_imputado, FALSE) OR m.fx_carry)           AS fx_imputado,
@@ -488,7 +497,7 @@ export async function getSinEventoCampanasDiario(
     FROM base m
     WHERE m.fecha BETWEEN DATE(@from) AND DATE(@to)
       AND ${SIN_EVENTO}
-    GROUP BY 1, 2, 4
+    GROUP BY 1, 2, 5
     HAVING IFNULL(gasto_usd, 0) != 0 OR filas_sin_fx > 0
     ORDER BY fecha
     `,
@@ -498,6 +507,7 @@ export async function getSinEventoCampanasDiario(
     plataforma: s(r.plataforma),
     campaignId: s(r.campaign_id),
     campaignName: s(r.campaign_name),
+    cuenta: s(r.cuenta),
     fecha: s(r.fecha),
     gastoUsd: n(r.gasto_usd),
     fxImputado: b(r.fx_imputado),
@@ -507,16 +517,21 @@ export async function getSinEventoCampanasDiario(
 
 /**
  * TODAS las iniciativas (activas primero, en su orden fijo; después las
- * archivadas) con sus campañas asignadas (Neon). Las archivadas también vienen:
- * sus campañas siguen siendo suyas, así que su gasto no puede volver a "No
- * atribuido" al archivarlas. El calendario muestra su fila solo cuando tienen
- * datos en el tramo mirado.
+ * archivadas) con sus campañas asignadas (Neon) y las que capturan sus reglas
+ * (BigQuery, `porRegla`). Las archivadas también vienen: sus campañas siguen
+ * siendo suyas, así que su gasto no puede volver a "No atribuido" al
+ * archivarlas. El calendario muestra su fila solo cuando tienen datos en el
+ * tramo mirado.
+ *
+ * Las reglas se resuelven acá, en UN lugar, a una lista explícita de campañas:
+ * todo lo que viene después (reparto en el cliente, queries del drill, totales,
+ * "Campañas activas") las trata igual que a las asignadas a mano.
  */
-export async function getIniciativas(): Promise<Iniciativa[]> {
-  const [inis, asig] = await Promise.all([
+export async function getIniciativas(opts: { soloReglasDe?: string } = {}): Promise<Iniciativa[]> {
+  const [inis, asig, reglas] = await Promise.all([
     withNeonRetry(() =>
       db
-        .select({ id: iniciativasPm.id, nombre: iniciativasPm.nombre, activa: iniciativasPm.activa })
+        .select({ id: iniciativasPm.id, nombre: iniciativasPm.nombre, activa: iniciativasPm.activa, orden: iniciativasPm.orden })
         .from(iniciativasPm)
         .orderBy(desc(iniciativasPm.activa), asc(iniciativasPm.orden), asc(iniciativasPm.nombre)),
     ),
@@ -531,15 +546,127 @@ export async function getIniciativas(): Promise<Iniciativa[]> {
         .from(iniciativasPmCampanas)
         .orderBy(asc(iniciativasPmCampanas.createdAt)),
     ),
+    reglasActivas(),
   ]);
+  // El drill de una iniciativa solo necesita resolver si ELLA tiene reglas: lo
+  // que capturan las de otras no le suma (evita ir a BigQuery en vano).
+  const resolver = opts.soloReglasDe ? reglas.some((r) => r.iniciativaId === opts.soloReglasDe) : true;
+  const capturas = resolver ? await resolverReglas(reglas) : [];
+  // Manual > regla: la regla solo se queda con lo que nadie asignó a mano, pero
+  // las manuales que calzan con una regla lo saben (`reglaIni`).
+  const reglaDe = new Map(capturas.map((c) => [campanaKey(c.plataforma, c.campaignId), c.iniciativaId]));
+  const manuales = new Set(asig.map((a) => campanaKey(a.plataforma, a.campaignId)));
   return inis.map((i) => ({
     id: i.id,
     nombre: i.nombre,
     activa: i.activa,
-    campanas: asig
-      .filter((a) => a.iniciativaId === i.id)
-      .map((a) => ({ ...a, campaignName: a.campaignName ?? "" })),
+    campanas: [
+      ...asig
+        .filter((a) => a.iniciativaId === i.id)
+        .map((a) => {
+          const reglaIni = reglaDe.get(campanaKey(a.plataforma, a.campaignId));
+          return { ...a, campaignName: a.campaignName ?? "", ...(reglaIni ? { reglaIni } : {}) };
+        }),
+      ...capturas.filter(
+        (c) => c.iniciativaId === i.id && !manuales.has(campanaKey(c.plataforma, c.campaignId)),
+      ),
+    ],
+    reglas: reglas
+      .filter((r) => r.iniciativaId === i.id)
+      .map(({ plataforma, accountId, cuenta, prefijo }) => ({ plataforma, accountId, cuenta, prefijo })),
   }));
+}
+
+type ReglaConIni = ReglaIniciativa & { iniciativaId: string };
+
+/**
+ * Reglas ACTIVAS (las de una iniciativa archivada se apagan al archivarla) en
+ * orden de precedencia: el `orden` fijo de su iniciativa y, dentro de ella, la
+ * más antigua. No depende de `activa` de la iniciativa: archivar una no puede
+ * cambiar a quién le toca una campaña que calza con dos reglas.
+ */
+async function reglasActivas(): Promise<ReglaConIni[]> {
+  return withNeonRetry(() =>
+    db
+      .select({
+        iniciativaId: iniciativasPmReglas.iniciativaId,
+        plataforma: iniciativasPmReglas.plataforma,
+        accountId: iniciativasPmReglas.accountId,
+        cuenta: iniciativasPmReglas.cuenta,
+        prefijo: iniciativasPmReglas.prefijo,
+      })
+      .from(iniciativasPmReglas)
+      .innerJoin(iniciativasPm, eq(iniciativasPm.id, iniciativasPmReglas.iniciativaId))
+      .where(eq(iniciativasPmReglas.activa, true))
+      .orderBy(asc(iniciativasPm.orden), asc(iniciativasPm.id), asc(iniciativasPmReglas.createdAt)),
+  );
+}
+
+// Campañas que calzan con las reglas: de la cuenta de la regla y cuyo nombre
+// VIGENTE (el del último día del mart) empieza con el prefijo, sin distinguir
+// mayúsculas. Toda la historia del mart (la campaña ES de la iniciativa); las
+// queries de gasto igual cuentan solo sus filas sin evento. Una campaña que
+// calza con dos reglas va a la primera (`reglas` viene en orden de precedencia).
+// `@solo` acota a UNA campaña (para las actions); '' = todas.
+const REGLAS_SQL = `WITH reglas AS (
+    SELECT
+      plat AS plataforma,
+      @r_cuenta[OFFSET(k)] AS account_id,
+      LOWER(@r_prefijo[OFFSET(k)]) AS prefijo,
+      @r_ini[OFFSET(k)] AS iniciativa_id,
+      k AS orden
+    FROM UNNEST(@r_plat) AS plat WITH OFFSET k
+  ),
+  camp AS (
+    SELECT
+      IFNULL(m.plataforma, '(null)') AS plataforma,
+      m.campaign_id,
+      ARRAY_AGG(STRUCT(m.account_id AS account_id, IFNULL(m.campaign_name, '') AS nombre)
+        ORDER BY m.fecha DESC LIMIT 1)[OFFSET(0)] AS vigente
+    FROM ${MART} m
+    WHERE m.campaign_id IS NOT NULL
+      AND m.account_id IN UNNEST(@r_cuenta)
+      AND (@solo = '' OR CONCAT(IFNULL(m.plataforma, '(null)'), '|', m.campaign_id) = @solo)
+    GROUP BY 1, 2
+  )
+  SELECT c.plataforma, c.campaign_id, c.vigente.nombre AS nombre, r.iniciativa_id
+  FROM camp c
+  JOIN reglas r
+    ON r.plataforma = c.plataforma
+    AND r.account_id = c.vigente.account_id
+    AND STARTS_WITH(LOWER(c.vigente.nombre), r.prefijo)
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY c.plataforma, c.campaign_id ORDER BY r.orden) = 1`;
+
+async function resolverReglas(reglas: ReglaConIni[], solo = ""): Promise<CampanaAsignada[]> {
+  if (reglas.length === 0) return [];
+  const rows = await query<Record<string, unknown>>(REGLAS_SQL, {
+    r_plat: reglas.map((r) => r.plataforma),
+    r_cuenta: reglas.map((r) => r.accountId),
+    r_prefijo: reglas.map((r) => r.prefijo),
+    r_ini: reglas.map((r) => r.iniciativaId),
+    solo,
+  });
+  return rows.map((r) => ({
+    plataforma: s(r.plataforma),
+    campaignId: s(r.campaign_id),
+    campaignName: s(r.nombre),
+    iniciativaId: s(r.iniciativa_id),
+    porRegla: true,
+  }));
+}
+
+/** Iniciativa cuya regla activa calza con UNA campaña (null si ninguna). Para las actions. */
+export async function reglaDeCampana(plataforma: string, campaignId: string): Promise<string | null> {
+  const reglas = await reglasActivas();
+  const [c] = await resolverReglas(reglas, campanaKey(plataforma, campaignId));
+  return c?.iniciativaId ?? null;
+}
+
+/** Lo que capturan HOY las reglas activas de una iniciativa (para congelarlo al archivarla). */
+export async function capturasDeIniciativa(iniciativaId: string): Promise<CampanaAsignada[]> {
+  const reglas = await reglasActivas();
+  if (!reglas.some((r) => r.iniciativaId === iniciativaId)) return [];
+  return (await resolverReglas(reglas)).filter((c) => c.iniciativaId === iniciativaId);
 }
 
 // Campañas asignadas como parámetro de BigQuery: "plataforma|campaign_id|ini".
@@ -617,8 +744,10 @@ export async function getRealDesgloseIniciativa(
   from: string,
   to: string,
 ): Promise<
-  { fecha: string; plataforma: string; objective: string; campaignName: string; gastoUsd: number }[]
+  { fecha: string; plataforma: string; objective: string; campaignName: string; campaignId: string; gastoUsd: number }[]
 > {
+  // Por campaign_id (no solo por nombre): Meta trunca el texto de los boosts y
+  // muchos se llaman igual (16 «Publicación de Instagram» a secas en FER Y CAMI).
   const rows = await query<Record<string, unknown>>(
     `${REAL_BASE}${ASIG_CTE}
     SELECT
@@ -626,13 +755,14 @@ export async function getRealDesgloseIniciativa(
       m.plataforma                     AS plataforma,
       IFNULL(m.objective, '')          AS objective,
       IFNULL(m.campaign_name, '')      AS campaign_name,
+      m.campaign_id                    AS campaign_id,
       SUM(m.gasto_usd)                 AS gasto_usd
     FROM base m
     ${ASIG_JOIN}
     WHERE m.fecha BETWEEN DATE(@from) AND DATE(@to)
       AND m.gasto_usd > 0
       AND ${SIN_EVENTO}
-    GROUP BY fecha, plataforma, objective, campaign_name
+    GROUP BY fecha, plataforma, objective, campaign_name, campaign_id
     ORDER BY fecha
     `,
     { asig: asigParam(ini.campanas), from, to },
@@ -642,6 +772,7 @@ export async function getRealDesgloseIniciativa(
     plataforma: s(r.plataforma),
     objective: s(r.objective),
     campaignName: s(r.campaign_name),
+    campaignId: s(r.campaign_id),
     gastoUsd: n(r.gasto_usd),
   }));
 }

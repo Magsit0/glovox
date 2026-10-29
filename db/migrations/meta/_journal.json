@@ -260,6 +260,20 @@
       "when": 1792613968799,
       "tag": "0036_editores_hasta_dos",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1793288277524,
+      "tag": "0037_iniciativas_reglas",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1793289756175,
+      "tag": "0038_reglas_activa_ingles",
+      "breakpoints": true
     }
   ]
 }

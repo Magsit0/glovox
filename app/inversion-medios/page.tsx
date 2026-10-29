@@ -7,7 +7,7 @@ import { metasAbiertas, normDias, ultimoDiaEvento } from "@/lib/inversion-medios
 import { puedeEjercer } from "@/lib/editores-capacidad";
 import { anchoDesdeCookie, COL_CALENDARIO, COL_DRILL, type ColumnaNombre } from "@/lib/inversion-medios/col-nombre";
 import { hoySantiago } from "@/lib/inversion-medios/holgura";
-import { esIniciativaId } from "@/lib/inversion-medios/iniciativas";
+import { describirRegla, esIniciativaId } from "@/lib/inversion-medios/iniciativas";
 import {
   buildDrillGrid,
   getAdsMetricasEvento,
@@ -237,7 +237,7 @@ async function IniciativaDrillView({
   isSuperadmin: boolean;
 }) {
   const [iniciativas, realMaxFecha, realCorte, anchoNombreInicial] = await Promise.all([
-    getIniciativas(),
+    getIniciativas({ soloReglasDe: iniciativaId }),
     getRealMaxFecha(),
     getRealCorte(),
     anchoColumna(COL_DRILL),
@@ -269,7 +269,16 @@ async function IniciativaDrillView({
     realExtent?.min,
     realExtent?.max,
   ].filter((x): x is string => !!x).sort();
-  const from = [fechas[0], mesInicio(hoy)].filter(Boolean).sort()[0];
+  // Tope hacia atrás: 2 meses antes del primer día con plan (o del mes en
+  // curso, si es anterior). Una regla le trae a la iniciativa TODA la historia
+  // de sus campañas (FER Y CAMI: desde 2025-01, 730 columnas, con la zona de
+  // planificar a ~42 mil px a la derecha), y el drill es para planificar: la
+  // historia completa está en el calendario.
+  const primerPlan = planAll.map((p) => p.fecha).sort()[0];
+  const ancla = [primerPlan, mesInicio(hoy)].filter(Boolean).sort()[0];
+  const tope = mesInicio(mesFin(ancla, -2));
+  const fromLibre = [fechas[0], mesInicio(hoy)].filter(Boolean).sort()[0];
+  const from = fromLibre < tope ? tope : fromLibre;
   const to = [fechas[fechas.length - 1] ?? "", mesFin(hoy, 2)].sort().reverse()[0];
 
   const [real, etapas, desgloseRows] = await Promise.all([
@@ -283,6 +292,9 @@ async function IniciativaDrillView({
     <EventoDrill
       modo="iniciativa"
       campanasAsignadas={ini.campanas.length}
+      campanasPorRegla={ini.campanas.filter((c) => c.porRegla).length}
+      historiaDesde={from > fromLibre ? from : undefined}
+      reglas={ini.reglas.map(describirRegla)}
       iniciativaArchivada={!ini.activa}
       eventoId={iniciativaId}
       nombre={ini.nombre}

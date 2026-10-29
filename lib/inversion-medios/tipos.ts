@@ -42,6 +42,9 @@ export type DesgloseRow = {
   plataforma: string;
   objective: string;
   campaignName: string;
+  /** Si viene, las campañas se separan por id (no por nombre): los boosts de
+   *  Instagram de una iniciativa se repiten de nombre. */
+  campaignId?: string;
   gastoUsd: number;
 };
 
@@ -108,6 +111,8 @@ export function esRemarketing(campaignName: string): boolean {
 // ---------- Jerarquía canal → tipo → campaña ----------
 
 export type CampanaNode = {
+  /** Clave estable (nombre, o nombre + id cuando viene el id). */
+  key: string;
   nombre: string;
   dias: number[]; // real por día, alineado a `dias`
   total: number;
@@ -137,7 +142,7 @@ export function buildDesglose(
     dias: number[];
     total: number;
     totalRmkt: number;
-    campanas: Map<string, { dias: number[]; total: number; esRmkt: boolean }>;
+    campanas: Map<string, { nombre: string; dias: number[]; total: number; esRmkt: boolean }>;
   };
   const porPlat = new Map<string, Map<string, Acc>>();
 
@@ -159,11 +164,12 @@ export function buildDesglose(
     acc.dias[col] += r.gastoUsd;
     acc.total += r.gastoUsd;
     const camp = r.campaignName || "(sin nombre)";
+    const ck = r.campaignId ? `${camp}\u0000${r.campaignId}` : camp;
     const rmkt = esRemarketing(camp);
     if (rmkt) acc.totalRmkt += r.gastoUsd;
-    if (!acc.campanas.has(camp))
-      acc.campanas.set(camp, { dias: new Array(dias.length).fill(0), total: 0, esRmkt: rmkt });
-    const c = acc.campanas.get(camp)!;
+    if (!acc.campanas.has(ck))
+      acc.campanas.set(ck, { nombre: camp, dias: new Array(dias.length).fill(0), total: 0, esRmkt: rmkt });
+    const c = acc.campanas.get(ck)!;
     c.dias[col] += r.gastoUsd;
     c.total += r.gastoUsd;
   }
@@ -173,8 +179,20 @@ export function buildDesglose(
     const nodes: TipoNode[] = [];
     for (const [tipo, acc] of tipos) {
       const campanas: CampanaNode[] = [...acc.campanas.entries()]
-        .map(([nombre, c]) => ({ nombre, dias: c.dias, total: c.total, esRmkt: c.esRmkt }))
+        .map(([key, c]) => ({ key, nombre: c.nombre, dias: c.dias, total: c.total, esRmkt: c.esRmkt }))
         .sort((a, b) => b.total - a.total);
+      // Mismo nombre, distinta campaña (boosts con el texto truncado): se
+      // numeran por gasto. El final del id no sirve: en Meta las campañas de
+      // una cuenta comparten los últimos dígitos.
+      const veces = new Map<string, number>();
+      for (const c of campanas) veces.set(c.nombre, (veces.get(c.nombre) ?? 0) + 1);
+      const vistos = new Map<string, number>();
+      for (const c of campanas) {
+        if ((veces.get(c.nombre) ?? 0) < 2) continue;
+        const k = (vistos.get(c.nombre) ?? 0) + 1;
+        vistos.set(c.nombre, k);
+        c.nombre = `${c.nombre} #${k}`;
+      }
       nodes.push({ tipo, dias: acc.dias, total: acc.total, totalRmkt: acc.totalRmkt, campanas });
     }
     nodes.sort((a, b) => b.total - a.total);

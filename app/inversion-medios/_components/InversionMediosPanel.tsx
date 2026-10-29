@@ -70,6 +70,7 @@ import {
 import { esDiaEvento, tituloDiaEvento } from "@/lib/inversion-medios/evento";
 import {
   campanaKey,
+  describirRegla,
   DND_CAMPANA,
   limpiarNombreIniciativa,
   NOMBRE_INICIATIVA_MAX,
@@ -163,6 +164,8 @@ type CampanaSinEvento = {
   plataforma: string;
   campaignId: string;
   nombre: string;
+  /** Cuenta publicitaria ("" si no se conoce: asignada sin gasto en el rango). */
+  cuenta: string;
   dias: number[];
   total: number;
 };
@@ -182,6 +185,7 @@ function leerArrastre(dt: DataTransfer): CampanaArrastrada | null {
       campaignId: c.campaignId,
       campaignName: typeof c.campaignName === "string" ? c.campaignName : "",
       desde: typeof c.desde === "string" ? c.desde : null,
+      porRegla: c.porRegla === true,
     };
   } catch {
     return null;
@@ -190,6 +194,26 @@ function leerArrastre(dt: DataTransfer): CampanaArrastrada | null {
 
 // Valor del <select> "Mover a…" que devuelve la campaña a No atribuido.
 const NA_VALOR = "__no_atribuido__";
+
+/**
+ * Las primeras `n` campañas (ya ordenadas) como sub-filas individuales y el
+ * resto sumado en una fila "otras N", para que el DOM no crezca con cientos de
+ * campañas × ~200 columnas. La partición top + otras cierra siempre por día.
+ */
+function topYResto<T extends CampanaSinEvento>(all: T[], n: number, nDias: number) {
+  const top = all.slice(0, n);
+  let resto: { nombre: string; dias: number[]; total: number; ocultas: number } | null = null;
+  if (all.length > n) {
+    const diasResto = new Array<number>(nDias).fill(0);
+    let total = 0;
+    for (const c of all.slice(n)) {
+      c.dias.forEach((v, i) => (diasResto[i] += v));
+      total += c.total;
+    }
+    resto = { nombre: `otras ${all.length - n} campañas`, dias: diasResto, total, ocultas: all.length - n };
+  }
+  return { top, resto, totalCampanas: all.length };
+}
 
 /** Cambia un parámetro de la URL sin ir al servidor (filtros de cliente, compartibles). */
 function setQueryParam(name: string, value: string | null) {
@@ -311,6 +335,24 @@ export default function InversionMediosPanel({
     }
     return m;
   }, [iniciativas]);
+  // Reglas automáticas. `reglaDe`: campañas que CALZAN con una regla (la tenga
+  // ella o estén asignadas a mano a otra iniciativa): se mueven entre
+  // iniciativas, nunca a "No atribuido" — la regla las recapturaría. `deRegla`:
+  // las que hoy son de la regla (pill «regla»).
+  const { reglaDe, deRegla } = useMemo(() => {
+    const reglaDe = new Map<string, string>();
+    const deRegla = new Set<string>();
+    for (const i of iniciativas) {
+      for (const c of i.campanas) {
+        const key = campanaKey(c.plataforma, c.campaignId);
+        if (c.porRegla) {
+          deRegla.add(key);
+          reglaDe.set(key, c.iniciativaId);
+        } else if (c.reglaIni) reglaDe.set(key, c.reglaIni);
+      }
+    }
+    return { reglaDe, deRegla };
+  }, [iniciativas]);
   const [asign, moverOptimista] = useOptimistic(
     asignServidor,
     (m: Map<string, string>, mov: { key: string; a: string | null }) => {
@@ -371,6 +413,15 @@ export default function InversionMediosPanel({
     [iniciativas],
   );
   const iniActiva = useMemo(() => new Map(iniciativas.map((i) => [i.id, i.activa])), [iniciativas]);
+  const reglasIni = useMemo(
+    () =>
+      new Map(
+        iniciativas
+          .filter((i) => i.reglas.length > 0)
+          .map((i) => [i.id, i.reglas.map(describirRegla)]),
+      ),
+    [iniciativas],
+  );
   const nArchivadas = iniciativas.length - destinos.length;
   // "ver archivadas": muestra TODAS las archivadas, tengan o no datos en el
   // tramo — sin esto, una archivada sin gasto quedaba invisible y no había cómo
@@ -414,6 +465,7 @@ export default function InversionMediosPanel({
           plataforma: r.plataforma,
           campaignId: r.campaignId,
           nombre: r.campaignName,
+          cuenta: r.cuenta,
           dias: new Array<number>(dias.length).fill(0),
           total: 0,
           ultima: "",
@@ -426,6 +478,7 @@ export default function InversionMediosPanel({
       if (r.fecha >= c.ultima) {
         c.ultima = r.fecha;
         c.nombre = r.campaignName;
+        if (r.cuenta) c.cuenta = r.cuenta;
       }
     }
     return { na, ini, camps };
@@ -461,13 +514,20 @@ export default function InversionMediosPanel({
   // además, las asignadas SIN gasto en él (igual se listan, para poder
   // quitarlas o moverlas).
   const iniCamps = useMemo(() => {
-    type Fila = CampanaSinEvento & { arrastre: CampanaArrastrada };
+    type Fila = CampanaSinEvento & { arrastre: CampanaArrastrada; deRegla: boolean };
     const out = new Map<string, Fila[]>(iniciativas.map((i) => [i.id, []]));
     const vistos = new Set<string>();
     const push = (iniId: string, c: CampanaSinEvento) => {
       out.get(iniId)?.push({
         ...c,
-        arrastre: { plataforma: c.plataforma, campaignId: c.campaignId, campaignName: c.nombre, desde: iniId },
+        deRegla: deRegla.has(c.key),
+        arrastre: {
+          plataforma: c.plataforma,
+          campaignId: c.campaignId,
+          campaignName: c.nombre,
+          desde: iniId,
+          porRegla: reglaDe.has(c.key),
+        },
       });
       vistos.add(c.key);
     };
@@ -477,6 +537,10 @@ export default function InversionMediosPanel({
     }
     for (const i of iniciativas) {
       for (const c of i.campanas) {
+        // Las de una regla sin gasto en el rango NO se listan: son cientos (todos
+        // los boosts históricos) y no hay nada que hacer con ellas acá — para
+        // soltarlas se cambia la regla.
+        if (c.porRegla) continue;
         const key = campanaKey(c.plataforma, c.campaignId);
         const iniId = asign.get(key);
         if (!iniId || vistos.has(key)) continue;
@@ -485,13 +549,14 @@ export default function InversionMediosPanel({
           plataforma: c.plataforma,
           campaignId: c.campaignId,
           nombre: c.campaignName || c.campaignId,
+          cuenta: "",
           dias: new Array<number>(dias.length).fill(0),
           total: 0,
         });
       }
     }
     return out;
-  }, [reparto, asign, iniciativas, dias]);
+  }, [reparto, asign, iniciativas, dias, reglaDe, deRegla]);
 
   // Filas de iniciativa: plan de Neon + real de sus campañas, con la MISMA
   // forma que una fila de evento (reusan la celda del calendario).
@@ -627,29 +692,27 @@ export default function InversionMediosPanel({
   // ~200 columnas serían ~40k celdas); la partición top+otras == fila NA cierra
   // siempre. Con ≤ naShown campañas con gasto en el tramo, "otras" ya no
   // esconde ninguna que se vea en pantalla.
-  const naCamps = useMemo(() => {
-    const all = ordenarPorRecencia(naBase, view.a, view.b);
-    const top = all.slice(0, naShown);
-    let resto: { nombre: string; dias: number[]; total: number; ocultas: number } | null = null;
-    if (all.length > naShown) {
-      const diasResto = new Array(dias.length).fill(0);
-      let total = 0;
-      for (const c of all.slice(naShown)) {
-        c.dias.forEach((v, i) => (diasResto[i] += v));
-        total += c.total;
-      }
-      resto = {
-        nombre: `otras ${all.length - naShown} campañas`,
-        dias: diasResto,
-        total,
-        ocultas: all.length - naShown,
-      };
-    }
-    return { top, resto, totalCampanas: all.length };
-  }, [naBase, view.a, view.b, naShown, dias.length]);
+  const naCamps = useMemo(
+    () => topYResto(ordenarPorRecencia(naBase, view.a, view.b), naShown, dias.length),
+    [naBase, view.a, view.b, naShown, dias.length],
+  );
+  // Igual en cada iniciativa: con una regla puede tener cientos de campañas en
+  // el rango cargado (los boosts de Instagram de FER Y CAMI), así que también
+  // van por tandas con su "mostrar 20 más".
+  const [iniShown, setIniShown] = useState<Map<string, number>>(() => new Map());
+  const verMasIni = useCallback(
+    (id: string) => setIniShown((m) => new Map(m).set(id, (m.get(id) ?? NA_MAX_FILAS) + NA_MAX_FILAS)),
+    [],
+  );
   const iniCampsOrden = useMemo(
-    () => new Map([...iniCamps].map(([id, l]) => [id, ordenarPorRecencia(l, view.a, view.b)])),
-    [iniCamps, view.a, view.b],
+    () =>
+      new Map(
+        [...iniCamps].map(([id, l]) => [
+          id,
+          topYResto(ordenarPorRecencia(l, view.a, view.b), iniShown.get(id) ?? NA_MAX_FILAS, dias.length),
+        ]),
+      ),
+    [iniCamps, view.a, view.b, iniShown, dias.length],
   );
 
   const visibleIds = useMemo(() => {
@@ -1019,7 +1082,7 @@ export default function InversionMediosPanel({
                     <td colSpan={dias.length} className="border-t border-[var(--divider)] bg-[var(--surface-alt)]" />
                   </tr>
                   {iniRows.map((r) => {
-                    const camps = iniCampsOrden.get(r.eventoId) ?? [];
+                    const camps = iniCampsOrden.get(r.eventoId) ?? { top: [], resto: null, totalCampanas: 0 };
                     const abierta = iniOpen.has(r.eventoId);
                     const activa = iniActiva.get(r.eventoId) ?? true;
                     // Archivada: su fila aparece solo si tiene plan o gasto en el
@@ -1037,7 +1100,8 @@ export default function InversionMediosPanel({
                           canEdit={canEdit}
                           fila={r}
                           totales={totalesIniciativas[r.eventoId]}
-                          nCampanas={camps.length}
+                          nCampanas={camps.totalCampanas}
+                          reglas={reglasIni.get(r.eventoId)}
                           abierta={abierta}
                           onToggle={toggleIni}
                           arrastrando={arrastrando}
@@ -1047,10 +1111,12 @@ export default function InversionMediosPanel({
                         />
                         {abierta &&
                           !oculta &&
-                          camps.map((c) => (
+                          camps.top.map((c) => (
                             <NaCampRow
                               key={c.key}
                               nombre={c.nombre}
+                              cuenta={c.cuenta}
+                              deRegla={c.deRegla}
                               dot={PLAT_DOT[c.plataforma] ?? "#B4B2A9"}
                               dotTitle={PLAT_LABEL[c.plataforma] ?? c.plataforma}
                               diasVals={c.dias}
@@ -1066,6 +1132,19 @@ export default function InversionMediosPanel({
                               onArrastrar={setArrastrando}
                             />
                           ))}
+                        {abierta && !oculta && camps.resto && (
+                          <NaCampRow
+                            nombre={camps.resto.nombre}
+                            dot="#B4B2A9"
+                            dotTitle="Varias campañas"
+                            diasVals={camps.resto.dias}
+                            fechas={dias}
+                            total={camps.resto.total}
+                            rango={rangoCargadoLabel}
+                            hidden={false}
+                            onVerMas={() => verMasIni(r.eventoId)}
+                          />
+                        )}
                       </Fragment>
                     );
                   })}
@@ -1078,7 +1157,8 @@ export default function InversionMediosPanel({
               <tr
                 className={pais ? "hidden" : "bg-[var(--surface-alt)]"}
                 onDragOver={(e) => {
-                  if (!arrastrando?.desde || !e.dataTransfer.types.includes(DND_CAMPANA)) return;
+                  // Una campaña de una REGLA no vuelve acá: la regla la recapturaría.
+                  if (!arrastrando?.desde || arrastrando.porRegla || !e.dataTransfer.types.includes(DND_CAMPANA)) return;
                   e.preventDefault();
                   e.dataTransfer.dropEffect = "move";
                   if (!naEncima) setNaEncima(true);
@@ -1097,14 +1177,14 @@ export default function InversionMediosPanel({
                   className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--divider)] px-4 py-2 ${
                     naEncima
                       ? "bg-[var(--purple-tint)] ring-2 ring-inset ring-[#9F99F8]"
-                      : arrastrando?.desde
+                      : arrastrando?.desde && !arrastrando.porRegla
                         ? "bg-[var(--surface-alt)] outline-dashed outline-1 -outline-offset-4 outline-[#9F99F8]"
                         : "bg-[var(--surface-alt)]"
                   }`}
                 >
                   <span className="font-medium text-[var(--ink-muted)]">No atribuido</span>
                   <p className="text-xs text-[var(--ink-subtle)]">
-                    {arrastrando?.desde
+                    {arrastrando?.desde && !arrastrando.porRegla
                       ? "suelta acá para quitarla de la iniciativa"
                       : destinos.length > 0
                         ? "sin evento · arrástralas a una iniciativa"
@@ -1142,6 +1222,7 @@ export default function InversionMediosPanel({
                   <NaCampRow
                     key={c.key}
                     nombre={c.nombre}
+                    cuenta={c.cuenta}
                     dot={PLAT_DOT[c.plataforma] ?? "#B4B2A9"}
                     dotTitle={PLAT_LABEL[c.plataforma] ?? c.plataforma}
                     diasVals={c.dias}
@@ -1320,6 +1401,8 @@ const PLAT_LABEL: Record<string, string> = {
  */
 const NaCampRow = memo(function NaCampRow({
   nombre,
+  cuenta,
+  deRegla,
   dot,
   dotTitle,
   diasVals,
@@ -1334,6 +1417,11 @@ const NaCampRow = memo(function NaCampRow({
   onArrastrar,
 }: {
   nombre: string;
+  /** Cuenta publicitaria: el nombre de un boost ("Publicación de Instagram…")
+   *  no dice de qué cuenta es. Ausente en la fila agregada "otras N". */
+  cuenta?: string;
+  /** Hoy la tiene la regla automática de su iniciativa (pill «regla»). */
+  deRegla?: boolean;
   dot: string;
   dotTitle: string;
   diasVals: number[];
@@ -1379,7 +1467,13 @@ const NaCampRow = memo(function NaCampRow({
               }}
               onDragEnd={() => onArrastrar?.(null)}
               className="flex min-w-0 flex-1 cursor-grab items-center gap-1.5 active:cursor-grabbing"
-              title={`${nombre} — arrástrala a ${arrastre.desde ? "otra iniciativa o a No atribuido" : "una iniciativa"}`}
+              title={`${nombre} — arrástrala a ${
+                arrastre.porRegla
+                  ? "otra iniciativa (calza con una regla automática: no vuelve a No atribuido)"
+                  : arrastre.desde
+                    ? "otra iniciativa o a No atribuido"
+                    : "una iniciativa"
+              }`}
             >
               <GripVertical className="h-3 w-3 shrink-0 text-[var(--ink-subtle)]" />
               {puntoYNombre}
@@ -1387,7 +1481,18 @@ const NaCampRow = memo(function NaCampRow({
           ) : (
             <span className="flex min-w-0 flex-1 items-center gap-1.5 pl-[18px]">{puntoYNombre}</span>
           )}
-          {arrastre && destinos && onMover && (arrastre.desde || destinos.length > 0) && (
+          {deRegla && (
+            <span
+              className="shrink-0 rounded-full border border-[var(--divider)] bg-[var(--surface)] px-1.5 text-[10px] font-medium text-[var(--ink-muted)]"
+              title="La asignó la regla automática de la iniciativa. Puedes moverla a otra iniciativa; a No atribuido no, porque la regla la volvería a asignar."
+            >
+              regla
+            </span>
+          )}
+          {arrastre &&
+            destinos &&
+            onMover &&
+            (destinos.some((d) => d.id !== arrastre.desde) || (arrastre.desde && !arrastre.porRegla)) && (
             <label
               className="relative inline-flex h-5 w-5 shrink-0 items-center justify-center rounded text-[var(--ink-subtle)] opacity-0 transition-opacity focus-within:opacity-100 hover:bg-[var(--grid)] hover:text-[var(--ink)] group-hover/na:opacity-100 pointer-coarse:opacity-100"
               title="Mover a…"
@@ -1410,15 +1515,16 @@ const NaCampRow = memo(function NaCampRow({
                       {d.nombre}
                     </option>
                   ))}
-                {arrastre.desde && <option value={NA_VALOR}>No atribuido (quitar)</option>}
+                {arrastre.desde && !arrastre.porRegla && <option value={NA_VALOR}>No atribuido (quitar)</option>}
               </select>
             </label>
           )}
         </span>
         <p
           className="pl-[18px] text-[11px] tabular-nums text-[var(--ink-subtle)]"
-          title={`Gasto total de la campaña en el período cargado del calendario (${rango})`}
+          title={`${cuenta ? `Cuenta ${cuenta}. ` : ""}Gasto total de la campaña en el período cargado del calendario (${rango})`}
         >
+          {cuenta ? `${cuenta} · ` : ""}
           {total > 0 ? `${fmtUsd(total, 0)} · ${rango}` : `sin gasto en ${rango}`}
         </p>
         {onVerMas && (
@@ -1650,6 +1756,7 @@ const FilaIniciativa = memo(function FilaIniciativa({
   fila,
   totales,
   nCampanas,
+  reglas,
   abierta,
   onToggle,
   arrastrando,
@@ -1665,6 +1772,8 @@ const FilaIniciativa = memo(function FilaIniciativa({
   /** Totales HISTÓRICOS (todo el plan = el techo, todo el gasto asignado). */
   totales?: { totalPlan: number; totalReal: number };
   nCampanas: number;
+  /** Reglas de asignación automática, ya descritas ("Meta · Glovox · …"). */
+  reglas?: string[];
   abierta: boolean;
   onToggle: (id: string) => void;
   arrastrando: CampanaArrastrada | null;
@@ -1875,6 +1984,14 @@ const FilaIniciativa = memo(function FilaIniciativa({
                   Sin plan
                 </span>
               )}
+              {reglas && reglas.length > 0 && (
+                <span
+                  className="inline-flex items-center rounded-full border border-[var(--divider)] bg-[var(--surface)] px-2 py-0.5 font-medium text-[var(--ink-muted)]"
+                  title={`Se le asignan solas las campañas sin evento de: ${reglas.join("; ")}. También las que se creen después.`}
+                >
+                  regla automática
+                </span>
+              )}
               {nCampanas > 0 ? (
                 <button
                   onClick={() => onToggle(fila.eventoId)}
@@ -1885,7 +2002,9 @@ const FilaIniciativa = memo(function FilaIniciativa({
                   {abierta ? "ocultar campañas" : `ver campañas (${nCampanas})`}
                 </button>
               ) : (
-                <span className="text-[var(--ink-subtle)]">sin campañas</span>
+                <span className="text-[var(--ink-subtle)]">
+                  {reglas && reglas.length > 0 ? "sin gasto en el período" : "sin campañas"}
+                </span>
               )}
             </>
           )}

@@ -718,6 +718,39 @@ export const iniciativasPmCampanas = dataSchema.table(
 );
 export type IniciativaPmCampana = typeof iniciativasPmCampanas.$inferSelect;
 
+// Regla de asignación automática: las campañas SIN evento de una cuenta cuyo
+// nombre empieza con `prefijo` son de la iniciativa, también las que se creen
+// después (los boosts de Instagram nacen con nombre automático, "Publicación de
+// Instagram: …", uno por publicación: arrastrarlos uno a uno no escala). Se
+// resuelve al leer (getIniciativas), sin escribir asignaciones. Precedencia:
+// evento por nombre > asignación a mano > regla > no atribuido.
+export const iniciativasPmReglas = dataSchema.table(
+  "iniciativas_pm_reglas",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    iniciativaId: text("iniciativa_id")
+      .notNull()
+      .references(() => iniciativasPm.id, { onDelete: "cascade" }),
+    plataforma: text("plataforma").notNull(),
+    // account_id del mart (act_… en Meta): el nombre de la cuenta puede cambiar.
+    accountId: text("account_id").notNull(),
+    // Nombre de la cuenta al crear la regla: solo para mostrarla.
+    cuenta: text("cuenta").notNull(),
+    // Comienzo del nombre de la campaña (sin distinguir mayúsculas).
+    prefijo: text("prefijo").notNull(),
+    // false = apagada al archivar la iniciativa: lo que capturaba quedó como
+    // asignación a mano (su historial no se mueve) y no captura campañas nuevas.
+    // Reactivar la iniciativa la vuelve a encender.
+    activa: boolean("activa").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+  },
+  (t) => [index("iniciativas_pm_reglas_iniciativa_idx").on(t.iniciativaId)],
+);
+export type IniciativaPmRegla = typeof iniciativasPmReglas.$inferSelect;
+
 // INVERSIÓN MEDIOS — Cargos extra (CARDDA): pagos recurrentes de plataformas/
 // herramientas (DRIP, Adobe, Google Workspace, GPT, etc.) que NO son inversión
 // en ads pero pesan en el presupuesto de medios. `metodo` define la frecuencia;

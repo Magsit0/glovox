@@ -26,6 +26,22 @@ export type CampanaAsignada = {
   /** Nombre al momento de asignar (el vigente sale del mart). */
   campaignName: string;
   iniciativaId: string;
+  /** La asignó una regla (no se arrastró a mano). Vuelve a "No atribuido" solo
+   *  si se borra la regla; a mano se puede mover a OTRA iniciativa. */
+  porRegla?: boolean;
+  /** Iniciativa cuya regla calza con la campaña, aunque hoy esté asignada a mano
+   *  a otra: quitarle la asignación la devuelve ahí, nunca a "No atribuido". */
+  reglaIni?: string;
+};
+
+/** Regla de asignación automática (ver `iniciativasPmReglas` en db/schema.ts). */
+export type ReglaIniciativa = {
+  plataforma: string;
+  accountId: string;
+  /** Nombre de la cuenta al crear la regla. */
+  cuenta: string;
+  /** Comienzo del nombre de la campaña (sin distinguir mayúsculas). */
+  prefijo: string;
 };
 
 export type Iniciativa = {
@@ -35,8 +51,17 @@ export type Iniciativa = {
    *  historial (sus campañas siguen siendo suyas, su gasto no vuelve a "No
    *  atribuido") y su fila aparece solo cuando tiene datos en el tramo mirado. */
   activa: boolean;
+  /** Asignadas a mano + las que capturan sus reglas (`porRegla`). */
   campanas: CampanaAsignada[];
+  reglas: ReglaIniciativa[];
 };
+
+const PLAT_REGLA: Record<string, string> = { meta: "Meta", google: "Google", tiktok: "TikTok" };
+
+/** "Meta · Glovox · nombre que empieza con «Publicación de Instagram»". */
+export function describirRegla(r: ReglaIniciativa): string {
+  return `${PLAT_REGLA[r.plataforma] ?? r.plataforma} · ${r.cuenta} · nombre que empieza con «${r.prefijo}»`;
+}
 
 export const NOMBRE_INICIATIVA_MIN = 2;
 export const NOMBRE_INICIATIVA_MAX = 60;
@@ -61,4 +86,6 @@ export type CampanaArrastrada = {
   campaignName: string;
   /** Iniciativa de origen; null = viene de "No atribuido". */
   desde: string | null;
+  /** La capturó una regla: se puede mover a otra iniciativa, no a "No atribuido". */
+  porRegla?: boolean;
 };

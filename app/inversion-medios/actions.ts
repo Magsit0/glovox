@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, eq, gte, sql } from "drizzle-orm";
+import { and, eq, gte, inArray, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import { db } from "@/db";
@@ -10,6 +10,7 @@ import {
   cargosExtraPm,
   iniciativasPm,
   iniciativasPmCampanas,
+  iniciativasPmReglas,
   inversionMediosDiario,
   inversionMediosEtapas,
   PLATAFORMAS_MEDIOS,
@@ -28,6 +29,7 @@ import {
 import { SIN_TIPO, TIPOS_PLAN } from "@/lib/inversion-medios/tipos";
 import { withNeonRetry } from "@/lib/neon-retry";
 import { getEventInfo } from "@/lib/queries/ticketing";
+import { capturasDeIniciativa, reglaDeCampana } from "@/lib/queries/inversion-medios";
 import { puedeEjercer } from "@/lib/editores-capacidad";
 import { ConflictoHojaError } from "@/lib/eventos-sheet-service";
 import { guardarMetaEvento, leerBaseMeta } from "@/lib/eventos-metas-service";
@@ -669,23 +671,44 @@ export async function asignarCampanaAction(input: {
   if (iniError) return { ok: false, error: iniError };
 
   try {
-    const actual = await asignacionActual(plataforma, campaignId);
+    const [actual, regla] = await Promise.all([
+      asignacionActual(plataforma, campaignId),
+      reglaDeCampana(plataforma, campaignId),
+    ]);
     if (actual && !actual.activa) return { ok: false, error: msgOrigenArchivado(actual.nombre) };
-    await withNeonRetry(() =>
-      db
-        .insert(iniciativasPmCampanas)
-        .values({ plataforma, campaignId, campaignName, iniciativaId, createdBy: ctx.userId })
-        .onConflictDoUpdate({
-          target: [iniciativasPmCampanas.plataforma, iniciativasPmCampanas.campaignId],
-          set: { iniciativaId, campaignName, createdBy: ctx.userId, createdAt: sql`now()` },
-        }),
-    );
+    if (regla === iniciativaId) {
+      // Vuelve a la iniciativa de su regla: basta borrar la asignación a mano
+      // para que la regla la recupere (y siga capturándola como suya).
+      await withNeonRetry(() =>
+        db
+          .delete(iniciativasPmCampanas)
+          .where(
+            and(
+              eq(iniciativasPmCampanas.plataforma, plataforma),
+              eq(iniciativasPmCampanas.campaignId, campaignId),
+            ),
+          ),
+      );
+    } else {
+      await withNeonRetry(() =>
+        db
+          .insert(iniciativasPmCampanas)
+          .values({ plataforma, campaignId, campaignName, iniciativaId, createdBy: ctx.userId })
+          .onConflictDoUpdate({
+            target: [iniciativasPmCampanas.plataforma, iniciativasPmCampanas.campaignId],
+            set: { iniciativaId, campaignName, createdBy: ctx.userId, createdAt: sql`now()` },
+          }),
+      );
+    }
     await logAudit(ctx.userId, "inversionMedios.asignarCampana", {
       plataforma,
       campaignId,
       campaignName,
       iniciativaId,
-      desde: actual?.iniciativaId ?? null,
+      // Origen real: la asignación a mano o, si no hay, la regla que la tenía.
+      desde: actual?.iniciativaId ?? regla ?? null,
+      ...(!actual && regla ? { desdeRegla: true } : {}),
+      ...(regla === iniciativaId ? { vuelveARegla: true } : {}),
     });
     revalidatePath("/inversion-medios");
     return { ok: true };
@@ -710,8 +733,24 @@ export async function desasignarCampanaAction(input: {
   if (!PLATAFORMA_CAMPANA_RE.test(plataforma)) return { ok: false, error: "Plataforma inválida" };
   if (!CAMPAIGN_ID_RE.test(campaignId)) return { ok: false, error: "Campaña inválida" };
   try {
-    const actual = await asignacionActual(plataforma, campaignId);
+    const [actual, regla] = await Promise.all([
+      asignacionActual(plataforma, campaignId),
+      reglaDeCampana(plataforma, campaignId),
+    ]);
     if (actual && !actual.activa) return { ok: false, error: msgOrigenArchivado(actual.nombre) };
+    // Una campaña que calza con una regla no puede quedar en "No atribuido": la
+    // regla la recapturaría y el usuario la vería saltar sola. La UI no lo ofrece;
+    // esto cubre una pestaña desactualizada (y la pone al día).
+    if (regla) {
+      revalidatePath("/inversion-medios");
+      const ini = await withNeonRetry(() =>
+        db.select({ nombre: iniciativasPm.nombre }).from(iniciativasPm).where(eq(iniciativasPm.id, regla)),
+      );
+      return {
+        ok: false,
+        error: `Esta campaña calza con la regla automática de «${ini[0]?.nombre ?? regla}»: no puede quedar en No atribuido. Muévela a otra iniciativa.`,
+      };
+    }
     await withNeonRetry(() =>
       db
         .delete(iniciativasPmCampanas)
@@ -894,6 +933,10 @@ export async function archivarIniciativaAction(input: {
         };
       }
     }
+    // Reglas: al archivar se CONGELA lo que capturan hoy (pasa a asignación a
+    // mano, así su historial no se mueve) y se apagan, para que una archivada no
+    // siga recibiendo campañas nuevas. Lo de BigQuery va antes de la transacción.
+    const congelar = archivar ? await capturasDeIniciativa(id) : [];
     const { existe, borradas } = await withNeonRetry(() =>
       db.transaction(async (tx) => {
         const r = await tx
@@ -901,7 +944,26 @@ export async function archivarIniciativaAction(input: {
           .set({ activa: !archivar })
           .where(eq(iniciativasPm.id, id))
           .returning({ id: iniciativasPm.id });
-        if (r.length === 0 || !archivar) return { existe: r.length > 0, borradas: 0 };
+        if (r.length === 0) return { existe: false, borradas: 0 };
+        await tx
+          .update(iniciativasPmReglas)
+          .set({ activa: !archivar })
+          .where(eq(iniciativasPmReglas.iniciativaId, id));
+        if (!archivar) return { existe: true, borradas: 0 };
+        if (congelar.length > 0) {
+          await tx
+            .insert(iniciativasPmCampanas)
+            .values(
+              congelar.map((c) => ({
+                plataforma: c.plataforma,
+                campaignId: c.campaignId,
+                campaignName: c.campaignName.slice(0, 300) || null,
+                iniciativaId: id,
+                createdBy: ctx.userId,
+              })),
+            )
+            .onConflictDoNothing();
+        }
         const del = await tx
           .delete(inversionMediosDiario)
           .where(and(eq(inversionMediosDiario.eventoId, id), gte(inversionMediosDiario.fecha, hoy)))
@@ -910,9 +972,34 @@ export async function archivarIniciativaAction(input: {
       }),
     );
     if (!existe) return { ok: false, error: `La iniciativa ${id} no existe` };
+    // Al reactivar, la regla vuelve a encenderse: las asignaciones que se
+    // congelaron y que su regla captura vuelven a ser de la regla.
+    let devueltas = 0;
+    if (!archivar) {
+      const porPlat = new Map<string, string[]>();
+      for (const c of await capturasDeIniciativa(id)) {
+        porPlat.set(c.plataforma, [...(porPlat.get(c.plataforma) ?? []), c.campaignId]);
+      }
+      for (const [plat, ids] of porPlat) {
+        const del = await withNeonRetry(() =>
+          db
+            .delete(iniciativasPmCampanas)
+            .where(
+              and(
+                eq(iniciativasPmCampanas.iniciativaId, id),
+                eq(iniciativasPmCampanas.plataforma, plat),
+                inArray(iniciativasPmCampanas.campaignId, ids),
+              ),
+            )
+            .returning({ id: iniciativasPmCampanas.campaignId }),
+        );
+        devueltas += del.length;
+      }
+    }
     await logAudit(ctx.userId, archivar ? "inversionMedios.archivarIniciativa" : "inversionMedios.reactivarIniciativa", {
       id,
-      ...(archivar ? { planFuturoBorrado: borradas, desde: hoy } : {}),
+      ...(archivar ? { planFuturoBorrado: borradas, desde: hoy, campanasCongeladas: congelar.length } : {}),
+      ...(!archivar && devueltas > 0 ? { campanasDevueltasARegla: devueltas } : {}),
     });
     revalidatePath("/inversion-medios");
     return { ok: true };
