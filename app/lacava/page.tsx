@@ -39,10 +39,10 @@ export const dynamic = "force-dynamic";
 /**
  * Compromisos comerciales por edición (card "Plan de venta"). Son METAS
  * DECLARADAS por el negocio — no salidas del modelo — y así se presentan.
- * El goalTickets de la hoja de eventos se muestra aparte como "Meta".
+ * La "Meta" es la suma de los sold out por jornada (ver metaDe).
  */
 const PLAN_VENTA: Record<string, { minimo: number; objetivo: number }> = {
-  GLO209: { minimo: 4500, objetivo: 5500 },
+  GLO209: { minimo: 4800, objetivo: 5000 },
 };
 
 /**
@@ -62,6 +62,16 @@ const SOLD_OUT_POR_JORNADA: Record<string, SoldOutPorJornada> = {
 const PRECIO_PREVENTA_PRIME: Record<string, number> = {
   GLO209: 10000,
 };
+
+/**
+ * Meta de venta de la edición: la suma de sus sold out por jornada (plan de
+ * ticketing). Si la edición no los tiene, el goalTickets de la hoja de eventos.
+ */
+function metaDe(e: LaCavaEvento): number {
+  const soldOut = Object.values(SOLD_OUT_POR_JORNADA[e.eventoId] ?? {});
+  const suma = soldOut.reduce((acc: number, v) => acc + (v ?? 0), 0);
+  return suma > 0 ? suma : e.goalTickets;
+}
 
 const compactClp = new Intl.NumberFormat("es-CL", {
   notation: "compact",
@@ -110,7 +120,12 @@ export default async function LaCavaPage({
     const permissions = session.user.permissions ?? [];
     if (!canAccessPath(permissions, "/lacava")) redirect("/?unauthorized=1");
   }
-  const eventos = await getLaCavaEventos();
+  // La meta de cada edición pasa a ser la suma de sus sold out por jornada
+  // (KPI, plan, evolución y tabla de ediciones leen goalTickets).
+  const eventos = (await getLaCavaEventos()).map((e) => ({
+    ...e,
+    goalTickets: metaDe(e),
+  }));
 
   if (eventos.length === 0) {
     return (
