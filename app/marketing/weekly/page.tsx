@@ -111,7 +111,16 @@ export default async function MarketingWeeklyPage({
     upcomingEvents[0]?.eventoId ??
     events.find((e) => e.fechaEvento && e.fechaEvento < today)?.eventoId ??
     events[0].eventoId;
-  const selectedId = params.event ?? defaultId;
+  // A user with a country only sees that country's events: an `?event=` outside
+  // their list falls back to the default. The ticket queries already return 0
+  // for it, but ads spend, the GA4 funnel and UTM traffic are not filtered by
+  // country and would show the other country's event.
+  const requestedId = params.event;
+  const selectedId =
+    requestedId &&
+    (!scope.country || events.some((e) => e.eventoId === requestedId))
+      ? requestedId
+      : defaultId;
   const selectedLandingPages = Array.isArray(params.landingPage)
     ? params.landingPage
     : params.landingPage

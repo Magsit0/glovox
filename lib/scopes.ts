@@ -1,40 +1,22 @@
 /**
- * Data scoping primitives used by every dashboard query.
+ * Alcance de datos por país (`users.country`), usado por las queries de los
+ * dashboards con `appliesCountryScope`.
  *
- * Replaces the old `Scope = { ticketera?: string[] }` shape with a single
- * country attribute. Each query derives the BigQuery filter (ticketera list,
- * EventoID prefix, etc.) from `scope.country` via the helpers below.
+ * Criterio: un usuario con país ve SOLO los eventos de ese país, y de esos
+ * eventos ve todo. El país de un evento es `Pais` en BigQuery
+ * `glovox.categoriaEvento`. No sale de la ticketera (FeverUp vende en Chile y
+ * en Perú) ni del prefijo del EventoID (los IDs de Fever son numéricos:
+ * 777904 = Piknic 2 PE 26-27). Hasta 2026-11-04 PE se filtraba por
+ * `Ticketera = 'TeleTicket'` y los usuarios PE no veían los eventos de Lima
+ * que venden por Fever.
  *
- * The mappings live here, in code (not DB), because they are BigQuery model
- * metadata, not something the superadmin should edit through the admin UI.
- * Adding a Peruvian ticketera = updating COUNTRY_TICKETERAS and redeploying.
+ * Un usuario sin país (null) ve todo: el fragmento queda vacío y la SQL es
+ * idéntica a la de antes.
  */
 import type { Country } from "@/db/schema";
 
 export type DataScope = {
   country: Country | null;
-};
-
-/**
- * Country → list of `Ticketera` values that belong to that country in
- * `glovox.tickets`. Used by marketing queries.
- *
- * CL has no ticketera filter today: Chilean ticket data spans multiple
- * ticketeras (TicketPlus, Passline, etc.) and we don't curate them yet, so
- * we treat CL as "no extra filter" until the model needs it.
- */
-export const COUNTRY_TICKETERAS: Record<Country, string[]> = {
-  CL: [],
-  PE: ["TeleTicket"],
-};
-
-/**
- * Country → EventoID prefix in BigQuery `glovox.tickets`. GLO* = Chile,
- * GLP* = Perú. Used by `comunidad.ts` queries.
- */
-export const COUNTRY_EVENTO_PREFIX: Record<Country, string> = {
-  CL: "GLO",
-  PE: "GLP",
 };
 
 export type SqlFragment = {
@@ -43,42 +25,26 @@ export type SqlFragment = {
 };
 
 /**
- * Returns ` AND <prefix>Ticketera IN UNNEST(@countryTicketeras)` when the
- * scope has a country with a non-empty ticketera list; otherwise an empty
- * fragment. `prefix` is a column qualifier like "t." for joined queries.
+ * Devuelve ` AND <column> IN (SELECT EventoID FROM categoriaEvento WHERE Pais = @scopePais)`
+ * cuando el scope tiene país; si no, un fragmento vacío.
  *
- * Always uses a named parameter — never SQL interpolation.
+ * `column` es la columna de EventoID de la fila que se filtra, calificada si la
+ * query tiene joins (`"t.EventoID"`) o con su propio nombre en los marts GA4
+ * (`"evento_id"`). Es siempre una constante del código, nunca input del
+ * usuario; el país va como parámetro nombrado.
+ *
+ * El filtro es por evento: un evento entra entero o no entra. Los tickets de un
+ * EventoID que no está en categoriaEvento no entran (al 2026-11-04: 3 eventos
+ * sueltos con 28 tickets en total).
  */
-export function countryTicketeraFilter(
+export function countryEventoFilter(
   scope: DataScope | undefined,
-  prefix = "",
+  column = "EventoID",
 ): SqlFragment {
   if (!scope?.country) return { sql: "", params: {} };
-  const ticketeras = COUNTRY_TICKETERAS[scope.country];
-  if (ticketeras.length === 0) return { sql: "", params: {} };
+  const categoria = `\`${process.env.BIGQUERY_PROJECT_ID}.glovox.categoriaEvento\``;
   return {
-    sql: ` AND ${prefix}Ticketera IN UNNEST(@countryTicketeras)`,
-    params: { countryTicketeras: ticketeras },
+    sql: ` AND ${column} IN (SELECT EventoID FROM ${categoria} WHERE Pais = @scopePais)`,
+    params: { scopePais: scope.country },
   };
-}
-
-/**
- * Returns ` AND <alias>EventoID LIKE @countryEventoPrefix` when the scope
- * has a country; otherwise an empty fragment. `alias` is a table alias like
- * "t." (defaults to bare column).
- */
-export function countryEventoIdFilter(
-  scope: DataScope | undefined,
-  alias = "",
-): SqlFragment {
-  if (!scope?.country) return { sql: "", params: {} };
-  const prefix = COUNTRY_EVENTO_PREFIX[scope.country];
-  return {
-    sql: ` AND ${alias}EventoID LIKE @countryEventoPrefix`,
-    params: { countryEventoPrefix: `${prefix}%` },
-  };
-}
-
-export function hasCountryScope(scope: DataScope | undefined): boolean {
-  return !!scope?.country;
 }

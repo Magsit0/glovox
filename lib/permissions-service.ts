@@ -41,44 +41,14 @@ export type UserIdentity = {
 };
 
 /**
- * Country → ticketera mapping for marketing data scopes.
- * Lives here (not in DB) because it's BigQuery model metadata, not
- * something the superadmin should edit through UI.
+ * Which dashboards the user can open. The country does not travel here: the
+ * queries read `session.user.country` and filter by the event's country
+ * (lib/scopes.ts). Until 2026-11-04 this also built a ticketera `dataScopes`
+ * (PE → TeleTicket) that no query read.
  */
-const COUNTRY_TICKETERAS: Record<Country, string[]> = {
-  CL: [],
-  PE: ["TeleTicket"],
-};
-
-/**
- * Path prefixes where country scope is materialized as a ticketera filter.
- * Other dashboards may apply country differently (e.g. EventoID prefix);
- * those filters live in the query layer.
- */
-const TICKETERA_SCOPED_DASHBOARDS = ["/marketing/weekly", "/marketingPE/weekly"];
-
-function buildPermissions(
-  role: Role,
-  pathPrefixes: string[],
-  country: Country | null,
-): DashboardPermissions {
+function buildPermissions(role: Role, pathPrefixes: string[]): DashboardPermissions {
   if (role === "superadmin") return "all";
-  if (pathPrefixes.length === 0) return [];
-
-  if (!country) return pathPrefixes;
-
-  const ticketeras = COUNTRY_TICKETERAS[country];
-  if (ticketeras.length === 0) return pathPrefixes;
-
-  const dataScopes: Record<string, { ticketera: string[] }> = {};
-  for (const prefix of TICKETERA_SCOPED_DASHBOARDS) {
-    if (pathPrefixes.includes(prefix)) {
-      dataScopes[prefix] = { ticketera: ticketeras };
-    }
-  }
-  if (Object.keys(dataScopes).length === 0) return pathPrefixes;
-
-  return { dashboards: pathPrefixes, dataScopes };
+  return pathPrefixes;
 }
 
 async function lookupFromDb(email: string): Promise<UserIdentity | null> {
@@ -110,7 +80,7 @@ async function lookupFromDb(email: string): Promise<UserIdentity | null> {
     email: head.email,
     role: head.role,
     country: head.country,
-    permissions: buildPermissions(head.role, pathPrefixes, head.country),
+    permissions: buildPermissions(head.role, pathPrefixes),
     source: "db",
   };
 }

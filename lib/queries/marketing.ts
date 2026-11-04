@@ -2,11 +2,7 @@ import { cache } from "react";
 import { query } from "@/lib/bigquery";
 import { eventoIdSql } from "@/lib/queries/paidMedia";
 import { esVentaSql } from "@/lib/tickets/clase";
-import {
-  countryTicketeraFilter,
-  hasCountryScope,
-  type DataScope,
-} from "@/lib/scopes";
+import { countryEventoFilter, type DataScope } from "@/lib/scopes";
 import {
   CANALES_GA4_DEBILES,
   CANAL_GOOGLE,
@@ -240,7 +236,7 @@ function ordenesWebMedidasCte(tSql: string): string {
 
 // Sale window for @eventoId: first ticket-order date → last order date (or today if
 // the event is still upcoming). Mirrors the window used elsewhere in the dashboard.
-// `tSql` is the scoped ticketera filter fragment from `ticketeraFilter(scope)`.
+// `tSql` is the country scope fragment from `scopeFilter(scope)` (bare EventoID).
 function ticketPeriodCte(tSql: string): string {
   return `ticket_period AS (
       SELECT
@@ -289,13 +285,16 @@ function attributedAds(windowEvento: boolean): string {
 // ---------- Data scope ----------
 //
 // `scope` carries the user's country attribute (from session.user.country).
-// `ticketeraFilter` derives the actual `Ticketera IN UNNEST(...)` clause from
-// COUNTRY_TICKETERAS in lib/scopes.ts — never via SQL interpolation.
+// `scopeFilter(scope, column)` keeps only the events whose
+// `categoriaEvento.Pais` is that country (see lib/scopes.ts): the event's
+// country, never the ticketera (Fever sells in CL and PE). `column` is the
+// EventoID column of the filtered rows: bare `EventoID` in the tickets-only
+// queries, qualified when there is a join, `evento_id` in the GA4 marts. No
+// country → empty fragment, same SQL as an unscoped user.
 
 export type Scope = DataScope;
 
-const ticketeraFilter = countryTicketeraFilter;
-const hasScope = hasCountryScope;
+const scopeFilter = countryEventoFilter;
 
 function n(v: unknown): number {
   if (v == null) return 0;
@@ -475,9 +474,10 @@ export type TicketDateRange = {
 
 // ---------- Queries ----------
 
+// The country scope filters the catalog rows (the event's country), so a scoped
+// user gets the same list as an unscoped one, restricted to their country.
 export async function getEventList(scope?: Scope): Promise<EventOption[]> {
-  const t = ticketeraFilter(scope, "t.");
-  const joinType = hasScope(scope) ? "INNER" : "LEFT";
+  const t = scopeFilter(scope, "c.EventoID");
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -487,8 +487,8 @@ export async function getEventList(scope?: Scope): Promise<EventOption[]> {
       FORMAT_TIMESTAMP('%Y-%m-%d', MAX(t.FechaEvento)) AS fecha_evento,
       COUNT(*)         AS ticket_count
     FROM ${CATEGORY} c
-    ${joinType} JOIN ${TICKETS} t ON c.EventoID = t.EventoID${t.sql}
-    WHERE c.isCanceled IS NOT TRUE
+    LEFT JOIN ${TICKETS} t ON c.EventoID = t.EventoID
+    WHERE c.isCanceled IS NOT TRUE${t.sql}
     GROUP BY c.EventoID
     ORDER BY fecha_evento DESC
   `,
@@ -504,8 +504,7 @@ export async function getEventList(scope?: Scope): Promise<EventOption[]> {
 }
 
 export async function getUpcomingEvents(scope?: Scope): Promise<EventOption[]> {
-  const t = ticketeraFilter(scope, "t.");
-  const joinType = hasScope(scope) ? "INNER" : "LEFT";
+  const t = scopeFilter(scope, "c.EventoID");
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -515,8 +514,8 @@ export async function getUpcomingEvents(scope?: Scope): Promise<EventOption[]> {
       FORMAT_TIMESTAMP('%Y-%m-%d', MAX(t.FechaEvento))   AS fecha_evento,
       COUNT(*)                                            AS ticket_count
     FROM ${CATEGORY} c
-    ${joinType} JOIN ${TICKETS} t ON c.EventoID = t.EventoID${t.sql}
-    WHERE c.isCanceled IS NOT TRUE
+    LEFT JOIN ${TICKETS} t ON c.EventoID = t.EventoID
+    WHERE c.isCanceled IS NOT TRUE${t.sql}
     GROUP BY c.EventoID
     HAVING fecha_evento >= FORMAT_DATE('%Y-%m-%d', CURRENT_DATE())
     ORDER BY fecha_evento ASC
@@ -536,7 +535,7 @@ export async function getTicketDateRange(
   eventoId: string,
   scope?: Scope,
 ): Promise<TicketDateRange> {
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -570,7 +569,7 @@ async function getEventKpisImpl(
   eventoId: string,
   scope?: Scope,
 ): Promise<EventKpiRow> {
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_stats AS (
@@ -657,7 +656,7 @@ export async function getCommunityTicketsCount(
   eventoId: string,
   scope?: Scope,
 ): Promise<CommunityCount> {
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -699,7 +698,9 @@ export async function getCumulativeSalesRelative(
   tipoTickets?: string[],
 ): Promise<CumulativeSalesRelativeRow[]> {
   if (eventoIds.length === 0) return [];
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
+  // `daily` joins event_dates (also has EventoID): qualify the column there.
+  const tT = scopeFilter(scope, "t.EventoID");
   // Optional ticket-type filter. The user picks values from the union of all
   // selected events; matching is by exact TipoTicket string (each event has its
   // own naming, so cross-event semantics are the caller's concern).
@@ -728,7 +729,7 @@ export async function getCumulativeSalesRelative(
       FROM ${TICKETS} t
       JOIN event_dates e ON e.EventoID = t.EventoID
       WHERE t.EventoID IN UNNEST(@eventoIds)
-        AND ${TICKET_TYPE_FILTER}${tipoSql}${t.sql}
+        AND ${TICKET_TYPE_FILTER}${tipoSql}${tT.sql}
       GROUP BY evento_id, days_to_event
     )
     SELECT
@@ -764,7 +765,7 @@ export async function getTipoTicketOptions(
   scope?: Scope,
 ): Promise<{ tipoTicket: string; tickets: number }[]> {
   if (eventoIds.length === 0) return [];
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     SELECT TipoTicket AS tipo_ticket, COUNT(*) AS tickets
@@ -787,7 +788,7 @@ export async function getPaidMediaSummary(
   eventoId: string,
   scope?: Scope,
 ): Promise<PaidMediaSummaryRow> {
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ${ticketPeriodCte(t.sql)},
@@ -882,7 +883,7 @@ export async function getSalesOrigin(
   eventoId: string,
   scope?: Scope,
 ): Promise<SalesOriginRow[]> {
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
@@ -912,7 +913,7 @@ export async function getFollowersEvolution(
   eventoId: string,
   scope?: Scope,
 ): Promise<FollowerRow[]> {
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_period AS (
@@ -967,7 +968,7 @@ export async function getFollowersDelta(
   eventoId: string,
   scope?: Scope,
 ): Promise<FollowersInfo> {
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_period AS (
@@ -1016,7 +1017,7 @@ export async function getClubMembersEvolution(
   eventoId: string,
   scope?: Scope,
 ): Promise<ClubMembersRow[]> {
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_period AS (
@@ -1152,7 +1153,7 @@ export async function getCampaignBreakdown(
   eventoId: string,
   scope?: Scope,
 ): Promise<CampaignRow[]> {
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ${ticketPeriodCte(t.sql)},
@@ -1182,7 +1183,7 @@ export async function getUtmTraffic(
   eventoId: string,
   scope?: Scope,
 ): Promise<UtmTrafficRow[]> {
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_period AS (
@@ -1249,7 +1250,7 @@ export async function getTrafficTimeline(
   eventoId: string,
   scope?: Scope,
 ): Promise<TrafficTimelineRow[]> {
-  const t = ticketeraFilter(scope);
+  const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
     WITH ${ticketPeriodCte(t.sql)},
@@ -1310,7 +1311,7 @@ export async function getTrafficTimeline(
 // pattern as ffbb.ts / cierreMensual.ts): these four are the heaviest queries of
 // the page (60-76 MB) and their data changes once a day (GA4 ETL at 06:00), so a
 // 5-minute TTL is safe. The key is the SQL plus its params, which already carry
-// the event, the window and the scope's ticketeras: users with different country
+// the event, the window and the scope's country: users with different country
 // scope never share an entry. A rejected query (error or timeout) is evicted at
 // once. React.cache on getAtribucionCompras still dedupes within one request.
 const GA4_QUERY_TIMEOUT_MS = 30_000;
@@ -1353,7 +1354,8 @@ export const getAtribucionCompras = cache(async function getAtribucionCompras(
   country: Scope["country"],
   hastaMax: string = HASTA_ABIERTO,
 ): Promise<AtribucionCompras> {
-  const t = ticketeraFilter({ country });
+  const t = scopeFilter({ country });
+  const tMart = scopeFilter({ country }, "evento_id");
   const rows = await queryGa4Cached(
     `
     WITH ${ticketPeriodCte(t.sql)},
@@ -1377,11 +1379,11 @@ export const getAtribucionCompras = cache(async function getAtribucionCompras(
         AND ${TICKET_TYPE_FILTER}${t.sql}
       GROUP BY orden_id, ticketera
     ),
-    -- Scope also filters the mart: its \`ticketera\` column (BigQuery names are case-insensitive).
+    -- Scope also filters the mart, by its \`evento_id\` (the event's country).
     vistas AS (
       SELECT orden_id, ticketera, property_id, canal, disparo_tardio
       FROM ${PURCHASES}
-      WHERE evento_id = @eventoId AND match_ticketera${t.sql}
+      WHERE evento_id = @eventoId AND match_ticketera${tMart.sql}
     ),
     props AS (   -- DISTINCT: categoriaEvento repeats rows for some events
       SELECT CAST(property_ga4 AS STRING) AS property_id
@@ -1606,7 +1608,7 @@ export async function getContenidosQueVenden(
   country: Scope["country"],
   medible: VentanaMedida,
 ): Promise<ContenidosQueVenden> {
-  const t = ticketeraFilter({ country });
+  const t = scopeFilter({ country });
   const rows = await queryGa4Cached(
     `
     WITH mapa_evento AS (
@@ -1696,7 +1698,7 @@ export async function getRendimientoConjuntos(
   country: Scope["country"],
   medible: VentanaMedida,
 ): Promise<RendimientoConjuntos> {
-  const t = ticketeraFilter({ country });
+  const t = scopeFilter({ country });
   const rows = await queryGa4Cached(
     `
     WITH ${ticketPeriodCte(t.sql)},
@@ -1800,7 +1802,7 @@ export async function getRendimientoPiezas(
   country: Scope["country"],
   medible: VentanaMedida,
 ): Promise<RendimientoPiezas> {
-  const t = ticketeraFilter({ country });
+  const t = scopeFilter({ country });
   const rows = await queryGa4Cached(
     `
     WITH ${ticketPeriodCte(t.sql)},
@@ -1939,7 +1941,7 @@ export async function getFunnelCompra(
   country: Scope["country"],
   ventana: VentanaMedida,
 ): Promise<FunnelCompra> {
-  const t = ticketeraFilter({ country });
+  const t = scopeFilter({ country }, "g.evento_id");
   const rows = await queryGa4Cached(
     `
     WITH mapa_evento AS (

@@ -24,7 +24,7 @@
  */
 import { Readable, Transform } from "node:stream";
 import { getBigQueryClient, query } from "@/lib/bigquery";
-import { countryTicketeraFilter, type DataScope } from "@/lib/scopes";
+import { countryEventoFilter, type DataScope } from "@/lib/scopes";
 import {
   exportColumns,
   formatCell,
@@ -95,7 +95,7 @@ type SqlPart = { sql: string; params: Record<string, unknown> };
  * `filtrado`.
  */
 function baseCtes(filters: CompradoresFilters, scope: DataScope | undefined): SqlPart {
-  const t = countryTicketeraFilter(scope, "t.");
+  const t = countryEventoFilter(scope, "t.EventoID");
   // `*_contacto` = la fuente elegida en el toggle; `*_otro` = la otra (solo
   // se exporta en el modo por ticket, como respaldo).
   const c = FUENTE[filters.datos];
@@ -173,7 +173,7 @@ function baseCtes(filters: CompradoresFilters, scope: DataScope | undefined): Sq
 export async function getCompradoresEventOptions(
   scope?: DataScope,
 ): Promise<CompradoresEventOption[]> {
-  const t = countryTicketeraFilter(scope, "t.");
+  const t = countryEventoFilter(scope, "t.EventoID");
   const rows = await query<Record<string, unknown>>(
     `
     WITH cat AS (

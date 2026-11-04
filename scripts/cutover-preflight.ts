@@ -8,8 +8,12 @@
  * Checks per email:
  *   1. Has a non-revoked DB row, resolved via DB (not env fallback).
  *   2. DB dashboards ⊇ env dashboards (no removals).
- *   3. DB scopes are at least as restrictive as env (same ticketera filter
- *      where env had one — we don't widen scope silently).
+ *   3. DB scopes are at least as restrictive as env: where env had a
+ *      ticketera dataScope, the DB user must have the matching country
+ *      (`users.country`) — we don't widen scope silently. Since 2026-11-04 the
+ *      country scope is `users.country` → `categoriaEvento.Pais`
+ *      (lib/scopes.ts) and the DB side no longer carries `dataScopes`; the env
+ *      ticketera list only tells us which country the user was limited to.
  *
  * Plus invariant: ≥1 active superadmin in DB.
  *
@@ -32,6 +36,9 @@ function envEmails(): string[] {
     return [];
   }
 }
+
+// Legacy env ticketera scope → the country it stood for.
+const LEGACY_TICKETERA_PAIS: Record<string, string> = { TeleTicket: "PE" };
 
 type Resolved = {
   dashboards: Set<string>;
@@ -95,12 +102,19 @@ async function main() {
 
     // 1) DB dashboards must be a superset of env dashboards.
     const missing = [...envR.dashboards].filter((p) => !dbR.dashboards.has(p));
-    // 2) Scopes must match where env had one (DB cannot widen).
+    // 2) Where env had a ticketera scope, DB must keep the user in that
+    //    country (DB cannot widen to global or move them to another country).
     const scopeIssues: string[] = [];
     for (const [path, envScope] of Object.entries(envR.scopes)) {
-      const dbScope = dbR.scopes[path] ?? "";
-      if (dbScope !== envScope) {
-        scopeIssues.push(`${path}: env=[${envScope}] db=[${dbScope}]`);
+      if (!envScope) continue;
+      const expected = envScope
+        .split(",")
+        .map((t) => LEGACY_TICKETERA_PAIS[t])
+        .find(Boolean);
+      if (!identity.country || (expected && identity.country !== expected)) {
+        scopeIssues.push(
+          `${path}: env=[${envScope}] → country ${expected ?? "?"}, db country=${identity.country ?? "null (global)"}`,
+        );
       }
     }
 
