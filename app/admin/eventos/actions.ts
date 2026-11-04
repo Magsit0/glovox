@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
+import { esSuperadminVigente } from "@/lib/access";
 import { db } from "@/db";
 import { auditLog } from "@/db/schema";
 import {
@@ -64,7 +65,11 @@ async function requireEventosAccess(): Promise<ActorCtx> {
   const session = await auth();
   const email = session?.user?.email ?? "";
   if (!email) throw new Error("No autorizado");
-  if ((session?.user?.role ?? "user") !== "superadmin") {
+  // Rol fresco de la base, no solo el de la sesión (ver esSuperadminVigente).
+  if (
+    (session?.user?.role ?? "user") !== "superadmin" ||
+    !(await esSuperadminVigente(email))
+  ) {
     throw new Error("Solo un superadmin puede editar la hoja de estandarización");
   }
   return { email, userId: session?.user?.userId ?? null };

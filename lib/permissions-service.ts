@@ -6,7 +6,7 @@
  *   1. Postgres (`users` + `user_dashboard_access`).
  *   2. If not found AND PERMISSIONS_FALLBACK_TO_ENV !== "false" → legacy
  *      env var-based logic (lib/permissions.ts + ALLOWED_DOMAIN/EMAILS).
- *   3. Otherwise → null (no access).
+ *   3. Otherwise → null (no access). A DB error also denies (fails closed).
  *
  * Env-var fallback never grants `superadmin` role; admin UI requires an
  * explicit DB row with role='superadmin'. This keeps the migration safe:
@@ -23,6 +23,7 @@ import {
   type Role,
 } from "@/db/schema";
 import { ensureDashboardsCatalog } from "@/lib/ensureDashboardsCatalog";
+import { withNeonRetry } from "@/lib/neon-retry";
 import {
   getUserPermissions as getLegacyPermissions,
   type DashboardPermissions,
@@ -202,7 +203,7 @@ export async function getUserIdentity(
   if (!email) return null;
 
   try {
-    const dbIdentity = await lookupFromDb(email);
+    const dbIdentity = await withNeonRetry(() => lookupFromDb(email));
     if (dbIdentity) return dbIdentity;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -214,6 +215,9 @@ export async function getUserIdentity(
       `[permissions-service] DB lookup failed for ${email}: ${msg}`,
       cause ? `\n  cause: ${cause}` : "",
     );
+    // Falla cerrado: sin la base no sabemos si está revocado ni su país. El
+    // fallback a env solo aplica cuando la base respondió "no existe".
+    return null;
   }
 
   if (process.env.PERMISSIONS_FALLBACK_TO_ENV === "false") return null;
@@ -222,7 +226,8 @@ export async function getUserIdentity(
   if (!envIdentity) return null;
 
   // Auto-migra a DB para que quede registrable en `dashboard_access_log`.
-  // Si falla, caemos al env identity (con id: null) para no romper el signin.
+  // Si falla, no entra: sin la fila en la base no hay revocación ni país, y la
+  // sesión no se podría revalidar (ver getDbIdentity).
   try {
     const migrated = await autoMigrateEnvUserToDb(email, envIdentity);
     if (migrated) return migrated;
@@ -232,6 +237,19 @@ export async function getUserIdentity(
     console.error(
       `[permissions-service] auto-migrate failed for ${email}: ${msg}`,
     );
-    return envIdentity;
+    return null;
   }
+}
+
+/**
+ * Identidad leída SOLO de la base, para revalidar sesiones ya abiertas
+ * (callback jwt de lib/auth.ts). null = el usuario no existe o está revocado.
+ * Lanza si la base falla: quien llama decide (la sesión se mantiene y se
+ * reintenta). Nunca cae al env, que no conoce revocaciones ni país. Un solo
+ * intento, sin withNeonRetry: corre dentro de requests de usuario y con la base
+ * caída no debe sumarles segundos de reintentos.
+ */
+export async function getDbIdentity(email: string): Promise<UserIdentity | null> {
+  if (!email) return null;
+  return lookupFromDb(email);
 }
