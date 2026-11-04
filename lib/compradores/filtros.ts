@@ -16,6 +16,9 @@ export type CompradoresModo = "persona" | "ticket";
 /** De quién son los datos de contacto: el asistente nominado en el ticket o
  *  quien hizo la compra (para audiencias de Meta). */
 export type CompradoresDatos = "nominados" | "compradores";
+/** Tickets devueltos (`EsDevuelto`): fuera por defecto; "incluir" los suma
+ *  y agrega al CSV una columna que los marca. */
+export type CompradoresDevueltos = "excluir" | "incluir";
 
 export type CompradoresFilters = {
   /** EventoIDs seleccionados. Vacío = todos los eventos (sin filtro). */
@@ -30,6 +33,7 @@ export type CompradoresFilters = {
   /** "compradores" (default) = Nombres / Email / Telefono de quien compró la orden.
    *  "nominados" = NombreNominado / EmailNominado / TelefonoNominado. */
   datos: CompradoresDatos;
+  devueltos: CompradoresDevueltos;
 };
 
 export type CompradoresEventOption = {
@@ -49,6 +53,7 @@ export const DEFAULT_FILTERS: Omit<CompradoresFilters, "eventos" | "categorias">
   contacto: "todos",
   modo: "persona",
   datos: "compradores",
+  devueltos: "excluir",
 };
 
 type RawParams = Record<string, string | string[] | undefined>;
@@ -82,6 +87,7 @@ export function parseCompradoresParams(sp: RawParams): {
   const contacto = first(sp.contacto);
   const modo = first(sp.modo);
   const datos = first(sp.datos);
+  const devueltos = first(sp.devueltos);
   return {
     eventosExplicitos,
     filters: {
@@ -93,6 +99,7 @@ export function parseCompradoresParams(sp: RawParams): {
       // Default = compradores; `datos=nominados` lo cambia. Un link viejo con
       // `datos=compradores` sigue funcionando igual.
       datos: datos === "nominados" ? "nominados" : "compradores",
+      devueltos: devueltos === "incluir" ? "incluir" : "excluir",
     },
   };
 }
@@ -107,6 +114,7 @@ export function filtersToSearchParams(f: CompradoresFilters): URLSearchParams {
   if (f.contacto !== DEFAULT_FILTERS.contacto) p.set("contacto", f.contacto);
   if (f.modo !== DEFAULT_FILTERS.modo) p.set("modo", f.modo);
   if (f.datos !== DEFAULT_FILTERS.datos) p.set("datos", f.datos);
+  if (f.devueltos !== DEFAULT_FILTERS.devueltos) p.set("devueltos", f.devueltos);
   return p;
 }
 
@@ -205,13 +213,26 @@ export function quienLabel(datos: CompradoresDatos): string {
 export function exportColumns(
   modo: CompradoresModo,
   datos: CompradoresDatos = "compradores",
+  devueltos: CompradoresDevueltos = "excluir",
 ): ExportColumn[] {
   const quien = quienLabel(datos);
   const otro = quienLabel(datos === "compradores" ? "nominados" : "compradores");
-  return (modo === "ticket" ? COLS_TICKET : COLS_PERSONA).map((c) => ({
+  const cols = (modo === "ticket" ? COLS_TICKET : COLS_PERSONA).map((c) => ({
     ...c,
     header: c.header.replace("{quien}", quien).replace("{otro}", otro),
   }));
+  // Con devueltos incluidos, una columna los marca (solo en ese caso: el CSV
+  // por defecto no cambia de forma). Va después de los datos de contacto.
+  if (devueltos === "incluir") {
+    cols.splice(
+      3,
+      0,
+      modo === "ticket"
+        ? { key: "devuelto", header: "Devuelto", format: "bool" }
+        : { key: "tickets_devueltos", header: "Tickets devueltos", align: "right", format: "int" },
+    );
+  }
+  return cols;
 }
 
 export type ExportRow = Record<string, string | number | boolean | null>;
@@ -252,6 +273,7 @@ export function csvFilename(filters: CompradoresFilters): string {
   parts.push(filters.datos === "compradores" ? "datos-comprador" : "datos-nominado");
   if (filters.tipo !== "todos") parts.push(filters.tipo);
   if (filters.contacto !== "todos") parts.push(`con-${filters.contacto}`);
+  if (filters.devueltos === "incluir") parts.push("con-devueltos");
   parts.push(filters.modo === "ticket" ? "por-ticket" : "por-persona");
   return parts.join("-").replace(/[^\w.\-]+/g, "_") + ".csv";
 }

@@ -8,6 +8,7 @@ import {
   filtersToSearchParams,
   type CompradoresContacto,
   type CompradoresDatos,
+  type CompradoresDevueltos,
   type CompradoresEventOption,
   type CompradoresFilters as Filters,
   type CompradoresModo,
@@ -89,6 +90,11 @@ const CONTACTO_OPTIONS: { id: CompradoresContacto; label: string }[] = [
 const DATOS_OPTIONS: { id: CompradoresDatos; label: string }[] = [
   { id: "compradores", label: "Compradores" },
   { id: "nominados", label: "Nominados" },
+];
+
+const DEVUELTOS_OPTIONS: { id: CompradoresDevueltos; label: string }[] = [
+  { id: "excluir", label: "Excluir" },
+  { id: "incluir", label: "Incluir" },
 ];
 
 const MODO_OPTIONS: { id: CompradoresModo; label: string }[] = [
@@ -218,6 +224,12 @@ export default function CompradoresFilters({
           onSelect={(contacto) => commit({ ...filters, contacto })}
         />
         <Toggle
+          label="Devueltos"
+          value={filters.devueltos}
+          options={DEVUELTOS_OPTIONS}
+          onSelect={(devueltos) => commit({ ...filters, devueltos })}
+        />
+        <Toggle
           label="Filas del CSV"
           value={filters.modo}
           options={MODO_OPTIONS}
@@ -243,7 +255,7 @@ export default function CompradoresFilters({
 
       <p className="font-sans text-xs text-[var(--ink-subtle)]">
         Ventas = venta + pase de temporada · Cortesías = cortesía + mesa VIP (ambas entran con
-        medio de pago &quot;Otro&quot;). Los tickets devueltos quedan fuera. &quot;Por
+        medio de pago &quot;Otro&quot;). Los tickets devueltos quedan fuera salvo con &quot;Devueltos: Incluir&quot;, que además agrega al CSV una columna que los marca. &quot;Por
         persona&quot; junta los tickets de un mismo email (o teléfono, si no hay email) en una
         sola fila y deja fuera los tickets sin ningún dato de contacto. &quot;Nominados&quot; =
         la persona del ticket (asistente); &quot;Compradores&quot; = quien pagó la orden, útil

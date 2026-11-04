@@ -112,7 +112,7 @@ export default async function CompradoresPage({
   ]);
 
   const filas = filasExport(resumen.kpis, filters.modo);
-  const cols = exportColumns(filters.modo, filters.datos);
+  const cols = exportColumns(filters.modo, filters.datos, filters.devueltos);
   const quien = quienLabel(filters.datos);
   const csvHref = `/api${RUTA}/csv?${filtersToSearchParams(filters).toString()}`;
 
@@ -173,6 +173,7 @@ function describirSeleccion(filters: Filters, events: CompradoresEventOption[]):
   partes.push(filters.datos === "compradores" ? "datos del comprador" : "datos del nominado");
   if (filters.contacto === "email") partes.push(`solo con email ${quien}`);
   if (filters.contacto === "telefono") partes.push(`solo con teléfono ${quien}`);
+  if (filters.devueltos === "incluir") partes.push("incluye tickets devueltos");
   partes.push(filters.modo === "ticket" ? "una fila por ticket" : "una fila por persona");
   return partes.join(" · ");
 }

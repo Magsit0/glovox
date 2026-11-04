@@ -101,7 +101,8 @@ function baseCtes(filters: CompradoresFilters, scope: DataScope | undefined): Sq
   const c = FUENTE[filters.datos];
   const o = FUENTE[filters.datos === "compradores" ? "nominados" : "compradores"];
   const params: Record<string, unknown> = { ...t.params };
-  const condsBase: string[] = ["t.EsDevuelto IS NOT TRUE"];
+  // Devueltos: fuera por defecto (no son asistentes); el toggle "Incluir" los suma.
+  const condsBase: string[] = filters.devueltos === "incluir" ? ["TRUE"] : ["t.EsDevuelto IS NOT TRUE"];
   if (t.sql) condsBase.push(t.sql.replace(/^\s*AND\s+/, ""));
   if (filters.eventos.length > 0) {
     condsBase.push("t.EventoID IN UNNEST(@eventos)");
@@ -144,6 +145,7 @@ function baseCtes(filters: CompradoresFilters, scope: DataScope | undefined): Sq
         t.Item                                                   AS item,
         IFNULL(t.PersonasPorTicket, 1)                           AS personas,
         IFNULL(t.EsQuemado, FALSE)                               AS asistio,
+        IFNULL(t.EsDevuelto, FALSE)                              AS devuelto,
         ${c.nombre}                                              AS nombre_contacto,
         ${c.email}                                               AS email_contacto,
         ${c.telefono}                                            AS telefono_contacto,
@@ -435,6 +437,7 @@ function exportSql(
           FORMAT_DATETIME('%Y-%m-%d %H:%M', fecha_orden) AS fecha_compra,
           personas,
           asistio,
+          devuelto,
           ticketera,
           CAST(orden_id AS STRING) AS orden,
           nombre_otro,
@@ -483,7 +486,8 @@ function exportSql(
           SUM(personas)                                AS personas,
           COUNT(DISTINCT evento_id)                    AS eventos,
           STRING_AGG(DISTINCT evento_id, ', ' ORDER BY evento_id) AS eventos_lista,
-          LOGICAL_OR(asistio)                          AS asistio
+          LOGICAL_OR(asistio)                          AS asistio,
+          COUNTIF(devuelto)                            AS tickets_devueltos
         FROM keyed
         GROUP BY persona_key
       )
@@ -500,7 +504,8 @@ function exportSql(
         FORMAT_DATETIME('%Y-%m-%d %H:%M', ult.fecha_orden)         AS ultima_compra,
         ult.clase                                                  AS grupo,
         ult.clase                                                  AS clase,
-        asistio
+        asistio,
+        tickets_devueltos
       FROM agg
       ORDER BY ult.fecha_orden DESC, email_contacto
       ${limitSql}
@@ -547,7 +552,7 @@ export function createCompradoresCsvStream(
   filters: CompradoresFilters,
   scope?: DataScope,
 ): ReadableStream<Uint8Array> {
-  const cols = exportColumns(filters.modo, filters.datos);
+  const cols = exportColumns(filters.modo, filters.datos, filters.devueltos);
   const { sql, params } = exportSql(filters, scope);
   const header = CSV_BOM + cols.map((c) => escapeCsv(c.header)).join(",") + CRLF;
 
