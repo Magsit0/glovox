@@ -8,7 +8,13 @@ import type {
   CellEdit,
   SheetTarget,
 } from "@/lib/eventos-sheet-service";
-import { errorEdicionesEventos, findEventoIdCol, findIdHojaCol, type Marca } from "@/lib/eventos-create";
+import {
+  errorEdicionesEventos,
+  findEventoIdCol,
+  findIdHojaCol,
+  normalizarEdicionesEventos,
+  type Marca,
+} from "@/lib/eventos-create";
 import {
   appendColumnAction,
   appendRowAction,
@@ -202,8 +208,11 @@ export default function EventosSheetEditor({
   }
 
   function guardar() {
-    const edits = Array.from(editsRef.current.values());
-    if (edits.length === 0) return;
+    const crudas = Array.from(editsRef.current.values());
+    if (crudas.length === 0) return;
+    // EventoID sin espacios y en mayúscula: así cruza con el gasto y los tickets
+    // (el servidor también lo normaliza).
+    const edits = target === "eventos" ? normalizarEdicionesEventos(baseValues[0] ?? [], crudas) : crudas;
     // Misma validación que el servidor (que la repite con una lectura fresca):
     // aviso inmediato si un EventoID está mal escrito o ya lo usa otra fila.
     if (target === "eventos") {

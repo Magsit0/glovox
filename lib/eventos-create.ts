@@ -254,6 +254,18 @@ export function errorEdicionesEventos(values: string[][], edits: EdicionCelda[])
   return null;
 }
 
+/**
+ * EventoID tal como se guarda: sin espacios y en MAYÚSCULA. Los cruces con el
+ * mart y con tickets distinguen mayúsculas y no recortan, así que un `glo219 `
+ * guardado tal cual dejaría al evento sin gasto ni ventas, sin error a la vista.
+ * Se aplica en el cliente (para que la vista optimista coincida) y en el servidor.
+ */
+export function normalizarEdicionesEventos<T extends EdicionCelda>(header: string[], edits: T[]): T[] {
+  const evCol = findEventoIdCol(header);
+  if (evCol < 0) return edits;
+  return edits.map((e) => (e.col === evCol ? { ...e, newValue: e.newValue.trim().toUpperCase() } : e));
+}
+
 // ---------- Mapeo payload → fila de la hoja (por nombre de header) ----------
 
 /** Header normalizado (minúsculas) → clave del payload. */

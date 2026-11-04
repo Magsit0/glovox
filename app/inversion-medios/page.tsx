@@ -11,6 +11,7 @@ import { EVENTO_ID_TICKETERA_RE, ID_HOJA_RE } from "@/lib/eventos-id";
 import {
   buildDrillGrid,
   getAdsMetricasEvento,
+  getAsignaciones,
   getAsignacionesEvento,
   getBudgetPmMap,
   getCampanasRecientes,
@@ -122,12 +123,11 @@ export default async function InversionMediosPage({
 
   // ---------- Modo calendario libre ----------
   const hoy = hoySantiago();
-  const [catalogo, planExtent, realMaxFecha, iniciativas, asigEventos] = await Promise.all([
+  const [catalogo, planExtent, realMaxFecha, { iniciativas, asignacionesEvento: asigEventos }] = await Promise.all([
     getCatalogoEventos(),
     getPlanExtent(),
     getRealMaxFecha(),
-    getIniciativas(),
-    getAsignacionesEvento(),
+    getAsignaciones(),
   ]);
 
   // Evento FUTURO que se ofrece para planificar aunque no tenga nada todavía:

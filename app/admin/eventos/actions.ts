@@ -21,6 +21,7 @@ import {
 import {
   buildRowFromPayload,
   errorEdicionesEventos,
+  normalizarEdicionesEventos,
   existingIdSet,
   findEventoIdCol,
   findIdHojaCol,
@@ -100,12 +101,16 @@ export async function saveCellsAction(
   try {
     const t = parseTarget(target);
     // Eventos: el ID no se toca desde la app y un EventoID nuevo tiene que ser
-    // válido y no estar en otra fila. Se valida contra una lectura FRESCA.
+    // válido y no estar en otra fila. Se valida contra una lectura FRESCA y se
+    // guarda normalizado (sin espacios, en mayúscula), que es como cruza.
+    let aGuardar = edits;
     if (t === "eventos") {
-      const err = errorEdicionesEventos((await readSheetGrid("eventos")).values, edits);
+      const { values } = await readSheetGrid("eventos");
+      aGuardar = normalizarEdicionesEventos(values[0] ?? [], edits);
+      const err = errorEdicionesEventos(values, aGuardar);
       if (err) return { ok: false, error: err };
     }
-    await saveCells(t, ctx.userId, ctx.email, edits);
+    await saveCells(t, ctx.userId, ctx.email, aGuardar);
     revalidatePath("/admin/eventos");
     return { ok: true };
   } catch (err) {

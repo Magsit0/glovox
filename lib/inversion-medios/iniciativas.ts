@@ -43,6 +43,9 @@ export type CampanaDeEvento = {
   campaignId: string;
   campaignName: string;
   eventoId: string;
+  /** Iniciativa cuya regla calza con la campaña: quitarla del evento la
+   *  devuelve ahí (la regla la recaptura), nunca a "No atribuido". */
+  reglaIni?: string;
 };
 
 /** Regla de asignación automática (ver `iniciativasPmReglas` en db/schema.ts). */

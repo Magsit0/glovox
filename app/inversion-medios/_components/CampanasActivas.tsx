@@ -70,7 +70,7 @@ function agrupar(
   filas: Fila[],
   asignaciones: Map<string, string>,
   iniciativas: { id: string; nombre: string }[],
-  eventos: Map<string, { nombre: string; fecha: string; codigo: string | null }>,
+  eventos: Map<string, { nombre: string; fecha: string; codigo: string | null; pais: string }>,
 ): Grupo[] {
   const nombreIni = new Map(iniciativas.map((i) => [i.id, i.nombre]));
   const ordenIni = new Map(iniciativas.map((i, idx) => [i.id, idx]));
@@ -159,8 +159,8 @@ export default function CampanasActivas({
   asignaciones: Map<string, string>;
   iniciativas: { id: string; nombre: string }[];
   /** Eventos del calendario por ID de la hoja: nombran a los que recibieron una
-   *  campaña asignada a mano. */
-  eventos: Map<string, { nombre: string; fecha: string; codigo: string | null }>;
+   *  campaña asignada a mano, y dan su país al filtro. */
+  eventos: Map<string, { nombre: string; fecha: string; codigo: string | null; pais: string }>;
 }) {
   const [open, setOpen] = useState(false);
   const [modo, setModo] = useState<"activas" | "detenidas">("activas");
@@ -178,7 +178,13 @@ export default function CampanasActivas({
   const filas = useMemo<Fila[]>(() => {
     const col = new Map(ventana.map((f, i) => [f, i]));
     return campanas
-      .filter((c) => !pais || c.pais === pais)
+      // Una campaña asignada a mano a un evento no trae país propio (no tiene
+      // EventoID en el nombre): toma el de su evento, como en el calendario.
+      .filter((c) => {
+        if (!pais) return true;
+        const destino = c.eventoId ? undefined : asignaciones.get(campanaKey(c.plataforma, c.campaignId));
+        return (c.pais || (destino ? (eventos.get(destino)?.pais ?? "") : "")) === pais;
+      })
       .map((c) => {
         const serie = new Array<number>(VENTANA).fill(0);
         let ultimoGasto = "";
@@ -194,7 +200,7 @@ export default function CampanasActivas({
         return { c, serie, prev, ult, semana, ultimoGasto, activa: prev > 0 || ult > 0 };
       })
       .filter((f) => f.semana > 0);
-  }, [campanas, pais, ventana]);
+  }, [campanas, pais, ventana, asignaciones, eventos]);
 
   const activas = useMemo(() => filas.filter((f) => f.activa), [filas]);
   const detenidas = useMemo(() => filas.filter((f) => !f.activa), [filas]);

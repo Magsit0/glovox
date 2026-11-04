@@ -582,7 +582,19 @@ export async function getSinEventoCampanasDiario(
  * "Campañas activas") las trata igual que a las asignadas a mano.
  */
 export async function getIniciativas(opts: { soloReglasDe?: string } = {}): Promise<Iniciativa[]> {
-  const [inis, asig, reglas, asigEventos] = await Promise.all([
+  return (await getAsignaciones(opts)).iniciativas;
+}
+
+/**
+ * Iniciativas (como getIniciativas) MÁS las campañas asignadas a mano a eventos,
+ * resueltas contra las MISMAS capturas de las reglas: una asignada a un evento
+ * que calza con una regla trae `reglaIni` (quitarla del evento la devuelve a esa
+ * iniciativa, nunca a "No atribuido"). Una sola ida a BigQuery para las dos.
+ */
+export async function getAsignaciones(
+  opts: { soloReglasDe?: string } = {},
+): Promise<{ iniciativas: Iniciativa[]; asignacionesEvento: CampanaDeEvento[] }> {
+  const [inis, asigCrudas, reglas, asigEventos] = await Promise.all([
     withNeonRetry(() =>
       db
         .select({ id: iniciativasPm.id, nombre: iniciativasPm.nombre, activa: iniciativasPm.activa, orden: iniciativasPm.orden })
@@ -611,11 +623,13 @@ export async function getIniciativas(opts: { soloReglasDe?: string } = {}): Prom
   // iniciativa o a un EVENTO), pero las manuales que calzan con una regla lo
   // saben (`reglaIni`).
   const reglaDe = new Map(capturas.map((c) => [campanaKey(c.plataforma, c.campaignId), c.iniciativaId]));
-  const manuales = new Set([
-    ...asig.map((a) => campanaKey(a.plataforma, a.campaignId)),
-    ...asigEventos.map((a) => campanaKey(a.plataforma, a.campaignId)),
-  ]);
-  return inis.map((i) => ({
+  // Una campaña tiene UN dueño a mano (las actions limpian la otra tabla). Si por
+  // un estado viejo quedara en las dos, gana el evento, igual que en el cliente
+  // (asignServidor): así ningún total la cuenta dos veces.
+  const enEvento = new Set(asigEventos.map((a) => campanaKey(a.plataforma, a.campaignId)));
+  const asig = asigCrudas.filter((a) => !enEvento.has(campanaKey(a.plataforma, a.campaignId)));
+  const manuales = new Set([...asig.map((a) => campanaKey(a.plataforma, a.campaignId)), ...enEvento]);
+  const iniciativas = inis.map((i) => ({
     id: i.id,
     nombre: i.nombre,
     activa: i.activa,
@@ -634,6 +648,11 @@ export async function getIniciativas(opts: { soloReglasDe?: string } = {}): Prom
       .filter((r) => r.iniciativaId === i.id)
       .map(({ plataforma, accountId, cuenta, prefijo }) => ({ plataforma, accountId, cuenta, prefijo })),
   }));
+  const asignacionesEvento = asigEventos.map((a) => {
+    const reglaIni = reglaDe.get(campanaKey(a.plataforma, a.campaignId));
+    return reglaIni ? { ...a, reglaIni } : a;
+  });
+  return { iniciativas, asignacionesEvento };
 }
 
 /**
@@ -744,7 +763,13 @@ export async function reglaDeCampana(plataforma: string, campaignId: string): Pr
 export async function capturasDeIniciativa(iniciativaId: string): Promise<CampanaAsignada[]> {
   const reglas = await reglasActivas();
   if (!reglas.some((r) => r.iniciativaId === iniciativaId)) return [];
-  return (await resolverReglas(reglas)).filter((c) => c.iniciativaId === iniciativaId);
+  // Sin las asignadas a mano a un EVENTO: congelarlas al archivar las dejaría
+  // con dos dueños y su gasto contado dos veces (manual > regla).
+  const [capturas, asigEventos] = await Promise.all([resolverReglas(reglas), getAsignacionesEvento()]);
+  const enEvento = new Set(asigEventos.map((a) => campanaKey(a.plataforma, a.campaignId)));
+  return capturas.filter(
+    (c) => c.iniciativaId === iniciativaId && !enEvento.has(campanaKey(c.plataforma, c.campaignId)),
+  );
 }
 
 // Campañas asignadas como parámetro de BigQuery: "plataforma|campaign_id|ini".

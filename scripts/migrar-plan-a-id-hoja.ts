@@ -22,7 +22,7 @@
  * Uso:  npx tsx --env-file=.env.local scripts/migrar-plan-a-id-hoja.ts            (en seco: ROLLBACK)
  *       npx tsx --env-file=.env.local scripts/migrar-plan-a-id-hoja.ts --aplicar
  */
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { sql } from "drizzle-orm";
 import { db } from "@/db";
 import { ID_HOJA_RE } from "@/lib/eventos-id";
@@ -50,8 +50,12 @@ async function main() {
   ]);
   mkdirSync("out/backups", { recursive: true });
   const archivo = `out/backups/inversion-medios-${SUFIJO}.json`;
-  writeFileSync(archivo, JSON.stringify({ plan, etapas }, null, 1));
-  console.log(`respaldo JSON: ${archivo} (${plan.length} filas de plan, ${etapas.length} de etapas)`);
+  if (existsSync(archivo)) {
+    console.log(`respaldo JSON ya existe, no se pisa: ${archivo}`);
+  } else {
+    writeFileSync(archivo, JSON.stringify({ plan, etapas }, null, 1));
+    console.log(`respaldo JSON: ${archivo} (${plan.length} filas de plan, ${etapas.length} de etapas)`);
+  }
 
   const llaves = new Set([...plan, ...etapas].map((f) => String(f.evento_id)));
   const mapa = new Map<string, string>(); // llave vieja → ID
@@ -80,10 +84,10 @@ async function main() {
   const pares = [...mapa.entries()].map(([v, n]) => sql`(${v}, ${n})`);
   try {
     await db.transaction(async (tx) => {
-      await tx.execute(sql.raw(`DROP TABLE IF EXISTS data.inversion_medios_diario_${SUFIJO}`));
-      await tx.execute(sql.raw(`DROP TABLE IF EXISTS data.inversion_medios_etapas_${SUFIJO}`));
-      await tx.execute(sql.raw(`CREATE TABLE data.inversion_medios_diario_${SUFIJO} AS SELECT * FROM data.inversion_medios_diario`));
-      await tx.execute(sql.raw(`CREATE TABLE data.inversion_medios_etapas_${SUFIJO} AS SELECT * FROM data.inversion_medios_etapas`));
+      // IF NOT EXISTS: una segunda corrida NO pisa el respaldo original con datos
+      // ya migrados (se aplicó el 2026-11-04).
+      await tx.execute(sql.raw(`CREATE TABLE IF NOT EXISTS data.inversion_medios_diario_${SUFIJO} AS SELECT * FROM data.inversion_medios_diario`));
+      await tx.execute(sql.raw(`CREATE TABLE IF NOT EXISTS data.inversion_medios_etapas_${SUFIJO} AS SELECT * FROM data.inversion_medios_etapas`));
 
       if (huerfanas.length > 0) {
         const lista = sql.join(huerfanas.map((h) => sql`${h}`), sql`, `);

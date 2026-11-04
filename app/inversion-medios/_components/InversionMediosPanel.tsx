@@ -362,8 +362,13 @@ export default function InversionMediosPanel({
         } else if (c.reglaIni) reglaDe.set(key, c.reglaIni);
       }
     }
+    // Las asignadas a mano a un evento que calzan con una regla: quitarlas del
+    // evento las devuelve a la iniciativa de la regla, no a "No atribuido".
+    for (const a of asignacionesEvento) {
+      if (a.reglaIni) reglaDe.set(campanaKey(a.plataforma, a.campaignId), a.reglaIni);
+    }
     return { reglaDe, deRegla };
-  }, [iniciativas]);
+  }, [iniciativas, asignacionesEvento]);
   const [asign, moverOptimista] = useOptimistic(
     asignServidor,
     (m: Map<string, string>, mov: { key: string; a: string | null }) => {
@@ -443,11 +448,15 @@ export default function InversionMediosPanel({
     () => iniciativas.map((i) => ({ id: i.id, nombre: i.nombre })),
     [iniciativas],
   );
-  // Para nombrar en "Campañas activas" el evento al que se asignó una campaña.
+  // Para nombrar en "Campañas activas" el evento al que se asignó una campaña
+  // (y filtrarla por SU país: la campaña sin EventoID no trae país propio).
   const eventosPorId = useMemo(
     () =>
       new Map(
-        grid.map((r) => [r.eventoId, { nombre: r.nombre, fecha: r.fechaEvento, codigo: r.eventoIdTicketera }]),
+        grid.map((r) => [
+          r.eventoId,
+          { nombre: r.nombre, fecha: r.fechaEvento, codigo: r.eventoIdTicketera, pais: r.pais },
+        ]),
       ),
     [grid],
   );
