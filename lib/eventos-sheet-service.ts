@@ -5,7 +5,9 @@
  * BigQuery `root-emissary-313321.glovox.categoriaEvento` (consumida en
  * lib/queries/{onepager,ticketing,marketing}.ts y el slack-data-agent). La
  * pestaña `venues` es la dimensión de recintos (clave = nombre en la columna A)
- * que alimenta el desplegable de la columna VENUE.
+ * que alimenta el desplegable de la columna VENUE. La pestaña `Marcas` (Código |
+ * Marca) es la lista fija de códigos de marca con que el alta arma el `ID` del
+ * evento (columna A de CategoriaEvento, ver lib/eventos-id.ts).
  *
  * El pipeline hoja → BigQuery NO vive acá: este módulo sólo lee y escribe las
  * pestañas. CategoriaEvento es una BASE TABLE (no externa sobre el Drive,
@@ -18,7 +20,7 @@
 import { getSheetsClient } from "@/lib/google-sheets";
 import { db } from "@/db";
 import { auditLog } from "@/db/schema";
-import { findEventoIdCol } from "@/lib/eventos-create";
+import { findIdHojaCol, type Marca } from "@/lib/eventos-create";
 
 /**
  * `USER_ENTERED`: Sheets interpreta el valor como si lo tipeara una persona, así
@@ -198,6 +200,54 @@ export async function readVenuesList(): Promise<string[]> {
   }
 }
 
+/** Pestaña con la lista fija de marcas (Código | Marca). */
+const MARCAS_TAB = "Marcas";
+
+/**
+ * Marcas de la pestaña `Marcas` (sin header, código en MAYÚSCULA, sin
+ * duplicados, ordenadas por nombre). Si la pestaña falta devuelve [] (el alta
+ * igual permite crear una marca nueva, que crea la fila).
+ */
+export async function readMarcas(): Promise<Marca[]> {
+  const spreadsheetId = getSpreadsheetId();
+  try {
+    const res = await getSheetsClient().spreadsheets.values.get({
+      spreadsheetId,
+      range: `${quoteSheet(MARCAS_TAB)}!A:B`,
+      majorDimension: "ROWS",
+    });
+    const seen = new Set<string>();
+    const out: Marca[] = [];
+    for (const r of (res.data.values ?? []).slice(1)) {
+      const codigo = String(r[0] ?? "").trim().toUpperCase();
+      const nombre = String(r[1] ?? "").trim();
+      if (codigo && !seen.has(codigo)) {
+        seen.add(codigo);
+        out.push({ codigo, nombre: nombre || codigo });
+      }
+    }
+    return out.sort((a, b) => a.nombre.localeCompare(b.nombre, "es"));
+  } catch {
+    return [];
+  }
+}
+
+/** Agrega una marca al final de la pestaña `Marcas` (la valida quien llama). */
+export async function appendMarca(
+  actorId: string | null,
+  email: string,
+  marca: Marca,
+): Promise<void> {
+  await getSheetsClient().spreadsheets.values.append({
+    spreadsheetId: getSpreadsheetId(),
+    range: `${quoteSheet(MARCAS_TAB)}!A:B`,
+    valueInputOption: "RAW",
+    insertDataOption: "INSERT_ROWS",
+    requestBody: { values: [[marca.codigo, marca.nombre]] },
+  });
+  await logAudit(actorId, "eventos.marca.append", { email, ...marca });
+}
+
 // ---------- Escritura ----------
 
 async function logAudit(
@@ -243,7 +293,7 @@ export async function saveCells(
   });
   if (conflicts.length > 0) {
     throw new Error(
-      `La hoja cambió en ${conflicts.join(", ")}. Recargá para ver lo último antes de guardar.`,
+      `La hoja cambió en ${conflicts.join(", ")}. Recarga para ver lo último antes de guardar.`,
     );
   }
 
@@ -373,7 +423,7 @@ function celdaValor(v: unknown): number | string | null {
 export interface CeldasEvento {
   spreadsheetId: string;
   sheetTitle: string;
-  /** Filas 0-based (fila 0 = encabezados) donde aparece el EventoID. */
+  /** Filas 0-based (fila 0 = encabezados) donde aparece el ID del evento. */
   filas: number[];
   /** Índice de columna 0-based por encabezado pedido. */
   columnas: Record<string, number>;
@@ -382,15 +432,18 @@ export interface CeldasEvento {
 }
 
 /**
- * Lee, para un EventoID, columnas numéricas de la pestaña Eventos ubicándolas
- * por NOMBRE de encabezado (robusto al orden) y la fila por EventoID, NO por
- * posición: la hoja se ordena o se le insertan filas a mano. Lee solo esas
- * columnas y sin formato (`UNFORMATTED_VALUE`: un 1.500 llega como 1500, no como
- * el texto con separador de miles). El EventoID puede repetirse (GLO042 ×6):
- * vienen todas sus filas. null si el evento no está en la hoja.
+ * Lee, para un evento, columnas numéricas de la pestaña Eventos ubicándolas por
+ * NOMBRE de encabezado (robusto al orden) y la fila por el `ID` de la hoja
+ * (columna A, ej. `1248-CL-TKM`), NO por posición: la hoja se ordena o se le
+ * insertan filas a mano. Desde 2026-11-04 la llave es el ID y no el EventoID:
+ * el ID existe desde el alta (el EventoID llega con la venta) y es único. Lee
+ * solo esas columnas y sin formato (`UNFORMATTED_VALUE`: un 1.500 llega como
+ * 1500, no como el texto con separador de miles). Si el ID apareciera repetido
+ * (no debería: el alta lo genera único), vienen todas sus filas. null si el
+ * evento no está en la hoja.
  */
 export async function readCeldasEvento(
-  eventoId: string,
+  idHoja: string,
   headers: string[],
 ): Promise<CeldasEvento | null> {
   const { spreadsheetId, sheetTitle } = await resolveTarget("eventos");
@@ -403,8 +456,8 @@ export async function readCeldasEvento(
   const header = (headerRes.data.values?.[0] ?? []).map((v) =>
     v === null || v === undefined ? "" : String(v),
   );
-  const idCol = findEventoIdCol(header);
-  if (idCol < 0) throw new Error("La hoja no tiene la columna EventoID");
+  const idCol = findIdHojaCol(header);
+  if (idCol < 0) throw new Error("La hoja no tiene la columna ID");
   const columnas: Record<string, number> = {};
   for (const h of headers) {
     const c = header.findIndex((x) => x.trim().toLowerCase() === h.toLowerCase());
@@ -421,7 +474,7 @@ export async function readCeldasEvento(
   });
   const colVals = (res.data.valueRanges ?? []).map((vr) => (vr.values?.[0] ?? []) as unknown[]);
   const ids = colVals[0] ?? [];
-  const id = eventoId.trim().toUpperCase();
+  const id = idHoja.trim().toUpperCase();
   const filas: number[] = [];
   for (let r = 1; r < ids.length; r++) {
     if (String(ids[r] ?? "").trim().toUpperCase() === id) filas.push(r);
@@ -440,8 +493,8 @@ export async function readCeldasEvento(
 export class ConflictoHojaError extends Error {}
 
 /**
- * Un EventoID repetido cuyas filas no coinciden en `header`: no hay un valor
- * actual único contra el cual verificar. Se corrige a mano en la hoja.
+ * Un ID repetido cuyas filas no coinciden en `header`: no hay un valor actual
+ * único contra el cual verificar. Se corrige a mano en la hoja.
  */
 export function filasDistintas(valores: (number | string | null)[]): boolean {
   return new Set(valores).size > 1;
@@ -450,21 +503,21 @@ export const MSG_FILAS_DISTINTAS =
   "Este evento aparece en varias filas de la planilla con valores distintos en esta columna. Hay que unificarlas en la planilla antes de editarlo aquí.";
 
 /**
- * Escribe UN número (o vacía la celda con null) en la columna `header` de cada
- * fila del EventoID, y nada más de la hoja. Concurrencia optimista: relee esas
+ * Escribe UN número (o vacía la celda con null) en la columna `header` de la
+ * fila del evento (ubicada por su `ID` de la hoja), y nada más de la hoja. Concurrencia optimista: relee esas
  * celdas justo antes y, si alguna ya no vale `esperado` (el valor de la hoja que
  * vio el editor: número, texto o null), aborta sin escribir. `RAW` con un number
  * de JS: queda numérica (la columna alimenta un INT64 en BQ) y no puede colarse
  * una fórmula. Devuelve las celdas A1 escritas.
  */
 export async function writeNumeroEvento(
-  eventoId: string,
+  idHoja: string,
   header: string,
   esperado: number | string | null,
   nuevo: number | null,
 ): Promise<string[]> {
-  const celdas = await readCeldasEvento(eventoId, [header]);
-  if (!celdas) throw new ConflictoHojaError(`El evento ${eventoId} no está en la planilla.`);
+  const celdas = await readCeldasEvento(idHoja, [header]);
+  if (!celdas) throw new ConflictoHojaError(`El evento ${idHoja} no está en la planilla.`);
   const actuales = celdas.valores[header];
   if (filasDistintas(actuales)) throw new ConflictoHojaError(MSG_FILAS_DISTINTAS);
   if (actuales[0] !== esperado) {

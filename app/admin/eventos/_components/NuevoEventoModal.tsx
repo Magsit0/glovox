@@ -5,18 +5,21 @@ import { motion, AnimatePresence } from "motion/react";
 import { ChevronDown, Lock, X } from "lucide-react";
 import {
   COUNTRY_OPTIONS,
+  MARCA_NOMBRE_MAX,
+  MARCA_NUEVA,
   VENUE_NONE,
-  countryLabel,
-  deriveMarca,
   existingIdSet,
   inferCurrency,
   inferTemporada,
+  prefijoEventoId,
   suggestNextEventoId,
   validateNewEvent,
-  type CountryPrefix,
+  type CountryCode,
   type FieldErrors,
+  type Marca,
   type NewEventPayload,
 } from "@/lib/eventos-create";
+import { CODIGO_MARCA_RE, siguienteIdHoja } from "@/lib/eventos-id";
 import { createEventAction } from "../actions";
 
 type Props = {
@@ -24,23 +27,33 @@ type Props = {
   onClose: () => void;
   /** Lista estandarizada de venues para el desplegable. */
   venues: string[];
-  /** EventoIDs ya existentes en la hoja (para unicidad + sugerir el próximo). */
-  existingIds: string[];
+  /** IDs de la hoja (columna A): vista previa del próximo correlativo. */
+  idsHoja: string[];
+  /** EventoIDs ya existentes (unicidad + sugerir el próximo GLO/GLP). */
+  eventoIds: string[];
+  /** Lista fija de marcas (pestaña Marcas). */
+  marcas: Marca[];
   /** Se llama tras crear con éxito (el padre refresca la grilla). */
   onCreated: () => void;
 };
 
 const onlyDigits = (v: string) => v.replace(/\D+/g, "");
+const soloLetras = (v: string) => v.toUpperCase().replace(/[^A-Z]+/g, "").slice(0, 3);
 
 export default function NuevoEventoModal({
   open,
   onClose,
   venues,
-  existingIds,
+  idsHoja,
+  eventoIds,
+  marcas,
   onCreated,
 }: Props) {
-  const [prefix, setPrefix] = useState<CountryPrefix>("GLO");
-  const [numero, setNumero] = useState("");
+  const [pais, setPais] = useState<CountryCode>("CL");
+  const [marcaSel, setMarcaSel] = useState(""); // "" = sin elegir; MARCA_NUEVA = alta de marca
+  const [nuevaCodigo, setNuevaCodigo] = useState("");
+  const [nuevaNombre, setNuevaNombre] = useState("");
+  const [eventoId, setEventoId] = useState("");
   const [nombreGlovox, setNombreGlovox] = useState("");
   const [categoriaEvento, setCategoriaEvento] = useState("");
   const [categoriaEvento2, setCategoriaEvento2] = useState("");
@@ -58,18 +71,19 @@ export default function NuevoEventoModal({
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
-  const existing = useMemo(() => existingIdSet(existingIds), [existingIds]);
-  /** Parte numérica sugerida (con padding) para un prefijo. */
-  const suggestFor = (p: string) =>
-    suggestNextEventoId(existingIds, p).slice(p.length);
+  const existentes = useMemo(() => existingIdSet(eventoIds), [eventoIds]);
+  const codigosMarca = useMemo(() => new Set(marcas.map((m) => m.codigo)), [marcas]);
 
   // Reset al abrir (patrón render-phase con guard de prev value, sin effects).
   const [prevOpen, setPrevOpen] = useState(open);
   if (prevOpen !== open) {
     setPrevOpen(open);
     if (open) {
-      setPrefix("GLO");
-      setNumero(suggestFor("GLO"));
+      setPais("CL");
+      setMarcaSel("");
+      setNuevaCodigo("");
+      setNuevaNombre("");
+      setEventoId("");
       setNombreGlovox("");
       setCategoriaEvento("");
       setCategoriaEvento2("");
@@ -88,13 +102,20 @@ export default function NuevoEventoModal({
     }
   }
 
-  const eventoId = prefix + numero;
-  const currency = inferCurrency(eventoId);
-  const pais = countryLabel(eventoId);
+  const esNueva = marcaSel === MARCA_NUEVA;
+  const marca = esNueva ? nuevaCodigo : marcaSel;
+  const currency = inferCurrency(pais);
   const temporada = inferTemporada(fecha);
-  const marca = deriveMarca(categoriaEvento);
+  // Vista previa: el definitivo lo asigna el servidor al crear (otra alta
+  // simultánea podría tomar este correlativo).
+  const idPreview = CODIGO_MARCA_RE.test(marca) ? siguienteIdHoja(idsHoja, pais, marca) : "";
+  const prefijo = prefijoEventoId(pais);
+  const sugerido = prefijo ? suggestNextEventoId(eventoIds, prefijo) : "";
 
   const payload: NewEventPayload = {
+    pais,
+    marca,
+    ...(esNueva ? { marcaNombre: nuevaNombre } : {}),
     eventoId,
     nombreGlovox,
     categoriaEvento,
@@ -111,13 +132,10 @@ export default function NuevoEventoModal({
     temporada,
   };
 
-  const errors: FieldErrors = validateNewEvent(payload, existing);
+  const errors: FieldErrors = validateNewEvent(payload, existentes, codigosMarca);
   const venueMissing = venueSel === "";
-
-  function onPrefixChange(p: CountryPrefix) {
-    setPrefix(p);
-    setNumero(suggestFor(p)); // re-sugerir el próximo libre para el nuevo país
-  }
+  // El código de una marca nueva se valida en vivo apenas tiene sus 3 letras.
+  const errorMarca = attempted || (esNueva && nuevaCodigo.length === 3) ? errors.marca : undefined;
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -173,8 +191,9 @@ export default function NuevoEventoModal({
                     Nuevo evento
                   </h2>
                   <p className="mt-1 font-sans text-xs text-[#999999]">
-                    El EventoID es la llave que consolida tickets, AA&BB, mesas VIP
-                    e inversión. Se valida formato y unicidad.
+                    El ID identifica al evento desde hoy y no cambia: con él ya se
+                    puede planificar. El EventoID de la ticketera es opcional y puedes
+                    cargarlo cuando empiece la venta.
                   </p>
                 </div>
                 <button
@@ -198,42 +217,104 @@ export default function NuevoEventoModal({
                   </legend>
 
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <Field label="País" required>
+                    <Field label="País" required error={attempted ? errors.pais : undefined}>
                       <select
-                        value={prefix}
-                        onChange={(e) =>
-                          onPrefixChange(e.target.value as CountryPrefix)
-                        }
+                        value={pais}
+                        onChange={(e) => setPais(e.target.value as CountryCode)}
                         className={selectCls}
                       >
                         {COUNTRY_OPTIONS.map((c) => (
-                          <option key={c.prefix} value={c.prefix}>
-                            {c.label} ({c.prefix})
+                          <option key={c.code} value={c.code}>
+                            {c.label}
                           </option>
                         ))}
                       </select>
                     </Field>
 
-                    <Field label="EventoID" required error={errors.eventoId}>
-                      <div className="flex items-stretch">
-                        <span className="inline-flex items-center rounded-l-lg border border-r-0 border-[#E5E5E5] bg-[#FAFAFA] px-3 font-sans text-sm font-medium text-[#666666]">
-                          {prefix}
-                        </span>
-                        <input
-                          value={numero}
-                          onChange={(e) => setNumero(onlyDigits(e.target.value))}
-                          inputMode="numeric"
-                          placeholder="201"
-                          className={`${inputCls} rounded-l-none tabular-nums`}
-                        />
-                      </div>
+                    <Field label="Marca" required error={esNueva ? undefined : errorMarca}>
+                      <select
+                        value={marcaSel}
+                        onChange={(e) => setMarcaSel(e.target.value)}
+                        className={selectCls}
+                      >
+                        <option value="" disabled>
+                          Selecciona marca…
+                        </option>
+                        {marcas.map((m) => (
+                          <option key={m.codigo} value={m.codigo}>
+                            {m.nombre} ({m.codigo})
+                          </option>
+                        ))}
+                        <option value={MARCA_NUEVA}>＋ Nueva marca…</option>
+                      </select>
                     </Field>
                   </div>
 
+                  {esNueva && (
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      <Field
+                        label="Código de la marca"
+                        required
+                        error={errorMarca}
+                        hint="3 letras, no se puede cambiar después"
+                      >
+                        <input
+                          value={nuevaCodigo}
+                          onChange={(e) => setNuevaCodigo(soloLetras(e.target.value))}
+                          placeholder="ABC"
+                          autoFocus
+                          className={`${inputCls} uppercase`}
+                        />
+                      </Field>
+                      <Field
+                        label="Nombre de la marca"
+                        required
+                        error={attempted ? errors.marcaNombre : undefined}
+                      >
+                        <input
+                          value={nuevaNombre}
+                          onChange={(e) => setNuevaNombre(e.target.value)}
+                          maxLength={MARCA_NOMBRE_MAX}
+                          placeholder="Ej. Bosque Sónico"
+                          className={inputCls}
+                        />
+                      </Field>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                    <ReadOnly label="País (inferido)" value={pais || "—"} />
+                    <ReadOnly
+                      label="ID (se asigna al crear)"
+                      value={idPreview || "Elige país y marca"}
+                      muted={!idPreview}
+                    />
                     <ReadOnly label="Moneda (inferida)" value={currency || "—"} />
                   </div>
+
+                  <Field
+                    label="EventoID de la ticketera (opcional)"
+                    error={errors.eventoId}
+                    hint="Lo entrega la ticketera cuando empieza la venta: GLO### en Chile, GLP### en Perú o el número de Fever."
+                  >
+                    <div className="flex items-stretch gap-2">
+                      <input
+                        value={eventoId}
+                        onChange={(e) => setEventoId(e.target.value.toUpperCase().replace(/\s+/g, ""))}
+                        placeholder="Sin EventoID todavía"
+                        className={`${inputCls} tabular-nums`}
+                      />
+                      {sugerido && !eventoId && (
+                        <button
+                          type="button"
+                          onClick={() => setEventoId(sugerido)}
+                          className="shrink-0 cursor-pointer rounded-lg px-3 py-2 font-sans text-xs font-medium text-[#666666] transition-colors hover:bg-[#F5F5F5] hover:text-[#333333]"
+                          title="Siguiente EventoID libre de la hoja"
+                        >
+                          Usar {sugerido}
+                        </button>
+                      )}
+                    </div>
+                  </Field>
                 </fieldset>
 
                 {/* Datos del evento ---------------------------------------- */}
@@ -255,7 +336,6 @@ export default function NuevoEventoModal({
                     label="CategoriaEvento"
                     required
                     error={attempted ? errors.categoriaEvento : undefined}
-                    hint={marca ? `Marca: ${marca}` : undefined}
                   >
                     <input
                       value={categoriaEvento}
@@ -467,12 +547,14 @@ function Field({
 }
 
 /** Campo inferido + bloqueado: no editable, con marca de candado. */
-function ReadOnly({ label, value }: { label: string; value: string }) {
+function ReadOnly({ label, value, muted }: { label: string; value: string; muted?: boolean }) {
   return (
     <div className="space-y-1">
       <label className="block font-sans text-xs text-[#666666]">{label}</label>
       <div className="flex items-center justify-between gap-2 rounded-lg border border-[#E5E5E5] bg-[#FAFAFA] px-3 py-2">
-        <span className="font-sans text-sm text-[#333333]">{value}</span>
+        <span className={`font-sans text-sm tabular-nums ${muted ? "text-[#999999]" : "text-[#333333]"}`}>
+          {value}
+        </span>
         <Lock className="h-3.5 w-3.5 shrink-0 text-[#999999]" />
       </div>
     </div>

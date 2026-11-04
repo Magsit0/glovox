@@ -49,8 +49,10 @@ type Fila = {
 type Grupo = {
   key: string;
   tipo: "evento" | "iniciativa" | "na";
-  /** EventoID o id de la iniciativa; null en "No atribuido". */
+  /** ID de la hoja del evento o id de la iniciativa; null en "No atribuido". */
   eventoId: string | null;
+  /** EventoID del evento (GLO213), si ya lo tiene: es el código que se reconoce. */
+  codigo: string;
   nombre: string;
   fecha: string;
   filas: Fila[];
@@ -60,21 +62,25 @@ type Grupo = {
 };
 
 /**
- * Agrupa por evento; las campañas SIN evento van a su iniciativa si están
- * asignadas (mismo reparto que el calendario) y, si no, a "No atribuido".
+ * Agrupa por evento; las campañas SIN evento van a su destino si están
+ * asignadas a mano (un evento o una iniciativa) o por regla (mismo reparto que
+ * el calendario) y, si no, a "No atribuido".
  */
 function agrupar(
   filas: Fila[],
   asignaciones: Map<string, string>,
   iniciativas: { id: string; nombre: string }[],
+  eventos: Map<string, { nombre: string; fecha: string; codigo: string | null }>,
 ): Grupo[] {
   const nombreIni = new Map(iniciativas.map((i) => [i.id, i.nombre]));
   const ordenIni = new Map(iniciativas.map((i, idx) => [i.id, idx]));
   const porGrupo = new Map<string, Grupo>();
   for (const f of filas) {
-    const iniId = f.c.eventoId ? undefined : asignaciones.get(campanaKey(f.c.plataforma, f.c.campaignId));
-    const tipo: Grupo["tipo"] = f.c.eventoId ? "evento" : iniId && nombreIni.has(iniId) ? "iniciativa" : "na";
-    const id = tipo === "evento" ? f.c.eventoId : tipo === "iniciativa" ? iniId! : null;
+    const destino = f.c.eventoId ? undefined : asignaciones.get(campanaKey(f.c.plataforma, f.c.campaignId));
+    const eventoAsignado = destino ? eventos.get(destino) : undefined;
+    const tipo: Grupo["tipo"] =
+      f.c.eventoId || eventoAsignado ? "evento" : destino && nombreIni.has(destino) ? "iniciativa" : "na";
+    const id = f.c.eventoId ?? (tipo === "na" ? null : destino!);
     const key = `${tipo}:${id ?? ""}`;
     let g = porGrupo.get(key);
     if (!g) {
@@ -82,8 +88,16 @@ function agrupar(
         key,
         tipo,
         eventoId: id,
-        nombre: tipo === "evento" ? f.c.eventoNombre : tipo === "iniciativa" ? nombreIni.get(id!)! : "",
-        fecha: tipo === "evento" ? f.c.eventoFecha : "",
+        codigo: f.c.eventoId ? f.c.eventoCodigo : (eventoAsignado?.codigo ?? ""),
+        nombre:
+          tipo === "evento"
+            ? f.c.eventoId
+              ? f.c.eventoNombre
+              : eventoAsignado!.nombre
+            : tipo === "iniciativa"
+              ? nombreIni.get(id!)!
+              : "",
+        fecha: tipo === "evento" ? (f.c.eventoId ? f.c.eventoFecha : eventoAsignado!.fecha) : "",
         filas: [],
         prev: 0,
         ult: 0,
@@ -132,6 +146,7 @@ export default function CampanasActivas({
   pais,
   asignaciones,
   iniciativas,
+  eventos,
 }: {
   campanas: CampanaReciente[];
   /** Última fecha del mart: el ancla de la ventana. */
@@ -139,9 +154,13 @@ export default function CampanasActivas({
   hoy: string;
   /** Filtro de país del calendario ("" = todos). Lo no atribuido no tiene país. */
   pais: string;
-  /** Campaña ("plataforma|campaign_id") → iniciativa, con lo recién arrastrado. */
+  /** Campaña ("plataforma|campaign_id") → iniciativa o evento (ID de la hoja),
+   *  con lo recién arrastrado. */
   asignaciones: Map<string, string>;
   iniciativas: { id: string; nombre: string }[];
+  /** Eventos del calendario por ID de la hoja: nombran a los que recibieron una
+   *  campaña asignada a mano. */
+  eventos: Map<string, { nombre: string; fecha: string; codigo: string | null }>;
 }) {
   const [open, setOpen] = useState(false);
   const [modo, setModo] = useState<"activas" | "detenidas">("activas");
@@ -180,8 +199,8 @@ export default function CampanasActivas({
   const activas = useMemo(() => filas.filter((f) => f.activa), [filas]);
   const detenidas = useMemo(() => filas.filter((f) => !f.activa), [filas]);
   const grupos = useMemo(
-    () => agrupar(modo === "activas" ? activas : detenidas, asignaciones, iniciativas),
-    [modo, activas, detenidas, asignaciones, iniciativas],
+    () => agrupar(modo === "activas" ? activas : detenidas, asignaciones, iniciativas, eventos),
+    [modo, activas, detenidas, asignaciones, iniciativas, eventos],
   );
 
   const porPlataforma = useMemo(() => {
@@ -338,7 +357,7 @@ export default function CampanasActivas({
                             {g.tipo === "iniciativa"
                               ? "iniciativa"
                               : g.eventoId
-                                ? `${g.eventoId}${g.fecha ? ` · evento ${fmtFecha(g.fecha, ref)}` : ""}`
+                                ? `${g.codigo || g.eventoId}${g.fecha ? ` · evento ${fmtFecha(g.fecha, ref)}` : ""}`
                                 : "sin evento ni iniciativa"}
                             {` · ${g.filas.length} ${g.filas.length === 1 ? "campaña" : "campañas"}`}
                           </span>

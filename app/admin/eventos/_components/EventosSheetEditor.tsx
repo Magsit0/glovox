@@ -8,7 +8,7 @@ import type {
   CellEdit,
   SheetTarget,
 } from "@/lib/eventos-sheet-service";
-import { findEventoIdCol } from "@/lib/eventos-create";
+import { errorEdicionesEventos, findEventoIdCol, findIdHojaCol, type Marca } from "@/lib/eventos-create";
 import {
   appendColumnAction,
   appendRowAction,
@@ -54,6 +54,8 @@ interface Props {
   venues?: string[];
   /** Mapa columna→tipo BQ (de la pestaña _tipos): DATE/NUMERIC/BOOL. */
   columnTypes?: Record<string, string>;
+  /** Marcas de la pestaña Marcas (solo eventos: el alta arma el ID con ellas). */
+  marcas?: Marca[];
 }
 
 /** Opciones del desplegable de tipo al agregar columna. */
@@ -71,6 +73,7 @@ export default function EventosSheetEditor({
   venueColumn,
   venues = [],
   columnTypes = {},
+  marcas = [],
 }: Props) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -128,12 +131,13 @@ export default function EventosSheetEditor({
     [baseValues],
   );
 
-  // EventoIDs existentes (columna EventoID) para el alta: unicidad + sugerir el
-  // próximo ID libre. Vacío si la hoja no tiene esa columna (o es venues).
-  const existingIds = useMemo(() => {
-    const idCol = findEventoIdCol(header);
-    if (idCol < 0) return [];
-    return baseValues.slice(1).map((r) => r[idCol] ?? "");
+  // Columna ID (identidad del evento): de solo lectura en la grilla. -1 en venues.
+  const idHojaCol = target === "eventos" ? findIdHojaCol(header) : -1;
+  // Para el alta: los IDs (vista previa del próximo) y los EventoIDs (unicidad y
+  // sugerencia GLO/GLP). Vacíos si la hoja no tiene esas columnas.
+  const { idsHoja, eventoIds } = useMemo(() => {
+    const col = (c: number) => (c < 0 ? [] : baseValues.slice(1).map((r) => r[c] ?? ""));
+    return { idsHoja: col(findIdHojaCol(header)), eventoIds: col(findEventoIdCol(header)) };
   }, [baseValues, header]);
 
   const venueColNorm = venueColumn ? normHeader(venueColumn) : null;
@@ -200,6 +204,15 @@ export default function EventosSheetEditor({
   function guardar() {
     const edits = Array.from(editsRef.current.values());
     if (edits.length === 0) return;
+    // Misma validación que el servidor (que la repite con una lectura fresca):
+    // aviso inmediato si un EventoID está mal escrito o ya lo usa otra fila.
+    if (target === "eventos") {
+      const err = errorEdicionesEventos(baseValues, edits);
+      if (err) {
+        setError(err);
+        return;
+      }
+    }
     run(async () => {
       const res = await saveCellsAction(target, edits);
       if (res.ok) {
@@ -277,15 +290,19 @@ export default function EventosSheetEditor({
             <Plus className="h-4 w-4" />
             Agregar columna
           </button>
-          <button
-            type="button"
-            onClick={() => setDraft(Array.from({ length: colCount }, () => ""))}
-            disabled={pending || draft !== null}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans text-sm font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA] disabled:opacity-50"
-          >
-            <Plus className="h-4 w-4" />
-            Agregar fila
-          </button>
+          {/* Un evento nace solo por «Nuevo evento» (genera su ID): la fila
+              libre queda para Venues. */}
+          {target !== "eventos" && (
+            <button
+              type="button"
+              onClick={() => setDraft(Array.from({ length: colCount }, () => ""))}
+              disabled={pending || draft !== null}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#333333] bg-white px-4 py-2 font-sans text-sm font-medium text-[#333333] transition-colors hover:bg-[#FAFAFA] disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" />
+              Agregar fila
+            </button>
+          )}
           <button
             type="button"
             onClick={guardar}
@@ -408,7 +425,14 @@ export default function EventosSheetEditor({
                     const initial = pendingValue(r, c) ?? base;
                     return (
                       <td key={c} className="border-b border-[#E5E5E5] p-0">
-                        {isVenueCol(c) ? (
+                        {c === idHojaCol ? (
+                          <span
+                            className="block whitespace-nowrap px-3 py-2 font-sans text-sm tabular-nums text-[#666666]"
+                            title="El ID no se edita: lo genera «Nuevo evento» y no cambia nunca."
+                          >
+                            {base || "—"}
+                          </span>
+                        ) : isVenueCol(c) ? (
                           <select
                             defaultValue={initial}
                             data-dirty={initial !== base ? "true" : undefined}
@@ -527,8 +551,11 @@ export default function EventosSheetEditor({
 
       <p className="font-sans text-xs text-[#999999]">
         {filtered.length} de {Math.max(dataRows.length, 0)} filas
-        {query ? " (filtradas)" : ""}. Editás celdas y “Guardar” escribe sólo lo
+        {query ? " (filtradas)" : ""}. Edita las celdas y «Guardar» escribe solo lo
         cambiado en Google Sheets.
+        {target === "eventos"
+          ? " El ID no se edita y los eventos nuevos se crean con «Nuevo evento»."
+          : ""}
         {venueColumn
           ? " La columna VENUE se elige de la lista estandarizada (pestaña “venues”)."
           : ""}{" "}
@@ -540,7 +567,9 @@ export default function EventosSheetEditor({
           open={showNew}
           onClose={() => setShowNew(false)}
           venues={venues}
-          existingIds={existingIds}
+          idsHoja={idsHoja}
+          eventoIds={eventoIds}
+          marcas={marcas}
           onCreated={() => router.refresh()}
         />
       )}

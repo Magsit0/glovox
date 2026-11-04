@@ -3,11 +3,13 @@ import { ExternalLink } from "lucide-react";
 import { requireSuperadmin } from "@/lib/access";
 import {
   readColumnTypes,
+  readMarcas,
   readSheetGrid,
   readVenuesList,
   type SheetGrid,
   type SheetTarget,
 } from "@/lib/eventos-sheet-service";
+import type { Marca } from "@/lib/eventos-create";
 import EventosSheetEditor from "./_components/EventosSheetEditor";
 import SyncBigQueryButton from "./_components/SyncBigQueryButton";
 
@@ -32,15 +34,17 @@ export default async function AdminEventosPage({ searchParams }: PageProps) {
   // no construir JSX dentro de try/catch).
   let grid: SheetGrid | null = null;
   let venues: string[] = [];
+  let marcas: Marca[] = [];
   let columnTypes: Record<string, string> = {};
   let errorMsg: string | null = null;
   try {
     if (tab === "venues") {
       grid = await readSheetGrid("venues");
     } else {
-      [grid, venues] = await Promise.all([
+      [grid, venues, marcas] = await Promise.all([
         readSheetGrid("eventos"),
         readVenuesList(),
+        readMarcas(),
       ]);
     }
     columnTypes = await readColumnTypes(grid.sheetTitle);
@@ -81,6 +85,7 @@ export default async function AdminEventosPage({ searchParams }: PageProps) {
               venueColumn="venue"
               venues={venues}
               columnTypes={columnTypes}
+              marcas={marcas}
             />
           </>
         )

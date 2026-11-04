@@ -34,6 +34,17 @@ export type CampanaAsignada = {
   reglaIni?: string;
 };
 
+/**
+ * Campaña asignada a mano a un EVENTO (eventos_pm_campanas): salió antes de que
+ * el evento tuviera EventoID en el nombre. `eventoId` = ID de la hoja.
+ */
+export type CampanaDeEvento = {
+  plataforma: string;
+  campaignId: string;
+  campaignName: string;
+  eventoId: string;
+};
+
 /** Regla de asignación automática (ver `iniciativasPmReglas` en db/schema.ts). */
 export type ReglaIniciativa = {
   plataforma: string;
@@ -84,7 +95,8 @@ export type CampanaArrastrada = {
   plataforma: string;
   campaignId: string;
   campaignName: string;
-  /** Iniciativa de origen; null = viene de "No atribuido". */
+  /** Origen: id de iniciativa (INI001) o ID de evento (1248-CL-TKM) al que
+   *  estaba asignada a mano; null = viene de "No atribuido". */
   desde: string | null;
   /** La capturó una regla: se puede mover a otra iniciativa, no a "No atribuido". */
   porRegla?: boolean;

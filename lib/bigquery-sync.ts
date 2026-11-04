@@ -112,15 +112,16 @@ async function getExternalColumns(
 const CAMPOS_PUNTUALES = new Set(["goalTickets", "budgetPm"]);
 
 /**
- * UPDATE puntual de UNA columna de glovox.categoriaEvento para un EventoID (todas
- * sus filas, si está repetido), sin rematerializar la tabla: el sync completo
+ * UPDATE puntual de UNA columna de glovox.categoriaEvento para UN evento, ubicado
+ * por el `ID` de la hoja (columna A, ej. `1248-CL-TKM`: existe desde el alta y es
+ * único; el EventoID puede faltar), sin rematerializar la tabla: el sync completo
  * publicaría cualquier otra edición de la hoja que aún no se quiere subir. Va
  * después de escribir la misma celda en la hoja, así que el próximo sync
  * completo reproduce el mismo valor. El nombre de columna no es parametrizable
  * en SQL: sale de una lista cerrada. Devuelve las filas afectadas.
  */
 export async function updateCampoCategoriaEvento(
-  eventoId: string,
+  idHoja: string,
   campo: string,
   valor: number | null,
 ): Promise<number> {
@@ -130,9 +131,9 @@ export async function updateCampoCategoriaEvento(
     query:
       "UPDATE `" + PROJECT + ".glovox.categoriaEvento`\n" +
       "SET `" + campo + "` = @valor\n" +
-      "WHERE EventoID = @eventoId",
-    params: { valor, eventoId },
-    types: { valor: "INT64", eventoId: "STRING" },
+      "WHERE ID = @idHoja",
+    params: { valor, idHoja },
+    types: { valor: "INT64", idHoja: "STRING" },
   });
   await job.getQueryResults();
   const [meta] = await job.getMetadata();

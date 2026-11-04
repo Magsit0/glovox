@@ -1,33 +1,55 @@
 /**
  * Lógica PURA (sin dependencias de servidor: no db, no googleapis) para el alta
  * de un evento en la hoja `CategoriaEvento`. Se comparte entre el cliente
- * (formulario guiado / atajo inline: inferencia y validación en vivo) y el
- * servidor (server actions: validación autoritativa antes de escribir).
+ * (formulario guiado: inferencia y validación en vivo) y el servidor (server
+ * actions: validación autoritativa antes de escribir).
  *
- * El `EventoID` es la LLAVE que consolida todos los orígenes del evento
- * (glovox.tickets, onfire.soldItems, mesas_vip/marca/medios/producto_ingresos,
- * paidMedia.ads_performance vía prefijo de campaña). Un ID malformado, duplicado
- * o con prefijo de país equivocado rompe esos joins en silencio — por eso el
- * alta valida formato + unicidad como bloqueo duro.
+ * Un evento tiene DOS llaves (ver lib/eventos-id.ts):
+ * - `ID` (columna A, `1248-CL-TKM`): su identidad. La genera el alta
+ *   (correlativo global + país + código de marca de la pestaña «Marcas») y no
+ *   cambia nunca: con ella se planifica antes de que exista venta.
+ * - `EventoID` (`GLO213`, `660905`): lo entrega la ticketera cuando empieza la
+ *   venta. Es OPCIONAL al crear, pero si viene tiene que tener formato válido y
+ *   ser único: consolida los orígenes del evento (glovox.tickets,
+ *   onfire.soldItems, mesas_vip/marca/medios/producto_ingresos, paid media vía
+ *   prefijo de campaña) y un valor repetido o mal escrito rompe esos joins en
+ *   silencio.
  */
+import { CODIGO_MARCA_RE, EVENTO_ID_TICKETERA_RE } from "@/lib/eventos-id";
 
-/** País → prefijo de EventoID + moneda. El prefijo (3 letras) deriva el país. */
+/** País del evento: código ISO-2 (columna Pais y segmento del ID), prefijo GL* del EventoID y moneda. */
 export const COUNTRY_OPTIONS = [
-  { prefix: "GLO", label: "Chile", currency: "CLP" },
-  { prefix: "GLP", label: "Perú", currency: "PEN" },
+  { code: "CL", prefix: "GLO", label: "Chile", currency: "CLP" },
+  { code: "PE", prefix: "GLP", label: "Perú", currency: "PEN" },
 ] as const;
 
-export type CountryPrefix = (typeof COUNTRY_OPTIONS)[number]["prefix"];
-
-/** Patrón de un EventoID válido: prefijo GLO/GLP + dígitos (ej. GLO201). */
-export const EVENTO_ID_RE = /^GL[OP]\d+$/i;
+export type CountryCode = (typeof COUNTRY_OPTIONS)[number]["code"];
 
 /** Valor centinela del desplegable de venue que representa "sin venue". */
 export const VENUE_NONE = "__none__";
 
+/** Valor centinela del desplegable de marca que abre el alta de una marca nueva. */
+export const MARCA_NUEVA = "__nueva__";
+
+/** Marca de la pestaña «Marcas» (Código | Marca). */
+export interface Marca {
+  codigo: string;
+  nombre: string;
+}
+
+export const MARCA_NOMBRE_MAX = 40;
+
 /** Payload estructurado del alta (lo que produce el formulario guiado). */
 export interface NewEventPayload {
-  /** EventoID completo, ej. "GLO201". */
+  /** ID de la hoja. Lo asigna el SERVIDOR al crear: lo que mande el cliente se ignora. */
+  id?: string;
+  /** País ISO-2 (CL, PE). */
+  pais: string;
+  /** Código de marca (3 letras): uno de la pestaña Marcas o uno nuevo. */
+  marca: string;
+  /** Solo para una marca NUEVA: su nombre legible (se agrega a la pestaña Marcas). */
+  marcaNombre?: string;
+  /** EventoID de la ticketera, opcional ("" = todavía no lo hay). */
   eventoId: string;
   nombreGlovox: string;
   categoriaEvento: string;
@@ -50,20 +72,24 @@ export interface NewEventPayload {
 
 // ---------- Inferencia ----------
 
-function prefixOf(eventoId: string): string {
-  return eventoId.trim().slice(0, 3).toUpperCase();
+function pais(code: string) {
+  const c = code.trim().toUpperCase();
+  return COUNTRY_OPTIONS.find((o) => o.code === c);
 }
 
-/** Moneda inferida del prefijo del EventoID (GLO→CLP, GLP→PEN). "" si no mapea. */
-export function inferCurrency(eventoId: string): string {
-  const p = prefixOf(eventoId);
-  return COUNTRY_OPTIONS.find((c) => c.prefix === p)?.currency ?? "";
+/** Moneda inferida del país (CL→CLP, PE→PEN). "" si no mapea. */
+export function inferCurrency(paisCode: string): string {
+  return pais(paisCode)?.currency ?? "";
 }
 
-/** Etiqueta de país del prefijo del EventoID. "" si no mapea. */
-export function countryLabel(eventoId: string): string {
-  const p = prefixOf(eventoId);
-  return COUNTRY_OPTIONS.find((c) => c.prefix === p)?.label ?? "";
+/** Etiqueta del país. "" si no mapea. */
+export function countryLabel(paisCode: string): string {
+  return pais(paisCode)?.label ?? "";
+}
+
+/** Prefijo GL* del EventoID para el país (CL→GLO, PE→GLP). "" si no mapea. */
+export function prefijoEventoId(paisCode: string): string {
+  return pais(paisCode)?.prefix ?? "";
 }
 
 /**
@@ -83,14 +109,10 @@ export function inferTemporada(fecha: string): string {
   return `${yy(startYear)}-${yy(startYear + 1)}`;
 }
 
-/** Marca (display): CategoriaEvento sin el sufijo " N-N" (ej. "Kiki 1-2" → "Kiki"). */
-export function deriveMarca(categoriaEvento: string): string {
-  return categoriaEvento.replace(/\s*\d+-\d+$/, "").trim();
-}
-
 /**
- * Sugiere el próximo EventoID libre para un prefijo: (máx. número existente + 1),
- * conservando el ancho con ceros a la izquierda (convención de 3 dígitos: GLO201).
+ * Sugiere el próximo EventoID GL* libre para un prefijo: (máx. número existente
+ * + 1), conservando el ancho con ceros a la izquierda (GLO201). Es solo una
+ * ayuda: el EventoID real lo entrega la ticketera.
  */
 export function suggestNextEventoId(existingIds: string[], prefix: string): string {
   const re = new RegExp(`^${prefix}(\\d+)$`, "i");
@@ -106,42 +128,77 @@ export function suggestNextEventoId(existingIds: string[], prefix: string): stri
   return prefix + String(max + 1).padStart(width, "0");
 }
 
-/** Set de EventoIDs existentes en MAYÚSCULA, para comparar unicidad sin sesgo de caso. */
+/** Set de valores en MAYÚSCULA (sin vacíos), para comparar unicidad sin sesgo de caso. */
 export function existingIdSet(ids: string[]): Set<string> {
   return new Set(ids.map((s) => s.trim().toUpperCase()).filter(Boolean));
 }
 
 // ---------- Validación (compartida cliente/servidor) ----------
 
-/** Campos de texto obligatorios (además del EventoID). */
-export const REQUIRED_TEXT_FIELDS = [
-  "nombreGlovox",
-  "categoriaEvento",
-  "fecha",
-] as const;
-
 /** Errores por campo; {} = válido. */
 export type FieldErrors = Partial<Record<keyof NewEventPayload, string>>;
 
 /**
- * Valida un alta. `existing` es el set de EventoIDs ya presentes (MAYÚSCULA).
+ * Error del EventoID de la ticketera, o null si sirve. "" es válido (todavía no
+ * lo hay). Formato GL*### o Fever numérico; si es GLO/GLP, el prefijo tiene que
+ * calzar con el país (`paisCode` opcional: el editor de la grilla no lo valida).
+ */
+export function errorEventoId(
+  eventoIdRaw: string,
+  ocupados: Set<string>,
+  paisCode?: string,
+): string | null {
+  const id = eventoIdRaw.trim().toUpperCase();
+  if (!id) return null;
+  if (!EVENTO_ID_TICKETERA_RE.test(id)) {
+    return "Formato inválido: GLO### en Chile, GLP### en Perú o el número de Fever (5 o 6 dígitos).";
+  }
+  if (ocupados.has(id)) return `Ya hay otro evento con el EventoID ${id}.`;
+  if (paisCode) {
+    const esperado = prefijoEventoId(paisCode);
+    const prefijo = id.slice(0, 3);
+    if ((prefijo === "GLO" || prefijo === "GLP") && esperado && prefijo !== esperado) {
+      return `Un EventoID ${prefijo} no es de ${countryLabel(paisCode)}: usa ${esperado}###.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Valida un alta. `eventoIds` = EventoIDs ya presentes (MAYÚSCULA); `marcas` =
+ * códigos de la pestaña Marcas. `marca === MARCA_NUEVA` no llega acá: el
+ * formulario manda el código nuevo en `marca` y su nombre en `marcaNombre`.
  * Nota: venue "" es válido (sin venue); la obligatoriedad de *elegir* venue se
  * refuerza en la UI (estado sin selección), no acá.
  */
 export function validateNewEvent(
   payload: NewEventPayload,
-  existing: Set<string>,
+  eventoIds: Set<string>,
+  marcas: Set<string>,
 ): FieldErrors {
   const errors: FieldErrors = {};
-  const id = payload.eventoId?.trim() ?? "";
 
-  if (!id) {
-    errors.eventoId = "El EventoID es obligatorio.";
-  } else if (!EVENTO_ID_RE.test(id)) {
-    errors.eventoId = "Formato inválido. Debe ser GLO### (Chile) o GLP### (Perú).";
-  } else if (existing.has(id.toUpperCase())) {
-    errors.eventoId = "Ya existe un evento con ese ID.";
+  if (!pais(payload.pais ?? "")) errors.pais = "Elige el país.";
+
+  const marca = (payload.marca ?? "").trim().toUpperCase();
+  const nueva = payload.marcaNombre !== undefined;
+  if (!marca) {
+    errors.marca = nueva ? "Escribe el código de la marca nueva." : "Elige la marca.";
+  } else if (!CODIGO_MARCA_RE.test(marca)) {
+    errors.marca = "El código de marca son 3 letras (ej. PKN).";
+  } else if (nueva && marcas.has(marca)) {
+    errors.marca = `El código ${marca} ya existe: elígelo de la lista.`;
+  } else if (!nueva && !marcas.has(marca)) {
+    errors.marca = `La marca ${marca} no está en la pestaña Marcas.`;
   }
+  if (nueva) {
+    const nombre = (payload.marcaNombre ?? "").trim();
+    if (!nombre) errors.marcaNombre = "Escribe el nombre de la marca.";
+    else if (nombre.length > MARCA_NOMBRE_MAX) errors.marcaNombre = `Máximo ${MARCA_NOMBRE_MAX} caracteres.`;
+  }
+
+  const eventoIdError = errorEventoId(payload.eventoId ?? "", eventoIds, payload.pais);
+  if (eventoIdError) errors.eventoId = eventoIdError;
 
   if (!payload.nombreGlovox?.trim()) errors.nombreGlovox = "Obligatorio.";
   if (!payload.categoriaEvento?.trim()) errors.categoriaEvento = "Obligatorio.";
@@ -156,11 +213,54 @@ export function validateNewEvent(
   return errors;
 }
 
+// ---------- Edición de celdas de la grilla (pestaña Eventos) ----------
+
+/** Edición de una celda (misma forma que CellEdit del service, sin importarlo). */
+interface EdicionCelda {
+  row: number;
+  col: number;
+  newValue: string;
+}
+
+/**
+ * Valida las ediciones de la grilla contra la hoja (`values[0]` = encabezados):
+ * la columna ID no se edita nunca desde la app, y un EventoID nuevo tiene que
+ * tener formato válido y no estar en OTRA fila (contando las demás ediciones
+ * del mismo guardado). Vaciar un EventoID se permite. Devuelve el primer error,
+ * o null.
+ */
+export function errorEdicionesEventos(values: string[][], edits: EdicionCelda[]): string | null {
+  const header = values[0] ?? [];
+  const idCol = findIdHojaCol(header);
+  const evCol = findEventoIdCol(header);
+  if (idCol >= 0 && edits.some((e) => e.col === idCol)) {
+    return "El ID del evento no se edita: lo genera «Nuevo evento» y no cambia nunca.";
+  }
+  if (evCol < 0) return null;
+  const evEdits = edits.filter((e) => e.col === evCol);
+  if (evEdits.length === 0) return null;
+  // EventoID por fila tal como quedaría tras guardar.
+  const final = new Map<number, string>();
+  for (let r = 1; r < values.length; r++) final.set(r, (values[r]?.[evCol] ?? "").trim().toUpperCase());
+  for (const e of evEdits) final.set(e.row, e.newValue.trim().toUpperCase());
+  for (const e of evEdits) {
+    const nuevo = e.newValue.trim().toUpperCase();
+    if (!nuevo) continue;
+    const otras = new Set<string>();
+    for (const [r, v] of final) if (r !== e.row && v) otras.add(v);
+    const err = errorEventoId(nuevo, otras);
+    if (err) return `Fila ${e.row + 1}: ${err}`;
+  }
+  return null;
+}
+
 // ---------- Mapeo payload → fila de la hoja (por nombre de header) ----------
 
 /** Header normalizado (minúsculas) → clave del payload. */
 const HEADER_TO_FIELD: Record<string, keyof NewEventPayload> = {
+  id: "id",
   eventoid: "eventoId",
+  pais: "pais",
   nombreglovox: "nombreGlovox",
   categoriaevento: "categoriaEvento",
   categoriaevento2: "categoriaEvento2",
@@ -188,19 +288,13 @@ function cellValue(payload: NewEventPayload, field: keyof NewEventPayload): stri
 /**
  * Arma la fila (ancho = header.length) mapeando cada columna por NOMBRE, no por
  * posición: robusto al orden de columnas de la hoja. Las columnas desconocidas
- * quedan "". Devuelve también el índice de la columna EventoID (o -1).
+ * quedan "".
  */
-export function buildRowFromPayload(
-  header: string[],
-  payload: NewEventPayload,
-): { row: string[]; eventoIdCol: number } {
-  let eventoIdCol = -1;
-  const row = header.map((h, c) => {
+export function buildRowFromPayload(header: string[], payload: NewEventPayload): string[] {
+  return header.map((h) => {
     const field = HEADER_TO_FIELD[normHeader(h)];
-    if (field === "eventoId") eventoIdCol = c;
     return field ? cellValue(payload, field) : "";
   });
-  return { row, eventoIdCol };
 }
 
 /** Índice de la columna EventoID en un header (o -1). */
@@ -208,33 +302,7 @@ export function findEventoIdCol(header: string[]): number {
   return header.findIndex((h) => normHeader(h) === "eventoid");
 }
 
-/**
- * Inverso de buildRowFromPayload: reconstruye el payload desde una fila
- * posicional (mapeando por nombre de header). Lo usa el atajo inline para pasar
- * por la misma validación de la llave en el servidor.
- */
-export function rowToPayload(header: string[], values: string[]): NewEventPayload {
-  const idx: Partial<Record<keyof NewEventPayload, number>> = {};
-  header.forEach((h, c) => {
-    const field = HEADER_TO_FIELD[normHeader(h)];
-    if (field && idx[field] == null) idx[field] = c;
-  });
-  const get = (field: keyof NewEventPayload): string => {
-    const c = idx[field];
-    return c == null ? "" : String(values[c] ?? "");
-  };
-  return {
-    eventoId: get("eventoId"),
-    nombreGlovox: get("nombreGlovox"),
-    categoriaEvento: get("categoriaEvento"),
-    categoriaEvento2: get("categoriaEvento2"),
-    categoriaEvento3: get("categoriaEvento3"),
-    fecha: get("fecha"),
-    venue: get("venue"),
-    goalTickets: get("goalTickets"),
-    budgetPm: get("budgetPm"),
-    cuentaIg: get("cuentaIg"),
-    propertyGa4: get("propertyGa4"),
-    unabaseId: get("unabaseId"),
-  };
+/** Índice de la columna ID (la identidad del evento, columna A) en un header (o -1). */
+export function findIdHojaCol(header: string[]): number {
+  return header.findIndex((h) => normHeader(h) === "id");
 }

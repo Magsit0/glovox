@@ -42,7 +42,8 @@ type Props = {
   /** "iniciativa" (Club Glovox, Now Mag…): sin fecha de evento ni tickets; el
    *  techo es la suma del plan y su real son las campañas asignadas. */
   modo?: "evento" | "iniciativa";
-  /** Solo iniciativas: cuántas campañas tiene asignadas (a mano + por regla). */
+  /** Cuántas campañas tiene asignadas: en una iniciativa, a mano + por regla; en
+   *  un evento, las arrastradas a mano desde "No atribuido". */
   campanasAsignadas?: number;
   /** Solo iniciativas: de esas, cuántas capturan sus reglas automáticas. */
   campanasPorRegla?: number;
@@ -53,7 +54,13 @@ type Props = {
   historiaDesde?: string;
   /** Solo iniciativas: archivada (se ve en solo lectura). */
   iniciativaArchivada?: boolean;
+  /** Llave del plan: ID de la hoja (1248-CL-TKM) o id de iniciativa (INI001). */
   eventoId: string;
+  /** Solo eventos: EventoID de la ticketera (GLO213); null = aún no lo tiene,
+   *  así que su gasto por nombre y sus ventas todavía no cruzan. */
+  eventoIdTicketera?: string | null;
+  /** Solo eventos: cancelado (se ve porque tiene plan o gasto). */
+  cancelado?: boolean;
   nombre: string;
   venue: string;
   /** PRIMER día del evento (categoriaEvento.Fecha). */
@@ -143,6 +150,19 @@ function RmktBadge() {
   );
 }
 
+/** Pill de estado del evento (Cancelado, Sin EventoID). */
+function PillEstado({ dot, texto, title }: { dot: string; texto: string; title?: string }) {
+  return (
+    <span
+      title={title}
+      className="inline-flex items-center gap-1.5 rounded-full border border-[var(--divider)] bg-[var(--surface)] px-2.5 py-1 font-sans text-xs font-medium text-[var(--ink)]"
+    >
+      <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: dot }} />
+      {texto}
+    </span>
+  );
+}
+
 /** "964 campañas asignadas (962 por regla)". */
 function textoCampanas(total: number, porRegla: number): string {
   const base = `${total} ${total === 1 ? "campaña asignada" : "campañas asignadas"}`;
@@ -164,6 +184,8 @@ export default function EventoDrill({
   historiaDesde,
   iniciativaArchivada = false,
   eventoId,
+  eventoIdTicketera = null,
+  cancelado = false,
   nombre,
   venue,
   fechaEvento,
@@ -404,10 +426,26 @@ export default function EventoDrill({
             <ArrowLeft className="h-4 w-4" /> Inversión en medios
           </Link>
           <h1 className="mt-1 font-display text-3xl font-bold text-[var(--ink)]">{nombre || eventoId}</h1>
+          {!esIniciativa && (cancelado || !eventoIdTicketera) && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {cancelado && <PillEstado dot="#ED75A0" texto="Cancelado" />}
+              {!eventoIdTicketera && (
+                <PillEstado
+                  dot="#F6C544"
+                  texto="Sin EventoID"
+                  title="La ticketera aún no entrega el EventoID: el plan se guarda igual, pero el gasto por nombre de campaña y las ventas todavía no cruzan. Cuando llegue, cárgalo en /admin/eventos y sincroniza."
+                />
+              )}
+            </div>
+          )}
           <p className="mt-1 font-sans text-sm text-[var(--ink-muted)]">
             {esIniciativa
               ? `${iniciativaArchivada ? "Iniciativa archivada (solo lectura; se reactiva desde el calendario, con «ver archivadas»)" : "Iniciativa"} · ${textoCampanas(campanasAsignadas, campanasPorRegla)}`
-              : eventoId}
+              : `${eventoIdTicketera ? `${eventoIdTicketera} · ` : ""}${eventoId}${
+                  campanasAsignadas > 0
+                    ? ` · ${campanasAsignadas} ${campanasAsignadas === 1 ? "campaña asignada" : "campañas asignadas"} a mano`
+                    : ""
+                }`}
             {venue ? ` · ${venue}` : ""}
             {fechaEvento
               ? ` · evento ${fechaEvento}${diasEvento > 1 ? ` (${diasEvento} días)` : ""}`

@@ -5,8 +5,8 @@
  *
  * Todo nace de la hoja CategoriaEvento, así que el orden es fijo:
  *  1. la celda de ESE evento en la hoja (y nada más: readCeldasEvento ubica la
- *     fila por EventoID y la columna por encabezado, y la escritura aborta si
- *     la celda cambió desde que el editor la leyó);
+ *     fila por el ID de la hoja y la columna por encabezado, y la escritura
+ *     aborta si la celda cambió desde que el editor la leyó);
  *  2. un UPDATE puntual de esa columna en glovox.categoriaEvento, para que los
  *     dashboards lo vean ya sin esperar el sync completo de /admin/eventos;
  *  3. audit_log con el antes y el después.
@@ -19,6 +19,12 @@
  * Los permisos NO viven acá: las server actions validan el grant del panel, que
  * quien llama sea editor (leyendo la base en ese momento) y que el evento siga
  * abierto.
+ *
+ * LLAVE: desde 2026-11-04 el evento se identifica por el `ID` de la hoja
+ * (columna A, ej. `1248-CL-TKM`), no por el EventoID de la ticketera: el ID
+ * existe desde el alta, así que un evento todavía sin venta ya tiene meta y
+ * techo. El parámetro conserva el nombre `eventoId` por compatibilidad con
+ * /inversion-medios, pero su valor es el ID de la hoja.
  */
 import { sql } from "drizzle-orm";
 import { db } from "@/db";

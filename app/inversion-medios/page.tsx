@@ -2,23 +2,26 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
-import { getCategoriaEventos, getEventInfo } from "@/lib/queries/ticketing";
 import { metasAbiertas, normDias, ultimoDiaEvento } from "@/lib/inversion-medios/evento";
 import { puedeEjercer } from "@/lib/editores-capacidad";
 import { anchoDesdeCookie, COL_CALENDARIO, COL_DRILL, type ColumnaNombre } from "@/lib/inversion-medios/col-nombre";
 import { hoySantiago } from "@/lib/inversion-medios/holgura";
-import { describirRegla, esIniciativaId } from "@/lib/inversion-medios/iniciativas";
+import { campanaKey, describirRegla, esIniciativaId } from "@/lib/inversion-medios/iniciativas";
+import { EVENTO_ID_TICKETERA_RE, ID_HOJA_RE } from "@/lib/eventos-id";
 import {
   buildDrillGrid,
   getAdsMetricasEvento,
+  getAsignacionesEvento,
   getBudgetPmMap,
   getCampanasRecientes,
+  getCatalogoEventos,
   getCarddaConsumoMensual,
   getCarddaConsumoSemanal,
   getCarddaFeeMensual,
   getGcpGastoSemanal,
   getCargosExtra,
   getEtapas,
+  getEventoPlanInfo,
   getIniciativas,
   getPlanDiarioEvento,
   getPlanDiarioRango,
@@ -37,6 +40,7 @@ import {
   getSinEventoCampanasDiario,
   getTotalesEvento,
   getTotalesIniciativas,
+  mapaEventoIdTicketera,
   mergeGrid,
   type EventoMeta,
 } from "@/lib/queries/inversion-medios";
@@ -64,8 +68,6 @@ function mesFin(iso: string, meses = 0): string {
 }
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
-// Alfanumérico (GLO203) o numérico Fever (660905) — como en categoriaEvento.
-const EVENTO_RE = /^([A-Z]{2,4}\d{2,4}|\d{5,6})$/;
 // Filtro de país del calendario (categoriaEvento.Pais). Lo aplica el cliente;
 // acá solo se valida el valor inicial que viene en la URL.
 const PAISES = new Set(["CL", "PE"]);
@@ -93,13 +95,17 @@ export default async function InversionMediosPage({
   const isSuperadmin = session.user.role === "superadmin";
   const sp = await searchParams;
 
-  const evento = typeof sp.evento === "string" ? sp.evento.toUpperCase() : "";
+  const evento = typeof sp.evento === "string" ? sp.evento.trim().toUpperCase() : "";
 
   // ---------- Modo drill (un evento o una iniciativa) ----------
-  if (EVENTO_RE.test(evento)) {
-    return esIniciativaId(evento) ? (
-      <IniciativaDrillView iniciativaId={evento} canEdit={canEdit} isSuperadmin={isSuperadmin} />
-    ) : (
+  // Un evento se abre por su ID de la hoja (1248-CL-TKM). Los links viejos por
+  // EventoID (?evento=GLO213, anteriores a 2026-11-04) redirigen a su ID.
+  // INI001 calza también con el formato de EventoID: va primero.
+  if (esIniciativaId(evento)) {
+    return <IniciativaDrillView iniciativaId={evento} canEdit={canEdit} isSuperadmin={isSuperadmin} />;
+  }
+  if (ID_HOJA_RE.test(evento)) {
+    return (
       <DrillView
         eventoId={evento}
         canEdit={canEdit}
@@ -108,21 +114,33 @@ export default async function InversionMediosPage({
       />
     );
   }
+  if (EVENTO_ID_TICKETERA_RE.test(evento)) {
+    const id = mapaEventoIdTicketera(await getCatalogoEventos()).get(evento);
+    if (id) redirect(`/inversion-medios?evento=${id}`);
+    return <EventoNoExiste texto={`El evento ${evento} no está en la hoja de eventos.`} />;
+  }
 
   // ---------- Modo calendario libre ----------
   const hoy = hoySantiago();
-  const [catalogo, planExtent, realMaxFecha, iniciativas] = await Promise.all([
-    getCategoriaEventos("all"),
+  const [catalogo, planExtent, realMaxFecha, iniciativas, asigEventos] = await Promise.all([
+    getCatalogoEventos(),
     getPlanExtent(),
     getRealMaxFecha(),
     getIniciativas(),
+    getAsignacionesEvento(),
   ]);
+
+  // Evento FUTURO que se ofrece para planificar aunque no tenga nada todavía:
+  // ni cancelado ni corporativo. Esos dos aparecen solo si traen plan o gasto
+  // (decisión 2026-11-04: nunca se esconde plata ya planificada o gastada).
+  const esProximo = (e: (typeof catalogo)[number]) =>
+    !e.cancelado && !e.corporativo && !!e.fecha && e.fecha >= hoy;
 
   // Rango por defecto: cubre todo el plan cargado, el mes actual y las fechas
   // de los eventos futuros del catálogo. El usuario lo extiende libremente por
   // los bordes (?desde / ?hasta, granularidad mes).
   const maxFechaEvento = catalogo.reduce(
-    (acc, e) => (e.fecha && e.fecha >= hoy && e.fecha > acc ? e.fecha : acc),
+    (acc, e) => (esProximo(e) && e.fecha > acc ? e.fecha : acc),
     "",
   );
   let desde =
@@ -139,32 +157,58 @@ export default async function InversionMediosPage({
         );
   if (desde > hasta) [desde, hasta] = [hasta, desde];
 
-  const catalogoById = new Map(catalogo.map((e) => [e.eventoId, e]));
+  // Llave de cada evento = ID de la hoja. `idDeTicketera` traduce las llaves
+  // viejas: el plan guardado por EventoID antes de 2026-11-04 (hasta que la
+  // migración lo pase a ID) se lee igual.
+  const catalogoById = new Map(catalogo.map((e) => [e.id, e]));
+  const idDeTicketera = mapaEventoIdTicketera(catalogo);
+  const clave = (k: string) => (catalogoById.has(k) ? k : (idDeTicketera.get(k) ?? k));
+  /** EventoID con que pudo quedar guardado el plan de este ID (null si ninguno). */
+  const legadoDe = (id: string) => {
+    const glo = catalogoById.get(id)?.eventoIdTicketera;
+    return glo && idDeTicketera.get(glo) === id ? glo : null;
+  };
 
   // `sinEvento`: gasto por campaña sin evento. El cliente lo reparte entre las
-  // iniciativas (campañas asignadas) y "No atribuido" (el resto).
-  const [plan, real, sinEvento] = await Promise.all([
+  // campañas asignadas a mano (a una iniciativa o a un evento), las de las
+  // reglas y "No atribuido" (el resto).
+  const [planCrudo, real, sinEvento] = await Promise.all([
     getPlanDiarioRango(desde, hasta),
     getRealDiarioRango(desde, hasta),
     getSinEventoCampanasDiario(desde, hasta),
   ]);
+  const plan = planCrudo.map((p) => ({ ...p, eventoId: clave(p.eventoId) }));
   // El plan de las iniciativas vive en la misma tabla (evento_id = INI001…);
   // el filtro por catálogo de abajo lo deja fuera de las filas de evento.
   const iniIds = new Set(iniciativas.map((i) => i.id));
   const planIniciativas = plan.filter((p) => iniIds.has(p.eventoId));
 
-  // Filas del calendario: eventos de la tabla madre con plan y/o gasto en el
-  // rango cargado, MÁS todos los eventos futuros del catálogo dentro del rango
-  // aunque aún no tengan nada — aparecer con plan $0 es la alerta de que falta
-  // cargar el presupuesto diario. La visibilidad FINA (según el tramo que se
-  // está mirando) la resuelve el cliente al hacer scroll.
+  // Campañas asignadas a mano a un evento, por evento. Un evento con una de
+  // ellas gastando en el rango tiene fila aunque no tenga plan ni EventoID.
+  const campanasDe = new Map<string, { plataforma: string; campaignId: string }[]>();
+  for (const a of asigEventos) {
+    campanasDe.set(a.eventoId, [...(campanasDe.get(a.eventoId) ?? []), a]);
+  }
+  const conGastoAsignado = new Set(sinEvento.map((r) => campanaKey(r.plataforma, r.campaignId)));
+  const asignadosConGasto = asigEventos
+    .filter((a) => conGastoAsignado.has(campanaKey(a.plataforma, a.campaignId)))
+    .map((a) => a.eventoId);
+
+  // Filas del calendario: eventos de la hoja con plan y/o gasto en el rango
+  // cargado (también cancelados y corporativos), MÁS los eventos futuros que no
+  // son ni cancelados ni corporativos, aunque aún no tengan nada — aparecer con
+  // plan $0 es la alerta de que falta cargar el presupuesto diario. No exige
+  // EventoID: se planifica antes de que la ticketera lo entregue. La visibilidad
+  // FINA (según el tramo que se está mirando) la resuelve el cliente al hacer
+  // scroll.
   const proximos = catalogo
-    .filter((e) => e.fecha && e.fecha >= hoy && e.fecha >= desde && e.fecha <= hasta)
-    .map((e) => e.eventoId);
+    .filter((e) => esProximo(e) && e.fecha >= desde && e.fecha <= hasta)
+    .map((e) => e.id);
   const ids = Array.from(
     new Set([
       ...plan.map((p) => p.eventoId),
       ...real.map((r) => r.eventoId),
+      ...asignadosConGasto,
       ...proximos,
     ]),
   ).filter((id) => catalogoById.has(id));
@@ -174,7 +218,15 @@ export default async function InversionMediosPage({
     // `dias` viaja hasta la fila para que el calendario marque TODOS los días del
     // evento en ámbar, no solo el primero (Bocas Moradas dura 2, FDS 3, Yein
     // Fonda 4). Ver lib/inversion-medios/evento.ts.
-    return { eventoId: id, nombre: c.nombre, fecha: c.fecha, dias: normDias(c.dias), pais: c.pais };
+    return {
+      eventoId: id,
+      eventoIdTicketera: c.eventoIdTicketera,
+      cancelado: c.cancelado,
+      nombre: c.nombre,
+      fecha: c.fecha,
+      dias: normDias(c.dias),
+      pais: c.pais,
+    };
   });
 
   // `campanasRecientes` no depende del rango cargado: es "qué corre ahora",
@@ -182,7 +234,9 @@ export default async function InversionMediosPage({
   const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee, campanasRecientes, gcpSemanal, totalesIniciativas] =
     await Promise.all([
       getBudgetPmMap(ids),
-      getTotalesEvento(ids),
+      getTotalesEvento(
+        ids.map((id) => ({ id, legado: legadoDe(id), campanas: campanasDe.get(id) ?? [] })),
+      ),
       getCargosExtra(),
       getCarddaConsumoMensual(),
       getCarddaConsumoSemanal(),
@@ -203,6 +257,7 @@ export default async function InversionMediosPage({
       grid={grid}
       totales={Object.fromEntries(totales)}
       sinEvento={sinEvento}
+      asignacionesEvento={asigEventos}
       iniciativas={iniciativas}
       planIniciativas={planIniciativas}
       totalesIniciativas={totalesIniciativas}
@@ -332,24 +387,21 @@ async function DrillView({
   isSuperadmin: boolean;
   userId: string | null;
 }) {
-  const [info, realMaxFecha, realCorte, anchoNombreInicial, editorMetas] = await Promise.all([
-    getEventInfo(eventoId),
+  const [info, realMaxFecha, realCorte, anchoNombreInicial, editorMetas, asigEventos] = await Promise.all([
+    getEventoPlanInfo(eventoId),
     getRealMaxFecha(),
     getRealCorte(),
     anchoColumna(COL_DRILL),
     puedeEjercer("metas-evento", userId).catch(() => false),
+    getAsignacionesEvento(),
   ]);
-  if (!info) {
-    return (
-      <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-10 sm:px-8">
-        <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-12 text-center">
-          <p className="font-sans text-sm text-[var(--ink-subtle)]">
-            El evento {eventoId} no existe en categoriaEvento.
-          </p>
-        </div>
-      </div>
-    );
-  }
+  if (!info) return <EventoNoExiste texto={`El evento ${eventoId} no está en la hoja de eventos.`} />;
+  // Gasto del evento = el de su EventoID en el nombre + sus campañas asignadas a
+  // mano (las que salieron antes de que tuviera EventoID).
+  const asignadas = asigEventos.filter((a) => a.eventoId === eventoId);
+  const fuente = { id: eventoId, campanas: asignadas };
+  // Plan y etapas guardados por EventoID antes de 2026-11-04 (hasta migrarlos).
+  const legado = info.eventoIdTicketera;
 
   // Ventana del calendario del evento:
   //  - LÍMITE SUPERIOR = el ÚLTIMO día del evento (categoriaEvento.Fecha +
@@ -365,8 +417,8 @@ async function DrillView({
   //    (así el calendario va de hoy → fecha del evento aunque esté vacío).
   const hoy = hoySantiago();
   const [planAll, realExtent] = await Promise.all([
-    getPlanDiarioEvento(eventoId),
-    getRealExtentEvento(eventoId),
+    getPlanDiarioEvento(eventoId, undefined, undefined, legado),
+    getRealExtentEvento(fuente),
   ]);
   const planFechas = planAll.map((p) => p.fecha).sort();
   const orden = (arr: (string | undefined)[]) => arr.filter((x): x is string => !!x).sort();
@@ -375,7 +427,7 @@ async function DrillView({
   const dataMin = mins[0];
   const dataMax = maxs[maxs.length - 1];
 
-  let to = ultimoDiaEvento(info.fechaEvento, info.dias) || dataMax || hoy;
+  let to = ultimoDiaEvento(info.fecha, info.dias) || dataMax || hoy;
   if (dataMax && dataMax > to) to = dataMax; // plan/gasto pasada la fecha → extiende
   let from = info.fechaInicioVenta || dataMin || hoy;
   if (dataMin && dataMin < from) from = dataMin;
@@ -389,18 +441,18 @@ async function DrillView({
   // lenta de la ola, así que no necesita Suspense propio.
   const [real, budgetPm, etapas, desgloseRows, ads, tickets, serieResultado] =
     await Promise.all([
-      getRealDiarioEvento(eventoId, from, to),
+      getRealDiarioEvento(fuente, from, to),
       getBudgetPmMap([eventoId]),
-      getEtapas(eventoId),
-      getRealDesgloseEvento(eventoId, from, to),
-      getAdsMetricasEvento(eventoId, from, to),
-      getRendimientoTicketsEvento(eventoId, from, to),
-      getSerieResultadoEvento(eventoId, from, to),
+      getEtapas(eventoId, legado),
+      getRealDesgloseEvento(fuente, from, to),
+      getAdsMetricasEvento(fuente, from, to),
+      getRendimientoTicketsEvento(info, from, to),
+      getSerieResultadoEvento(info.eventoIdTicketera, from, to),
     ]);
   // Lápiz de metas: editor de `metas-evento` o superadmin (lectura fresca de la base) y
   // evento abierto. La hoja NO se lee acá: el input la lee al abrirse
   // (leerMetaEventoAction), así un render del drill no gasta cuota de Sheets.
-  const editarMetas = editorMetas && metasAbiertas(info.fechaEvento, info.dias, hoy);
+  const editarMetas = editorMetas && metasAbiertas(info.fecha, info.dias, hoy);
 
   const planVentana = planAll.filter((p) => p.fecha >= from && p.fecha <= to);
   const drill = buildDrillGrid({ from, to, plan: planVentana, real });
@@ -408,9 +460,12 @@ async function DrillView({
   return (
     <EventoDrill
       eventoId={eventoId}
+      eventoIdTicketera={info.eventoIdTicketera}
+      cancelado={info.cancelado}
+      campanasAsignadas={asignadas.length}
       nombre={info.nombre}
       venue={info.venue}
-      fechaEvento={info.fechaEvento}
+      fechaEvento={info.fecha}
       diasEvento={normDias(info.dias)}
       techoUsd={budgetPm.get(eventoId) ?? null}
       drill={drill}
@@ -428,5 +483,15 @@ async function DrillView({
       anchoNombreInicial={anchoNombreInicial}
       editarMetas={editarMetas}
     />
+  );
+}
+
+function EventoNoExiste({ texto }: { texto: string }) {
+  return (
+    <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-10 sm:px-8">
+      <div className="rounded-lg border border-[var(--divider)] bg-[var(--surface)] p-12 text-center">
+        <p className="font-sans text-sm text-[var(--ink-subtle)]">{texto}</p>
+      </div>
+    </div>
   );
 }

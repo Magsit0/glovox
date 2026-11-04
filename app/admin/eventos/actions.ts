@@ -1,12 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/db";
 import { auditLog } from "@/db/schema";
 import {
   addColumn,
+  appendMarca,
   appendRow,
+  readMarcas,
   readSheetGrid,
   saveCells,
   COLUMN_TYPES,
@@ -16,29 +19,31 @@ import {
 } from "@/lib/eventos-sheet-service";
 import {
   buildRowFromPayload,
+  errorEdicionesEventos,
   existingIdSet,
   findEventoIdCol,
+  findIdHojaCol,
   inferCurrency,
   inferTemporada,
-  rowToPayload,
   validateNewEvent,
   type NewEventPayload,
 } from "@/lib/eventos-create";
+import { ID_HOJA_RE, siguienteIdHoja } from "@/lib/eventos-id";
 import { runSync } from "@/lib/bigquery-sync";
 
 /**
- * Lee header + EventoIDs existentes de la pestaña Eventos con una lectura FRESCA
- * (para validar unicidad de la llave sin sesgo de carrera). Se usa tanto en el
- * alta guiada como en el atajo inline.
+ * Lee header + IDs + EventoIDs existentes de la pestaña Eventos con una lectura
+ * FRESCA (para generar el ID y validar unicidad sin sesgo de carrera).
  */
-async function readEventosKeys(): Promise<{ header: string[]; existing: Set<string> }> {
+async function readEventosKeys(): Promise<{ header: string[]; ids: string[]; eventoIds: Set<string> }> {
   const grid = await readSheetGrid("eventos");
   const header = grid.values[0] ?? [];
-  const idCol = findEventoIdCol(header);
-  const existing = existingIdSet(
-    idCol >= 0 ? grid.values.slice(1).map((r) => r[idCol] ?? "") : [],
-  );
-  return { header, existing };
+  const col = (c: number) => (c >= 0 ? grid.values.slice(1).map((r) => (r[c] ?? "").trim().toUpperCase()) : []);
+  return {
+    header,
+    ids: col(findIdHojaCol(header)),
+    eventoIds: existingIdSet(col(findEventoIdCol(header))),
+  };
 }
 
 export type ActionResult<T = void> =
@@ -88,7 +93,14 @@ export async function saveCellsAction(
     return { ok: false, error: "No hay cambios para guardar" };
   }
   try {
-    await saveCells(parseTarget(target), ctx.userId, ctx.email, edits);
+    const t = parseTarget(target);
+    // Eventos: el ID no se toca desde la app y un EventoID nuevo tiene que ser
+    // válido y no estar en otra fila. Se valida contra una lectura FRESCA.
+    if (t === "eventos") {
+      const err = errorEdicionesEventos((await readSheetGrid("eventos")).values, edits);
+      if (err) return { ok: false, error: err };
+    }
+    await saveCells(t, ctx.userId, ctx.email, edits);
     revalidatePath("/admin/eventos");
     return { ok: true };
   } catch (err) {
@@ -115,18 +127,12 @@ export async function appendRowAction(
   } catch (err) {
     return fail(err);
   }
+  // Un evento nace SOLO por el alta guiada: es la que genera su ID (correlativo
+  // + país + marca). Una fila tipeada a mano no tendría cómo garantizarlo.
+  if (t === "eventos") {
+    return { ok: false, error: "Para crear un evento usa «Nuevo evento»: así su ID se genera solo." };
+  }
   try {
-    // El atajo inline de Eventos pasa por la MISMA validación de la llave que el
-    // alta guiada (formato + unicidad + obligatorios): ni siquiera el atajo puede
-    // crear un EventoID roto. La pestaña Venues no lleva esta guarda.
-    if (t === "eventos") {
-      const { header, existing } = await readEventosKeys();
-      const payload = rowToPayload(header, values);
-      payload.eventoId = payload.eventoId.trim().toUpperCase();
-      const errors = validateNewEvent(payload, existing);
-      const first = Object.values(errors)[0];
-      if (first) return { ok: false, error: first };
-    }
     await appendRow(t, ctx.userId, ctx.email, values);
     revalidatePath("/admin/eventos");
     return { ok: true };
@@ -136,15 +142,21 @@ export async function appendRowAction(
 }
 
 /**
- * Alta guiada de un evento nuevo en la pestaña Eventos. Valida en el servidor
- * (lectura fresca para unicidad del EventoID) y re-infiere en el servidor los
- * campos bloqueados (currency del prefijo, Temporada de la Fecha): no se confía
- * en lo que mandó el cliente. Mapea el payload a columnas POR NOMBRE de header
- * (robusto al orden) e incluye las columnas hoy ocultas (IG/GA4/unabaseid).
+ * Alta guiada de un evento nuevo en la pestaña Eventos. Genera el `ID` (columna
+ * A: correlativo global + país + código de marca, ver lib/eventos-id.ts), agrega
+ * la marca a la pestaña Marcas si es nueva y escribe la fila. Valida en el
+ * servidor con lecturas FRESCAS (unicidad del EventoID, que es opcional, y de la
+ * marca) y re-infiere los campos bloqueados (currency del país, Temporada de la
+ * Fecha): no se confía en lo que mandó el cliente, tampoco en su `id`.
+ *
+ * Concurrencia: dos altas simultáneas leerían el mismo máximo y tomarían el
+ * mismo correlativo. Un advisory lock de Postgres serializa leer → escribir, y
+ * tras escribir se relee la columna ID: si el ID quedó dos veces (alguien lo
+ * tipeó a mano en la hoja entremedio), se avisa en vez de seguir en silencio.
  */
 export async function createEventAction(
   payload: NewEventPayload,
-): Promise<ActionResult> {
+): Promise<ActionResult<{ id: string }>> {
   let ctx: ActorCtx;
   try {
     ctx = await requireEventosAccess();
@@ -154,37 +166,66 @@ export async function createEventAction(
   if (!payload || typeof payload !== "object") {
     return { ok: false, error: "Datos inválidos" };
   }
+  const nuevaMarca = typeof payload.marcaNombre === "string";
+  const clean: NewEventPayload = {
+    ...payload,
+    pais: String(payload.pais ?? "").trim().toUpperCase(),
+    marca: String(payload.marca ?? "").trim().toUpperCase(),
+    marcaNombre: nuevaMarca ? String(payload.marcaNombre).trim() : undefined,
+    eventoId: String(payload.eventoId ?? "").trim().toUpperCase(),
+    currency: inferCurrency(String(payload.pais ?? "")),
+    temporada: inferTemporada(String(payload.fecha ?? "")),
+    isCanceled: false,
+  };
+
   try {
-    const { header, existing } = await readEventosKeys();
+    const res = await db.transaction(async (tx) => {
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext('eventos-alta'))`);
+      const [{ header, ids, eventoIds }, marcas] = await Promise.all([readEventosKeys(), readMarcas()]);
+      if (findIdHojaCol(header) < 0) return { ok: false as const, error: "La hoja no tiene la columna ID" };
 
-    const eventoId = String(payload.eventoId ?? "").trim().toUpperCase();
-    const clean: NewEventPayload = {
-      ...payload,
-      eventoId,
-      currency: inferCurrency(eventoId),
-      temporada: inferTemporada(String(payload.fecha ?? "")),
-    };
+      const errors = validateNewEvent(clean, eventoIds, new Set(marcas.map((m) => m.codigo)));
+      const first = Object.values(errors)[0];
+      if (first) return { ok: false as const, error: first };
 
-    const errors = validateNewEvent(clean, existing);
-    const first = Object.values(errors)[0];
-    if (first) return { ok: false, error: first };
+      const id = siguienteIdHoja(ids, clean.pais, clean.marca);
+      if (!ID_HOJA_RE.test(id)) return { ok: false as const, error: `No se pudo generar el ID (${id})` };
+      if (nuevaMarca) {
+        await appendMarca(ctx.userId, ctx.email, { codigo: clean.marca, nombre: clean.marcaNombre ?? "" });
+      }
+      await appendRow("eventos", ctx.userId, ctx.email, buildRowFromPayload(header, { ...clean, id }));
 
-    const { row } = buildRowFromPayload(header, clean);
-    await appendRow("eventos", ctx.userId, ctx.email, row);
+      const despues = await readEventosKeys();
+      const veces = despues.ids.filter((x) => x === id).length;
+      return { ok: true as const, id, repetido: veces !== 1 };
+    });
+    if (!res.ok) return res;
 
     // Auditoría específica del alta (best-effort; el append ya loguea su traza).
     try {
       await db.insert(auditLog).values({
         actorId: ctx.userId,
         action: "eventos.create",
-        payload: { email: ctx.email, eventoId },
+        payload: {
+          email: ctx.email,
+          id: res.id,
+          eventoId: clean.eventoId || null,
+          marca: clean.marca,
+          ...(nuevaMarca ? { marcaNueva: clean.marcaNombre } : {}),
+        },
       });
     } catch {
       /* noop */
     }
 
     revalidatePath("/admin/eventos");
-    return { ok: true };
+    if (res.repetido) {
+      return {
+        ok: false,
+        error: `El evento se creó con el ID ${res.id}, pero ese ID quedó repetido en la hoja (alguien lo escribió a mano). Corrige la otra fila en Google Sheets.`,
+      };
+    }
+    return { ok: true, data: { id: res.id } };
   } catch (err) {
     return fail(err);
   }

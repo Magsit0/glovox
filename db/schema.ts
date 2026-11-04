@@ -594,7 +594,11 @@ export type NewAdminAgendaNota = typeof adminAgendaNotas.$inferInsert;
 
 // INVERSIÓN MEDIOS — Plan diario de inversión en publicidad digital por evento
 // y PLATAFORMA (reemplaza la hoja de Google "mapa de gasto diario"). Una fila
-// por (EventoID, fecha, plataforma), monto SIEMPRE en USD. `plataforma` ∈
+// por (evento, fecha, plataforma, tipo), monto SIEMPRE en USD.
+// ⚠️ `evento_id` es el ID de la HOJA (1248-CL-TKM, lib/eventos-id.ts) o el id de
+// una iniciativa (INI001), NO el EventoID de la ticketera: desde 2026-11-04 se
+// planifica antes de que exista el EventoID (el nombre de la columna quedó por
+// compatibilidad). Lo mismo en inversion_medios_etapas. `plataforma` ∈
 // {meta, google, tiktok} (por ahora sin abrir por tipo de campaña). El plan
 // TOTAL del día del evento = SUMA de las 3 plataformas. `fecha` completa
 // YYYY-MM-DD. El gasto REAL no se persiste acá: se lee de
@@ -750,6 +754,36 @@ export const iniciativasPmReglas = dataSchema.table(
   (t) => [index("iniciativas_pm_reglas_iniciativa_idx").on(t.iniciativaId)],
 );
 export type IniciativaPmRegla = typeof iniciativasPmReglas.$inferSelect;
+
+// Campaña de ads → EVENTO, asignada a mano arrastrándola desde "No atribuido"
+// (2026-11-04). Es la salida para una campaña que salió antes de que el evento
+// tuviera EventoID: sin él en el nombre el mart no la atribuye, y renombrarla
+// después solo re-etiqueta los últimos 3 días. `evento_id` es el ID de la hoja
+// (1248-CL-TKM, lib/eventos-id.ts), la misma llave del plan. Igual que en una
+// iniciativa, captura solo el gasto SIN evento de la campaña: los días en que
+// el nombre trae un EventoID válido ya son de ese evento. Una campaña tiene UNA
+// asignación a mano: las actions la borran de iniciativas_pm_campanas al
+// asignarla a un evento y viceversa. Sin FK: el catálogo de eventos vive en
+// BigQuery (las actions validan contra él).
+export const eventosPmCampanas = dataSchema.table(
+  "eventos_pm_campanas",
+  {
+    plataforma: text("plataforma").notNull(),
+    campaignId: text("campaign_id").notNull(),
+    eventoId: text("evento_id").notNull(),
+    // Nombre al momento de asignar: solo para leer la lista sin ir al mart.
+    campaignName: text("campaign_name"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.plataforma, t.campaignId] }),
+    index("eventos_pm_campanas_evento_idx").on(t.eventoId),
+  ],
+);
+export type EventoPmCampana = typeof eventosPmCampanas.$inferSelect;
 
 // INVERSIÓN MEDIOS — Cargos extra (CARDDA): pagos recurrentes de plataformas/
 // herramientas (DRIP, Adobe, Google Workspace, GPT, etc.) que NO son inversión

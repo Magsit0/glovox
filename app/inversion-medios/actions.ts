@@ -8,6 +8,7 @@ import { db } from "@/db";
 import {
   auditLog,
   cargosExtraPm,
+  eventosPmCampanas,
   iniciativasPm,
   iniciativasPmCampanas,
   iniciativasPmReglas,
@@ -28,8 +29,8 @@ import {
 } from "@/lib/inversion-medios/iniciativas";
 import { SIN_TIPO, TIPOS_PLAN } from "@/lib/inversion-medios/tipos";
 import { withNeonRetry } from "@/lib/neon-retry";
-import { getEventInfo } from "@/lib/queries/ticketing";
-import { capturasDeIniciativa, reglaDeCampana } from "@/lib/queries/inversion-medios";
+import { ID_HOJA_RE } from "@/lib/eventos-id";
+import { capturasDeIniciativa, getEventoPlanInfo, reglaDeCampana } from "@/lib/queries/inversion-medios";
 import { puedeEjercer } from "@/lib/editores-capacidad";
 import { ConflictoHojaError } from "@/lib/eventos-sheet-service";
 import { guardarMetaEvento, leerBaseMeta } from "@/lib/eventos-metas-service";
@@ -85,10 +86,16 @@ async function logAudit(
 }
 
 const FECHA_RE = /^\d{4}-\d{2}-\d{2}$/;
-// EventoID: GLO/GLP/GLX/GLB… + dígitos, O el ID numérico de 5-6 dígitos de los
-// eventos Fever (ej. 660905 = Bajo Cero 2026) — ambos existen en categoriaEvento.
-const EVENTO_RE = /^([A-Z]{2,4}\d{2,4}|\d{5,6})$/;
 const MAX_NOTA = 500;
+
+/**
+ * Llave del plan: el ID de la hoja de un evento (1248-CL-TKM) o el id de una
+ * iniciativa (INI001). Desde 2026-11-04 el plan NO se guarda por EventoID: se
+ * planifica antes de que la ticketera lo entregue (lib/eventos-id.ts).
+ */
+function esClavePlan(clave: string): boolean {
+  return esIniciativaId(clave) || ID_HOJA_RE.test(clave);
+}
 
 function sanitizeMonto(v: unknown): number | null {
   const num = typeof v === "number" ? v : Number(v);
@@ -120,17 +127,18 @@ function sanitizeTipo(v: unknown, plataforma: string): string | null {
 }
 
 /**
- * Valida que el evento exista en glovox.categoriaEvento antes de escribir
- * (Neon no tiene FK contra BQ; sin este check una celda con typo crea un
- * evento fantasma que nunca cruza con el gasto real).
+ * Valida que el evento exista en glovox.categoriaEvento (por su ID de la hoja)
+ * antes de escribir (Neon no tiene FK contra BQ; sin este check una celda con
+ * typo crea un evento fantasma). Un evento recién dado de alta aparece acá
+ * después de sincronizar la hoja a BigQuery.
  */
 async function validarEvento(eventoId: string): Promise<string | null> {
-  if (!EVENTO_RE.test(eventoId)) return "EventoID inválido";
+  if (!esClavePlan(eventoId)) return "Evento inválido";
   // Las iniciativas (INI001…) comparten la tabla del plan con los eventos,
   // pero su catálogo vive en Neon, no en categoriaEvento.
   if (esIniciativaId(eventoId)) return validarIniciativa(eventoId);
-  const info = await getEventInfo(eventoId);
-  if (!info) return `El evento ${eventoId} no existe en categoriaEvento`;
+  const info = await getEventoPlanInfo(eventoId);
+  if (!info) return `El evento ${eventoId} no está en la hoja de eventos (¿falta sincronizarla a BigQuery?)`;
   return null;
 }
 
@@ -244,7 +252,7 @@ export async function deleteCellAction(input: {
   const eventoId = String(input.eventoId ?? "").trim().toUpperCase();
   const fecha = String(input.fecha ?? "").trim();
   const plataforma = sanitizePlataforma(input.plataforma);
-  if (!EVENTO_RE.test(eventoId)) return { ok: false, error: "EventoID inválido" };
+  if (!esClavePlan(eventoId)) return { ok: false, error: "Evento inválido" };
   // Una iniciativa archivada no se edita, ni para borrar: una pestaña abierta
   // desde antes de archivarla todavía muestra el editor.
   if (esIniciativaId(eventoId)) {
@@ -304,7 +312,7 @@ export async function deleteRowAction(input: {
   }
   const eventoId = String(input.eventoId ?? "").trim().toUpperCase();
   const plataforma = sanitizePlataforma(input.plataforma);
-  if (!EVENTO_RE.test(eventoId)) return { ok: false, error: "EventoID inválido" };
+  if (!esClavePlan(eventoId)) return { ok: false, error: "Evento inválido" };
   // Una iniciativa archivada no se edita, ni para borrar: una pestaña abierta
   // desde antes de archivarla todavía muestra el editor.
   if (esIniciativaId(eventoId)) {
@@ -492,7 +500,7 @@ export async function saveEtapasAction(input: {
     return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
   }
   const eventoId = String(input.eventoId ?? "").trim().toUpperCase();
-  if (!EVENTO_RE.test(eventoId)) return { ok: false, error: "EventoID inválido" };
+  if (!esClavePlan(eventoId)) return { ok: false, error: "Evento inválido" };
   if (!Array.isArray(input.etapas)) return { ok: false, error: "Etapas inválidas" };
   if (input.etapas.length > MAX_ETAPAS) {
     return { ok: false, error: `Máximo ${MAX_ETAPAS} etapas` };
@@ -637,6 +645,17 @@ function msgOrigenArchivado(nombre: string): string {
   return `La iniciativa ${nombre} está archivada: reactívala para mover sus campañas`;
 }
 
+/** Evento (ID de la hoja) al que la campaña está asignada a mano, o null. */
+async function asignacionEventoActual(plataforma: string, campaignId: string): Promise<string | null> {
+  const rows = await withNeonRetry(() =>
+    db
+      .select({ eventoId: eventosPmCampanas.eventoId })
+      .from(eventosPmCampanas)
+      .where(and(eq(eventosPmCampanas.plataforma, plataforma), eq(eventosPmCampanas.campaignId, campaignId))),
+  );
+  return rows[0]?.eventoId ?? null;
+}
+
 // Plataformas posibles del mart (no solo las planificables: una campaña sin
 // evento puede venir de cualquiera). campaign_id es numérico en las tres; el
 // fallback "nombre:…" lo arma getSinEventoCampanasDiario si faltara el id.
@@ -644,16 +663,20 @@ const PLATAFORMA_CAMPANA_RE = /^[a-z_()]{2,20}$/;
 const CAMPAIGN_ID_RE = /^[\w:.\- ]{1,200}$/u;
 
 /**
- * Asigna (o mueve) una campaña SIN evento a una iniciativa. Desde ese momento
- * todo su gasto sin evento cuenta para la iniciativa — incluido el anterior a
- * la asignación: la campaña ES de la iniciativa. Upsert por (plataforma,
- * campaign_id): arrastrarla a otra iniciativa la mueve.
+ * Asigna (o mueve) una campaña SIN evento a una iniciativa o a un EVENTO. Desde
+ * ese momento todo su gasto sin evento cuenta para el destino — incluido el
+ * anterior a la asignación: la campaña ES del destino. Un evento recibe así las
+ * campañas que salieron antes de tener EventoID en el nombre (2026-11-04).
+ * Una campaña tiene UNA asignación a mano: la otra tabla se limpia en la misma
+ * transacción. Upsert por (plataforma, campaign_id): arrastrarla a otro destino
+ * la mueve.
  */
 export async function asignarCampanaAction(input: {
   plataforma: string;
   campaignId: string;
   campaignName: string;
-  iniciativaId: string;
+  /** Iniciativa (INI001) o evento (ID de la hoja, 1248-CL-TKM). */
+  destino: string;
 }): Promise<ActionResult> {
   let ctx: ActorCtx;
   try {
@@ -664,51 +687,70 @@ export async function asignarCampanaAction(input: {
   const plataforma = String(input.plataforma ?? "").trim();
   const campaignId = String(input.campaignId ?? "").trim();
   const campaignName = String(input.campaignName ?? "").trim().slice(0, 300) || null;
-  const iniciativaId = String(input.iniciativaId ?? "").trim().toUpperCase();
+  const destino = String(input.destino ?? "").trim().toUpperCase();
   if (!PLATAFORMA_CAMPANA_RE.test(plataforma)) return { ok: false, error: "Plataforma inválida" };
   if (!CAMPAIGN_ID_RE.test(campaignId)) return { ok: false, error: "Campaña inválida" };
-  const iniError = await validarIniciativa(iniciativaId);
-  if (iniError) return { ok: false, error: iniError };
+  const esEvento = ID_HOJA_RE.test(destino);
+  if (esEvento) {
+    if (!(await getEventoPlanInfo(destino))) {
+      return { ok: false, error: `El evento ${destino} no está en la hoja de eventos` };
+    }
+  } else {
+    const iniError = await validarIniciativa(destino);
+    if (iniError) return { ok: false, error: iniError };
+  }
 
+  const deIniciativa = and(
+    eq(iniciativasPmCampanas.plataforma, plataforma),
+    eq(iniciativasPmCampanas.campaignId, campaignId),
+  );
+  const deEvento = and(eq(eventosPmCampanas.plataforma, plataforma), eq(eventosPmCampanas.campaignId, campaignId));
   try {
-    const [actual, regla] = await Promise.all([
+    const [actual, actualEvento, regla] = await Promise.all([
       asignacionActual(plataforma, campaignId),
+      asignacionEventoActual(plataforma, campaignId),
       reglaDeCampana(plataforma, campaignId),
     ]);
     if (actual && !actual.activa) return { ok: false, error: msgOrigenArchivado(actual.nombre) };
-    if (regla === iniciativaId) {
-      // Vuelve a la iniciativa de su regla: basta borrar la asignación a mano
-      // para que la regla la recupere (y siga capturándola como suya).
-      await withNeonRetry(() =>
-        db
-          .delete(iniciativasPmCampanas)
-          .where(
-            and(
-              eq(iniciativasPmCampanas.plataforma, plataforma),
-              eq(iniciativasPmCampanas.campaignId, campaignId),
-            ),
-          ),
-      );
-    } else {
-      await withNeonRetry(() =>
-        db
-          .insert(iniciativasPmCampanas)
-          .values({ plataforma, campaignId, campaignName, iniciativaId, createdBy: ctx.userId })
-          .onConflictDoUpdate({
-            target: [iniciativasPmCampanas.plataforma, iniciativasPmCampanas.campaignId],
-            set: { iniciativaId, campaignName, createdBy: ctx.userId, createdAt: sql`now()` },
-          }),
-      );
-    }
+    await withNeonRetry(() =>
+      db.transaction(async (tx) => {
+        if (esEvento) {
+          await tx.delete(iniciativasPmCampanas).where(deIniciativa);
+          await tx
+            .insert(eventosPmCampanas)
+            .values({ plataforma, campaignId, campaignName, eventoId: destino, createdBy: ctx.userId })
+            .onConflictDoUpdate({
+              target: [eventosPmCampanas.plataforma, eventosPmCampanas.campaignId],
+              set: { eventoId: destino, campaignName, createdBy: ctx.userId, createdAt: sql`now()` },
+            });
+          return;
+        }
+        await tx.delete(eventosPmCampanas).where(deEvento);
+        if (regla === destino) {
+          // Vuelve a la iniciativa de su regla: basta borrar la asignación a mano
+          // para que la regla la recupere (y siga capturándola como suya).
+          await tx.delete(iniciativasPmCampanas).where(deIniciativa);
+        } else {
+          await tx
+            .insert(iniciativasPmCampanas)
+            .values({ plataforma, campaignId, campaignName, iniciativaId: destino, createdBy: ctx.userId })
+            .onConflictDoUpdate({
+              target: [iniciativasPmCampanas.plataforma, iniciativasPmCampanas.campaignId],
+              set: { iniciativaId: destino, campaignName, createdBy: ctx.userId, createdAt: sql`now()` },
+            });
+        }
+      }),
+    );
     await logAudit(ctx.userId, "inversionMedios.asignarCampana", {
       plataforma,
       campaignId,
       campaignName,
-      iniciativaId,
-      // Origen real: la asignación a mano o, si no hay, la regla que la tenía.
-      desde: actual?.iniciativaId ?? regla ?? null,
-      ...(!actual && regla ? { desdeRegla: true } : {}),
-      ...(regla === iniciativaId ? { vuelveARegla: true } : {}),
+      ...(esEvento ? { eventoId: destino } : { iniciativaId: destino }),
+      // Origen real: la asignación a mano (evento o iniciativa) o, si no hay, la
+      // regla que la tenía.
+      desde: actualEvento ?? actual?.iniciativaId ?? regla ?? null,
+      ...(!actual && !actualEvento && regla ? { desdeRegla: true } : {}),
+      ...(regla === destino ? { vuelveARegla: true } : {}),
     });
     revalidatePath("/inversion-medios");
     return { ok: true };
@@ -717,7 +759,10 @@ export async function asignarCampanaAction(input: {
   }
 }
 
-/** Devuelve una campaña a "No atribuido" (borra su asignación). */
+/**
+ * Devuelve una campaña a "No atribuido" (borra su asignación a mano). Si estaba
+ * asignada a un EVENTO y calza con una regla, vuelve a la iniciativa de la regla.
+ */
 export async function desasignarCampanaAction(input: {
   plataforma: string;
   campaignId: string;
@@ -733,10 +778,26 @@ export async function desasignarCampanaAction(input: {
   if (!PLATAFORMA_CAMPANA_RE.test(plataforma)) return { ok: false, error: "Plataforma inválida" };
   if (!CAMPAIGN_ID_RE.test(campaignId)) return { ok: false, error: "Campaña inválida" };
   try {
-    const [actual, regla] = await Promise.all([
+    const [actual, actualEvento, regla] = await Promise.all([
       asignacionActual(plataforma, campaignId),
+      asignacionEventoActual(plataforma, campaignId),
       reglaDeCampana(plataforma, campaignId),
     ]);
+    if (actualEvento) {
+      await withNeonRetry(() =>
+        db
+          .delete(eventosPmCampanas)
+          .where(and(eq(eventosPmCampanas.plataforma, plataforma), eq(eventosPmCampanas.campaignId, campaignId))),
+      );
+      await logAudit(ctx.userId, "inversionMedios.desasignarCampana", {
+        plataforma,
+        campaignId,
+        desde: actualEvento,
+        ...(regla ? { vuelveARegla: regla } : {}),
+      });
+      revalidatePath("/inversion-medios");
+      return { ok: true };
+    }
     if (actual && !actual.activa) return { ok: false, error: msgOrigenArchivado(actual.nombre) };
     // Una campaña que calza con una regla no puede quedar en "No atribuido": la
     // regla la recapturaría y el usuario la vería saltar sola. La UI no lo ofrece;
@@ -1031,12 +1092,14 @@ async function puertaMetas(
   } catch {
     return { ok: false, error: NO_GUARDADO };
   }
+  // ID de la hoja: la meta y el techo se definen antes de que exista EventoID
+  // (lib/eventos-metas-service.ts ubica la fila por la columna ID).
   const eventoId = String(eventoIdRaw ?? "").toUpperCase();
-  if (!EVENTO_RE.test(eventoId) || esIniciativaId(eventoId)) return { ok: false, error: "Evento inválido" };
+  if (!ID_HOJA_RE.test(eventoId)) return { ok: false, error: "Evento inválido" };
   if (!esCampoMeta(campoRaw)) return { ok: false, error: "Campo inválido" };
-  const info = await getEventInfo(eventoId);
-  if (!info) return { ok: false, error: `El evento ${eventoId} no existe en categoriaEvento` };
-  if (!metasAbiertas(info.fechaEvento, info.dias, hoySantiago())) {
+  const info = await getEventoPlanInfo(eventoId);
+  if (!info) return { ok: false, error: `El evento ${eventoId} no está en la hoja de eventos` };
+  if (!metasAbiertas(info.fecha, info.dias, hoySantiago())) {
     return { ok: false, error: "El evento ya terminó; su meta y su techo quedan cerrados" };
   }
   return { ok: true, ctx, eventoId, campo: campoRaw };

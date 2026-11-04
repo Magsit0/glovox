@@ -76,6 +76,7 @@ import {
   NOMBRE_INICIATIVA_MAX,
   NOMBRE_INICIATIVA_MIN,
   type CampanaArrastrada,
+  type CampanaDeEvento,
   type Iniciativa,
 } from "@/lib/inversion-medios/iniciativas";
 import { COL_CALENDARIO } from "@/lib/inversion-medios/col-nombre";
@@ -103,9 +104,12 @@ type Props = {
   grid: EventoGridRow[];
   /** Totales del evento COMPLETO (histórico), no solo del rango cargado. */
   totales: Record<string, { totalPlan: number; totalReal: number }>;
-  /** Gasto diario por campaña SIN evento. El cliente lo reparte entre las
-   *  iniciativas (campañas asignadas) y "No atribuido" (el resto). */
+  /** Gasto diario por campaña SIN evento. El cliente lo reparte entre los
+   *  eventos e iniciativas a los que se asignó a mano, las reglas y "No
+   *  atribuido" (el resto). */
   sinEvento: SinEventoCampanaDia[];
+  /** Campañas asignadas a mano a un evento (salieron antes de su EventoID). */
+  asignacionesEvento: CampanaDeEvento[];
   /** Iniciativas (Club Glovox, Now Mag…) con sus campañas asignadas. */
   iniciativas: Iniciativa[];
   /** Plan diario de las iniciativas en el rango cargado. */
@@ -148,10 +152,10 @@ const COL_W = 64; // w-16
 const NA_MAX_FILAS = 20;
 
 const PAIS_LABEL: Record<string, string> = { CL: "Chile", PE: "Perú" };
-// Arreglo vacío ESTABLE: con un país elegido el gasto sin evento (no atribuido
-// e iniciativas) se vacía, y un `[]` literal nuevo en cada render rompería los
-// useMemo que dependen de él.
-const SIN_SIN_EVENTO: SinEventoCampanaDia[] = [];
+// Mapa vacío ESTABLE: con un país elegido el no atribuido se vacía (no tiene
+// país), y un `new Map()` nuevo en cada render rompería los useMemo que
+// dependen de él.
+const NA_SIN_PAIS = new Map<string, NoAtribuidoRow & { fxImputado: boolean }>();
 
 /** Agregado diario de gasto sin evento (fila No atribuido o de iniciativa). */
 function naVacio(fecha: string): NoAtribuidoRow & { fxImputado: boolean } {
@@ -194,6 +198,13 @@ function leerArrastre(dt: DataTransfer): CampanaArrastrada | null {
 
 // Valor del <select> "Mover a…" que devuelve la campaña a No atribuido.
 const NA_VALOR = "__no_atribuido__";
+
+/** Destinos del "Mover a…" por grupo (Iniciativas, Eventos), en orden de aparición. */
+function agruparDestinos<T extends { grupo?: string }>(ds: T[]): [string, T[]][] {
+  const out = new Map<string, T[]>();
+  for (const d of ds) out.set(d.grupo ?? "", [...(out.get(d.grupo ?? "") ?? []), d]);
+  return [...out];
+}
 
 /**
  * Las primeras `n` campañas (ya ordenadas) como sub-filas individuales y el
@@ -239,6 +250,7 @@ export default function InversionMediosPanel({
   grid,
   totales,
   sinEvento,
+  asignacionesEvento,
   iniciativas,
   planIniciativas,
   totalesIniciativas,
@@ -281,9 +293,9 @@ export default function InversionMediosPanel({
   }, []);
   const sumarCargos = conCargos && !pais;
   const qsExtra = `${pais ? `&pais=${pais}` : ""}${conCargos ? "&cargos=1" : ""}`;
-  // Con un país elegido sale todo el gasto sin evento: no tiene país (ni el no
-  // atribuido ni las iniciativas, que se arman con él).
-  const sinEventoVis = pais ? SIN_SIN_EVENTO : sinEvento;
+  // Con un país elegido sale el gasto sin evento que no tiene país: el no
+  // atribuido y las iniciativas. El asignado a mano a un evento sí lo tiene (el
+  // del evento) y se queda en su fila.
   // Resumen superior: KPIs globales o desglose por canal (mismo tramo visible).
   const [modo, setModo] = useState<"resumen" | "canal">("resumen");
   // Listado de campañas "no atribuido" (desplegable desde su fila). naShown =
@@ -304,8 +316,9 @@ export default function InversionMediosPanel({
   }, [desde, hasta]);
 
   // Los eventos vienen de la tabla madre categoriaEvento (vía mergeGrid): filas
-  // ordenadas por fecha del evento. No hay alta manual.
-  const rows = useMemo<EventoGridRow[]>(
+  // ordenadas por fecha del evento. No hay alta manual. El gasto de las
+  // campañas asignadas a mano a cada evento se le suma más abajo (`rows`).
+  const rowsBase = useMemo<EventoGridRow[]>(
     () =>
       grid
         .filter((r) => !pais || r.pais === pais)
@@ -316,25 +329,23 @@ export default function InversionMediosPanel({
     [grid, pais],
   );
 
-  // Índices con datos por fila (para la visibilidad según viewport).
-  const dataIdx = useMemo(
-    () => rows.map((r) => r.days.map((d) => d.plan != null || d.real != null)),
-    [rows],
-  );
-
   const fechaIdx = useMemo(() => new Map(dias.map((f, i) => [f, i])), [dias]);
 
   // ---------- Iniciativas: asignación de campañas (optimista) ----------
   // Lo que dice el servidor y, encima, lo que se acaba de arrastrar mientras la
   // action viaja: la campaña cambia de fila al instante, y al volver la página
   // revalidada el estado optimista se descarta solo.
+  // Destino de cada campaña asignada: id de iniciativa (INI001) o ID de evento
+  // (1248-CL-TKM). Una campaña tiene un solo destino a mano (el servidor lo
+  // garantiza) y la regla nunca captura una asignada a mano.
   const asignServidor = useMemo(() => {
     const m = new Map<string, string>();
     for (const i of iniciativas) {
       for (const c of i.campanas) m.set(campanaKey(c.plataforma, c.campaignId), i.id);
     }
+    for (const a of asignacionesEvento) m.set(campanaKey(a.plataforma, a.campaignId), a.eventoId);
     return m;
-  }, [iniciativas]);
+  }, [iniciativas, asignacionesEvento]);
   // Reglas automáticas. `reglaDe`: campañas que CALZAN con una regla (la tenga
   // ella o estén asignadas a mano a otra iniciativa): se mueven entre
   // iniciativas, nunca a "No atribuido" — la regla las recapturaría. `deRegla`:
@@ -368,6 +379,8 @@ export default function InversionMediosPanel({
   const [arrastrando, setArrastrando] = useState<CampanaArrastrada | null>(null);
   // La fila "No atribuido" como destino (devolver una campaña de una iniciativa).
   const [naEncima, setNaEncima] = useState(false);
+  // Iniciativas y eventos con sus campañas a la vista (mismo Set: los ids no
+  // chocan, INI001 vs 1248-CL-TKM).
   const [iniOpen, setIniOpen] = useState<Set<string>>(() => new Set());
   const toggleIni = useCallback(
     (id: string) =>
@@ -379,13 +392,13 @@ export default function InversionMediosPanel({
       }),
     [],
   );
-  /** Mueve una campaña a una iniciativa (`a`) o de vuelta a No atribuido (null). */
+  /** Mueve una campaña a una iniciativa o evento (`a`) o de vuelta a No atribuido (null). */
   const mover = useCallback(
     (c: CampanaArrastrada, a: string | null) => {
       setArrastrando(null);
       if (c.desde === a) return;
       setErrorMover(null);
-      // Abre la iniciativa de destino: que se vea dónde quedó la campaña.
+      // Abre el destino: que se vea dónde quedó la campaña.
       if (a) setIniOpen((s) => (s.has(a) ? s : new Set(s).add(a)));
       startMover(async () => {
         moverOptimista({ key: campanaKey(c.plataforma, c.campaignId), a });
@@ -394,7 +407,7 @@ export default function InversionMediosPanel({
               plataforma: c.plataforma,
               campaignId: c.campaignId,
               campaignName: c.campaignName,
-              iniciativaId: a,
+              destino: a,
             })
           : await desasignarCampanaAction({ plataforma: c.plataforma, campaignId: c.campaignId });
         if (!res.ok) setErrorMover(res.error);
@@ -402,15 +415,41 @@ export default function InversionMediosPanel({
     },
     [moverOptimista],
   );
-  // Destinos del arrastre / "Mover a…": solo las ACTIVAS (una archivada no
-  // recibe campañas). Para nombrar grupos (Campañas activas) van todas.
-  const destinos = useMemo(
-    () => iniciativas.filter((i) => i.activa).map((i) => ({ id: i.id, nombre: i.nombre })),
+  // Destinos del arrastre / "Mover a…": las iniciativas ACTIVAS (una archivada
+  // no recibe campañas) y los eventos próximos o recientes (`destinosEvento`,
+  // más abajo). Para nombrar grupos (Campañas activas) van todas.
+  const destinosIni = useMemo(
+    () => iniciativas.filter((i) => i.activa).map((i) => ({ id: i.id, nombre: i.nombre, grupo: "Iniciativas" })),
     [iniciativas],
   );
+  // Eventos que reciben campañas por "Mover a…": no cancelados y no terminados
+  // hace más de 30 días (una campaña que salió antes del EventoID es de un
+  // evento próximo). A cualquier otro evento visible se le puede arrastrar.
+  const destinosEvento = useMemo(() => {
+    const d = new Date(`${hoy}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() - 30);
+    const corte = d.toISOString().slice(0, 10);
+    return grid
+      .filter((r) => !r.cancelado && (!r.fechaEvento || r.fechaEvento >= corte))
+      .sort((a, b) => a.ordenFecha.localeCompare(b.ordenFecha) || a.nombre.localeCompare(b.nombre))
+      .map((r) => ({
+        id: r.eventoId,
+        nombre: r.fechaEvento ? `${r.nombre} · ${fmtDiaCorto(r.fechaEvento)}` : r.nombre,
+        grupo: "Eventos",
+      }));
+  }, [grid, hoy]);
+  const destinos = useMemo(() => [...destinosIni, ...destinosEvento], [destinosIni, destinosEvento]);
   const nombresIniciativas = useMemo(
     () => iniciativas.map((i) => ({ id: i.id, nombre: i.nombre })),
     [iniciativas],
+  );
+  // Para nombrar en "Campañas activas" el evento al que se asignó una campaña.
+  const eventosPorId = useMemo(
+    () =>
+      new Map(
+        grid.map((r) => [r.eventoId, { nombre: r.nombre, fecha: r.fechaEvento, codigo: r.eventoIdTicketera }]),
+      ),
+    [grid],
   );
   const iniActiva = useMemo(() => new Map(iniciativas.map((i) => [i.id, i.activa])), [iniciativas]);
   const reglasIni = useMemo(
@@ -422,21 +461,22 @@ export default function InversionMediosPanel({
       ),
     [iniciativas],
   );
-  const nArchivadas = iniciativas.length - destinos.length;
+  const nArchivadas = iniciativas.length - destinosIni.length;
   // "ver archivadas": muestra TODAS las archivadas, tengan o no datos en el
   // tramo — sin esto, una archivada sin gasto quedaba invisible y no había cómo
   // reactivarla (y el aviso de nombre repetido pedía justo eso).
   const [verArchivadas, setVerArchivadas] = useState(false);
 
   // ---------- Reparto del gasto sin evento ----------
-  // Cada campaña sin evento va a su iniciativa si está asignada, o a "No
-  // atribuido" si no: las dos partes suman siempre el total sin evento.
+  // Cada campaña sin evento va a su destino si está asignada (iniciativa o
+  // evento), o a "No atribuido" si no: las partes suman siempre el total sin
+  // evento. `ini` lleva ambos destinos (los ids no chocan).
   const reparto = useMemo(() => {
     type Agg = NoAtribuidoRow & { fxImputado: boolean };
     const na = new Map<string, Agg>();
     const ini = new Map<string, Map<string, Agg>>();
     const camps = new Map<string, CampanaSinEvento & { ultima: string }>();
-    for (const r of sinEventoVis) {
+    for (const r of sinEvento) {
       const col = fechaIdx.get(r.fecha);
       if (col === undefined) continue;
       const key = campanaKey(r.plataforma, r.campaignId);
@@ -482,8 +522,8 @@ export default function InversionMediosPanel({
       }
     }
     return { na, ini, camps };
-  }, [sinEventoVis, fechaIdx, asign, dias]);
-  const noAtribuidoByFecha = reparto.na;
+  }, [sinEvento, fechaIdx, asign, dias]);
+  const noAtribuidoByFecha = pais ? NA_SIN_PAIS : reparto.na;
 
   // Etiqueta del período CARGADO del calendario (desde–hasta) para los totales
   // de las sub-filas — "en el rango" a secas resultaba ambiguo.
@@ -497,7 +537,7 @@ export default function InversionMediosPanel({
   const naBase = useMemo(
     () =>
       [...reparto.camps.values()]
-        .filter((c) => !asign.has(c.key) && c.total > 0)
+        .filter((c) => !pais && !asign.has(c.key) && c.total > 0)
         .map((c) => ({
           ...c,
           arrastre: {
@@ -507,18 +547,24 @@ export default function InversionMediosPanel({
             desde: null,
           } satisfies CampanaArrastrada,
         })),
-    [reparto, asign],
+    [reparto, asign, pais],
   );
 
-  // Campañas de cada iniciativa: las que tienen gasto en el rango cargado y,
-  // además, las asignadas SIN gasto en él (igual se listan, para poder
-  // quitarlas o moverlas).
+  // Campañas de cada iniciativa y de cada EVENTO con asignaciones a mano: las
+  // que tienen gasto en el rango cargado y, además, las asignadas SIN gasto en
+  // él (igual se listan, para poder quitarlas o moverlas).
   const iniCamps = useMemo(() => {
     type Fila = CampanaSinEvento & { arrastre: CampanaArrastrada; deRegla: boolean };
-    const out = new Map<string, Fila[]>(iniciativas.map((i) => [i.id, []]));
+    const out = new Map<string, Fila[]>([
+      ...iniciativas.map((i) => [i.id, []] as [string, Fila[]]),
+      ...asignacionesEvento.map((a) => [a.eventoId, []] as [string, Fila[]]),
+    ]);
     const vistos = new Set<string>();
     const push = (iniId: string, c: CampanaSinEvento) => {
-      out.get(iniId)?.push({
+      // Un evento que recibe su primera campaña (arrastre optimista) aún no
+      // tiene lista: se crea.
+      if (!out.has(iniId)) out.set(iniId, []);
+      out.get(iniId)!.push({
         ...c,
         deRegla: deRegla.has(c.key),
         arrastre: {
@@ -535,28 +581,29 @@ export default function InversionMediosPanel({
       const iniId = asign.get(c.key);
       if (iniId) push(iniId, c);
     }
-    for (const i of iniciativas) {
-      for (const c of i.campanas) {
-        // Las de una regla sin gasto en el rango NO se listan: son cientos (todos
-        // los boosts históricos) y no hay nada que hacer con ellas acá — para
-        // soltarlas se cambia la regla.
-        if (c.porRegla) continue;
-        const key = campanaKey(c.plataforma, c.campaignId);
-        const iniId = asign.get(key);
-        if (!iniId || vistos.has(key)) continue;
-        push(iniId, {
-          key,
-          plataforma: c.plataforma,
-          campaignId: c.campaignId,
-          nombre: c.campaignName || c.campaignId,
-          cuenta: "",
-          dias: new Array<number>(dias.length).fill(0),
-          total: 0,
-        });
-      }
+    // Las de una regla sin gasto en el rango NO se listan: son cientos (todos los
+    // boosts históricos) y no hay nada que hacer con ellas acá — para soltarlas
+    // se cambia la regla.
+    const asignadasSinGasto = [
+      ...iniciativas.flatMap((i) => i.campanas.filter((c) => !c.porRegla)),
+      ...asignacionesEvento,
+    ];
+    for (const c of asignadasSinGasto) {
+      const key = campanaKey(c.plataforma, c.campaignId);
+      const destino = asign.get(key);
+      if (!destino || vistos.has(key)) continue;
+      push(destino, {
+        key,
+        plataforma: c.plataforma,
+        campaignId: c.campaignId,
+        nombre: c.campaignName || c.campaignId,
+        cuenta: "",
+        dias: new Array<number>(dias.length).fill(0),
+        total: 0,
+      });
     }
     return out;
-  }, [reparto, asign, iniciativas, dias, reglaDe, deRegla]);
+  }, [reparto, asign, iniciativas, asignacionesEvento, dias, reglaDe, deRegla]);
 
   // Filas de iniciativa: plan de Neon + real de sus campañas, con la MISMA
   // forma que una fila de evento (reusan la celda del calendario).
@@ -591,6 +638,8 @@ export default function InversionMediosPanel({
       });
       return {
         eventoId: i.id,
+        eventoIdTicketera: null,
+        cancelado: false,
         nombre: i.nombre,
         fechaEvento: "",
         diasEvento: 1,
@@ -605,6 +654,50 @@ export default function InversionMediosPanel({
       };
     });
   }, [iniciativas, planIniciativas, reparto, dias]);
+  // Filas de evento con el gasto de sus campañas asignadas a mano sumado al del
+  // nombre (mismo reparto que una iniciativa: arrastrar mueve los números al
+  // instante). Los totales históricos de la fila vienen del servidor.
+  const rows = useMemo<EventoGridRow[]>(
+    () =>
+      rowsBase.map((r) => {
+        const extra = reparto.ini.get(r.eventoId);
+        if (!extra) return r;
+        let totalReal = 0;
+        const days = r.days.map((c) => {
+          const x = extra.get(c.fecha);
+          if (!x) {
+            if (c.real != null) totalReal += c.real;
+            return c;
+          }
+          const real = (c.real ?? 0) + x.gastoUsd;
+          totalReal += real;
+          return {
+            ...c,
+            real,
+            metaUsd: c.metaUsd + x.metaUsd,
+            googleUsd: c.googleUsd + x.googleUsd,
+            tiktokUsd: c.tiktokUsd + x.tiktokUsd,
+            otrasUsd: c.otrasUsd + x.otrasUsd,
+            fxImputado: c.fxImputado || x.fxImputado,
+            sinFx: c.sinFx || x.filasSinFx > 0,
+          };
+        });
+        return {
+          ...r,
+          days,
+          totalReal,
+          pctRealVsTecho: r.techoUsd && r.techoUsd > 0 ? (totalReal / r.techoUsd) * 100 : 0,
+        };
+      }),
+    [rowsBase, reparto],
+  );
+
+  // Índices con datos por fila (para la visibilidad según viewport).
+  const dataIdx = useMemo(
+    () => rows.map((r) => r.days.map((d) => d.plan != null || d.real != null)),
+    [rows],
+  );
+
   // Filas que SUMAN plan y real (KPIs, canal, totales): eventos + iniciativas.
   // Con un país elegido las iniciativas salen, como el no atribuido.
   const rowsTot = useMemo(() => (pais ? rows : [...rows, ...iniRows]), [pais, rows, iniRows]);
@@ -948,6 +1041,7 @@ export default function InversionMediosPanel({
         pais={pais}
         asignaciones={asign}
         iniciativas={nombresIniciativas}
+        eventos={eventosPorId}
       />
 
       {errorMover && (
@@ -1033,16 +1127,62 @@ export default function InversionMediosPanel({
               </tr>
             </thead>
             <tbody>
-              {rows.map((ev) => (
-                <FilaEvento
-                  key={ev.eventoId}
-                  ev={ev}
-                  totales={totales[ev.eventoId]}
-                  hoy={hoy}
-                  realMaxFecha={realMaxFecha}
-                  hidden={!visibleIds.has(ev.eventoId)}
-                />
-              ))}
+              {rows.map((ev) => {
+                const oculta = !visibleIds.has(ev.eventoId);
+                const camps = iniCampsOrden.get(ev.eventoId);
+                const abierta = iniOpen.has(ev.eventoId) && !oculta && !!camps;
+                return (
+                  <Fragment key={ev.eventoId}>
+                    <FilaEvento
+                      ev={ev}
+                      totales={totales[ev.eventoId]}
+                      hoy={hoy}
+                      realMaxFecha={realMaxFecha}
+                      hidden={oculta}
+                      canEdit={canEdit}
+                      nCampanas={camps?.totalCampanas ?? 0}
+                      abierta={abierta}
+                      onToggle={toggleIni}
+                      arrastrando={arrastrando}
+                      onSoltar={mover}
+                    />
+                    {/* Campañas asignadas a mano al evento: se mueven o se
+                        devuelven a No atribuido igual que las de una iniciativa. */}
+                    {abierta &&
+                      camps.top.map((c) => (
+                        <NaCampRow
+                          key={c.key}
+                          nombre={c.nombre}
+                          cuenta={c.cuenta}
+                          dot={PLAT_DOT[c.plataforma] ?? "#B4B2A9"}
+                          dotTitle={PLAT_LABEL[c.plataforma] ?? c.plataforma}
+                          diasVals={c.dias}
+                          fechas={dias}
+                          total={c.total}
+                          rango={rangoCargadoLabel}
+                          hidden={false}
+                          arrastre={canEdit ? c.arrastre : undefined}
+                          destinos={canEdit ? destinos : undefined}
+                          onMover={canEdit ? mover : undefined}
+                          onArrastrar={setArrastrando}
+                        />
+                      ))}
+                    {abierta && camps.resto && (
+                      <NaCampRow
+                        nombre={camps.resto.nombre}
+                        dot="#B4B2A9"
+                        dotTitle="Varias campañas"
+                        diasVals={camps.resto.dias}
+                        fechas={dias}
+                        total={camps.resto.total}
+                        rango={rangoCargadoLabel}
+                        hidden={false}
+                        onVerMas={() => verMasIni(ev.eventoId)}
+                      />
+                    )}
+                  </Fragment>
+                );
+              })}
               {visibleIds.size === 0 && (
                 <tr>
                   <td className="sticky left-0 z-10 border-t border-r border-[var(--divider)] bg-[var(--surface)] px-4 py-8 text-sm text-[var(--ink-subtle)]">
@@ -1185,9 +1325,9 @@ export default function InversionMediosPanel({
                   <span className="font-medium text-[var(--ink-muted)]">No atribuido</span>
                   <p className="text-xs text-[var(--ink-subtle)]">
                     {arrastrando?.desde && !arrastrando.porRegla
-                      ? "suelta acá para quitarla de la iniciativa"
+                      ? "suelta acá para quitar la asignación"
                       : destinos.length > 0
-                        ? "sin evento · arrástralas a una iniciativa"
+                        ? "sin evento · arrástralas a un evento o iniciativa"
                         : "campañas sin evento reconocible"}
                   </p>
                   {naCamps.totalCampanas > 0 && (
@@ -1363,9 +1503,12 @@ export default function InversionMediosPanel({
         <Link href="/admin/eventos" className="underline hover:text-[var(--ink)]">
           /admin/eventos
         </Link>
-        ). El real de hoy es parcial (los datos de ads llegan a las 09:45). La atribución usa
-        el EventoID al inicio del nombre de campaña — lo que no calza queda en &ldquo;No
-        atribuido&rdquo;, que no tiene país y por eso se oculta al filtrar por Chile o Perú.
+        ). El real de hoy es parcial (los datos de ads llegan a las 09:45). Aparecen todos los
+        eventos futuros de la hoja, tengan o no EventoID (los corporativos y cancelados, solo si
+        tienen plan o gasto). La atribución usa el EventoID al inicio del nombre de campaña — lo
+        que no calza queda en &ldquo;No atribuido&rdquo;, que no tiene país y por eso se oculta al
+        filtrar por Chile o Perú. Una campaña que salió antes de que el evento tuviera EventoID se
+        le arrastra desde &ldquo;No atribuido&rdquo; a su fila.
         Las <span className="text-[var(--ink)]">iniciativas</span> (Club Glovox, Now Mag) no tienen fecha
         de evento: su gasto son las campañas sin evento que se les arrastran desde &ldquo;No
         atribuido&rdquo; (todo el gasto de la campaña, también el anterior), y su techo es la suma de
@@ -1436,8 +1579,9 @@ const NaCampRow = memo(function NaCampRow({
   /** Campaña arrastrable a una iniciativa (o de vuelta). Sin esto la fila es
    *  fija (la agregada "otras N", o si no hay iniciativas). */
   arrastre?: CampanaArrastrada;
-  /** Iniciativas para el "Mover a…" (alternativa al arrastre: teclado, touch). */
-  destinos?: { id: string; nombre: string }[];
+  /** Iniciativas y eventos para el "Mover a…" (alternativa al arrastre:
+   *  teclado, touch), agrupados por `grupo`. */
+  destinos?: { id: string; nombre: string; grupo?: string }[];
   onMover?: (c: CampanaArrastrada, a: string | null) => void;
   onArrastrar?: (c: CampanaArrastrada | null) => void;
 }) {
@@ -1469,10 +1613,10 @@ const NaCampRow = memo(function NaCampRow({
               className="flex min-w-0 flex-1 cursor-grab items-center gap-1.5 active:cursor-grabbing"
               title={`${nombre} — arrástrala a ${
                 arrastre.porRegla
-                  ? "otra iniciativa (calza con una regla automática: no vuelve a No atribuido)"
+                  ? "otra iniciativa o a un evento (calza con una regla automática: no vuelve a No atribuido)"
                   : arrastre.desde
-                    ? "otra iniciativa o a No atribuido"
-                    : "una iniciativa"
+                    ? "otro evento o iniciativa, o a No atribuido"
+                    : "un evento o una iniciativa"
               }`}
             >
               <GripVertical className="h-3 w-3 shrink-0 text-[var(--ink-subtle)]" />
@@ -1508,13 +1652,23 @@ const NaCampRow = memo(function NaCampRow({
                 className="absolute inset-0 cursor-pointer opacity-0"
               >
                 <option value="">Mover a…</option>
-                {destinos
-                  .filter((d) => d.id !== arrastre.desde)
-                  .map((d) => (
-                    <option key={d.id} value={d.id}>
-                      {d.nombre}
-                    </option>
-                  ))}
+                {agruparDestinos(destinos.filter((d) => d.id !== arrastre.desde)).map(([grupo, ds]) =>
+                  grupo ? (
+                    <optgroup key={grupo} label={grupo}>
+                      {ds.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.nombre}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ) : (
+                    ds.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.nombre}
+                      </option>
+                    ))
+                  ),
+                )}
                 {arrastre.desde && !arrastre.porRegla && <option value={NA_VALOR}>No atribuido (quitar)</option>}
               </select>
             </label>
@@ -1558,34 +1712,102 @@ const FilaEvento = memo(function FilaEvento({
   hoy,
   realMaxFecha,
   hidden,
+  canEdit,
+  nCampanas,
+  abierta,
+  onToggle,
+  arrastrando,
+  onSoltar,
 }: {
   ev: EventoGridRow;
   totales?: { totalPlan: number; totalReal: number };
   hoy: string;
   realMaxFecha: string;
   hidden: boolean;
+  canEdit: boolean;
+  /** Campañas asignadas a mano (salieron antes de que tuviera EventoID). */
+  nCampanas: number;
+  abierta: boolean;
+  onToggle: (id: string) => void;
+  arrastrando: CampanaArrastrada | null;
+  onSoltar: (c: CampanaArrastrada, destino: string) => void;
 }) {
   const totalPlanEvento = totales?.totalPlan ?? ev.totalPlan;
   const totalRealEvento = totales?.totalReal ?? ev.totalReal;
   const pctReal =
     ev.techoUsd && ev.techoUsd > 0 ? (totalRealEvento / ev.techoUsd) * 100 : null;
+  // Zona para soltar una campaña sin evento (la que salió antes de que el evento
+  // tuviera EventoID). A diferencia de una iniciativa, se resalta solo al pasar
+  // por encima: marcar las decenas de filas de evento a la vez sería ruido.
+  const [encima, setEncima] = useState(false);
+  const acepta = canEdit && arrastrando != null && arrastrando.desde !== ev.eventoId;
+  const resaltada = encima && acepta;
 
   return (
-    <tr className={`group ${hidden ? "hidden" : ""}`}>
-      <td className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--divider)] bg-[var(--surface)] px-4 py-2 align-top group-hover:bg-[var(--surface-alt)]`}>
+    <tr
+      className={`group ${hidden ? "hidden" : ""}`}
+      onDragOver={(e) => {
+        if (!acepta || !e.dataTransfer.types.includes(DND_CAMPANA)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (!encima) setEncima(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setEncima(false);
+      }}
+      onDrop={(e) => {
+        e.preventDefault();
+        setEncima(false);
+        const c = leerArrastre(e.dataTransfer);
+        if (c) onSoltar(c, ev.eventoId);
+      }}
+    >
+      <td
+        className={`sticky left-0 z-10 ${W_NOMBRE} border-r border-t border-[var(--divider)] px-4 py-2 align-top ${
+          resaltada
+            ? "bg-[var(--purple-tint)] ring-2 ring-inset ring-[#9F99F8]"
+            : "bg-[var(--surface)] group-hover:bg-[var(--surface-alt)]"
+        }`}
+      >
         <Link
           href={`/inversion-medios?evento=${ev.eventoId}`}
-          className="block truncate font-medium text-[var(--ink)] hover:text-[#9F99F8]"
+          className={`block truncate font-medium hover:text-[#9F99F8] ${
+            ev.cancelado ? "text-[var(--ink-muted)]" : "text-[var(--ink)]"
+          }`}
           title={ev.nombre || ev.eventoId}
           data-nombre
         >
           {ev.nombre || ev.eventoId}
         </Link>
-        <p className="text-xs text-[var(--ink-subtle)]">
-          {ev.eventoId}
+        <p
+          className="text-xs text-[var(--ink-subtle)]"
+          title={`ID ${ev.eventoId}${ev.eventoIdTicketera ? ` · EventoID ${ev.eventoIdTicketera}` : " · aún sin EventoID"}`}
+        >
+          {ev.eventoIdTicketera ?? ev.eventoId}
           {ev.fechaEvento ? ` · ${ev.fechaEvento}` : ""}
         </p>
+        {resaltada ? (
+          <p className="mt-1.5 text-xs font-medium text-[var(--plan)]">suelta para asignar la campaña al evento</p>
+        ) : (
         <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs">
+          {ev.cancelado && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--divider)] bg-[var(--surface)] px-2 py-0.5 font-medium text-[var(--ink)]"
+              title="Evento cancelado: aparece porque tiene plan o gasto"
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-[#ED75A0]" />
+              Cancelado
+            </span>
+          )}
+          {!ev.eventoIdTicketera && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--divider)] bg-[var(--surface)] px-2 py-0.5 font-medium text-[var(--ink)]"
+              title="La ticketera aún no entrega el EventoID: el plan se guarda igual, pero el gasto por nombre de campaña y las ventas todavía no cruzan. Una campaña que ya salió se le puede arrastrar desde No atribuido."
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-[#F6C544]" />
+              Sin EventoID
+            </span>
+          )}
           <span
             className="inline-flex items-center rounded-full border border-[var(--divider)] bg-[var(--surface)] px-2 py-0.5 font-medium text-[var(--ink)]"
             title="Techo = budgetPm de categoriaEvento (se edita en /admin/eventos)"
@@ -1613,7 +1835,19 @@ const FilaEvento = memo(function FilaEvento({
               {pctReal.toFixed(0)}%
             </span>
           )}
+          {nCampanas > 0 && (
+            <button
+              onClick={() => onToggle(ev.eventoId)}
+              aria-expanded={abierta}
+              className="inline-flex items-center gap-1 font-medium text-[var(--plan)] transition-colors hover:text-[var(--plan-hover)]"
+              title="Campañas asignadas a mano desde No atribuido (salieron antes de que el evento tuviera EventoID)"
+            >
+              {abierta ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              {abierta ? "ocultar asignadas" : `asignadas a mano (${nCampanas})`}
+            </button>
+          )}
         </div>
+        )}
         <p className="mt-1 text-xs tabular-nums text-[var(--ink-subtle)]">
           Plan <span className="font-medium text-[var(--plan)]">{fmtUsd(totalPlanEvento, 0)}</span> · Real{" "}
           <span className="font-medium text-[var(--ink)]">{fmtUsd(totalRealEvento, 0)}</span>

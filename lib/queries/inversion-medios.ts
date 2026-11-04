@@ -3,6 +3,7 @@ import { sql as dsql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   cargosExtraPm,
+  eventosPmCampanas,
   iniciativasPm,
   iniciativasPmCampanas,
   iniciativasPmReglas,
@@ -14,6 +15,7 @@ import {
 import {
   campanaKey,
   type CampanaAsignada,
+  type CampanaDeEvento,
   type Iniciativa,
   type ReglaIniciativa,
 } from "@/lib/inversion-medios/iniciativas";
@@ -33,6 +35,22 @@ const P = process.env.BIGQUERY_PROJECT_ID;
 // deja sin convertir).
 const MART = `\`${P}.marts.paidmedia_ads_performance\``;
 const CATEGORY = `\`${P}.glovox.categoriaEvento\``;
+
+// ─────────────────────── Las dos llaves del evento ──────────────────────────
+// Desde 2026-11-04 el plan se guarda por el ID de la HOJA (1248-CL-TKM), que
+// existe desde el alta, y no por el EventoID de la ticketera (GLO213), que llega
+// cuando el evento empieza a vender (lib/eventos-id.ts). El gasto y los tickets
+// siguen cruzando por EventoID: el mart lo saca del nombre de la campaña.
+// Este CTE es la traducción EventoID → ID: un EventoID va a UNA fila (GLO042
+// está repetido en 6 Piknic de 2017-18 sin gasto: gana la primera no cancelada).
+// Incluye los CANCELADOS: un evento cancelado con plan o gasto tiene fila propia
+// (antes su gasto caía en "No atribuido").
+const CAT_GLO_CTE = `cat_glo AS (
+    SELECT EventoID, ID
+    FROM ${CATEGORY}
+    WHERE EventoID IS NOT NULL AND ID IS NOT NULL
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY IFNULL(isCanceled, FALSE), ID) = 1
+  )`;
 
 // Carry-forward de FX del lado del CONSUMIDOR (decisión 2026-08-24): el mart
 // deja `gasto_usd` NULL cuando el tipo de cambio del día aún no existe (en la
@@ -242,7 +260,13 @@ export type DayCell = {
 };
 
 export type EventoGridRow = {
+  /** Llave de la fila: ID de la hoja (1248-CL-TKM) o id de iniciativa (INI001). */
   eventoId: string;
+  /** EventoID de la ticketera (GLO213); null = aún no tiene (no cruza gasto ni
+   *  ventas por nombre). Siempre null en una iniciativa. */
+  eventoIdTicketera: string | null;
+  /** Evento cancelado: solo tiene fila si trae plan o gasto. */
+  cancelado: boolean;
   nombre: string;
   fechaEvento: string; // categoriaEvento.Fecha o "" = PRIMER día
   /** Cuántos días dura el evento. El calendario marca los `diasEvento` días. */
@@ -296,13 +320,19 @@ export async function getPlanDiarioRango(
   return rows;
 }
 
-/** Plan diario por plataforma de UN evento (modo drill), rango opcional. */
+/**
+ * Plan diario por plataforma de UN evento (modo drill), rango opcional.
+ * `legado`: el EventoID con que se guardaba el plan antes de 2026-11-04. Solo
+ * para leer filas aún no migradas al ID de la hoja; vuelven con la llave nueva.
+ */
 export async function getPlanDiarioEvento(
   eventoId: string,
   from?: string,
   to?: string,
+  legado?: string | null,
 ): Promise<PlanDiarioRow[]> {
-  const conds = [dsql`${inversionMediosDiario.eventoId} = ${eventoId}`];
+  const claves = legado ? [eventoId, legado] : [eventoId];
+  const conds = [inArray(inversionMediosDiario.eventoId, claves)];
   if (from) conds.push(gte(inversionMediosDiario.fecha, from));
   if (to) conds.push(lte(inversionMediosDiario.fecha, to));
   const rows = await withNeonRetry(() =>
@@ -319,7 +349,7 @@ export async function getPlanDiarioEvento(
       .where(and(...conds))
       .orderBy(asc(inversionMediosDiario.fecha)),
   );
-  return rows;
+  return legado ? rows.map((r) => ({ ...r, eventoId })) : rows;
 }
 
 /** Extensión del plan cargado: [min, max] de fecha (null si la tabla está vacía). */
@@ -340,7 +370,9 @@ export async function getPlanExtent(): Promise<{ min: string; max: string } | nu
 
 /**
  * Gasto real diario en USD por evento dentro del rango, para TODOS los
- * EventoID que existen en categoriaEvento (el resto vive en "no atribuido").
+ * EventoID que existen en categoriaEvento con ID (el resto vive en "no
+ * atribuido"), ya traducido al ID de la hoja: `eventoId` es la llave del plan.
+ * Los cancelados también: tienen fila propia si traen plan o gasto.
  * `gasto_usd` efectivo sale de REAL_BASE: lo convertido por el mart, más el
  * gasto de hoy convertido acá con el último FX disponible (marcado imputado).
  * Solo queda en `filas_sin_fx` lo que no tiene NINGÚN FX conocido (~0 filas).
@@ -350,9 +382,10 @@ export async function getRealDiarioRango(
   to: string,
 ): Promise<RealDiarioRow[]> {
   const rows = await query<Record<string, unknown>>(
-    `${REAL_BASE}
+    `${REAL_BASE},
+    ${CAT_GLO_CTE}
     SELECT
-      m.EventoID                                              AS evento_id,
+      cg.ID                                                   AS evento_id,
       FORMAT_DATE('%Y-%m-%d', m.fecha)                        AS fecha,
       SUM(m.gasto_usd)                                        AS gasto_usd,
       SUM(IF(m.plataforma = 'meta',   m.gasto_usd, 0))        AS meta_usd,
@@ -364,15 +397,10 @@ export async function getRealDiarioRango(
       LOGICAL_OR(IFNULL(m.fx_imputado, FALSE) OR m.fx_carry)  AS fx_imputado,
       COUNTIF(m.gasto_usd IS NULL AND IFNULL(m.gasto, 0) > 0) AS filas_sin_fx
     FROM base m
+    -- JOIN = complemento EXACTO de SIN_EVENTO: lo que no calza con una fila de
+    -- la hoja cae en "no atribuido", así el total compañía cierra.
+    JOIN cat_glo cg ON cg.EventoID = m.EventoID
     WHERE m.fecha BETWEEN DATE(@from) AND DATE(@to)
-      AND m.EventoID IS NOT NULL
-      -- Mismo predicado que getCategoriaEventos (isCanceled IS NOT TRUE): un
-      -- evento CANCELADO con gasto no puede quedar acá (la página no le da
-      -- fila) — debe caer en "no atribuido" para que el total compañía cierre.
-      AND EXISTS (
-        SELECT 1 FROM ${CATEGORY} c
-        WHERE c.EventoID = m.EventoID AND c.isCanceled IS NOT TRUE
-      )
     GROUP BY evento_id, fecha
     ORDER BY evento_id, fecha
     `,
@@ -392,19 +420,43 @@ export async function getRealDiarioRango(
 }
 
 /**
+ * De dónde sale el gasto de UN evento: las filas del mart cuyo EventoID (del
+ * nombre de la campaña) corresponde a su ID en la hoja, MÁS las campañas que se
+ * le asignaron a mano (eventos_pm_campanas), solo en sus filas SIN evento. Las
+ * dos partes no se pisan: una fila con EventoID válido nunca es "sin evento".
+ */
+export type FuenteEvento = {
+  /** ID de la hoja (1248-CL-TKM). */
+  id: string;
+  campanas: { plataforma: string; campaignId: string }[];
+};
+
+function fuenteParams(f: FuenteEvento): { id: string; asig: string[] } {
+  return { id: f.id, asig: asigParam(f.campanas.map((c) => ({ ...c, iniciativaId: f.id }))) };
+}
+
+// CTEs (van DESPUÉS de REAL_BASE y ANTES de ASIG_CTE, que trae su propia coma)
+// + JOINs + predicado de una FuenteEvento. `cg.ID IS NULL` es exactamente
+// SIN_EVENTO (cat_glo = toda fila de la hoja con EventoID e ID).
+const FUENTE_CTES = `,
+  ${CAT_GLO_CTE}`;
+const FUENTE_JOIN = `LEFT JOIN cat_glo cg ON cg.EventoID = m.EventoID
+  LEFT JOIN asig a ON a.plataforma = IFNULL(m.plataforma, '(null)') AND a.campaign_id = m.campaign_id`;
+const DE_LA_FUENTE = `(cg.ID = @id OR (cg.ID IS NULL AND a.campaign_id IS NOT NULL))`;
+
+/**
  * Real diario de UN evento (modo drill). Trae el "sin FX" POR PLATAFORMA (no
  * solo a nivel día) para que el badge se muestre solo en la plataforma que
  * realmente tiene el gap.
  */
 export async function getRealDiarioEvento(
-  eventoId: string,
+  fuente: FuenteEvento,
   from: string,
   to: string,
 ): Promise<RealDiarioRow[]> {
   const rows = await query<Record<string, unknown>>(
-    `${REAL_BASE}
+    `${REAL_BASE}${FUENTE_CTES}${ASIG_CTE}
     SELECT
-      m.EventoID                                              AS evento_id,
       FORMAT_DATE('%Y-%m-%d', m.fecha)                        AS fecha,
       SUM(m.gasto_usd)                                        AS gasto_usd,
       SUM(IF(m.plataforma = 'meta',   m.gasto_usd, 0))        AS meta_usd,
@@ -417,15 +469,16 @@ export async function getRealDiarioEvento(
       COUNTIF(m.plataforma = 'google' AND m.gasto_usd IS NULL AND IFNULL(m.gasto,0) > 0) AS google_sinfx,
       COUNTIF(m.plataforma = 'tiktok' AND m.gasto_usd IS NULL AND IFNULL(m.gasto,0) > 0) AS tiktok_sinfx
     FROM base m
-    WHERE m.EventoID = @eventoId
+    ${FUENTE_JOIN}
+    WHERE ${DE_LA_FUENTE}
       AND m.fecha BETWEEN DATE(@from) AND DATE(@to)
-    GROUP BY evento_id, fecha
+    GROUP BY fecha
     ORDER BY fecha
     `,
-    { eventoId, from, to },
+    { ...fuenteParams(fuente), from, to },
   );
   return rows.map((r) => ({
-    eventoId: s(r.evento_id),
+    eventoId: fuente.id,
     fecha: s(r.fecha),
     gastoUsd: n(r.gasto_usd),
     metaUsd: n(r.meta_usd),
@@ -443,19 +496,20 @@ export async function getRealDiarioEvento(
 // ---------- Gasto SIN evento: "No atribuido" + iniciativas ----------
 
 /**
- * Fila del mart SIN evento: EventoID NULL o sin match no-cancelado en
- * categoriaEvento. Complemento EXACTO de getRealDiarioRango (incluye
- * isCanceled): lo que no obtiene fila de evento cae acá — nada se pierde ni se
- * duplica. De este universo salen las iniciativas (campañas asignadas a mano)
- * y lo que queda es "No atribuido". Precedencia: evento por nombre > asignación
- * > no atribuido — si una campaña asignada pasa a traer un EventoID válido, ese
- * gasto vuelve al evento.
+ * Fila del mart SIN evento: EventoID NULL o que no calza con ninguna fila de
+ * categoriaEvento con ID (cancelada o no). Complemento EXACTO de
+ * getRealDiarioRango (mismo universo que CAT_GLO_CTE): lo que no obtiene fila de
+ * evento cae acá — nada se pierde ni se duplica. De este universo salen las
+ * campañas asignadas a mano (a una iniciativa o a un evento), las que capturan
+ * las reglas, y lo que queda es "No atribuido". Precedencia: evento por nombre >
+ * asignación a mano > regla > no atribuido — si una campaña asignada pasa a traer
+ * un EventoID válido, ese gasto vuelve al evento del nombre.
  */
 const SIN_EVENTO = `(
   m.EventoID IS NULL
   OR NOT EXISTS (
     SELECT 1 FROM ${CATEGORY} c
-    WHERE c.EventoID = m.EventoID AND c.isCanceled IS NOT TRUE
+    WHERE c.EventoID = m.EventoID AND c.ID IS NOT NULL
   )
 )`;
 
@@ -528,7 +582,7 @@ export async function getSinEventoCampanasDiario(
  * "Campañas activas") las trata igual que a las asignadas a mano.
  */
 export async function getIniciativas(opts: { soloReglasDe?: string } = {}): Promise<Iniciativa[]> {
-  const [inis, asig, reglas] = await Promise.all([
+  const [inis, asig, reglas, asigEventos] = await Promise.all([
     withNeonRetry(() =>
       db
         .select({ id: iniciativasPm.id, nombre: iniciativasPm.nombre, activa: iniciativasPm.activa, orden: iniciativasPm.orden })
@@ -547,15 +601,20 @@ export async function getIniciativas(opts: { soloReglasDe?: string } = {}): Prom
         .orderBy(asc(iniciativasPmCampanas.createdAt)),
     ),
     reglasActivas(),
+    getAsignacionesEvento(),
   ]);
   // El drill de una iniciativa solo necesita resolver si ELLA tiene reglas: lo
   // que capturan las de otras no le suma (evita ir a BigQuery en vano).
   const resolver = opts.soloReglasDe ? reglas.some((r) => r.iniciativaId === opts.soloReglasDe) : true;
   const capturas = resolver ? await resolverReglas(reglas) : [];
-  // Manual > regla: la regla solo se queda con lo que nadie asignó a mano, pero
-  // las manuales que calzan con una regla lo saben (`reglaIni`).
+  // Manual > regla: la regla solo se queda con lo que nadie asignó a mano (a una
+  // iniciativa o a un EVENTO), pero las manuales que calzan con una regla lo
+  // saben (`reglaIni`).
   const reglaDe = new Map(capturas.map((c) => [campanaKey(c.plataforma, c.campaignId), c.iniciativaId]));
-  const manuales = new Set(asig.map((a) => campanaKey(a.plataforma, a.campaignId)));
+  const manuales = new Set([
+    ...asig.map((a) => campanaKey(a.plataforma, a.campaignId)),
+    ...asigEventos.map((a) => campanaKey(a.plataforma, a.campaignId)),
+  ]);
   return inis.map((i) => ({
     id: i.id,
     nombre: i.nombre,
@@ -575,6 +634,25 @@ export async function getIniciativas(opts: { soloReglasDe?: string } = {}): Prom
       .filter((r) => r.iniciativaId === i.id)
       .map(({ plataforma, accountId, cuenta, prefijo }) => ({ plataforma, accountId, cuenta, prefijo })),
   }));
+}
+
+/**
+ * Campañas asignadas a mano a un EVENTO (eventos_pm_campanas): las que salieron
+ * antes de que el evento tuviera EventoID. `eventoId` es el ID de la hoja.
+ */
+export async function getAsignacionesEvento(): Promise<CampanaDeEvento[]> {
+  const rows = await withNeonRetry(() =>
+    db
+      .select({
+        plataforma: eventosPmCampanas.plataforma,
+        campaignId: eventosPmCampanas.campaignId,
+        campaignName: eventosPmCampanas.campaignName,
+        eventoId: eventosPmCampanas.eventoId,
+      })
+      .from(eventosPmCampanas)
+      .orderBy(asc(eventosPmCampanas.createdAt)),
+  );
+  return rows.map((r) => ({ ...r, campaignName: r.campaignName ?? "" }));
 }
 
 type ReglaConIni = ReglaIniciativa & { iniciativaId: string };
@@ -844,8 +922,10 @@ export type CampanaReciente = {
   /** Nombre más reciente (las campañas se renombran: el id es la identidad). */
   campaignName: string;
   objective: string;
-  /** Evento atribuido al nombre más reciente; null = "no atribuido". */
+  /** Evento atribuido al nombre más reciente (ID de la hoja); null = "no atribuido". */
   eventoId: string | null;
+  /** EventoID de ese evento (GLO213), el que va en el nombre de la campaña. */
+  eventoCodigo: string;
   eventoNombre: string;
   eventoFecha: string; // YYYY-MM-DD o ""
   pais: string; // categoriaEvento.Pais ("" si no atribuido)
@@ -866,8 +946,9 @@ export type CampanaReciente = {
  * - Identidad = (plataforma, campaign_id): Google reutiliza y renombra campañas
  *   (la PMax de FDS 2026 es la de FDS 25), así que nombre, objetivo y EventoID
  *   salen de la fila más reciente con gasto.
- * - Atribución: mismo predicado que getRealDiarioRango (evento existente y no
- *   cancelado en categoriaEvento); si no calza, va a "no atribuido".
+ * - Atribución: mismo predicado que getRealDiarioRango (EventoID de una fila de
+ *   la hoja con ID, cancelada o no), devuelto como ID de la hoja; si no calza,
+ *   va a "no atribuido" (o a quien la tenga asignada a mano, en el cliente).
  * - `desde` = inicio de la racha actual sobre TODO el historial: por eso no se
  *   usa el primer gasto histórico, que para una campaña reutilizada daría el
  *   año anterior.
@@ -931,18 +1012,20 @@ export async function getCampanasRecientes(): Promise<CampanaReciente[]> {
       FROM rachas
       GROUP BY plataforma, campaign_id
     ),
+    -- Misma traducción EventoID → ID que CAT_GLO_CTE (cancelados incluidos).
     cat AS (
-      SELECT EventoID, NombreGlovox, Fecha, Pais
+      SELECT EventoID, ID, NombreGlovox, Fecha, Pais
       FROM ${CATEGORY}
-      WHERE EventoID IS NOT NULL AND isCanceled IS NOT TRUE
-      QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY NombreGlovox) = 1
+      WHERE EventoID IS NOT NULL AND ID IS NOT NULL
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY EventoID ORDER BY IFNULL(isCanceled, FALSE), ID) = 1
     )
     SELECT
       c.plataforma,
       c.campaign_id,
       IFNULL(c.ult.campaign_name, '(sin nombre)') AS campaign_name,
       IFNULL(c.ult.objective, '')                 AS objective,
-      cat.EventoID                                AS evento_id,
+      cat.ID                                      AS evento_id,
+      cat.EventoID                                AS evento_codigo,
       cat.NombreGlovox                            AS evento_nombre,
       FORMAT_DATE('%Y-%m-%d', cat.Fecha)          AS evento_fecha,
       UPPER(IFNULL(cat.Pais, ''))                 AS pais,
@@ -962,6 +1045,7 @@ export async function getCampanasRecientes(): Promise<CampanaReciente[]> {
       campaignName: s(r.campaign_name),
       objective: s(r.objective),
       eventoId: eventoId || null,
+      eventoCodigo: s(r.evento_codigo),
       eventoNombre: s(r.evento_nombre),
       eventoFecha: s(r.evento_fecha),
       pais: s(r.pais),
@@ -976,17 +1060,21 @@ export async function getCampanasRecientes(): Promise<CampanaReciente[]> {
 
 /** Extensión del gasto real de UN evento en el mart: [min, max] o null. */
 export async function getRealExtentEvento(
-  eventoId: string,
+  fuente: FuenteEvento,
 ): Promise<{ min: string; max: string } | null> {
   const rows = await query<Record<string, unknown>>(
-    `
+    `${REAL_BASE}${FUENTE_CTES}${ASIG_CTE}
     SELECT
-      FORMAT_DATE('%Y-%m-%d', MIN(fecha)) AS min_fecha,
-      FORMAT_DATE('%Y-%m-%d', MAX(fecha)) AS max_fecha
-    FROM ${MART}
-    WHERE EventoID = @eventoId
+      FORMAT_DATE('%Y-%m-%d', MIN(m.fecha)) AS min_fecha,
+      FORMAT_DATE('%Y-%m-%d', MAX(m.fecha)) AS max_fecha
+    FROM base m
+    ${FUENTE_JOIN}
+    WHERE ${DE_LA_FUENTE}
+      -- Las asignadas a mano solo cuentan con gasto (como en una iniciativa);
+      -- las del nombre, desde su primera fila (comportamiento de siempre).
+      AND (cg.ID IS NOT NULL OR IFNULL(m.gasto, 0) > 0)
     `,
-    { eventoId },
+    fuenteParams(fuente),
   );
   const min = s(rows[0]?.min_fecha);
   const max = s(rows[0]?.max_fecha);
@@ -1029,8 +1117,9 @@ export async function getRealCorte(): Promise<string> {
 }
 
 /**
- * Techo presupuestario por evento = categoriaEvento.budgetPm (USD). La tabla
- * madre es la fuente única del techo; se edita en la hoja de /admin/eventos.
+ * Techo presupuestario por evento = categoriaEvento.budgetPm (USD), por ID de la
+ * hoja. La tabla madre es la fuente única del techo; se edita en la hoja de
+ * /admin/eventos o con el lápiz del drill.
  */
 export async function getBudgetPmMap(
   eventoIds: string[],
@@ -1038,9 +1127,9 @@ export async function getBudgetPmMap(
   if (eventoIds.length === 0) return new Map();
   const rows = await query<Record<string, unknown>>(
     `
-    SELECT EventoID AS evento_id, ANY_VALUE(budgetPm) AS budget_pm
+    SELECT ID AS evento_id, ANY_VALUE(budgetPm) AS budget_pm
     FROM ${CATEGORY}
-    WHERE EventoID IN UNNEST(@eventoIds)
+    WHERE ID IN UNNEST(@eventoIds)
     GROUP BY evento_id
     `,
     { eventoIds },
@@ -1053,10 +1142,122 @@ export async function getBudgetPmMap(
   return out;
 }
 
+// ---------- Catálogo de eventos (la hoja, por ID) ----------
+
+/** Una fila de la hoja CategoriaEvento, vista por su ID. */
+export type EventoCatalogo = {
+  /** ID de la hoja (1248-CL-TKM): la llave del plan. */
+  id: string;
+  /** EventoID de la ticketera (GLO213); null si aún no lo tiene. */
+  eventoIdTicketera: string | null;
+  nombre: string;
+  venue: string;
+  fecha: string; // YYYY-MM-DD o "" = PRIMER día
+  dias: number;
+  pais: string; // CL, PE, BR…
+  cancelado: boolean;
+  /** CategoriaEvento2 = 'Corporativo': no aparece como evento futuro. */
+  corporativo: boolean;
+};
+
+const CATALOGO_SELECT = `
+    SELECT
+      ID                                       AS id,
+      EventoID                                 AS evento_id,
+      NombreGlovox                             AS nombre,
+      venue                                    AS venue,
+      FORMAT_DATE('%Y-%m-%d', Fecha)           AS fecha,
+      dias                                     AS dias,
+      UPPER(IFNULL(Pais, ''))                  AS pais,
+      IFNULL(isCanceled, FALSE)                AS cancelado,
+      IFNULL(CategoriaEvento2 = 'Corporativo', FALSE) AS corporativo
+    FROM ${CATEGORY}`;
+
+function filaCatalogo(r: Record<string, unknown>): EventoCatalogo {
+  return {
+    id: s(r.id),
+    eventoIdTicketera: s(r.evento_id) || null,
+    nombre: s(r.nombre),
+    venue: s(r.venue),
+    fecha: s(r.fecha),
+    dias: r.dias == null ? 1 : n(r.dias),
+    pais: s(r.pais),
+    cancelado: b(r.cancelado),
+    corporativo: b(r.corporativo),
+  };
+}
+
+/**
+ * TODA la hoja con ID (cancelados y corporativos incluidos: el calendario
+ * decide). Reemplaza a getCategoriaEventos("all") en este panel, que exige
+ * EventoID y deja fuera lo que aún no vende (TKM Fest antes de su EventoID).
+ */
+export async function getCatalogoEventos(): Promise<EventoCatalogo[]> {
+  const rows = await query<Record<string, unknown>>(`${CATALOGO_SELECT}
+    WHERE ID IS NOT NULL
+    QUALIFY ROW_NUMBER() OVER (PARTITION BY ID ORDER BY NombreGlovox) = 1
+  `);
+  return rows.map(filaCatalogo);
+}
+
+/**
+ * EventoID → ID de la hoja, con la MISMA regla que CAT_GLO_CTE (un EventoID
+ * repetido va a la primera fila no cancelada, por ID). Sirve para traducir
+ * llaves viejas: el plan guardado por EventoID antes de 2026-11-04 y los links
+ * `?evento=GLO213`.
+ */
+export function mapaEventoIdTicketera(catalogo: EventoCatalogo[]): Map<string, string> {
+  const orden = [...catalogo].sort(
+    (a, b) => Number(a.cancelado) - Number(b.cancelado) || a.id.localeCompare(b.id),
+  );
+  const out = new Map<string, string>();
+  for (const e of orden) {
+    if (e.eventoIdTicketera && !out.has(e.eventoIdTicketera)) out.set(e.eventoIdTicketera, e.id);
+  }
+  return out;
+}
+
+export type EventoPlanInfo = EventoCatalogo & {
+  /** Primer día con venta (MIN FechaOrdenLocal de tickets); "" sin EventoID o sin venta. */
+  fechaInicioVenta: string;
+};
+
+/**
+ * Info de UN evento por su ID de la hoja (drill y actions). La fecha del evento
+ * cae a la de tickets si la hoja no la tiene, como getEventInfo. null si el ID
+ * no está en la hoja.
+ */
+export async function getEventoPlanInfo(id: string): Promise<EventoPlanInfo | null> {
+  if (!id) return null;
+  const rows = await query<Record<string, unknown>>(
+    `
+    WITH c AS (${CATALOGO_SELECT}
+      WHERE ID = @id
+      QUALIFY ROW_NUMBER() OVER (PARTITION BY ID ORDER BY NombreGlovox) = 1
+    ),
+    t AS (
+      SELECT
+        FORMAT_DATE('%Y-%m-%d', DATE(MIN(tk.FechaOrdenLocal))) AS inicio,
+        FORMAT_DATE('%Y-%m-%d', DATE(MIN(tk.FechaEvento)))     AS evento_tickets
+      FROM ${TICKETS} tk
+      WHERE tk.EventoID = (SELECT evento_id FROM c)
+    )
+    SELECT c.* EXCEPT (fecha), COALESCE(c.fecha, t.evento_tickets) AS fecha, t.inicio
+    FROM c LEFT JOIN t ON TRUE
+    `,
+    { id },
+  );
+  if (!rows[0]) return null;
+  return { ...filaCatalogo(rows[0]), fechaInicioVenta: s(rows[0].inicio) };
+}
+
 // ---------- MERGE plan × real ----------
 
 export type EventoMeta = {
+  /** ID de la hoja (la llave del plan). */
   eventoId: string;
+  eventoIdTicketera: string | null;
+  cancelado: boolean;
   nombre: string;
   fecha: string;
   /** Cuántos días dura el evento (categoriaEvento.dias). 1 si no se sabe. */
@@ -1127,6 +1328,8 @@ export function mergeGrid(args: {
     });
     return {
       eventoId: ev.eventoId,
+      eventoIdTicketera: ev.eventoIdTicketera,
+      cancelado: ev.cancelado,
       nombre: ev.nombre,
       fechaEvento: ev.fecha,
       diasEvento: ev.dias >= 1 ? ev.dias : 1,
@@ -1151,16 +1354,19 @@ export function mergeGrid(args: {
 
 // ---------- Etapas de campaña (bandas del drill) ----------
 
-/** Etapas de campaña de un evento (lista ordenada; [] si no hay). */
-export async function getEtapas(eventoId: string): Promise<EtapaCampana[]> {
+/**
+ * Etapas de campaña de un evento (lista ordenada; [] si no hay). `legado`: el
+ * EventoID con que se guardaban antes de 2026-11-04 (gana la fila por ID).
+ */
+export async function getEtapas(eventoId: string, legado?: string | null): Promise<EtapaCampana[]> {
+  const claves = legado ? [eventoId, legado] : [eventoId];
   const rows = await withNeonRetry(() =>
     db
-      .select({ etapas: inversionMediosEtapas.etapas })
+      .select({ eventoId: inversionMediosEtapas.eventoId, etapas: inversionMediosEtapas.etapas })
       .from(inversionMediosEtapas)
-      .where(eq(inversionMediosEtapas.eventoId, eventoId))
-      .limit(1),
+      .where(inArray(inversionMediosEtapas.eventoId, claves)),
   );
-  return rows[0]?.etapas ?? [];
+  return (rows.find((r) => r.eventoId === eventoId) ?? rows[0])?.etapas ?? [];
 }
 
 // ---------- Cargos extra (CARDDA) ----------
@@ -1188,28 +1394,29 @@ export async function getCargosExtra(): Promise<CargoExtra[]> {
  * el toggle sea instantáneo. Tipo/importación en @/lib/inversion-medios/tipos.
  */
 export async function getRealDesgloseEvento(
-  eventoId: string,
+  fuente: FuenteEvento,
   from: string,
   to: string,
 ): Promise<
   { fecha: string; plataforma: string; objective: string; campaignName: string; gastoUsd: number }[]
 > {
   const rows = await query<Record<string, unknown>>(
-    `${REAL_BASE}
+    `${REAL_BASE}${FUENTE_CTES}${ASIG_CTE}
     SELECT
-      FORMAT_DATE('%Y-%m-%d', fecha) AS fecha,
-      plataforma                     AS plataforma,
-      IFNULL(objective, '')          AS objective,
-      IFNULL(campaign_name, '')      AS campaign_name,
-      SUM(gasto_usd)                 AS gasto_usd
-    FROM base
-    WHERE EventoID = @eventoId
-      AND fecha BETWEEN DATE(@from) AND DATE(@to)
-      AND gasto_usd > 0
+      FORMAT_DATE('%Y-%m-%d', m.fecha) AS fecha,
+      m.plataforma                     AS plataforma,
+      IFNULL(m.objective, '')          AS objective,
+      IFNULL(m.campaign_name, '')      AS campaign_name,
+      SUM(m.gasto_usd)                 AS gasto_usd
+    FROM base m
+    ${FUENTE_JOIN}
+    WHERE ${DE_LA_FUENTE}
+      AND m.fecha BETWEEN DATE(@from) AND DATE(@to)
+      AND m.gasto_usd > 0
     GROUP BY fecha, plataforma, objective, campaign_name
     ORDER BY fecha
     `,
-    { eventoId, from, to },
+    { ...fuenteParams(fuente), from, to },
   );
   return rows.map((r) => ({
     fecha: s(r.fecha),
@@ -1341,9 +1548,13 @@ export function buildDrillGrid(args: {
  * no solo del período en pantalla).
  */
 export async function getTotalesEvento(
-  eventoIds: string[],
+  eventos: (FuenteEvento & { legado?: string | null })[],
 ): Promise<Map<string, { totalPlan: number; totalReal: number }>> {
-  if (eventoIds.length === 0) return new Map();
+  if (eventos.length === 0) return new Map();
+  const eventoIds = eventos.map((e) => e.id);
+  // Llave vieja (EventoID) → ID, para el plan aún no migrado.
+  const deLegado = new Map(eventos.filter((e) => e.legado).map((e) => [e.legado!, e.id]));
+  const campanas = eventos.flatMap((e) => e.campanas.map((c) => ({ ...c, iniciativaId: e.id })));
   const [planRows, realRows] = await Promise.all([
     withNeonRetry(() =>
       db
@@ -1352,22 +1563,25 @@ export async function getTotalesEvento(
           montoUsd: inversionMediosDiario.montoUsd,
         })
         .from(inversionMediosDiario)
-        .where(inArray(inversionMediosDiario.eventoId, eventoIds)),
+        .where(inArray(inversionMediosDiario.eventoId, [...eventoIds, ...deLegado.keys()])),
     ),
+    // Gasto del nombre (EventoID → ID) + el de las campañas asignadas a mano
+    // (solo sus filas sin evento): lo mismo que muestra el drill.
     query<Record<string, unknown>>(
-      `${REAL_BASE}
-      SELECT EventoID AS evento_id, SUM(gasto_usd) AS gasto_usd
-      FROM base
-      WHERE EventoID IN UNNEST(@eventoIds)
+      `${REAL_BASE}${FUENTE_CTES}${ASIG_CTE}
+      SELECT COALESCE(cg.ID, a.iniciativa_id) AS evento_id, SUM(m.gasto_usd) AS gasto_usd
+      FROM base m
+      ${FUENTE_JOIN}
+      WHERE cg.ID IN UNNEST(@eventoIds) OR (cg.ID IS NULL AND a.campaign_id IS NOT NULL)
       GROUP BY evento_id
       `,
-      { eventoIds },
+      { eventoIds, asig: asigParam(campanas) },
     ),
   ]);
   const out = new Map<string, { totalPlan: number; totalReal: number }>();
   for (const id of eventoIds) out.set(id, { totalPlan: 0, totalReal: 0 });
   for (const p of planRows) {
-    const t = out.get(p.eventoId);
+    const t = out.get(deLegado.get(p.eventoId) ?? p.eventoId);
     if (t) t.totalPlan += p.montoUsd;
   }
   for (const r of realRows) {
@@ -1570,13 +1784,13 @@ export type AdsMetricasEvento = {
  * ventana se pasó mal.
  */
 export async function getAdsMetricasEvento(
-  eventoId: string,
+  fuente: FuenteEvento,
   from: string,
   to: string,
 ): Promise<AdsMetricasEvento> {
   const rows = await query<Record<string, unknown>>(
     `
-    ${REAL_BASE}
+    ${REAL_BASE}${FUENTE_CTES}${ASIG_CTE}
     SELECT
       SUM(m.gasto_usd)                                   AS gasto_usd,
       SUM(m.impresiones)                                 AS impresiones,
@@ -1588,10 +1802,11 @@ export async function getAdsMetricasEvento(
       SUM(IF(${META_VENTAS}, m.valor_conversion_usd, 0)) AS valor_ventas_usd,
       SUM(IF(m.plataforma = 'google', m.conversiones, 0)) AS google_conversiones
     FROM base m
-    WHERE m.EventoID = @eventoId
+    ${FUENTE_JOIN}
+    WHERE ${DE_LA_FUENTE}
       AND m.fecha BETWEEN DATE(@from) AND DATE(@to)
     `,
-    { eventoId, from, to },
+    { ...fuenteParams(fuente), from, to },
   );
   const r = rows[0] ?? {};
   return {
@@ -1653,19 +1868,20 @@ export type TicketsEvento = {
  * evento "sin ventas por PM", y hay que decirlo distinto.
  */
 export async function getRendimientoTicketsEvento(
-  eventoId: string,
+  ev: { id: string; eventoIdTicketera: string | null },
   from: string,
   to: string,
 ): Promise<TicketsEvento> {
+  // Sin EventoID no hay tickets que cruzar ('' no calza con ninguno): el estado
+  // sale 'sin_datos_ticketera'. La meta sí existe: se lee por el ID de la hoja.
+  const eventoId = ev.eventoIdTicketera ?? "";
   const rows = await query<Record<string, unknown>>(
     `
     WITH ${PRIMER_PM_CTE},
     cat AS (
-      -- categoriaEvento tiene 230 filas para 225 EventoID (GLO042 con 6). Ninguno
-      -- está hoy en el universo del panel, pero el catálogo lo edita gente:
-      -- agregar SIEMPRE a una fila por evento antes de joinear.
-      SELECT EventoID, MAX(goalTickets) AS goal_tickets
-      FROM ${CATEGORY} WHERE EventoID = @eventoId GROUP BY EventoID
+      -- Por el ID de la hoja: la meta se define antes de que exista EventoID.
+      SELECT MAX(goalTickets) AS goal_tickets
+      FROM ${CATEGORY} WHERE ID = @id
     ),
     hist AS (
       SELECT
@@ -1732,10 +1948,10 @@ export async function getRendimientoTicketsEvento(
     FROM (SELECT @eventoId AS id) ids
     LEFT JOIN hist h ON h.evento_id = ids.id
     LEFT JOIN win  w ON TRUE
-    LEFT JOIN cat  c ON c.EventoID  = ids.id
+    LEFT JOIN cat  c ON TRUE
     LEFT JOIN primer_pm p ON p.Ticketera = h.ticketera
     `,
-    { eventoId, from, to },
+    { eventoId, id: ev.id, from, to },
   );
   const r = rows[0] ?? {};
   return {
@@ -1782,10 +1998,12 @@ export type SerieResultadoRow = {
  * en todos los cuartiles), así que graficarla la pondría en el día equivocado.
  */
 export async function getSerieResultadoEvento(
-  eventoId: string,
+  eventoId: string | null,
   from: string,
   to: string,
 ): Promise<SerieResultadoRow[]> {
+  // Sin EventoID de la ticketera no hay tickets que contar.
+  if (!eventoId) return [];
   const rows = await query<Record<string, unknown>>(
     `
     SELECT
