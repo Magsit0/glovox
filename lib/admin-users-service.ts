@@ -7,7 +7,7 @@
  * All writes assert a superadmin actor. Self-modification of role/revocation
  * is blocked at this layer; the UI also hides the controls.
  */
-import { and, asc, eq, isNull, ne, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { db } from "@/db";
 import {
   auditLog,
@@ -227,6 +227,54 @@ export async function setUserDashboards(
     .set({ updatedAt: new Date() })
     .where(eq(users.id, userId));
   await logAudit(actorId, "access.set", userId, { dashboardKeys });
+}
+
+/**
+ * Da acceso a un dashboard a todos los usuarios activos con rol `user` que aún
+ * no lo tienen. Es aditivo: no quita ni reescribe los demás grants de nadie.
+ * Los superadmin no se tocan (acceso implícito) y los revocados tampoco: al
+ * restaurarlos vuelven con los permisos que tenían.
+ *
+ * Deja UNA entrada `access.grant_all` en audit_log con la lista de usuarios a
+ * los que se les agregó; para reconstruir los grants de alguien hay que mirar
+ * su último `access.set` y los `access.grant_all` posteriores que lo incluyan.
+ */
+export async function grantDashboardToAll(
+  actorEmail: string,
+  dashboardKey: string,
+): Promise<{ granted: number }> {
+  const actorId = await findUserIdByEmail(actorEmail);
+  const [dashboard] = await db
+    .select({ key: dashboards.key })
+    .from(dashboards)
+    .where(eq(dashboards.key, dashboardKey))
+    .limit(1);
+  if (!dashboard) throw new Error(`Dashboard desconocido: ${dashboardKey}`);
+
+  const eligibles = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(and(eq(users.role, "user"), isNull(users.revokedAt)));
+  if (eligibles.length === 0) return { granted: 0 };
+
+  // ON CONFLICT DO NOTHING sobre la PK (user_id, dashboard_key): quien ya lo
+  // tenía queda igual y `returning` trae solo las filas realmente insertadas.
+  const inserted = await db
+    .insert(userDashboardAccess)
+    .values(
+      eligibles.map((u) => ({ userId: u.id, dashboardKey, grantedBy: actorId })),
+    )
+    .onConflictDoNothing()
+    .returning({ userId: userDashboardAccess.userId });
+  if (inserted.length === 0) return { granted: 0 };
+
+  const userIds = inserted.map((r) => r.userId);
+  await db
+    .update(users)
+    .set({ updatedAt: new Date() })
+    .where(inArray(users.id, userIds));
+  await logAudit(actorId, "access.grant_all", null, { dashboardKey, userIds });
+  return { granted: userIds.length };
 }
 
 export async function revokeUser(

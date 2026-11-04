@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireSuperadmin } from "@/lib/access";
 import {
   createUser,
+  grantDashboardToAll,
   restoreUser,
   revokeUser,
   setUserCountry,
@@ -53,6 +54,15 @@ export async function setDashboardsAction(
 ) {
   const ctx = await requireSuperadmin();
   await setUserDashboards(ctx.email, userId, dashboardKeys);
+  revalidatePath("/admin/users");
+}
+
+export async function grantDashboardToAllAction(dashboardKey: string) {
+  const ctx = await requireSuperadmin();
+  if (typeof dashboardKey !== "string" || dashboardKey === "") {
+    throw new Error("Dashboard inválido");
+  }
+  await grantDashboardToAll(ctx.email, dashboardKey);
   revalidatePath("/admin/users");
 }
 

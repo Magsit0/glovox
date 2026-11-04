@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { Check, Plus } from "lucide-react";
 import {
   createUserAction,
+  grantDashboardToAllAction,
   restoreUserAction,
   revokeUserAction,
   setCountryAction,
@@ -153,6 +155,12 @@ export function UsersMatrix({
   );
   // Email + Rol + Pais + Estado + accion, mas una columna por dashboard.
   const totalCols = 5 + columns.length;
+  // A quienes alcanza "+ Todos": activos con rol user. Los superadmin ya tienen
+  // acceso implicito y los revocados no se tocan (mismo criterio que el servidor).
+  const eligibleUsers = useMemo(
+    () => users.filter((u) => !u.revokedAt && u.role !== "superadmin"),
+    [users],
+  );
 
   const run = (fn: () => Promise<void>) => {
     setError(null);
@@ -250,11 +258,21 @@ export function UsersMatrix({
                 <th
                   key={d.key}
                   scope="col"
-                  className={`${HEAD_CELL} ${segmentStart ? SEGMENT_EDGE : ""} px-2 py-3 text-center`}
+                  className={`${HEAD_CELL} ${segmentStart ? SEGMENT_EDGE : ""} px-2 py-3 text-center align-bottom`}
                 >
                   <div className="text-[10px] font-semibold leading-tight">
                     {d.label}
                   </div>
+                  <GrantAllControl
+                    dashboard={d}
+                    missing={
+                      eligibleUsers.filter((u) => !u.dashboardKeys.includes(d.key))
+                        .length
+                    }
+                    eligible={eligibleUsers.length}
+                    disabled={isPending}
+                    onGrant={() => run(() => grantDashboardToAllAction(d.key))}
+                  />
                 </th>
               ))}
             </tr>
@@ -293,6 +311,61 @@ export function UsersMatrix({
         </table>
       </div>
     </div>
+  );
+}
+
+// Boton "+ Todos" bajo el nombre de cada dashboard: da acceso de una vez a todos
+// los usuarios activos que aun no lo tienen. Si ya lo tienen todos, queda un
+// "✓ Todos" apagado en su lugar (mismo alto, el encabezado no salta).
+function GrantAllControl({
+  dashboard,
+  missing,
+  eligible,
+  disabled,
+  onGrant,
+}: {
+  dashboard: DashboardCatalog;
+  missing: number;
+  eligible: number;
+  disabled: boolean;
+  onGrant: () => void;
+}) {
+  if (eligible === 0) return null;
+
+  if (missing === 0) {
+    return (
+      <span
+        title={`Todos los usuarios activos tienen acceso a ${dashboard.label}`}
+        className="mt-1.5 inline-flex items-center gap-0.5 whitespace-nowrap rounded-full border border-transparent px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-[#999999]"
+      >
+        <Check className="h-3 w-3" aria-hidden />
+        Todos
+      </span>
+    );
+  }
+
+  const usuarios = missing === 1 ? "usuario" : "usuarios";
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={() => {
+        if (
+          confirm(
+            `¿Dar acceso a "${dashboard.label}" a ${missing} ${usuarios} que aún no lo ${missing === 1 ? "tiene" : "tienen"}?\n\n` +
+              "Los superadmin ya tienen acceso y los usuarios revocados no se modifican.",
+          )
+        ) {
+          onGrant();
+        }
+      }}
+      title={`Dar acceso a ${dashboard.label} a ${missing} ${usuarios} sin acceso`}
+      aria-label={`Dar acceso a ${dashboard.label} a todos los usuarios`}
+      className="mt-1.5 inline-flex items-center gap-0.5 whitespace-nowrap rounded-full border border-[#E5E5E5] bg-white px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-[#666666] transition-colors hover:border-[#9F99F8] hover:text-[#9F99F8] disabled:cursor-not-allowed disabled:opacity-60"
+    >
+      <Plus className="h-3 w-3" aria-hidden />
+      Todos
+    </button>
   );
 }
 
