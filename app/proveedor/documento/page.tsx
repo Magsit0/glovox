@@ -30,7 +30,10 @@ export default async function DocumentoPage({ searchParams }: PageProps) {
   let error;
   if (doc) {
     try {
-      rows = await getDocumentoDetalle(doc);
+      // Gasto interno GLOVOX solo para quien puede ver /interno.
+      rows = await getDocumentoDetalle(doc, {
+        incluirInterno: canAccessPath(permissions, "/interno"),
+      });
     } catch (err) {
       error =
         err instanceof Error ? err.message : "Error al buscar el documento.";

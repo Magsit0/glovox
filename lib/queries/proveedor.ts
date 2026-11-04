@@ -633,11 +633,17 @@ export const DOCUMENTOS_LIMIT = DETAIL_LIMIT;
  * Todas las líneas de gasto de un Nº DOC (folio del documento tributario),
  * transversal a proveedor/negocio/fecha. Matchea contra el ARRAY `nro_doc_folios`
  * (no el string concatenado): un gasto con folios ['27861','27862'] aparece al
- * buscar cualquiera de los dos. Sin scope de exclusión a propósito (ver
+ * buscar cualquiera de los dos. Sin el filtro de totales a propósito (ver
  * DocDetalleRow) — `incluido` marca si la línea entra en los totales del dashboard.
+ *
+ * Gasto interno GLOVOX (`es_interno_glovox`: sueldos, honorarios, administración)
+ * solo con `incluirInterno`, que la página calcula en el servidor con el grant de
+ * /interno: la regla de gobernanza es que esas filas solo se ven donde /interno
+ * lo permite. Hasta 2026-11-04 cualquiera con /proveedor las veía buscando folios.
  */
 export async function getDocumentoDetalle(
   nroDoc: string,
+  { incluirInterno }: { incluirInterno: boolean },
 ): Promise<DocDetalleRow[]> {
   const rows = await withTimeout(
     query<Record<string, unknown>>(
@@ -664,10 +670,11 @@ export async function getDocumentoDetalle(
         gasto_bruto                             AS bruto
       FROM ${GASTOS}
       WHERE @nroDoc IN UNNEST(nro_doc_folios)
+        AND (@incluirInterno OR NOT es_interno_glovox)
       ORDER BY negocio_id, gasto_id, item_nombre
       LIMIT 2000
       `,
-      { nroDoc },
+      { nroDoc, incluirInterno },
     ),
   );
   return rows.map((r) => ({
