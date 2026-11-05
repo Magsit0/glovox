@@ -102,7 +102,14 @@ function api(path, { method = "GET", body } = {}) {
     }
   }
   if (!r.ok || !json || json.error) {
-    const detalle = json?.error?.message ?? r.out.trim().split("\n").slice(-3).join(" ");
+    const detalle =
+      json?.error?.message ??
+      r.out
+        .replace(/<claude-code-hint[^>]*\/>/g, "")
+        .trim()
+        .split("\n")
+        .slice(-3)
+        .join(" ");
     throw new Error(`API de Vercel ${method} ${path}: ${detalle}`);
   }
   return json;
@@ -176,6 +183,32 @@ async function push() {
   }
 }
 
+// Fallas de red o del servidor de Vercel al crear el deploy: se reintenta.
+const RED = /ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|socket hang up|fetch failed|\(5\d\d\)/i;
+const REINTENTOS_API = [15, 30, 60, 120]; // segundos
+
+/**
+ * Crea el deploy con reintentos. Antes de cada reintento revisa si el intento
+ * anterior (o un aviso atrasado de GitHub) ya lo creó, para no duplicarlo.
+ */
+async function forzarDeploy(sha) {
+  for (let i = 0; ; i++) {
+    try {
+      return crearDeploy(sha);
+    } catch (e) {
+      if (!RED.test(e.message) || i >= REINTENTOS_API.length) throw e;
+      log(`Vercel no respondió (${e.message}); reintento en ${REINTENTOS_API[i]} s`);
+      await sleep(REINTENTOS_API[i] * 1000);
+      try {
+        const d = deployDe(sha);
+        if (d) return d;
+      } catch {
+        // se vuelve a intentar crear
+      }
+    }
+  }
+}
+
 /** Crea el deploy de producción de `sha` por la API de Vercel, sin depender del aviso de GitHub. */
 function crearDeploy(sha) {
   const proyecto = api(`/v9/projects/${projectId}`);
@@ -243,7 +276,7 @@ async function main() {
   if (!d) {
     log(`Vercel no registró ${corto} en ${ESPERA_REGISTRO_MS / 60_000} min: GitHub no le avisó del push. Lo creo directo en Vercel.`);
     try {
-      d = crearDeploy(sha);
+      d = await forzarDeploy(sha);
     } catch (e) {
       throw new Error(
         `${e.message}\nCréalo a mano: Vercel → data-glovox → Deployments → Create Deployment → main.`,
