@@ -31,6 +31,16 @@ export function fmtFechaCorta(iso: string | null): string {
   return FECHA_CORTA.format(Date.UTC(y, m - 1, d));
 }
 
+const DIA_SEMANA = new Intl.DateTimeFormat("es-CL", { weekday: "short", timeZone: "UTC" });
+
+/** "2026-11-05" → "jue 5 nov": fecha corta con el día de la semana. */
+export function fmtDiaSemana(iso: string | null): string {
+  if (!iso) return "—";
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return `${DIA_SEMANA.format(Date.UTC(y, m - 1, d)).replace(/\.$/, "")} ${fmtFechaCorta(iso)}`;
+}
+
 // Formato compacto de la tira de KPIs ("$12,7 M"), compartido con la sección de atribución.
 const COMPACTO = new Intl.NumberFormat("es-CL", {
   notation: "compact",

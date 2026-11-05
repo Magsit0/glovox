@@ -12,7 +12,7 @@
 // - Los "%" van con 4 decimales: con menos, las fuentes chicas quedan en 0 y
 //   al sumar por canal/grupo el total no cuadra con la tabla.
 
-import type { SalesOriginRow, UtmTrafficRow } from "@/lib/queries/marketing";
+import type { SalesOriginDayRow, SalesOriginRow, UtmTrafficRow } from "@/lib/queries/marketing";
 import {
   agruparCanales,
   type CanalRealRow,
@@ -22,7 +22,13 @@ import {
   type FuenteCanal,
   type Moneda,
 } from "@/lib/marketing/atribucion";
-import { ORIGIN_CATEGORY_MAP, categorizeOrigin } from "./salesOriginCategories";
+import {
+  ORIGIN_CATEGORY_MAP,
+  categorizeOrigin,
+  columnasDias,
+  sumByOrigin,
+  ticketsPorDia,
+} from "./salesOriginCategories";
 
 export type CsvCell = string | number;
 export type CsvTable = { headers: string[]; rows: CsvCell[][] };
@@ -63,7 +69,42 @@ const originLabel = (origin: string) => origin || "(directo)";
  */
 export function buildSalesOriginCsv(data: SalesOriginRow[]): CsvTable {
   const total = data.reduce((s, r) => s + r.tickets, 0);
+  const rows = salesOriginBlocks(data).flatMap((b) =>
+    b.rows.map((r): CsvCell[] => [
+      textCell(b.label),
+      textCell(originLabel(r.origin)),
+      r.tickets,
+      share(r.tickets, total),
+    ]),
+  );
+  return { headers: ["Grupo", "Origen", "Tickets", "% tickets"], rows };
+}
 
+/**
+ * "Origen de Venta" en vista «Por día»: la misma matriz de la pantalla. Una
+ * fila por origen (en el orden de la tabla) con su total y una columna por día
+ * del calendario continuo de venta (encabezado ISO "2026-11-05"; "Sin fecha" si
+ * hay tickets sin fecha de orden). Los días sin ventas van en 0 para que la
+ * planilla sume cada columna.
+ */
+export function buildSalesOriginByDayCsv(data: SalesOriginDayRow[]): CsvTable {
+  const dias = columnasDias(data);
+  const porOrigen = ticketsPorDia(data);
+  const rows = salesOriginBlocks(sumByOrigin(data)).flatMap((b) =>
+    b.rows.map((r): CsvCell[] => {
+      const porDia = porOrigen.get(r.origin);
+      return [
+        textCell(b.label),
+        textCell(originLabel(r.origin)),
+        r.tickets,
+        ...dias.map((d) => porDia?.get(d) ?? 0),
+      ];
+    }),
+  );
+  return { headers: ["Grupo", "Origen", "Tickets", ...dias.map((d) => d ?? "Sin fecha")], rows };
+}
+
+function salesOriginBlocks(data: SalesOriginRow[]) {
   // Mismo armado que SalesOriginTable: categorías en orden de aparición y
   // después los orígenes sueltos; sort estable por total desc (empates en el
   // mismo orden que la tabla) y, dentro de cada grupo, por tickets desc.
@@ -78,7 +119,7 @@ export function buildSalesOriginCsv(data: SalesOriginRow[]): CsvTable {
       singles.push(r);
     }
   }
-  const blocks = [
+  return [
     ...[...catMap].map(([prefix, rows]) => ({
       label: ORIGIN_CATEGORY_MAP[prefix],
       rows: [...rows].sort((a, b) => b.tickets - a.tickets),
@@ -87,16 +128,6 @@ export function buildSalesOriginCsv(data: SalesOriginRow[]): CsvTable {
   ]
     .map((b) => ({ ...b, total: b.rows.reduce((s, r) => s + r.tickets, 0) }))
     .sort((a, b) => b.total - a.total);
-
-  const rows = blocks.flatMap((b) =>
-    b.rows.map((r): CsvCell[] => [
-      textCell(b.label),
-      textCell(originLabel(r.origin)),
-      r.tickets,
-      share(r.tickets, total),
-    ]),
-  );
-  return { headers: ["Grupo", "Origen", "Tickets", "% tickets"], rows };
 }
 
 /**

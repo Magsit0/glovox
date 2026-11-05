@@ -9,7 +9,7 @@ import {
   getTipoTicketOptions,
   getCommunityTicketsCount,
   getPaidMediaSummary,
-  getSalesOrigin,
+  getSalesOriginByDay,
   getFollowersDelta,
   getFunnelData,
   getFunnelLandingPages,
@@ -554,7 +554,7 @@ async function CompararGa4Link({ eventoId, country }: { eventoId: string; countr
 }
 
 async function SalesOriginSection({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
-  const data = await getSalesOrigin(eventoId, scope);
+  const data = await getSalesOriginByDay(eventoId, scope);
   return (
     <BrutalChartPanel title="Origen de Venta" className="col-span-2">
       <SalesOriginTable data={data} eventoId={eventoId} />

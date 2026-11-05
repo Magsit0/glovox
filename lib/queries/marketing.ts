@@ -405,6 +405,14 @@ export type SalesOriginRow = {
   revenue: number;
 };
 
+// One row per origin × order day. The table sums them back per origin, so the
+// totals and the "Por día" breakdown always add up.
+export type SalesOriginDayRow = SalesOriginRow & {
+  // Order day (FECHA_ORDEN_ADJ, same as the cumulative curve), "YYYY-MM-DD";
+  // null when the ticket has no order date.
+  dia: string | null;
+};
+
 export type FollowerRow = {
   date: string;
   totalFollowers: number;
@@ -879,10 +887,10 @@ export async function getPaidMediaSummary(
   };
 }
 
-export async function getSalesOrigin(
+export async function getSalesOriginByDay(
   eventoId: string,
   scope?: Scope,
-): Promise<SalesOriginRow[]> {
+): Promise<SalesOriginDayRow[]> {
   const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
     `
@@ -892,18 +900,20 @@ export async function getSalesOrigin(
       -- which collided as duplicate React keys). TRIM also folds accidental
       -- whitespace-only referrals into the single NULL "(directo)" group.
       CASE WHEN Referido LIKE 'FF%' THEN 'Club Glovox' ELSE NULLIF(TRIM(Referido), '') END AS origin,
+      FORMAT_DATE('%Y-%m-%d', DATE(${FECHA_ORDEN_ADJ})) AS dia,
       COUNT(*) AS tickets,
       SUM(PrecioFinal) AS revenue
     FROM ${TICKETS}
     WHERE EventoID = @eventoId
       AND ${TICKET_TYPE_FILTER}${t.sql}
-    GROUP BY origin
-    ORDER BY tickets DESC
+    GROUP BY origin, dia
+    ORDER BY origin, dia
     `,
     { eventoId, ...t.params }
   );
   return rows.map((r) => ({
     origin: s(r.origin),
+    dia: r.dia == null ? null : s(r.dia),
     tickets: n(r.tickets),
     revenue: n(r.revenue),
   }));
