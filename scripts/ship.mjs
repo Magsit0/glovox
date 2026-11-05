@@ -184,8 +184,29 @@ async function push() {
 }
 
 // Fallas de red o del servidor de Vercel al crear el deploy: se reintenta.
-const RED = /ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|socket hang up|fetch failed|\(5\d\d\)/i;
-const REINTENTOS_API = [15, 30, 60, 120]; // segundos
+// "max retries per request" es un error interno de Vercel (sale como 403) que
+// apareció en su incidente del 2026-11-05.
+const RED =
+  /ETIMEDOUT|ECONNRESET|ECONNREFUSED|EAI_AGAIN|ENOTFOUND|socket hang up|fetch failed|\(5\d\d\)|max retries per request/i;
+const REINTENTOS_API = [15, 30, 60, 120, 180, 300]; // segundos: ~12 min en total
+
+/** Incidentes abiertos en GitHub y Vercel, para decir de quién es la falla. */
+async function incidentes() {
+  const fuentes = [
+    ["GitHub", "https://www.githubstatus.com/api/v2/summary.json"],
+    ["Vercel", "https://www.vercel-status.com/api/v2/summary.json"],
+  ];
+  const lista = [];
+  for (const [nombre, url] of fuentes) {
+    try {
+      const res = await fetch(url, { signal: AbortSignal.timeout(10_000) });
+      for (const i of (await res.json()).incidents ?? []) lista.push(`${nombre}: ${i.name} (${i.status})`);
+    } catch {
+      // sin datos de estado: no es crítico
+    }
+  }
+  return lista;
+}
 
 /**
  * Crea el deploy con reintentos. Antes de cada reintento revisa si el intento
@@ -274,7 +295,8 @@ async function main() {
   log(`esperando que Vercel registre el deploy de ${corto}…`);
   let d = await esperarRegistro(sha);
   if (!d) {
-    log(`Vercel no registró ${corto} en ${ESPERA_REGISTRO_MS / 60_000} min: GitHub no le avisó del push. Lo creo directo en Vercel.`);
+    log(`Vercel no registró ${corto} en ${ESPERA_REGISTRO_MS / 60_000} min (el aviso de GitHub no llegó). Lo creo directo en Vercel.`);
+    for (const i of await incidentes()) log(`  incidente abierto → ${i}`);
     try {
       d = await forzarDeploy(sha);
     } catch (e) {
