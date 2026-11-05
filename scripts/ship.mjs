@@ -119,13 +119,14 @@ const estado = (d) => d.readyState ?? d.state;
 const idDe = (d) => d.uid ?? d.id;
 const EN_CURSO = new Set(["QUEUED", "INITIALIZING", "BUILDING"]);
 
-/** El deploy de producción de ese commit (prefiere uno vivo), o null si no hay. */
+/** El deploy de producción de ese commit: READY, si no uno en curso, si no uno fallido; o null. */
 function deployDe(sha) {
   const { deployments = [] } = api(
     `/v6/deployments?projectId=${projectId}&sha=${sha}&target=production&limit=20`,
   );
   return (
-    deployments.find((d) => estado(d) === "READY" || EN_CURSO.has(estado(d))) ??
+    deployments.find((d) => estado(d) === "READY") ??
+    deployments.find((d) => EN_CURSO.has(estado(d))) ??
     deployments.find((d) => estado(d) === "ERROR") ??
     null
   );
@@ -145,15 +146,21 @@ async function esperarRegistro(sha) {
   }
 }
 
-async function esperarBuild(id) {
+/**
+ * Espera el build de producción de `sha`. Si hay más de un deploy de ese commit
+ * (el forzado y un aviso atrasado de GitHub, cuando Vercel tiene demoras), vale
+ * el primero que quede READY.
+ */
+async function esperarBuild(sha) {
   const hasta = Date.now() + ESPERA_BUILD_MS;
   let ultimo = null;
   for (;;) {
     try {
-      const d = api(`/v13/deployments/${id}`);
-      if (!EN_CURSO.has(estado(d))) return d;
-      if (estado(d) !== ultimo) log(`build: ${estado(d)}`);
-      ultimo = estado(d);
+      const d = deployDe(sha);
+      if (d && !EN_CURSO.has(estado(d))) return api(`/v13/deployments/${idDe(d)}`);
+      const e = d ? estado(d) : "sin deploy";
+      if (e !== ultimo) log(`build: ${e}`);
+      ultimo = e;
     } catch (e) {
       log(`no pude consultar Vercel (${e.message}); reintento`);
     }
@@ -310,12 +317,24 @@ async function main() {
   }
 
   log(`deploy https://${d.url}; esperando que termine…`);
-  d = await esperarBuild(idDe(d));
+  d = await esperarBuild(sha);
   if (estado(d) !== "READY") {
     throw new Error(`El deploy terminó en ${estado(d)}: https://${d.url}\nLog: vercel inspect https://${d.url} --logs`);
   }
-  const dominio = (d.alias ?? []).find((a) => !a.endsWith(".vercel.app"));
-  log(`✓ producción con ${corto}: https://${d.url}${dominio ? ` (${dominio})` : ""}`);
+  // Lo que importa es qué sirve producción, no solo que el build terminó: con
+  // avisos atrasados, un deploy de un commit anterior puede quedar encima.
+  const prod = api(`/v9/projects/${projectId}`).targets?.production;
+  const prodSha = prod?.meta?.githubCommitSha;
+  if (prodSha && prodSha !== sha) {
+    git("fetch", "origin", "main");
+    if (!run("git", ["merge-base", "--is-ancestor", sha, prodSha], { allowFail: true }).ok) {
+      throw new Error(
+        `El build de ${corto} terminó, pero producción sirve ${prodSha.slice(0, 7)} (https://${prod.url}), que no lo incluye. Vuelve a correr \`npm run ship\`.`,
+      );
+    }
+  }
+  const dominio = (prod?.alias ?? d.alias ?? []).find((a) => !a.endsWith(".vercel.app"));
+  log(`✓ producción con ${corto}: https://${prod?.url ?? d.url}${dominio ? ` (${dominio})` : ""}`);
 }
 
 main().catch((e) => {
