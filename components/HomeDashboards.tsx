@@ -21,6 +21,7 @@ import {
   Calculator,
   CalendarRange,
   ClipboardCheck,
+  MapIcon,
   FileText,
   UtensilsCrossed,
   Wallet,
@@ -92,6 +93,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   "book-user": BookUser,
   "clipboard-check": ClipboardCheck,
   presentation: Presentation,
+  map: MapIcon,
 };
 
 const TITLE_MAX = 80;

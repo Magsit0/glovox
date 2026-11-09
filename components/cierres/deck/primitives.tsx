@@ -177,7 +177,7 @@ export function Table({
   className = "",
 }: Children & { className?: string }) {
   return (
-    <div className="relative overflow-x-auto rounded-lg border border-[var(--divider)]">
+    <div className="relative shrink-0 overflow-x-auto rounded-lg border border-[var(--divider)]">
       <table
         className={`w-full min-w-[640px] border-collapse text-left tabular-nums text-[var(--ink)] deck:min-w-0 ${className}`}
       >

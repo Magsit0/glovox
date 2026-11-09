@@ -13,6 +13,9 @@ interface Props {
   group: DashboardGroup;
   /** Miembros accesibles del grupo, en orden. */
   members: GroupMember[];
+  /** Cuerpo propio en lugar de la grilla de miembros (lo usa CIERRES, que
+   *  agrupa sus dashboards por evento). Hero y back link no cambian. */
+  children?: React.ReactNode;
 }
 
 /**
@@ -68,7 +71,7 @@ const THEME = {
  * El control de acceso (auth + redirect si no hay miembros) lo hace la page que
  * renderiza este componente.
  */
-export default function GroupHub({ group, members }: Props) {
+export default function GroupHub({ group, members, children }: Props) {
   const t = THEME[group.theme];
   const GroupIcon = GROUP_ICON_MAP[group.icon] ?? FALLBACK_GROUP_ICON;
 
@@ -102,31 +105,33 @@ export default function GroupHub({ group, members }: Props) {
         </header>
 
         {/* Dashboards del grupo */}
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
-          {members.map((m) => {
-            const Icon = GROUP_ICON_MAP[m.icon] ?? FALLBACK_GROUP_ICON;
-            return (
-              <Link
-                key={m.key}
-                href={m.path}
-                transitionTypes={[NAV_FORWARD]}
-                className={t.card}
-              >
-                <div className="mb-4 flex items-center gap-4">
-                  <div className={`${t.cardTile} ${m.accentClass}`}>
-                    <Icon size={24} className={m.accentText} strokeWidth={2.5} />
+        {children ?? (
+          <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {members.map((m) => {
+              const Icon = GROUP_ICON_MAP[m.icon] ?? FALLBACK_GROUP_ICON;
+              return (
+                <Link
+                  key={m.key}
+                  href={m.path}
+                  transitionTypes={[NAV_FORWARD]}
+                  className={t.card}
+                >
+                  <div className="mb-4 flex items-center gap-4">
+                    <div className={`${t.cardTile} ${m.accentClass}`}>
+                      <Icon size={24} className={m.accentText} strokeWidth={2.5} />
+                    </div>
+                    <h2 className={t.cardTitle}>{m.label}</h2>
                   </div>
-                  <h2 className={t.cardTitle}>{m.label}</h2>
-                </div>
-                <p className={t.cardDesc}>{m.description}</p>
-                <div className={t.cardCta}>
-                  Abrir
-                  <ArrowRight size={14} strokeWidth={2.5} />
-                </div>
-              </Link>
-            );
-          })}
-        </div>
+                  <p className={t.cardDesc}>{m.description}</p>
+                  <div className={t.cardCta}>
+                    Abrir
+                    <ArrowRight size={14} strokeWidth={2.5} />
+                  </div>
+                </Link>
+              );
+            })}
+          </div>
+        )}
       </div>
     </main>
   );

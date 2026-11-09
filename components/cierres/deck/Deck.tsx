@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronUp,
   Download,
+  MapIcon,
   Maximize2,
   Minimize2,
 } from "lucide-react";
@@ -21,6 +22,9 @@ interface Props {
   backLabel: string;
   /** Nombre del archivo al guardar como PDF (sin extensión). */
   pdfFilename: string;
+  /** Mapa de ventas del mismo evento (`/cierres/mapas/<slug>`), si existe y
+   *  el usuario lo ve: botón en la barra para tenerlo a mano en la reunión. */
+  mapaHref?: string;
   /** Las láminas (<Slide>), renderizadas en el servidor. */
   children: React.ReactNode;
 }
@@ -42,6 +46,7 @@ export default function Deck({
   backHref,
   backLabel,
   pdfFilename,
+  mapaHref,
   children,
 }: Props) {
   const scrollerRef = useRef<HTMLElement>(null);
@@ -210,6 +215,15 @@ export default function Deck({
               )}
             </button>
           </div>
+          {mapaHref && (
+            <Link
+              href={mapaHref}
+              className="ml-1 inline-flex shrink-0 items-center gap-2 rounded-lg px-3 py-2 font-sans text-sm text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
+            >
+              <MapIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">Mapa de ventas</span>
+            </Link>
+          )}
           <button
             type="button"
             onClick={downloadPdf}

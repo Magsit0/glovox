@@ -6,6 +6,11 @@ const nextConfig: NextConfig = {
     // navegaciones del grupo MARKETING (home → hub → dashboards y vuelta).
     viewTransition: true,
   },
+  // Los mapas de ventas se leen del disco en runtime (fs.readFile con ruta
+  // armada): el trazado automático no los ve, así que se declaran aquí.
+  outputFileTracingIncludes: {
+    "/api/cierres/mapas/*": ["./content/mapas-ventas/*.html"],
+  },
   async redirects() {
     return [
       { source: "/events", destination: "/club/events", permanent: true },

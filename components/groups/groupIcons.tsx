@@ -3,6 +3,7 @@ import {
   Briefcase,
   Building2,
   ClipboardCheck,
+  MapIcon,
   Megaphone,
   Target,
   Ticket,
@@ -34,6 +35,7 @@ export const GROUP_ICON_MAP: Record<string, LucideIcon> = {
   briefcase: Briefcase,
   "clipboard-check": ClipboardCheck,
   presentation: Presentation,
+  map: MapIcon,
 };
 
 export const FALLBACK_GROUP_ICON: LucideIcon = Ticket;

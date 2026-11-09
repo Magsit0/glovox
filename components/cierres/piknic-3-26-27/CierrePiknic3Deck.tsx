@@ -99,7 +99,7 @@ function AreaNotes({
  * lib/cierres/piknic-3-26-27.ts; la mecánica de láminas, navegación y PDF vive
  * en components/cierres/deck. El control de acceso lo hace la page.
  */
-export default function CierrePiknic3Deck() {
+export default function CierrePiknic3Deck({ mapaHref }: { mapaHref?: string }) {
   const { max, marcas } = ANTICIPACION_ESCALA;
 
   return (
@@ -108,6 +108,7 @@ export default function CierrePiknic3Deck() {
       backHref="/cierres"
       backLabel="Cierres"
       pdfFilename={META.pdfFilename}
+      mapaHref={mapaHref}
     >
       {/* 1 · Portada */}
       <Slide

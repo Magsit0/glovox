@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
+import { mapaHref } from "@/lib/cierres/eventos";
 import CierrePiknic3Deck from "@/components/cierres/piknic-3-26-27/CierrePiknic3Deck";
 
 export const dynamic = "force-dynamic";
@@ -23,5 +24,6 @@ export default async function CierrePiknic3Page() {
   const permissions = session.user.permissions ?? [];
   if (!canAccessPath(permissions, PATH)) redirect("/?unauthorized=1");
 
-  return <CierrePiknic3Deck />;
+  const mapa = mapaHref("piknic-3-26-27");
+  return <CierrePiknic3Deck mapaHref={canAccessPath(permissions, mapa) ? mapa : undefined} />;
 }

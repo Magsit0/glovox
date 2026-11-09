@@ -248,7 +248,7 @@ export const CIERRES_GROUP: DashboardGroup = {
   key: "cierres",
   title: "CIERRES",
   description:
-    "Presentaciones de las reuniones de cierre de cada evento: qué pasó, medido contra los puntos de control del ciclo, y los acuerdos.",
+    "Cierre de cada evento: la presentación de la reunión (qué pasó, medido contra los puntos de control del ciclo, y los acuerdos) junto a su mapa de ventas.",
   icon: "clipboard-check",
   accentClass: "bg-[#1E3A5F]",
   accentText: "text-white",
@@ -267,6 +267,26 @@ export const CIERRES_GROUP: DashboardGroup = {
       icon: "presentation",
       accentClass: "bg-[#1E3A5F]",
       accentText: "text-white",
+    },
+    {
+      key: "cierres.piknic-4-26-27",
+      label: "Piknic 4 · 26-27",
+      path: "/cierres/piknic-4-26-27",
+      description:
+        "Reunión de cierre del Piknic 4 (7 nov 2026): puntos de control, permisos, anticipación, comparación con el Piknic 3, venta, mapa de ventas, barras, resultado, OC y seguimiento de acuerdos.",
+      icon: "presentation",
+      accentClass: "bg-[#B8860B]",
+      accentText: "text-white",
+    },
+    {
+      key: "cierres.mapas",
+      label: "Mapas de ventas",
+      path: "/cierres/mapas",
+      description:
+        "Venta de Onfire por punto y asistentes por zona sobre el layout de cada evento (Piknic 1, 3 y 4 26-27, FDS 25). Interactivos.",
+      icon: "map",
+      accentClass: "bg-[#F06292]",
+      accentText: "text-black",
     },
   ]),
 };

@@ -321,6 +321,32 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentClass: "bg-[#1E3A5F]",
     accentText: "text-white",
   },
+  {
+    key: "cierres.piknic-4-26-27",
+    pathPrefix: "/cierres/piknic-4-26-27",
+    label: "Cierre Piknic 4 · 26-27",
+    appliesCountryScope: false,
+    sortOrder: 111,
+    title: "CIERRE PIKNIC 4 · 26-27",
+    description:
+      "Presentación de la reunión de cierre del Piknic 4 (7 nov 2026): puntos de control, permisos, anticipación, comparación con el Piknic 3, venta, mapa de ventas, barras, resultado, OC y seguimiento de acuerdos.",
+    icon: "presentation",
+    accentClass: "bg-[#B8860B]",
+    accentText: "text-white",
+  },
+  {
+    key: "cierres.mapas",
+    pathPrefix: "/cierres/mapas",
+    label: "Mapas de ventas",
+    appliesCountryScope: false,
+    sortOrder: 112,
+    title: "MAPAS DE VENTAS",
+    description:
+      "Mapas de venta por punto (Onfire) y asistentes por zona sobre el layout de cada evento: Piknic 1, 3 y 4 26-27 y FDS 25.",
+    icon: "map",
+    accentClass: "bg-[#F06292]",
+    accentText: "text-black",
+  },
 ] as const;
 
 /**
