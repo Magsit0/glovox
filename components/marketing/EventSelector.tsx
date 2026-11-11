@@ -2,7 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useRouter } from "@/lib/use-router";
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useLayoutEffect, useMemo } from "react";
 
 type EventOption = {
   eventoId: string;
@@ -15,14 +15,61 @@ type EventSelectorProps = {
   events: EventOption[];
   selected: string;
   upcomingEvents: EventOption[];
+  // "YYYY-MM-DD" the page used to split past from upcoming; it dates the
+  // "hace N d" of the past cards, so server and client render the same text.
+  today: string;
 };
 
-// "Próximos" strip: a fixed 3-card window that scrolls to reach the rest, so
-// the top bar keeps its height no matter how many upcoming events there are.
-const UPCOMING_CARD_W = 140; // px — must match `w-[140px]` on each card
-const UPCOMING_GAP = 8; // px — must match `gap-2` on the scroller
-const UPCOMING_VISIBLE = 3;
-const UPCOMING_STEP = UPCOMING_CARD_W + UPCOMING_GAP;
+// Event strip: a timeline with the last events left of a "today" divider and
+// the upcoming ones right of it, in a fixed window of 3 cards that scrolls, so
+// the top bar keeps its height. It opens on the next 3 (what the old
+// "Próximos" strip showed); ◀ walks back into the past.
+//
+// The divider lives inside the gap between two cards (negative margins), so
+// every card keeps the same step: any marker with a width of its own would
+// leave a sliver of a card at the edge of every page that does not touch it.
+const CARD_W = 140; // px — must match `w-[140px]` on each card
+const GAP = 8; // px — must match `gap-2` on the scroller
+const VISIBLE = 3;
+const STEP = CARD_W + GAP;
+// Past events shown at first, and added by each "+ anteriores".
+const PAST_PAGE = 3;
+// Older than this, "hace N d" says less than the date itself.
+const RELATIVE_MAX_DAYS = 60;
+
+function daysBetween(fromIso: string, toIso: string): number {
+  return Math.round((Date.parse(toIso) - Date.parse(fromIso)) / 86_400_000);
+}
+
+/**
+ * Scroll stops of the strip, in px. Cards sit on a uniform grid (past first,
+ * then upcoming), so it is all arithmetic: no DOM measuring, and the first
+ * render already knows where the window has to sit.
+ */
+function stripGeometry(pastCount: number, upCount: number) {
+  const total = pastCount + upCount;
+  const width = Math.min(total, VISIBLE) * STEP - GAP;
+
+  // Past pages end next to today (the 3 newest), then step back 3 by 3; the
+  // oldest page starts at 0. Upcoming pages: the next 3, then 3 by 3.
+  const stops = new Set<number>([0]);
+  for (let k = pastCount - VISIBLE; k > 0; k -= VISIBLE) stops.add(k * STEP);
+  for (let j = 0; j < upCount; j += VISIBLE) stops.add((pastCount + j) * STEP);
+  const sorted = [...stops].sort((a, b) => a - b);
+  const last = sorted[sorted.length - 1];
+
+  // Where the strip opens when the selection is not in it.
+  const home = upCount > 0 ? pastCount * STEP : last;
+  // The page that contains card number `i`.
+  const stopFor = (i: number) => sorted.filter((s) => s <= i * STEP).pop() ?? 0;
+
+  // Trailing room so the last page can line up on its first card (the flex
+  // gap already adds GAP before the spacer).
+  const missing = last + width - (total * STEP - GAP);
+  const spacer = missing > 0 ? Math.max(0, missing - GAP) : null;
+
+  return { width, stops: sorted, last, home, todayLeft: pastCount * STEP, stopFor, spacer };
+}
 
 function BrutalSelect({
   value,
@@ -83,79 +130,152 @@ function BrutalSelect({
   );
 }
 
-function UpcomingStrip({
-  events,
-  selected,
+function StripCard({
+  ev,
+  active,
+  past,
+  today,
   onPick,
 }: {
-  events: EventOption[];
+  ev: EventOption;
+  active: boolean;
+  past: boolean;
+  today: string;
+  onPick: (ev: EventOption) => void;
+}) {
+  const dias = past ? daysBetween(ev.fechaEvento, today) : 0;
+  const fecha =
+    dias > 0 && dias < RELATIVE_MAX_DAYS ? `${ev.fechaEvento} · hace ${dias} d` : ev.fechaEvento;
+  // Past cards go without fill (the bar's yellow shows through) so the two
+  // sides of HOY read apart; the active one is black on both sides.
+  const tone = active
+    ? "bg-black text-[#FFFF00] font-bold"
+    : past
+      ? "bg-transparent text-black hover:bg-white"
+      : "bg-white text-black hover:bg-[#FFFF00]";
+  return (
+    <button
+      type="button"
+      onClick={() => onPick(ev)}
+      title={`${ev.nombre} · ${ev.fechaEvento}`}
+      className={`w-[140px] shrink-0 border-2 border-black rounded-none font-mono-data text-xs px-3 py-1.5 cursor-pointer transition-colors duration-150 text-left ${tone}`}
+    >
+      <span className="block truncate">{ev.nombre}</span>
+      <span className="block truncate text-[10px] opacity-60">{fecha}</span>
+    </button>
+  );
+}
+
+function EventStrip({
+  past,
+  upcoming,
+  selected,
+  today,
+  onPick,
+}: {
+  past: EventOption[]; // every past event, newest first
+  upcoming: EventOption[]; // ascending
   selected: string;
+  today: string;
   onPick: (ev: EventOption) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
-  const [atStart, setAtStart] = useState(true);
-  const [atEnd, setAtEnd] = useState(true);
+  const [shown, setShown] = useState(PAST_PAGE);
 
-  // Arrow state follows the real scroll offset, so wheel/trackpad/swipe count
-  // too — not just our own scrollBy calls.
-  useEffect(() => {
-    const el = scroller.current;
-    if (!el) return;
-    const update = () => {
-      setAtStart(el.scrollLeft <= 1);
-      setAtEnd(el.scrollLeft + el.clientWidth >= el.scrollWidth - 1);
-    };
-    update();
-    el.addEventListener("scroll", update, { passive: true });
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => {
-      el.removeEventListener("scroll", update);
-      ro.disconnect();
-    };
-  }, [events.length]);
+  // Oldest on the left, newest next to HOY.
+  const pastShown = useMemo(() => past.slice(0, shown).reverse(), [past, shown]);
+  const geo = useMemo(
+    () => stripGeometry(pastShown.length, upcoming.length),
+    [pastShown.length, upcoming.length],
+  );
 
-  // Keep the active event inside the window when the selection came from
-  // somewhere else (dropdown, `?event=` in the URL).
-  useEffect(() => {
+  // Position of a card on the grid (past first, then upcoming), or null.
+  const indexOf = (id: string): number | null => {
+    const i = pastShown.findIndex((e) => e.eventoId === id);
+    if (i >= 0) return i;
+    const j = upcoming.findIndex((e) => e.eventoId === id);
+    return j >= 0 ? pastShown.length + j : null;
+  };
+
+  // Scroll offset as state: label, arrows and "+ anteriores" follow it, so a
+  // wheel/trackpad/swipe counts too. It starts where the first layout effect
+  // puts the window.
+  const [pos, setPos] = useState(() => {
+    const i = indexOf(selected);
+    return i == null ? geo.home : geo.stopFor(i);
+  });
+
+  // Keep the active event inside the window: on mount without animation, and
+  // later when the selection came from somewhere else (dropdown, `?event=`).
+  // Only a change of selection moves it, never a re-render.
+  const lastSelected = useRef<string | null>(null);
+  useLayoutEffect(() => {
     const el = scroller.current;
-    if (!el) return;
-    const idx = events.findIndex((e) => e.eventoId === selected);
-    if (idx < 0) return;
-    const left = idx * UPCOMING_STEP;
-    if (
-      left < el.scrollLeft ||
-      left + UPCOMING_CARD_W > el.scrollLeft + el.clientWidth
-    ) {
-      el.scrollTo({ left, behavior: "smooth" });
+    if (!el || lastSelected.current === selected) return;
+    const first = lastSelected.current === null;
+    lastSelected.current = selected;
+    if (first) {
+      el.scrollLeft = pos;
+      return;
     }
-  }, [events, selected]);
+    const i = indexOf(selected);
+    if (i == null) return;
+    const x = i * STEP;
+    if (x < el.scrollLeft || x + CARD_W > el.scrollLeft + el.clientWidth) {
+      el.scrollTo({ left: geo.stopFor(i), behavior: "smooth" });
+    }
+  });
 
-  // Page by whole windows, snapping the target back onto the card grid so a
-  // free trackpad scroll can't leave cards half-cut. The browser clamps the
-  // upper end to scrollWidth - clientWidth.
+  // "+ anteriores" prepends cards on the left: hold the current view in place,
+  // then slide to the ones just added.
+  const prevPastCount = useRef(pastShown.length);
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    const added = pastShown.length - prevPastCount.current;
+    prevPastCount.current = pastShown.length;
+    if (!el || added <= 0) return;
+    el.scrollLeft += added * STEP;
+    el.scrollTo({ left: 0, behavior: "smooth" });
+  }, [pastShown.length]);
+
+  // Page by stops (whole windows on the card grid), so a free trackpad scroll
+  // can't leave cards half-cut.
   function page(dir: 1 | -1) {
     const el = scroller.current;
     if (!el) return;
-    const current = Math.round(el.scrollLeft / UPCOMING_STEP);
-    const target = Math.max(0, current + dir * UPCOMING_VISIBLE);
-    el.scrollTo({ left: target * UPCOMING_STEP, behavior: "smooth" });
+    const x = el.scrollLeft;
+    const target =
+      dir > 0 ? geo.stops.find((s) => s > x + 1) : [...geo.stops].reverse().find((s) => s < x - 1);
+    if (target != null) el.scrollTo({ left: target, behavior: "smooth" });
   }
 
-  const scrollable = events.length > UPCOMING_VISIBLE;
+  const viendoPasado =
+    pastShown.length > 0 && (upcoming.length === 0 || pos < geo.todayLeft - CARD_W / 2);
+  const hayMas = shown < past.length;
   const arrowClass =
     "border-2 border-black rounded-none bg-white text-black font-display text-xs leading-none px-2 py-2 cursor-pointer transition-colors duration-150 hover:bg-[#FFFF00] disabled:opacity-30 disabled:cursor-default disabled:hover:bg-white";
 
   return (
     <div className="flex items-center gap-2">
-      <span className="font-mono-data uppercase text-xs text-black mr-1">
-        {scrollable ? `Próximos · ${events.length}` : "Próximos"}
-      </span>
-      {scrollable && (
+      <div className="w-[104px] shrink-0 mr-1 flex flex-col items-start">
+        <span className="font-mono-data uppercase text-xs text-black">
+          {viendoPasado ? `Últimos · ${pastShown.length}` : `Próximos · ${upcoming.length}`}
+        </span>
+        {viendoPasado && hayMas && (
+          <button
+            type="button"
+            onClick={() => setShown((n) => n + PAST_PAGE)}
+            className="font-mono-data text-[10px] text-black opacity-50 hover:opacity-100 hover:underline cursor-pointer leading-tight mt-0.5"
+          >
+            + anteriores
+          </button>
+        )}
+      </div>
+      {geo.stops.length > 1 && (
         <button
           type="button"
           onClick={() => page(-1)}
-          disabled={atStart}
+          disabled={pos <= geo.stops[0] + 1}
           aria-label="Ver eventos anteriores"
           className={arrowClass}
         >
@@ -164,36 +284,44 @@ function UpcomingStrip({
       )}
       <div
         ref={scroller}
+        onScroll={(e) => setPos(e.currentTarget.scrollLeft)}
         className="flex gap-2 shrink-0 overflow-x-auto overflow-y-hidden scrollbar-none max-w-full"
-        style={{
-          width:
-            Math.min(events.length, UPCOMING_VISIBLE) * UPCOMING_STEP -
-            UPCOMING_GAP,
-        }}
+        style={{ width: geo.width }}
       >
-        {events.map((ev) => (
-          <button
+        {pastShown.map((ev) => (
+          <StripCard
             key={ev.eventoId}
-            type="button"
-            onClick={() => onPick(ev)}
-            className={`w-[140px] shrink-0 border-2 border-black rounded-none font-mono-data text-xs px-3 py-1.5 cursor-pointer transition-colors duration-150 text-left ${
-              ev.eventoId === selected
-                ? "bg-black text-[#FFFF00] font-bold"
-                : "bg-white text-black hover:bg-[#FFFF00]"
-            }`}
-          >
-            <span className="block truncate">{ev.nombre}</span>
-            <span className="block text-[10px] opacity-60">
-              {ev.fechaEvento}
-            </span>
-          </button>
+            ev={ev}
+            active={ev.eventoId === selected}
+            past
+            today={today}
+            onPick={onPick}
+          />
         ))}
+        {pastShown.length > 0 && upcoming.length > 0 && (
+          // 4px bar centered in the 8px gap: -6px on each side cancels its own
+          // width plus one flex gap, so it adds no width to the grid.
+          <div aria-hidden title="Hoy" className="w-1 -mx-1.5 shrink-0 bg-black" />
+        )}
+        {upcoming.map((ev) => (
+          <StripCard
+            key={ev.eventoId}
+            ev={ev}
+            active={ev.eventoId === selected}
+            past={false}
+            today={today}
+            onPick={onPick}
+          />
+        ))}
+        {geo.spacer != null && (
+          <div aria-hidden className="shrink-0" style={{ width: geo.spacer }} />
+        )}
       </div>
-      {scrollable && (
+      {geo.stops.length > 1 && (
         <button
           type="button"
           onClick={() => page(1)}
-          disabled={atEnd}
+          disabled={pos >= geo.last - 1}
           aria-label="Ver eventos siguientes"
           className={arrowClass}
         >
@@ -208,6 +336,7 @@ export default function EventSelector({
   events,
   selected,
   upcomingEvents,
+  today,
 }: EventSelectorProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -221,6 +350,18 @@ export default function EventSelector({
   const [selectedCategory, setSelectedCategory] = useState(
     currentEvent?.categoriaEvento ?? ""
   );
+
+  // Past = every event with a date that is not upcoming (same split as
+  // getUpcomingEvents), newest first; ties by id so the order is stable.
+  const pastEvents = useMemo(() => {
+    const upcomingIds = new Set(upcomingEvents.map((e) => e.eventoId));
+    return events
+      .filter((e) => e.fechaEvento && !upcomingIds.has(e.eventoId))
+      .sort(
+        (a, b) =>
+          b.fechaEvento.localeCompare(a.fechaEvento) || b.eventoId.localeCompare(a.eventoId),
+      );
+  }, [events, upcomingEvents]);
 
   const filteredEvents = useMemo(
     () =>
@@ -246,7 +387,7 @@ export default function EventSelector({
     router.push(`/marketing/weekly?${params.toString()}`);
   }
 
-  function handleUpcomingEventClick(ev: EventOption) {
+  function handleStripClick(ev: EventOption) {
     setSelectedCategory(ev.categoriaEvento);
     const params = new URLSearchParams(searchParams.toString());
     params.set("event", ev.eventoId);
@@ -281,11 +422,13 @@ export default function EventSelector({
         />
       </div>
 
-      {upcomingEvents.length > 0 && (
-        <UpcomingStrip
-          events={upcomingEvents}
+      {(upcomingEvents.length > 0 || pastEvents.length > 0) && (
+        <EventStrip
+          past={pastEvents}
+          upcoming={upcomingEvents}
           selected={selected}
-          onPick={handleUpcomingEventClick}
+          today={today}
+          onPick={handleStripClick}
         />
       )}
     </div>

@@ -162,6 +162,7 @@ export default async function MarketingWeeklyPage({
         events={events}
         selected={selectedId}
         upcomingEvents={upcomingEvents}
+        today={today}
       />
 
       <div className="p-6 space-y-6">
