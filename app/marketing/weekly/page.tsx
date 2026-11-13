@@ -27,14 +27,6 @@ import EventSelector from "@/components/marketing/EventSelector";
 import CompareEventSelector from "@/components/marketing/CompareEventSelector";
 import TipoTicketFilter from "@/components/marketing/TipoTicketFilter";
 import DiaEventoFilter from "@/components/marketing/DiaEventoFilter";
-import {
-  etiquetaDia,
-  filtroDeJornada,
-  jornadaElegida,
-  nombreDiaSemana,
-  type FiltroDia,
-  type JornadaEvento,
-} from "@/lib/marketing/diasEvento";
 import BrutalKpiCard from "@/components/marketing/BrutalKpiCard";
 import CommunityKpiCard from "@/components/marketing/CommunityKpiCard";
 import BrutalChartPanel from "@/components/marketing/BrutalChartPanel";
@@ -48,6 +40,17 @@ import UtmTrafficTable from "@/components/marketing/charts/UtmTrafficTable";
 import TrafficTimelineChart from "@/components/marketing/charts/TrafficTimelineChart";
 import AtribucionSection, { ANCLA_ATRIBUCION } from "@/components/marketing/atribucion/AtribucionSection";
 import FunnelVentanaToggle from "@/components/marketing/FunnelVentanaToggle";
+import BrutalFilterConflictNotice from "@/components/marketing/BrutalFilterConflictNotice";
+import { WeeklyQueryProvider } from "@/components/marketing/WeeklyQueryProvider";
+import { valoresDeParam } from "@/lib/filters/url";
+import {
+  etiquetaDia,
+  filtroDeJornada,
+  jornadaElegida,
+  nombreDiaSemana,
+  type FiltroDia,
+  type JornadaEvento,
+} from "@/lib/marketing/diasEvento";
 // fmtClpCompact: CLP compact formatter, matching BrutalKpiCard's "clp-compact"
 // style. Reused for KPI secondary lines (and shared with the attribution section).
 import { fmtClpCompact, fmtFechaCorta, fmtPct, fmtUsd } from "@/lib/marketing/formato";
@@ -132,11 +135,12 @@ export default async function MarketingWeeklyPage({
     (!scope.country || events.some((e) => e.eventoId === requestedId))
       ? requestedId
       : defaultId;
-  const selectedLandingPages = Array.isArray(params.landingPage)
-    ? params.landingPage
-    : params.landingPage
-      ? [params.landingPage]
-      : [];
+  // Survives event switches on purpose (Piknic reuses its slug across editions):
+  // the filter shows a landing the new event lacks as dimmed, and the panel
+  // explains an empty funnel instead of resetting the selection.
+  const selectedLandingPages = Array.from(
+    new Set(valoresDeParam(params.landingPage)),
+  );
 
   // Comparators: any event the user can see (already scoped by country in
   // `getEventList`), excluding the main event itself. The selector lets the
@@ -158,110 +162,113 @@ export default async function MarketingWeeklyPage({
   // TipoTicket filter (applies only to the cumulative-sales chart). The user
   // picks values from the union of TipoTickets across the visible events
   // (main + active comparators). Deduped + canonicalised here so the cache key
-  // below is stable across reorderings.
-  const rawTipoTicket = Array.isArray(params.tipoTicket)
-    ? params.tipoTicket
-    : params.tipoTicket
-      ? [params.tipoTicket]
-      : [];
-  const selectedTipoTickets = Array.from(new Set(rawTipoTicket)).sort();
+  // below is stable across reorderings. Never pruned against the options: a
+  // type the new events lack stays selected (shown dimmed in the filter).
+  const selectedTipoTickets = Array.from(
+    new Set(valoresDeParam(params.tipoTicket)),
+  ).sort();
   const funnelVentanaGa4 = params.funnelVentana === "ga4";
   // Filtro "Día": only the ticket sections read it (see DiaEventoFilter's note).
   // Each one resolves it against the event's days on its own (getEventJornadas
   // is request-cached), so the page shell does not wait for BigQuery.
   const diaParam = typeof params.dia === "string" ? params.dia : undefined;
 
+  // One pending query for the page's URL filters (Tipo Ticket, Landing and the
+  // "Limpiar <filtro>" notices): quick clicks on different filters add up
+  // instead of the second undoing the first while BigQuery responds.
   return (
-    <div className="bg-white text-black min-h-full">
-      <EventSelector
-        events={events}
-        selected={selectedId}
-        upcomingEvents={upcomingEvents}
-        today={today}
-      />
+    <WeeklyQueryProvider>
+      <div className="bg-white text-black min-h-full">
+        <EventSelector
+          events={events}
+          selected={selectedId}
+          upcomingEvents={upcomingEvents}
+          today={today}
+        />
 
-      <div className="p-6 space-y-6">
-        <div className="flex items-start gap-4 flex-wrap">
-          {/* Only multi-day events get the "Día" filter; it renders nothing otherwise. */}
-          <Suspense key={`dia-${selectedId}`} fallback={null}>
-            <DiaEventoSection eventoId={selectedId} scope={scope} />
+        <div className="p-6 space-y-6">
+          <div className="flex items-start gap-4 flex-wrap">
+            {/* Only multi-day events get the "Día" filter; it renders nothing otherwise. */}
+            <Suspense key={`dia-${selectedId}`} fallback={null}>
+              <DiaEventoSection eventoId={selectedId} scope={scope} />
+            </Suspense>
+            <div className="ml-auto">
+              <Suspense
+                key={`countdown-${selectedId}`}
+                fallback={
+                  <div className="px-4 py-2 h-[44px] w-[200px] animate-pulse bg-black/5" />
+                }
+              >
+                <EventCountdownBanner eventoId={selectedId} scope={scope} />
+              </Suspense>
+            </div>
+          </div>
+
+          {/* KPI Strip */}
+          <Suspense
+            key={`kpi-${selectedId}-${diaParam ?? ""}`}
+            fallback={<div className="grid grid-cols-2 md:grid-cols-5 gap-4"><Skeleton /><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>}
+          >
+            <KpiStrip eventoId={selectedId} scope={scope} diaParam={diaParam} />
           </Suspense>
-          <div className="ml-auto">
+
+          {/* Row: Cumulative Sales + Paid Media */}
+          <div className="grid grid-cols-4 gap-6">
             <Suspense
-              key={`countdown-${selectedId}`}
-              fallback={
-                <div className="px-4 py-2 h-[44px] w-[200px] animate-pulse bg-black/5" />
-              }
+              key={`cum-${selectedId}-${compareIds.join("|")}-${selectedTipoTickets.join("|")}-${diaParam ?? ""}`}
+              fallback={<Skeleton />}
             >
-              <EventCountdownBanner eventoId={selectedId} scope={scope} />
+              <CumulativeSalesSection
+                eventoId={selectedId}
+                mainNombre={mainEvent?.nombre ?? selectedId}
+                mainCategoria={mainEvent?.categoriaEvento ?? ""}
+                compareIds={compareIds}
+                comparableEvents={comparableEvents}
+                tipoTickets={selectedTipoTickets}
+                diaParam={diaParam}
+                scope={scope}
+              />
+            </Suspense>
+            <Suspense fallback={<Skeleton />}>
+              <PaidMediaSection eventoId={selectedId} scope={scope} />
             </Suspense>
           </div>
-        </div>
 
-        {/* KPI Strip */}
-        <Suspense
-          key={`kpi-${selectedId}-${diaParam ?? ""}`}
-          fallback={<div className="grid grid-cols-2 md:grid-cols-5 gap-4"><Skeleton /><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>}
-        >
-          <KpiStrip eventoId={selectedId} scope={scope} diaParam={diaParam} />
-        </Suspense>
-
-        {/* Row: Cumulative Sales + Paid Media */}
-        <div className="grid grid-cols-4 gap-6">
-          <Suspense
-            key={`cum-${selectedId}-${compareIds.join("|")}-${selectedTipoTickets.join("|")}-${diaParam ?? ""}`}
-            fallback={<Skeleton />}
-          >
-            <CumulativeSalesSection
-              eventoId={selectedId}
-              mainNombre={mainEvent?.nombre ?? selectedId}
-              mainCategoria={mainEvent?.categoriaEvento ?? ""}
-              compareIds={compareIds}
-              comparableEvents={comparableEvents}
-              tipoTickets={selectedTipoTickets}
-              diaParam={diaParam}
-              scope={scope}
-            />
+          {/* Row: Atribución de compras (GA4). Its own window: only since GA4 measures purchases */}
+          <Suspense key={`atrib-${selectedId}`} fallback={<Skeleton />}>
+            <AtribucionSection eventoId={selectedId} country={scope.country} />
           </Suspense>
+
+          {/* Row: Sales Origin + Funnel */}
+          <div className="grid grid-cols-4 gap-6">
+            <Suspense key={`origen-${selectedId}-${diaParam ?? ""}`} fallback={<Skeleton />}>
+              <SalesOriginSection eventoId={selectedId} scope={scope} diaParam={diaParam} />
+            </Suspense>
+            <Suspense
+              key={`funnel-${selectedId}-${selectedLandingPages.join("|")}-${funnelVentanaGa4 ? "ga4" : "todo"}`}
+              fallback={<Skeleton />}
+            >
+              <FunnelSection
+                eventoId={selectedId}
+                landingPages={selectedLandingPages}
+                country={scope.country}
+                ventanaGa4={funnelVentanaGa4}
+              />
+            </Suspense>
+          </div>
+
+          {/* Row: Campaign Breakdown */}
           <Suspense fallback={<Skeleton />}>
-            <PaidMediaSection eventoId={selectedId} scope={scope} />
+            <CampaignSection eventoId={selectedId} scope={scope} />
+          </Suspense>
+
+          {/* Row: UTM Traffic */}
+          <Suspense fallback={<Skeleton />}>
+            <UtmTrafficSection eventoId={selectedId} scope={scope} />
           </Suspense>
         </div>
-
-        {/* Row: Atribución de compras (GA4). Its own window: only since GA4 measures purchases */}
-        <Suspense key={`atrib-${selectedId}`} fallback={<Skeleton />}>
-          <AtribucionSection eventoId={selectedId} country={scope.country} />
-        </Suspense>
-
-        {/* Row: Sales Origin + Funnel */}
-        <div className="grid grid-cols-4 gap-6">
-          <Suspense key={`origen-${selectedId}-${diaParam ?? ""}`} fallback={<Skeleton />}>
-            <SalesOriginSection eventoId={selectedId} scope={scope} diaParam={diaParam} />
-          </Suspense>
-          <Suspense
-            key={`funnel-${selectedId}-${selectedLandingPages.join("|")}-${funnelVentanaGa4 ? "ga4" : "todo"}`}
-            fallback={<Skeleton />}
-          >
-            <FunnelSection
-              eventoId={selectedId}
-              landingPages={selectedLandingPages}
-              country={scope.country}
-              ventanaGa4={funnelVentanaGa4}
-            />
-          </Suspense>
-        </div>
-
-        {/* Row: Campaign Breakdown */}
-        <Suspense fallback={<Skeleton />}>
-          <CampaignSection eventoId={selectedId} scope={scope} />
-        </Suspense>
-
-        {/* Row: UTM Traffic */}
-        <Suspense fallback={<Skeleton />}>
-          <UtmTrafficSection eventoId={selectedId} scope={scope} />
-        </Suspense>
       </div>
-    </div>
+    </WeeklyQueryProvider>
   );
 }
 
@@ -517,6 +524,14 @@ async function CumulativeSalesSection({
   // sale-start marker: `goalTickets` is the event's total goal (not broken down
   // by ticket type or day), so it would be misleading next to a filtered series.
   const filterActive = tipoTickets.length > 0 || dia != null;
+  // The events have sales (there are ticket types) but none of the selected
+  // types: the filter is what empties the chart, so say so and offer to clear
+  // it instead of the chart's "Sin datos de venta…". A day always has sales of
+  // its own (that is what makes it a day of the event), so with both filters on
+  // the empty chart comes from the ticket types on that day.
+  const sinResultados =
+    tipoTickets.length > 0 && series.length === 0 && tipoOptions.length > 0;
+  const tipos = tipoTickets.length === 1 ? "el tipo de ticket elegido" : "los tipos de ticket elegidos";
   return (
     <BrutalChartPanel title={dia ? `Venta Acumulada · ${dia.etiqueta}` : "Venta Acumulada"} className="col-span-3">
       <div className="flex flex-wrap gap-2">
@@ -527,22 +542,37 @@ async function CumulativeSalesSection({
             fechaEvento: e.fechaEvento,
             categoriaEvento: e.categoriaEvento,
           }))}
-          selected={compareIds}
           defaultCategory={mainCategoria}
         />
-        <TipoTicketFilter options={tipoOptions} selected={tipoTickets} />
+        <TipoTicketFilter options={tipoOptions} />
       </div>
-      <CumulativeSalesComparisonChart
-        series={series}
-        mainEventoId={eventoId}
-        events={events}
-        goalTickets={filterActive ? undefined : kpis.goalTickets}
-        saleStartDaysToEvent={filterActive ? undefined : saleStartDaysToEvent}
-      />
-      {dia && compareIds.length > 0 && (
-        <p className="mt-2 font-mono-data text-[11px] text-black/60">
-          Los eventos comparados muestran solo sus entradas de {nombreDiaSemana(dia.jornada.dia)}.
-        </p>
+      {sinResultados ? (
+        <BrutalFilterConflictNotice
+          mensaje={
+            dia
+              ? `Ningún resultado: ${tipos} no ${tipoTickets.length === 1 ? "tiene" : "tienen"} entradas el ${dia.etiqueta} en los eventos del gráfico.`
+              : `Ningún resultado: ${tipos} no ${tipoTickets.length === 1 ? "existe" : "existen"} en los eventos del gráfico.`
+          }
+          conflicts={[
+            { key: "tipoTicket", label: "tipo de ticket" },
+            ...(dia ? [{ key: "dia", label: "día" }] : []),
+          ]}
+        />
+      ) : (
+        <>
+          <CumulativeSalesComparisonChart
+            series={series}
+            mainEventoId={eventoId}
+            events={events}
+            goalTickets={filterActive ? undefined : kpis.goalTickets}
+            saleStartDaysToEvent={filterActive ? undefined : saleStartDaysToEvent}
+          />
+          {dia && compareIds.length > 0 && (
+            <p className="mt-2 font-mono-data text-[11px] text-black/60">
+              Los eventos comparados muestran solo sus entradas de {nombreDiaSemana(dia.jornada.dia)}.
+            </p>
+          )}
+        </>
       )}
     </BrutalChartPanel>
   );
@@ -680,15 +710,16 @@ async function FunnelSection({
     const data = dataTodo ?? (await getFunnelData(eventoId, filtro));
     return (
       <BrutalChartPanel title="Funnel" className="col-span-2">
-        <FunnelLandingPageFilter
-          landingPages={availableLandingPages}
-          selected={landingPages}
-        />
+        <FunnelLandingPageFilter landingPages={availableLandingPages} />
         {ventana && <FunnelVentanaToggle modo="todo" />}
         {data.length === 0 ? (
-          <p className="font-mono-data text-sm text-black/50">
-            Sin datos de funnel para este evento.
-          </p>
+          filtro ? (
+            <FunnelSinDatosLanding landings={filtro.length} ga4={false} />
+          ) : (
+            <p className="font-mono-data text-sm text-black/50">
+              Sin datos de funnel para este evento.
+            </p>
+          )
         ) : (
           <FunnelChart data={data} nota={ventanaGa4 ? notaSinVentanaGa4(atrib) : undefined} />
         )}
@@ -728,19 +759,36 @@ async function FunnelSection({
 
   return (
     <BrutalChartPanel title="Funnel" className="col-span-2">
-      <FunnelLandingPageFilter
-        landingPages={availableLandingPages}
-        selected={landingPages}
-      />
+      <FunnelLandingPageFilter landingPages={availableLandingPages} />
       <FunnelVentanaToggle modo="ga4" />
       {data.length === 0 ? (
-        <p className="font-mono-data text-sm text-black/50">
-          Sin datos de funnel para este evento desde que GA4 mide compras.
-        </p>
+        filtro ? (
+          <FunnelSinDatosLanding landings={filtro.length} ga4 />
+        ) : (
+          <p className="font-mono-data text-sm text-black/50">
+            Sin datos de funnel para este evento desde que GA4 mide compras.
+          </p>
+        )
       ) : (
         <FunnelChart data={steps} nota={nota} lecturaGa4={lecturaGa4} />
       )}
     </BrutalChartPanel>
+  );
+}
+
+// Empty funnel with a landing filter: the cause is the filter (often a landing
+// carried over from another event), not the event. Clearing it brings back the
+// event's own landings, or the honest "Sin datos de funnel…" if it has none.
+function FunnelSinDatosLanding({ landings, ga4 }: { landings: number; ga4: boolean }) {
+  return (
+    <BrutalFilterConflictNotice
+      mensaje={`Ningún resultado: ${
+        landings === 1
+          ? "la landing page elegida no tiene"
+          : "las landing pages elegidas no tienen"
+      } datos de funnel en este evento${ga4 ? " desde que GA4 mide compras" : ""}.`}
+      conflicts={[{ key: "landingPage", label: "landing page" }]}
+    />
   );
 }
 

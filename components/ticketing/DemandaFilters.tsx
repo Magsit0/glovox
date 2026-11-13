@@ -1,10 +1,17 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useRouter } from "@/lib/use-router";
 import { useMemo } from "react";
 import { X } from "lucide-react";
-import MultiSelectFilter from "@/components/cierre-mensual/filters/MultiSelectFilter";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import FilterConflictNotice from "@/components/filters/FilterConflictNotice";
+import { useQueryFiltros } from "@/components/filters/useQueryFiltros";
+import {
+  disponibles,
+  enConflicto,
+  opcionesVisibles,
+  type Faceta,
+} from "@/lib/filters/facetas";
+import { escribirSeleccion, leerSeleccion, normalizarSeleccion } from "@/lib/filters/url";
 import type { TicketingEventOption, DemandaGranularidad, DemandaMetrica } from "@/lib/queries/ticketing";
 import type { ProyeccionMetodo } from "@/lib/ticketing/demanda-forecast";
 import type { Country } from "@/lib/queries/comunidad";
@@ -17,8 +24,6 @@ interface Props {
   metrica: DemandaMetrica;
   proyeccion: ProyeccionMetodo;
 }
-
-const NONE = "__none__";
 
 // Campos de glovox.categoriaEvento expuestos como filtros encadenados. El evento
 // es el nivel más granular: value = eventoId, label = NombreGlovox.
@@ -37,6 +42,18 @@ const FACETS: { param: string; field: FacetField; label: string }[] = [
   { param: "eventos",     field: "eventoId",         label: "Evento" },
 ];
 
+// Encadenadas en las dos direcciones (lib/filters/facetas.ts): lo elegido en
+// cualquier faceta acota las opciones de todas las demás. Ninguna modifica la
+// selección de otra: cada una escribe solo su param.
+const FACETAS: Faceta<TicketingEventOption>[] = FACETS.map((f) => ({
+  key: f.param,
+  valores: (e) => e[f.field],
+}));
+
+const LABEL_POR_PARAM: Record<string, string> = Object.fromEntries(
+  FACETS.map((f) => [f.param, f.label]),
+);
+
 export default function DemandaFilters({
   events,
   country,
@@ -45,112 +62,98 @@ export default function DemandaFilters({
   metrica,
   proyeccion,
 }: Props) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const search = searchParams.toString();
+  // Query vigente (el último cambio pedido aunque la navegación no haya
+  // terminado), para que dos cambios seguidos se sumen.
+  const { search, navegar } = useQueryFiltros("/ticketing");
 
-  // Valores de la URL por faceta.
-  const urlByFacet = useMemo(() => {
+  // Selección por faceta desde la URL (params repetidos). Vacía = "Todos".
+  const sel = useMemo(() => {
     const sp = new URLSearchParams(search);
-    const m: Record<string, string[]> = {};
-    for (const f of FACETS) m[f.param] = sp.getAll(f.param);
+    const m: Record<string, Set<string>> = {};
+    for (const f of FACETS) m[f.param] = leerSeleccion(sp, f.param);
     return m;
   }, [search]);
 
-  // Opciones por faceta. Las categorías/temporada usan el texto como value y label;
-  // el evento usa eventoId como value y NombreGlovox como label.
-  const optionsByField = useMemo(() => {
-    const m = {} as Record<FacetField, { value: string; label: string }[]>;
+  // Universo de valores por faceta, en el orden del dropdown. Las categorías y
+  // la temporada van en orden alfabético; el evento, por nombre.
+  const todasPorParam = useMemo(() => {
+    const m: Record<string, string[]> = {};
     for (const f of FACETS) {
-      if (f.field === "eventoId") {
-        m[f.field] = events
-          .filter((e) => e.eventoId)
-          .map((e) => ({ value: e.eventoId, label: e.nombre || e.eventoId }))
-          .sort((a, b) => a.label.localeCompare(b.label, "es"));
-      } else {
-        m[f.field] = [...new Set(events.map((e) => e[f.field]).filter(Boolean))]
-          .sort((a, b) => a.localeCompare(b, "es"))
-          .map((v) => ({ value: v, label: v }));
-      }
+      m[f.param] =
+        f.field === "eventoId"
+          ? events
+              .filter((e) => e.eventoId)
+              .sort((a, b) =>
+                (a.nombre || a.eventoId).localeCompare(b.nombre || b.eventoId, "es"),
+              )
+              .map((e) => e.eventoId)
+          : [...new Set(events.map((e) => e[f.field]).filter(Boolean))].sort((a, b) =>
+              a.localeCompare(b, "es"),
+            );
     }
     return m;
   }, [events]);
 
-  // Universo de values por faceta (para detectar "todos" y construir la selección).
-  const valuesByField = useMemo(() => {
-    const m = {} as Record<FacetField, string[]>;
-    for (const f of FACETS) m[f.field] = optionsByField[f.field].map((o) => o.value);
-    return m;
-  }, [optionsByField]);
+  // Label del evento = NombreGlovox; un ID fuera del catálogo (link viejo,
+  // cambio de país) se muestra con su ID.
+  const nombrePorEvento = useMemo(
+    () => new Map(events.map((e) => [e.eventoId, e.nombre || e.eventoId])),
+    [events],
+  );
 
-  // Selección efectiva por campo: null = sin restricción (todos seleccionados).
-  const effByField = useMemo(() => {
-    const m = {} as Record<FacetField, Set<string> | null>;
+  // Encadenamiento: valores compatibles con lo elegido en las otras facetas.
+  const disp = useMemo(() => disponibles(events, FACETAS, sel), [events, sel]);
+
+  // Opciones visibles = compatibles + ya seleccionadas (estas últimas atenuadas
+  // si quedaron incompatibles, para poder desmarcarlas).
+  const opcionesPorParam = useMemo(() => {
+    const m: Record<string, { value: string; label: string }[]> = {};
     for (const f of FACETS) {
-      const url = urlByFacet[f.param];
-      if (url.length === 0) m[f.field] = null;
-      else if (url.length === 1 && url[0] === NONE) m[f.field] = new Set<string>();
-      else m[f.field] = new Set(url);
+      m[f.param] = opcionesVisibles(todasPorParam[f.param], disp[f.param], sel[f.param]).map(
+        (v) => ({
+          value: v,
+          label: f.field === "eventoId" ? (nombrePorEvento.get(v) ?? v) : v,
+        }),
+      );
     }
     return m;
-  }, [urlByFacet]);
+  }, [todasPorParam, disp, sel, nombrePorEvento]);
 
-  // Set que recibe el componente (vacío = ninguno; todos = todo el universo).
-  const selectedByField = useMemo(() => {
-    const m = {} as Record<FacetField, Set<string>>;
-    for (const f of FACETS) {
-      const eff = effByField[f.field];
-      m[f.field] = eff === null ? new Set(valuesByField[f.field]) : eff;
-    }
-    return m;
-  }, [effByField, valuesByField]);
+  const conflictos = useMemo(
+    () =>
+      enConflicto(events, FACETAS, sel).map((key) => ({
+        key,
+        label: LABEL_POR_PARAM[key] ?? key,
+      })),
+    [events, sel],
+  );
 
-  // Disponibilidad encadenada: para cada faceta, valores compatibles con la
-  // selección de las OTRAS facetas (facets cruzados). Las incompatibles se atenúan.
-  const availableByField = useMemo(() => {
-    const m = {} as Record<FacetField, Set<string>>;
-    for (const target of FACETS) {
-      const out = new Set<string>();
-      for (const e of events) {
-        let ok = true;
-        for (const other of FACETS) {
-          if (other.field === target.field) continue;
-          const sel = effByField[other.field];
-          if (sel === null) continue;
-          if (!sel.has(e[other.field])) {
-            ok = false;
-            break;
-          }
-        }
-        if (ok && e[target.field]) out.add(e[target.field]);
-      }
-      m[target.field] = out;
-    }
-    return m;
-  }, [events, effByField]);
-
-  function commit(patch: Record<string, string | string[] | null>) {
+  // Reescribe params escalares (granularidad, métrica, proyección) conservando
+  // el resto de la URL. `null` borra el param.
+  function commit(patch: Record<string, string | null>) {
     const params = new URLSearchParams(search);
     params.set("tab", "demanda");
     for (const [key, value] of Object.entries(patch)) {
-      params.delete(key);
-      if (value !== null) {
-        if (Array.isArray(value)) {
-          for (const v of value) params.append(key, v);
-        } else {
-          params.set(key, value);
-        }
-      }
+      if (value === null) params.delete(key);
+      else params.set(key, value);
     }
-    router.push(`/ticketing?${params.toString()}`, { scroll: false });
+    navegar(params.toString());
   }
 
-  function onFacetChange(param: string, field: FacetField) {
-    return (_name: string, next: Set<string>) => {
-      const all = valuesByField[field];
-      const value = next.size === all.length ? null : next.size === 0 ? [NONE] : [...next];
-      commit({ [param]: value });
-    };
+  // Cada faceta reescribe solo su propio param; las demás quedan como estaban.
+  // Marcar el universo entero de la faceta en el país ("Seleccionar todos" sin
+  // otro filtro acotando) se guarda como "Todos" (param ausente), no como
+  // lista: en el servidor la lista sería `IN UNNEST` y dejaría fuera los tickets
+  // con ese campo vacío (p. ej. sin Temporada) o de eventos fuera del catálogo,
+  // que "Todos" sí cuenta. Se compara con el universo y no con lo visible: con
+  // otra faceta acotando (p. ej. Temporada 2025), marcar todo lo visible sigue
+  // siendo una lista salvo que cubra el universo entero.
+  function onFacetChange(param: string, next: Set<string>) {
+    const universo = todasPorParam[param] ?? [];
+    const params = new URLSearchParams(search);
+    params.set("tab", "demanda");
+    escribirSeleccion(params, param, normalizarSeleccion(next, universo));
+    navegar(params.toString());
   }
 
   function onGranularidadChange(g: DemandaGranularidad) {
@@ -170,13 +173,13 @@ export default function DemandaFilters({
     params.set("tab", "demanda");
     if (value === null) params.delete("country");
     else params.set("country", value);
-    router.push(`/ticketing?${params.toString()}`, { scroll: false });
+    navegar(params.toString());
   }
 
-  const anyFacetActive = FACETS.some((f) => urlByFacet[f.param].length > 0);
+  const anyFacetActive = FACETS.some((f) => sel[f.param].size > 0);
   const hasActiveFilters =
     anyFacetActive ||
-    country !== "all" ||
+    (!countryLocked && country !== "all") ||
     granularidad !== "ISOWEEK" ||
     metrica !== "tickets" ||
     proyeccion !== "ninguna";
@@ -213,22 +216,29 @@ export default function DemandaFilters({
 
   return (
     <section className="flex flex-col gap-4">
-      {/* Fila 1: filtros de eventos (encadenados) */}
+      {/* Fila 1: filtros de eventos (encadenados). Una faceta sin valores en el
+          país se oculta, salvo que tenga selección: hay que poder limpiarla. */}
       <div className="flex flex-wrap items-end gap-3">
         {FACETS.map((f) =>
-          optionsByField[f.field].length > 0 ? (
-            <MultiSelectFilter
+          todasPorParam[f.param].length > 0 || sel[f.param].size > 0 ? (
+            <StandardMultiFilter
               key={f.param}
-              name={f.param}
               label={f.label}
-              options={optionsByField[f.field]}
-              available={availableByField[f.field]}
-              selected={selectedByField[f.field]}
-              onChange={onFacetChange(f.param, f.field)}
+              allLabel={f.field === "eventoId" ? "Todos" : "Todas"}
+              options={opcionesPorParam[f.param]}
+              available={disp[f.param]}
+              selected={sel[f.param]}
+              onChange={(next) => onFacetChange(f.param, next)}
+              searchPlaceholder={f.field === "eventoId" ? "Buscar evento…" : "Buscar…"}
             />
           ) : null,
         )}
       </div>
+
+      <FilterConflictNotice
+        conflicts={conflictos}
+        onClear={(key) => onFacetChange(key, new Set())}
+      />
 
       {/* Fila 2: métrica, granularidad, proyección, país */}
       <div className="flex flex-wrap items-end gap-3">
@@ -314,7 +324,7 @@ export default function DemandaFilters({
         {hasActiveFilters && (
           <button
             type="button"
-            onClick={() => router.push("/ticketing?tab=demanda", { scroll: false })}
+            onClick={() => navegar("tab=demanda")}
             className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 font-sans text-sm text-[#666666] transition-colors hover:bg-[#FAFAFA] hover:text-[#333333]"
           >
             <X className="h-3.5 w-3.5" />

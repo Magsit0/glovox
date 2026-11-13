@@ -374,9 +374,19 @@ transition-colors
 
 ### Multi-select
 
-- Trigger shows selected count when > 1: `"Países · 3"`; full label when ≤ 1.
+One component for the whole project: `components/filters/StandardMultiFilter.tsx`. The logic lives in `lib/filters/` (`facetas.ts` for chained filters, `url.ts` for reading/writing the URL). Do not build another multi-select.
+
+- Trigger: field label above it (purple dot when it has a selection); inside, `allLabel` (`"Todos"` / `"Todas"`) when empty, the option's label when 1, `"N seleccionados"` when > 1.
 - Menu items: same as single-select + checkbox leading (`w-4 h-4 rounded border border-[#E5E5E5] checked:bg-[#9F99F8] checked:border-[#9F99F8]`).
-- Clear: `text-[#666666] hover:text-[#333333] font-sans text-xs` link at the top of the menu.
+- Clear: `text-[#666666] hover:text-[#333333] font-sans text-xs` link at the top of the menu ("Limpiar", next to "Seleccionar todos").
+
+Behavior (the Power BI / Looker / Metabase / Superset rule):
+
+1. **Empty selection = "Todos".** There is no "none" state; an empty filter does not restrict.
+2. **"Limpiar" only affects its own filter.** Changing or clearing a filter writes only its own selection (its URL param or state key). No cascading resets, purges, or `useEffect` that corrects another filter.
+3. **Chained filters narrow options, never selections.** Options = `opcionesVisibles(...)`: values compatible with the other filters plus whatever is already selected. A selected value that became incompatible stays selected and is shown dimmed (`available` prop); it is never removed. Never hide a filter that has a selection. If the combination leaves no results, show `components/filters/FilterConflictNotice.tsx` under the filter bar, with one "Limpiar <filtro>" per filter that `enConflicto(...)` reports.
+4. **Selecting a filter's entire universe is stored as "Todos"** (`normalizarSeleccion`): same result, no URL with hundreds of values.
+5. **URL-backed bars build every change on `useQueryFiltros(path).search`** (`components/filters/useQueryFiltros.ts`), never on `useSearchParams()` directly, so two quick changes add up instead of the second undoing the first while the server responds. The pending request is shared by every instance on the same route, so separate controls on one page can each call the hook.
 
 ### Date range picker
 
@@ -406,7 +416,8 @@ Leading `Search` icon (`w-4 h-4 text-[#999999]`) absolute-positioned.
 ### Reset / clear all
 
 - Style: ghost button with `X` icon — `flex items-center gap-1 px-2 py-2 text-sm text-[#666666] hover:text-[#333333]`.
-- Position: trailing the filter bar, only visible when ≥ 1 filter is active.
+- Position: trailing the filter bar, only visible when the filters differ from the dashboard's default state.
+- Behavior: "Limpiar filtros" returns the bar to the dashboard's **default state**, which is not always empty (e.g. cierre mensual starts on Categoría Evento = "Piknic 25-26"). It is the **only** control allowed to change several filters at once.
 
 ---
 

@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { Download, Inbox } from "lucide-react";
+import { Inbox } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import type { DataScope } from "@/lib/scopes";
@@ -27,7 +27,10 @@ import {
   type ExportColumn,
   type ExportRow,
 } from "@/lib/compradores/filtros";
-import CompradoresFilters from "./_components/CompradoresFilters";
+import CompradoresFilters, {
+  CompradoresQueryProvider,
+  DescargarCsv,
+} from "./_components/CompradoresFilters";
 
 export const dynamic = "force-dynamic";
 
@@ -87,7 +90,6 @@ export default async function CompradoresPage({
 
   const sp = await searchParams;
   const { filters: parsed, eventosExplicitos } = parseCompradoresParams(sp);
-  const hasParams = Object.keys(sp).length > 0;
 
   const events = await getCompradoresEventOptions(scope);
   if (events.length === 0) {
@@ -100,9 +102,10 @@ export default async function CompradoresPage({
   }
 
   // Sin selección en la URL: el próximo evento por fecha (o el último realizado).
+  // La barra de filtros recibe el mismo default para leer la URL igual que acá.
+  const def = eventoPorDefecto(events, hoyISO());
   let filters: Filters = parsed;
   if (!eventosExplicitos) {
-    const def = eventoPorDefecto(events, hoyISO());
     filters = { ...parsed, eventos: def ? [def] : [] };
   }
 
@@ -118,12 +121,16 @@ export default async function CompradoresPage({
 
   return (
     <Shell>
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-        <Heading />
-        <DownloadLink href={csvHref} filas={filas} modo={filters.modo} />
-      </div>
+      {/* La barra y el botón del CSV comparten la query vigente: mientras la
+          navegación espera a BigQuery, el botón no baja la selección anterior. */}
+      <CompradoresQueryProvider>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <Heading />
+          <DescargarCsv href={csvHref} filas={filas} modo={filters.modo} />
+        </div>
 
-      <CompradoresFilters events={events} filters={filters} hasParams={hasParams} />
+        <CompradoresFilters events={events} eventoPorDefecto={def} sinFilas={filas === 0} />
+      </CompradoresQueryProvider>
 
       <p className="-mt-4 font-sans text-sm text-[var(--ink-muted)]">
         Selección: <span className="text-[var(--ink)]">{describirSeleccion(filters, events)}</span>
@@ -161,6 +168,19 @@ function describirSeleccion(filters: Filters, events: CompradoresEventOption[]):
     );
   } else {
     partes.push("todos los eventos");
+  }
+  // Eventos y categorías se cruzan (AND) y ninguno poda al otro: si algún evento
+  // elegido no es de las categorías elegidas, queda fuera y la selección lo dice.
+  if (filters.eventos.length > 0 && filters.categorias.length > 0) {
+    const cats = new Set(filters.categorias);
+    const categoriaDe = new Map(events.map((e) => [e.eventoId, e.categoria]));
+    if (filters.eventos.some((id) => !cats.has(categoriaDe.get(id) ?? ""))) {
+      partes.push(
+        filters.categorias.length === 1
+          ? `solo categoría ${filters.categorias[0]}`
+          : `solo ${filters.categorias.length} categorías`,
+      );
+    }
   }
   partes.push(
     filters.tipo === "ventas"
@@ -211,43 +231,6 @@ function EmptyCard({ children }: { children: React.ReactNode }) {
     <div className="flex flex-col items-center justify-center gap-2 rounded-lg border border-[var(--divider)] bg-[var(--surface)] py-12 font-sans text-sm text-[var(--ink-subtle)]">
       <Inbox className="h-6 w-6" />
       {children}
-    </div>
-  );
-}
-
-function DownloadLink({
-  href,
-  filas,
-  modo,
-}: {
-  href: string;
-  filas: number;
-  modo: CompradoresModo;
-}) {
-  const caption = `${fmtInt(filas)} ${filas === 1 ? "fila" : "filas"} · ${
-    modo === "ticket" ? "una por ticket" : "una por persona"
-  }`;
-  const base =
-    "inline-flex items-center gap-2 rounded-lg px-4 py-2 font-sans text-sm font-medium transition-colors";
-  return (
-    <div className="flex shrink-0 flex-col items-start gap-1.5 lg:items-end">
-      {filas > 0 ? (
-        <a href={href} download className={`${base} bg-[#9F99F8] text-white hover:bg-[#8780F0]`}>
-          <Download className="h-4 w-4" />
-          Descargar CSV
-        </a>
-      ) : (
-        <span
-          aria-disabled="true"
-          className={`${base} cursor-not-allowed bg-[#9F99F8] text-white opacity-60`}
-        >
-          <Download className="h-4 w-4" />
-          Descargar CSV
-        </span>
-      )}
-      <span className="font-sans text-xs text-[var(--ink-muted)]">
-        {filas > 0 ? caption : "Sin filas con los filtros actuales"}
-      </span>
     </div>
   );
 }

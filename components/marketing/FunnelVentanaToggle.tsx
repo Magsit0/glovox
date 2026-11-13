@@ -1,7 +1,6 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useRouter } from "@/lib/use-router";
+import { useQueryWeekly } from "@/components/marketing/WeeklyQueryProvider";
 
 export type FunnelVentana = "todo" | "ga4";
 
@@ -20,19 +19,28 @@ const MODOS: { id: FunnelVentana; label: string; title: string }[] = [
 /**
  * Selector opt-in del Funnel: «Toda la venta» (la vista de siempre) o «Desde
  * medición GA4», que recorta los pasos a la ventana medida y agrega el paso
- * Compran. Vive en la URL (`?funnelVentana=ga4`), con la misma lógica de push
+ * Compran. Vive en la URL (`?funnelVentana=ga4`), con la misma query vigente
  * que FunnelLandingPageFilter, para que el link compartido abra igual.
  */
-export default function FunnelVentanaToggle({ modo }: { modo: FunnelVentana }) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+export default function FunnelVentanaToggle({ modo: confirmado }: { modo: FunnelVentana }) {
+  // Query vigente de la página (WeeklyQueryProvider): el último cambio pedido
+  // aunque BigQuery no haya respondido, compartido con los demás filtros.
+  const { search, navegar } = useQueryWeekly();
 
+  // Mientras el servidor responde se ve el modo pedido (y un segundo clic se
+  // compara contra él, no contra la URL vieja). Con el param repetido manda el
+  // que resolvió el servidor (page.tsx solo acepta un "ga4" suelto).
+  const pedidos = new URLSearchParams(search).getAll(FUNNEL_VENTANA_PARAM);
+  const modo: FunnelVentana =
+    pedidos.length > 1 ? confirmado : pedidos[0] === "ga4" ? "ga4" : "todo";
+
+  // Escribe SOLO `funnelVentana`; el resto de la URL queda como está.
   function elegir(next: FunnelVentana) {
     if (next === modo) return;
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(search);
     if (next === "ga4") params.set(FUNNEL_VENTANA_PARAM, "ga4");
     else params.delete(FUNNEL_VENTANA_PARAM);
-    router.push(`/marketing/weekly?${params.toString()}`, { scroll: false });
+    navegar(params.toString());
   }
 
   return (

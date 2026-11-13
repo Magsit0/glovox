@@ -26,7 +26,7 @@ import {
   SURFACE,
 } from "@/lib/chart-colors";
 import { ChartTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
-import MultiFilter from "./MultiFilter";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 
 type Props = {
   data: OnepagerLlegadaRow[];
@@ -96,6 +96,7 @@ export default function LlegadasChart({ data }: Props) {
     for (const r of data) set.add(TIPO_LABEL[r.ventaNoventa] ?? r.ventaNoventa);
     return Array.from(set).sort((a, b) => a.localeCompare(b, "es-CL"));
   }, [data]);
+  const tiposItems = useMemo(() => tiposOpts.map((o) => ({ value: o, label: o })), [tiposOpts]);
 
   const serie = useMemo<SerieRow[]>(() => {
     const selectedKeys = new Set(Array.from(tipos).map((t) => TIPO_KEY[t] ?? t));
@@ -154,11 +155,11 @@ export default function LlegadasChart({ data }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-end gap-3">
-        <MultiFilter
+        <StandardMultiFilter
           label="Tipo de ticket"
           selected={tipos}
           onChange={setTipos}
-          options={tiposOpts}
+          options={tiposItems}
           searchPlaceholder="Buscar tipo…"
         />
         {tipos.size > 0 && (

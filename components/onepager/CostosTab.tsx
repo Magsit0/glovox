@@ -8,7 +8,7 @@ import type {
   OnepagerGastoRow,
 } from "@/lib/queries/onepagerCostos";
 import BrutalChartPanel from "./BrutalChartPanel";
-import MultiFilter from "./MultiFilter";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 
 type Props = {
   eventoId: string;
@@ -87,14 +87,17 @@ export default function CostosTab({ eventoId, costos }: Props) {
     () => uniqueSorted(gastos.map((g) => g.proveedor)),
     [gastos],
   );
+  const proveedoresItems = useMemo(() => proveedoresOpts.map((o) => ({ value: o, label: o })), [proveedoresOpts]);
   const categoriasOpts = useMemo(
     () => uniqueSorted(gastos.map((g) => g.categoriaOficial)),
     [gastos],
   );
+  const categoriasItems = useMemo(() => categoriasOpts.map((o) => ({ value: o, label: o })), [categoriasOpts]);
   const negociosOpts = useMemo(
     () => uniqueSorted(gastos.map(negocioKey)),
     [gastos],
   );
+  const negociosItems = useMemo(() => negociosOpts.map((o) => ({ value: o, label: o })), [negociosOpts]);
 
   const filtered = useMemo(
     () =>
@@ -296,26 +299,26 @@ export default function CostosTab({ eventoId, costos }: Props) {
       <BrutalChartPanel title="Costos — Documentos de gasto">
         <div className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
-            <MultiFilter
+            <StandardMultiFilter
               label="Proveedor"
               selected={proveedores}
               onChange={setProveedores}
-              options={proveedoresOpts}
+              options={proveedoresItems}
               searchPlaceholder="Buscar proveedor…"
             />
-            <MultiFilter
+            <StandardMultiFilter
               label="Categoría"
               selected={categorias}
               onChange={setCategorias}
-              options={categoriasOpts}
+              options={categoriasItems}
               searchPlaceholder="Buscar categoría…"
             />
             {multiNegocio && (
-              <MultiFilter
+              <StandardMultiFilter
                 label="Negocio"
                 selected={negociosSel}
                 onChange={setNegociosSel}
-                options={negociosOpts}
+                options={negociosItems}
                 searchPlaceholder="Buscar negocio…"
               />
             )}

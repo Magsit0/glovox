@@ -14,8 +14,8 @@ import {
   getCampaignOptions,
   getDaily,
   getDateRange,
+  getIdsEnRango,
   getKpis,
-  getObjectiveOptions,
   getPlatformOptions,
   getByEvento,
   getOtrasCampanias,
@@ -261,7 +261,7 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
   let accounts;
   let campaignOptions;
   let adsetOptions;
-  let objectiveOptions;
+  let enRango;
   let dateRange;
   let kpis;
   let porMoneda;
@@ -277,7 +277,7 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
       accounts,
       campaignOptions,
       adsetOptions,
-      objectiveOptions,
+      enRango,
       dateRange,
       kpis,
       porMoneda,
@@ -288,11 +288,16 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
       byCampaign,
       byAdset,
     ] = await Promise.all([
+      // Universo completo de cada filtro, sin acotar por los demás: el
+      // encadenamiento (qué opción es compatible, qué combinación no deja
+      // resultados) lo resuelve PaidMediaFilters con lib/filters/facetas.ts.
       getPlatformOptions(),
-      getAccountOptions(plataformas),
-      getCampaignOptions(accountIds),
-      getAdsetOptions(campaignIds),
-      getObjectiveOptions(plataformas),
+      getAccountOptions(),
+      getCampaignOptions(),
+      getAdsetOptions(),
+      // El rango de fechas también encadena: qué ids tienen datos en él. Sin
+      // rango no hace falta (todo el catálogo tiene datos en algún día).
+      from || to ? getIdsEnRango(from, to) : Promise.resolve(null),
       getDateRange(),
       getKpis(filters, moneda),
       getByCurrency(filters, moneda),
@@ -316,9 +321,10 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
     );
   }
 
-  // Resolvemos cada id seleccionado a su nombre; si el id no está en la lista
-  // de opciones (en cascada) caemos al id crudo para no perder filtros que sí
-  // están aplicados en baseCte — así el contador de ActiveContext nunca miente.
+  // Resolvemos cada id seleccionado a su nombre; si el id no existe en el mart
+  // (link viejo, id escrito a mano) caemos al id crudo para no perder filtros
+  // que sí están aplicados en baseCte — así el contador de ActiveContext nunca
+  // miente.
   const selectedAccounts = accountIds.map(
     (id) => accounts.find((a) => a.accountId === id)?.accountName || id,
   );
@@ -369,14 +375,7 @@ export default async function PaidMediaPage({ searchParams }: PageProps) {
         accounts={accounts}
         campaigns={campaignOptions}
         adsets={adsetOptions}
-        objectives={objectiveOptions}
-        plataformas={plataformas}
-        accountIds={accountIds}
-        campaignIds={campaignIds}
-        adsetIds={adsetIds}
-        selectedObjectives={objectives}
-        from={from ?? ""}
-        to={to ?? ""}
+        enRango={enRango}
       />
 
       <ActiveContext

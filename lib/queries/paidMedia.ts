@@ -418,6 +418,19 @@ export type AdsetOption = {
   campaignId: string;
 };
 
+/**
+ * Ids con al menos una fila dentro del rango Desde/Hasta del tab Detalle. Lleva
+ * el rango para el que se calculó: el cliente lo aplica solo si coincide con
+ * el de su query vigente (mientras navega, el de las props es el anterior).
+ */
+export type IdsEnRango = {
+  from: string;
+  to: string;
+  accounts: string[];
+  campaigns: string[];
+  adsets: string[];
+};
+
 export type DateRange = {
   min: string;
   max: string;
@@ -497,7 +510,20 @@ export type Breakdown = {
   total: number;
 };
 
-// ---------- Options (no respetan filtros para que el usuario pueda navegar) ----------
+// ---------- Options: el universo COMPLETO de cada filtro del tab Detalle ----------
+//
+// No se acotan por la selección de los otros filtros ni se truncan: el
+// encadenamiento lo hace el cliente con lib/filters/facetas.ts (regla única de
+// filtros, README › "Estándar de filtros"), que necesita el árbol entero
+// plataforma → cuenta → campaña → adset para saber qué es compatible, mantener
+// visible (y desmarcable) lo ya seleccionado aunque haya quedado incompatible y
+// detectar las combinaciones sin resultados. Con un LIMIT, una campaña fuera
+// del top no existiría para el cliente y se leería como conflicto. El objetivo
+// es atributo de la campaña: sus opciones salen de `CampaignOption.objective`.
+//
+// Medido el 2026-11-12: 18 cuentas, 1.311 campañas y 1.551 adsets, en un árbol
+// estricto (cada adset en una sola campaña, cada campaña en una sola cuenta y
+// con un solo objetivo, cada cuenta en una sola plataforma).
 
 /** Plataformas con conteo de filas — solo para poblar el selector. */
 export async function getPlatformOptions(): Promise<PlataformaOption[]> {
@@ -515,25 +541,13 @@ export async function getPlatformOptions(): Promise<PlataformaOption[]> {
 }
 
 /**
- * Cuentas disponibles, opcionalmente acotadas a una plataforma. Ordenadas por
- * gasto en dólares para que las activas aparezcan arriba — antes se ordenaban
- * por gasto en moneda local, lo que dejaba cualquier cuenta CLP por encima de
- * todas las USD sin que eso significara nada.
+ * Todas las cuentas, con su plataforma. Ordenadas por gasto en dólares para que
+ * las activas aparezcan arriba — antes se ordenaban por gasto en moneda local,
+ * lo que dejaba cualquier cuenta CLP por encima de todas las USD sin que eso
+ * significara nada.
  */
-export async function getAccountOptions(
-  plataforma?: Plataforma | Plataforma[],
-): Promise<AccountOption[]> {
-  const conds: string[] = ["TRUE"];
-  const params: Record<string, unknown> = {};
-  addListFilter(
-    conds,
-    params,
-    "plataforma",
-    "plataformas",
-    Array.isArray(plataforma) ? filterList(plataforma) : plataforma ? [plataforma] : [],
-  );
-  const rows = await query<Record<string, unknown>>(
-    `
+export async function getAccountOptions(): Promise<AccountOption[]> {
+  const rows = await query<Record<string, unknown>>(`
     SELECT
       account_id                    AS account_id,
       ANY_VALUE(account_name)       AS account_name,
@@ -541,12 +555,10 @@ export async function getAccountOptions(
       ANY_VALUE(currency)           AS currency,
       SUM(IFNULL(gasto_usd, 0))     AS gasto_usd
     FROM ${MART}
-    WHERE ${conds.join(" AND ")}
+    WHERE account_id IS NOT NULL
     GROUP BY account_id
     ORDER BY gasto_usd DESC
-    `,
-    params,
-  );
+  `);
   return rows.map((r) => ({
     accountId:   s(r.account_id),
     accountName: s(r.account_name),
@@ -555,21 +567,9 @@ export async function getAccountOptions(
   }));
 }
 
-/** Campañas — opcionalmente acotadas a una cuenta. */
-export async function getCampaignOptions(
-  accountId?: string | string[],
-): Promise<CampaignOption[]> {
-  const conds: string[] = ["TRUE"];
-  const params: Record<string, unknown> = {};
-  addListFilter(
-    conds,
-    params,
-    "account_id",
-    "accountIds",
-    Array.isArray(accountId) ? filterList(accountId) : accountId ? [accountId] : [],
-  );
-  const rows = await query<Record<string, unknown>>(
-    `
+/** Todas las campañas, con su cuenta y su objetivo, por gasto en dólares. */
+export async function getCampaignOptions(): Promise<CampaignOption[]> {
+  const rows = await query<Record<string, unknown>>(`
     SELECT
       campaign_id                  AS campaign_id,
       ANY_VALUE(campaign_name)     AS campaign_name,
@@ -577,13 +577,10 @@ export async function getCampaignOptions(
       ANY_VALUE(objective)         AS objective,
       SUM(IFNULL(gasto_usd, 0))    AS gasto_usd
     FROM ${MART}
-    WHERE ${conds.join(" AND ")}
+    WHERE campaign_id IS NOT NULL
     GROUP BY campaign_id
     ORDER BY gasto_usd DESC
-    LIMIT 1000
-    `,
-    params,
-  );
+  `);
   return rows.map((r) => ({
     campaignId:   s(r.campaign_id),
     campaignName: s(r.campaign_name),
@@ -592,34 +589,19 @@ export async function getCampaignOptions(
   }));
 }
 
-/** Adsets — opcionalmente acotados a una campaña. */
-export async function getAdsetOptions(
-  campaignId?: string | string[],
-): Promise<AdsetOption[]> {
-  const conds: string[] = ["TRUE"];
-  const params: Record<string, unknown> = {};
-  addListFilter(
-    conds,
-    params,
-    "campaign_id",
-    "campaignIds",
-    Array.isArray(campaignId) ? filterList(campaignId) : campaignId ? [campaignId] : [],
-  );
-  const rows = await query<Record<string, unknown>>(
-    `
+/** Todos los adsets, con su campaña, por gasto en dólares. */
+export async function getAdsetOptions(): Promise<AdsetOption[]> {
+  const rows = await query<Record<string, unknown>>(`
     SELECT
       adset_id                  AS adset_id,
       ANY_VALUE(adset_name)     AS adset_name,
       ANY_VALUE(campaign_id)    AS campaign_id,
       SUM(IFNULL(gasto_usd, 0)) AS gasto_usd
     FROM ${MART}
-    WHERE ${conds.join(" AND ")}
+    WHERE adset_id IS NOT NULL
     GROUP BY adset_id
     ORDER BY gasto_usd DESC
-    LIMIT 1000
-    `,
-    params,
-  );
+  `);
   return rows.map((r) => ({
     adsetId:   s(r.adset_id),
     adsetName: s(r.adset_name),
@@ -627,30 +609,44 @@ export async function getAdsetOptions(
   }));
 }
 
-/** Objetivos disponibles en la plataforma seleccionada. */
-export async function getObjectiveOptions(
-  plataforma?: Plataforma | Plataforma[],
-): Promise<string[]> {
-  const conds: string[] = ["objective IS NOT NULL"];
+/**
+ * Cuentas, campañas y adsets con datos en [from, to], con el mismo corte de
+ * fechas que `baseCte`. El rango es un filtro más de la barra: con esto
+ * `PaidMediaFilters` acota las opciones a lo que tiene datos en el rango y,
+ * si la combinación queda vacía solo por las fechas, el aviso de conflicto
+ * ofrece limpiarlas. Solo se pide con un rango puesto (unos 74 adsets en 30
+ * días, medido el 2026-11-12).
+ */
+export async function getIdsEnRango(from?: string, to?: string): Promise<IdsEnRango> {
+  const conds: string[] = ["TRUE"];
   const params: Record<string, unknown> = {};
-  addListFilter(
-    conds,
-    params,
-    "plataforma",
-    "plataformas",
-    Array.isArray(plataforma) ? filterList(plataforma) : plataforma ? [plataforma] : [],
-  );
+  if (from) {
+    conds.push("fecha >= DATE(@from)");
+    params.from = from;
+  }
+  if (to) {
+    conds.push("fecha <= DATE(@to)");
+    params.to = to;
+  }
   const rows = await query<Record<string, unknown>>(
     `
-    SELECT objective AS objective
+    SELECT
+      ARRAY_AGG(DISTINCT account_id IGNORE NULLS)  AS accounts,
+      ARRAY_AGG(DISTINCT campaign_id IGNORE NULLS) AS campaigns,
+      ARRAY_AGG(DISTINCT adset_id IGNORE NULLS)    AS adsets
     FROM ${MART}
     WHERE ${conds.join(" AND ")}
-    GROUP BY objective
-    ORDER BY objective
-    `,
+  `,
     params,
   );
-  return rows.map((r) => s(r.objective)).filter(Boolean);
+  const lista = (v: unknown) => (Array.isArray(v) ? v.map(s) : []);
+  return {
+    from: from ?? "",
+    to: to ?? "",
+    accounts: lista(rows[0]?.accounts),
+    campaigns: lista(rows[0]?.campaigns),
+    adsets: lista(rows[0]?.adsets),
+  };
 }
 
 /**

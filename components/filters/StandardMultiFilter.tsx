@@ -10,11 +10,28 @@ export type StandardFilterOption = {
   disabled?: boolean;
 };
 
+/**
+ * Multi-selección estándar de los dashboards (docs/STYLE_DASHBOARD.md §
+ * FILTER CONTROLS). Es el único componente de multi-selección del proyecto.
+ *
+ * Reglas (las mismas de lib/filters/facetas.ts):
+ *   - Selección vacía = "Todos". No existe "ninguno".
+ *   - "Limpiar" vacía SOLO este filtro; nunca toca a los demás.
+ *   - `available` atenúa las opciones que no calzan con los otros filtros, sin
+ *     quitarlas: un valor seleccionado que quedó incompatible sigue visible
+ *     para poder desmarcarlo.
+ */
 type Props = {
   label: string;
   options: StandardFilterOption[];
+  /** Vacío = "Todos" (sin filtro). */
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
+  /**
+   * Valores compatibles con el resto de los filtros. Los que no están se
+   * muestran atenuados. Ausente = todas las opciones disponibles.
+   */
+  available?: ReadonlySet<string>;
   allLabel?: string;
   searchPlaceholder?: string;
   disabled?: boolean;
@@ -26,13 +43,17 @@ export default function StandardMultiFilter({
   options,
   selected,
   onChange,
+  available,
   allLabel = "Todos",
-  searchPlaceholder = "Buscar...",
+  searchPlaceholder = "Buscar…",
   disabled = false,
   className = "",
 }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  // Lo que estaba seleccionado al abrir sube al principio de la lista. Se fija
+  // al abrir y no al marcar, para que las filas no salten bajo el cursor.
+  const [pinned, setPinned] = useState<ReadonlySet<string>>(() => new Set());
   const ref = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -63,11 +84,17 @@ export default function StandardMultiFilter({
 
   const filteredOptions = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return options;
-    return options.filter((o) =>
-      `${o.label} ${o.value} ${o.meta ?? ""}`.toLowerCase().includes(q),
-    );
-  }, [options, query]);
+    const matches = q
+      ? options.filter((o) =>
+          `${o.label} ${o.value} ${o.meta ?? ""}`.toLowerCase().includes(q),
+        )
+      : options;
+    if (pinned.size === 0) return matches;
+    return [
+      ...matches.filter((o) => pinned.has(o.value)),
+      ...matches.filter((o) => !pinned.has(o.value)),
+    ];
+  }, [options, pinned, query]);
 
   const triggerText = useMemo(() => {
     if (selected.size === 0) return allLabel;
@@ -111,7 +138,10 @@ export default function StandardMultiFilter({
           onClick={() => {
             if (disabled) return;
             if (open) close();
-            else setOpen(true);
+            else {
+              setPinned(new Set(selected));
+              setOpen(true);
+            }
           }}
           disabled={disabled}
           aria-haspopup="listbox"
@@ -165,6 +195,7 @@ export default function StandardMultiFilter({
               ) : (
                 filteredOptions.map((opt) => {
                   const checked = selected.has(opt.value);
+                  const unavailable = available ? !available.has(opt.value) : false;
                   return (
                     <button
                       key={opt.value}
@@ -173,11 +204,12 @@ export default function StandardMultiFilter({
                       aria-selected={checked}
                       disabled={opt.disabled}
                       onClick={() => toggle(opt.value)}
+                      title={unavailable ? "Sin datos con los otros filtros" : undefined}
                       className={`flex w-full items-center gap-2 rounded-md px-3 py-2 text-left font-sans text-sm transition-colors ${
                         checked
                           ? "bg-[var(--purple-tint)] font-medium text-[#9F99F8]"
                           : "text-[var(--ink)] hover:bg-[var(--surface-alt)]"
-                      } disabled:cursor-not-allowed disabled:opacity-50`}
+                      } ${unavailable ? "opacity-50" : ""} disabled:cursor-not-allowed disabled:opacity-50`}
                     >
                       <span
                         aria-hidden
@@ -189,7 +221,10 @@ export default function StandardMultiFilter({
                       >
                         {checked && <Check className="h-3 w-3 text-white" strokeWidth={3} />}
                       </span>
-                      <span className="min-w-0 flex-1 truncate" title={opt.label}>
+                      <span
+                        className="min-w-0 flex-1 truncate"
+                        title={unavailable ? undefined : opt.label}
+                      >
                         {opt.label}
                       </span>
                       {opt.meta && (

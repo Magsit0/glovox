@@ -22,11 +22,46 @@ import {
   SURFACE,
 } from "@/lib/chart-colors";
 import { ChartTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
-import MultiFilter from "./MultiFilter";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import FilterConflictNotice from "@/components/filters/FilterConflictNotice";
+import {
+  disponibles,
+  enConflicto,
+  filtrar,
+  opcionesVisibles,
+  type Faceta,
+} from "@/lib/filters/facetas";
+import { normalizarSeleccion } from "@/lib/filters/url";
 
 type Props = {
   data: OnepagerFfbbEvolucionRow[];
 };
+
+type FacetaKey = "categoria" | "producto" | "puntoVenta";
+
+// Facetas encadenadas (lib/filters/facetas.ts): cada filtro acota las opciones
+// de los otros. Categoría es padre de Producto: elegir un producto no le
+// esconde categorías (`ignora`). Ningún filtro modifica a otro: cada uno
+// escribe solo su propia selección.
+const FACETAS: Faceta<OnepagerFfbbEvolucionRow>[] = [
+  { key: "categoria", valores: (r) => r.categoria, ignora: ["producto"] },
+  { key: "producto", valores: (r) => r.producto },
+  { key: "puntoVenta", valores: (r) => r.puntoVenta },
+];
+
+const FACETA_LABEL: Record<FacetaKey, string> = {
+  categoria: "Categoría",
+  producto: "Producto",
+  puntoVenta: "Punto de venta",
+};
+
+const FACETA_KEYS: readonly FacetaKey[] = ["categoria", "producto", "puntoVenta"];
+
+type Selecciones = Record<FacetaKey, Set<string>>;
+
+function seleccionVacia(): Selecciones {
+  return { categoria: new Set(), producto: new Set(), puntoVenta: new Set() };
+}
 
 // Series colors in index order: venta (Area) = 0, qtty (Line) = 1.
 const VENTA_COLOR = seriesColor(0);
@@ -64,45 +99,52 @@ function slotRange(slotLabel: string): string {
 type SerieRow = { slotLabel: string; slotIso: string; venta: number; qtty: number };
 
 function uniqueSorted(values: Iterable<string>): string[] {
-  return Array.from(new Set(values)).sort((a, b) => a.localeCompare(b, "es-CL"));
-}
-
-function inSet(set: Set<string>, value: string): boolean {
-  return set.size === 0 || set.has(value);
+  return Array.from(new Set(values))
+    .filter((v) => v.length > 0)
+    .sort((a, b) => a.localeCompare(b, "es-CL"));
 }
 
 export default function FfbbEvolucionChart({ data }: Props) {
-  const [categorias, setCategorias]   = useState<Set<string>>(new Set());
-  const [productos, setProductos]     = useState<Set<string>>(new Set());
-  const [puntosVenta, setPuntosVenta] = useState<Set<string>>(new Set());
+  // Selección cruda de cada filtro (vacía = "Todos").
+  const [sel, setSel] = useState<Selecciones>(seleccionVacia);
 
-  const categoriasOpts = useMemo(() => uniqueSorted(data.map((r) => r.categoria)), [data]);
+  // Universo de cada faceta en los datos del evento.
+  const universo = useMemo<Record<FacetaKey, string[]>>(
+    () => ({
+      categoria: uniqueSorted(data.map((r) => r.categoria)),
+      producto: uniqueSorted(data.map((r) => r.producto)),
+      puntoVenta: uniqueSorted(data.map((r) => r.puntoVenta)),
+    }),
+    [data],
+  );
 
-  const productosOpts = useMemo(() => {
-    const filtered = data.filter((r) => inSet(categorias, r.categoria));
-    return uniqueSorted(filtered.map((r) => r.producto));
-  }, [data, categorias]);
+  // Opciones de cada dropdown: lo compatible con los otros filtros + lo ya
+  // elegido. Lo elegido que quedó incompatible sigue a la vista, atenuado
+  // (`available`), para poder desmarcarlo.
+  const disp = useMemo(() => disponibles(data, FACETAS, sel), [data, sel]);
+  const items = useMemo(() => {
+    const out = {} as Record<FacetaKey, { value: string; label: string }[]>;
+    for (const key of FACETA_KEYS) {
+      out[key] = opcionesVisibles(universo[key], disp[key], sel[key]).map((v) => ({
+        value: v,
+        label: v,
+      }));
+    }
+    return out;
+  }, [universo, disp, sel]);
 
-  const puntosVentaOpts = useMemo(() => uniqueSorted(data.map((r) => r.puntoVenta)), [data]);
-
-  // Derive the effective productos selection: drop any pick that's no longer in the
-  // current productosOpts (e.g. after a categoría is deselected). The raw `productos`
-  // state is preserved so re-enabling a categoría restores those picks.
-  const effectiveProductos = useMemo(() => {
-    if (productos.size === 0) return productos;
-    const valid = new Set(productosOpts);
-    const next = new Set<string>();
-    for (const p of productos) if (valid.has(p)) next.add(p);
-    return next;
-  }, [productos, productosOpts]);
+  // Filtros que chocan entre sí cuando la combinación no deja ningún dato.
+  const conflictos = useMemo(
+    () =>
+      enConflicto(data, FACETAS, sel).map((key) => ({
+        key,
+        label: FACETA_LABEL[key as FacetaKey] ?? key,
+      })),
+    [data, sel],
+  );
 
   const serie = useMemo<SerieRow[]>(() => {
-    const filtered = data.filter(
-      (r) =>
-        inSet(categorias,           r.categoria) &&
-        inSet(effectiveProductos,   r.producto) &&
-        inSet(puntosVenta,          r.puntoVenta),
-    );
+    const filtered = filtrar(data, FACETAS, sel);
     const byIso = new Map<string, SerieRow>();
     for (const r of filtered) {
       const existing = byIso.get(r.slotIso);
@@ -119,16 +161,27 @@ export default function FfbbEvolucionChart({ data }: Props) {
       }
     }
     return Array.from(byIso.values()).sort((a, b) => a.slotIso.localeCompare(b.slotIso));
-  }, [data, categorias, effectiveProductos, puntosVenta]);
+  }, [data, sel]);
 
-  function clearAll() {
-    setCategorias(new Set());
-    setProductos(new Set());
-    setPuntosVenta(new Set());
+  // Cada filtro escribe solo su propia key; las demás quedan como estaban.
+  // Marcar todo su universo se guarda como "Todos" (normalizarSeleccion).
+  function cambiarFaceta(key: FacetaKey, next: Set<string>) {
+    const lista = normalizarSeleccion(next, universo[key]);
+    setSel((prev) => ({ ...prev, [key]: new Set(lista) }));
   }
 
-  const hasActiveFilter =
-    categorias.size > 0 || effectiveProductos.size > 0 || puntosVenta.size > 0;
+  function limpiarFaceta(key: string) {
+    if ((FACETA_KEYS as readonly string[]).includes(key)) {
+      cambiarFaceta(key as FacetaKey, new Set());
+    }
+  }
+
+  // Único control que toca varios filtros: vuelve al estado por defecto.
+  function clearAll() {
+    setSel(seleccionVacia());
+  }
+
+  const hasActiveFilter = FACETA_KEYS.some((key) => sel[key].size > 0);
 
   if (data.length === 0) {
     return <p className="font-sans text-sm text-[#999999]">Sin datos.</p>;
@@ -138,24 +191,16 @@ export default function FfbbEvolucionChart({ data }: Props) {
     <div className="space-y-4">
       {/* Filter bar */}
       <div className="flex flex-wrap items-end gap-3">
-        <MultiFilter
-          label="Categoría"
-          selected={categorias}
-          onChange={setCategorias}
-          options={categoriasOpts}
-        />
-        <MultiFilter
-          label="Producto"
-          selected={effectiveProductos}
-          onChange={setProductos}
-          options={productosOpts}
-        />
-        <MultiFilter
-          label="Punto de venta"
-          selected={puntosVenta}
-          onChange={setPuntosVenta}
-          options={puntosVentaOpts}
-        />
+        {FACETA_KEYS.map((key) => (
+          <StandardMultiFilter
+            key={key}
+            label={FACETA_LABEL[key]}
+            selected={sel[key]}
+            onChange={(next) => cambiarFaceta(key, next)}
+            options={items[key]}
+            available={disp[key]}
+          />
+        ))}
         {hasActiveFilter && (
           <button
             type="button"
@@ -169,9 +214,13 @@ export default function FfbbEvolucionChart({ data }: Props) {
 
       {/* Chart */}
       {serie.length === 0 ? (
-        <p className="font-sans text-sm text-[#999999]">
-          Sin datos para la combinación de filtros seleccionada.
-        </p>
+        conflictos.length > 0 ? (
+          <FilterConflictNotice conflicts={conflictos} onClear={limpiarFaceta} />
+        ) : (
+          <p className="font-sans text-sm text-[#999999]">
+            Sin datos para la combinación de filtros seleccionada.
+          </p>
+        )
       ) : (
         <div className="border border-[#E5E5E5] bg-white rounded-lg p-3">
           <ResponsiveContainer width="100%" height={320}>

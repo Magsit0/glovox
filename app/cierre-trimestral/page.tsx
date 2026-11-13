@@ -27,7 +27,14 @@ import RrssSection from "@/components/cierre-trimestral/RrssSection";
 export const dynamic = "force-dynamic";
 
 interface PageProps {
-  searchParams: Promise<{ trimestre?: string; network?: string; monto?: string }>;
+  // Un param repetido (?trimestre=a&trimestre=b) llega como array y no calza con
+  // ninguna opción: cae al default. TrimestreSelector y RrssNetworkSelector
+  // aplican la misma regla al mostrar el valor pedido.
+  searchParams: Promise<{
+    trimestre?: string | string[];
+    network?: string | string[];
+    monto?: string | string[];
+  }>;
 }
 
 const DEFAULT_NETWORK = "instagram";
@@ -80,7 +87,7 @@ export default async function CierreTrimestralPage({ searchParams }: PageProps) 
   }
 
   const selectedId =
-    trimestre && trimestres.some((t) => t.id === trimestre)
+    typeof trimestre === "string" && trimestres.some((t) => t.id === trimestre)
       ? trimestre
       : trimestres[0].id;
 
@@ -91,7 +98,7 @@ export default async function CierreTrimestralPage({ searchParams }: PageProps) 
 
   const networkOptions = getRrssNetworkOptions(rrssRows);
   const selectedNetwork =
-    network && networkOptions.includes(network)
+    typeof network === "string" && networkOptions.includes(network)
       ? network
       : networkOptions.includes(DEFAULT_NETWORK)
         ? DEFAULT_NETWORK
@@ -128,7 +135,6 @@ export default async function CierreTrimestralPage({ searchParams }: PageProps) 
         kpis={rrssKpis}
         networkOptions={networkOptions.length > 0 ? networkOptions : [DEFAULT_NETWORK]}
         selectedNetwork={selectedNetwork}
-        trimestreId={selectedId}
         trimestreLabel={trimestreLabel}
       />
     </Shell>

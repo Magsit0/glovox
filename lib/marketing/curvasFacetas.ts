@@ -1,16 +1,29 @@
 /**
- * Encadenamiento de las facetas de `/marketing/curvas`.
+ * Facetas de `/marketing/curvas`.
  *
  * Las 5 facetas de `glovox.categoriaEvento` (categoría, categoría 2, categoría
- * 3, temporada, evento) más el tipo de ticket se cruzan entre sí: cada dropdown
- * muestra SOLO los valores que existen dado lo elegido en los otros. El
- * encadenamiento es bidireccional — elegir una familia acota los tipos de
- * ticket, y elegir un tipo de ticket acota los eventos y sus categorías.
+ * 3, temporada, evento) más el tipo de ticket siguen la regla única de filtros
+ * del proyecto (`lib/filters/facetas.ts`, la de Power BI / Looker / Metabase):
  *
- * Vive acá, puro y sin React, por lo mismo que `lib/marketing/curvas.ts`: la
- * purga a punto fijo es la parte delicada y así se puede verificar sin montar
- * el componente. `components/marketing/CurvasFilters.tsx` es solo la UI.
+ *   1. Selección vacía = "Todos". No existe "ninguno".
+ *   2. Un filtro nunca modifica a otro: cambiar o limpiar una faceta escribe
+ *      SOLO su propio param de la URL. Nada de purgas ni resets en cascada.
+ *   3. El encadenamiento acota las OPCIONES de cada dropdown, no las
+ *      selecciones: cada uno ofrece lo compatible con los otros cinco más lo ya
+ *      elegido (lo elegido que quedó incompatible se ve atenuado). Si la
+ *      combinación no deja ningún evento, `enConflicto` dice qué filtros chocan
+ *      y la UI ofrece limpiarlos uno por uno.
+ *
+ * El encadenamiento es bidireccional: elegir una familia acota los tipos de
+ * ticket, y elegir un tipo de ticket acota los eventos y sus categorías. El
+ * tipo es una faceta multivaluada (los tipos que vende cada evento): un evento
+ * calza si vende al menos uno de los elegidos.
+ *
+ * Acá solo se declaran las facetas sobre `CurvaEventOption`; la mecánica vive
+ * en `lib/filters/`. Puro y sin React, para poder verificarlo sin montar
+ * `components/marketing/CurvasFilters.tsx`, que es solo la UI.
  */
+import { calza, type Faceta, type Selecciones } from "@/lib/filters/facetas";
 import type { CurvaEventOption, CurvaTipoTicketPar } from "@/lib/queries/curvas";
 
 export type FacetField =
@@ -30,17 +43,6 @@ export const CURVA_FACETS: { param: string; field: FacetField; label: string }[]
 
 /** Param del filtro de tipo de ticket (no es una faceta de categoriaEvento). */
 export const TIPO_PARAM = "tipos";
-
-/** Marca "ninguno seleccionado" (distinto de "sin filtro" = param ausente). */
-export const NONE = "__none__";
-
-/** Selección de una faceta: `null` = sin restricción; Set vacío = ninguno. */
-export type Sel = Set<string> | null;
-
-export type FacetEstado = {
-  byField: Record<FacetField, Sel>;
-  tipos: Sel;
-};
 
 /** Índice de qué tipos de ticket vende cada evento, y con qué volumen. */
 export type TiposIndex = {
@@ -68,124 +70,61 @@ export function buildTiposIndex(pares: CurvaTipoTicketPar[]): TiposIndex {
 }
 
 /**
- * ¿El evento sobrevive a la selección?
- *
- * `skip` es la faceta que se está evaluando: su propia selección no puede
- * acotarse a sí misma, o el dropdown solo mostraría lo ya elegido.
+ * Eventos con al menos un ticket bajo los filtros de fila vigentes (comunidad,
+ * devoluciones, cortesías): los que tienen tipos en el mapa, que es la misma
+ * query que el gráfico sin la condición de tipo. Son los únicos que pueden dar
+ * filas, así que las facetas se calculan sobre ellos: un evento sin venta con
+ * esos filtros no se ofrece y, si viene seleccionado, se ve atenuado y salta el
+ * aviso de conflicto en vez de un gráfico vacío sin explicación.
  */
-export function eventoMatches(
-  e: CurvaEventOption,
-  estado: FacetEstado,
-  skip: FacetField | "tipos" | null,
+export function eventosConTickets(
+  events: readonly CurvaEventOption[],
   idx: TiposIndex,
-): boolean {
-  for (const f of CURVA_FACETS) {
-    if (skip === f.field) continue;
-    const s = estado.byField[f.field];
-    if (s === null) continue;
-    if (!s.has(e[f.field])) return false;
-  }
-  if (skip !== "tipos" && estado.tipos !== null) {
-    const own = idx.tiposByEvento.get(e.eventoId);
-    if (!own) return false;
-    for (const t of estado.tipos) if (own.has(t)) return true;
-    return false;
-  }
-  return true;
+): CurvaEventOption[] {
+  return events.filter((e) => idx.tiposByEvento.has(e.eventoId));
 }
 
 /**
- * Valores que se pueden ofrecer en cada faceta dado el resto de la selección.
- * Para los tipos de ticket devuelve además el volumen sumado sobre los eventos
- * compatibles, para ordenar el dropdown por relevancia real.
+ * Las seis facetas de la fila 1. La `key` de cada una es su param de la URL,
+ * así limpiar una faceta (desde su dropdown o desde el aviso de conflicto) es
+ * borrar ese param y nada más.
  */
-export function compatibles(
-  events: CurvaEventOption[],
-  estado: FacetEstado,
-  idx: TiposIndex,
-): { byField: Record<FacetField, Set<string>>; tipos: Map<string, number> } {
-  const byField = {} as Record<FacetField, Set<string>>;
-  for (const f of CURVA_FACETS) {
-    const out = new Set<string>();
-    for (const e of events) {
-      if (eventoMatches(e, estado, f.field, idx) && e[f.field]) out.add(e[f.field]);
-    }
-    byField[f.field] = out;
-  }
+export function facetasCurvas(idx: TiposIndex): Faceta<CurvaEventOption>[] {
+  return [
+    ...CURVA_FACETS.map(
+      (f): Faceta<CurvaEventOption> => ({ key: f.param, valores: (e) => e[f.field] }),
+    ),
+    {
+      key: TIPO_PARAM,
+      valores: (e) => {
+        const own = idx.tiposByEvento.get(e.eventoId);
+        return own ? [...own] : null;
+      },
+    },
+  ];
+}
 
-  const tipos = new Map<string, number>();
+/**
+ * Volumen (tickets) de cada tipo de ticket sumado sobre los eventos compatibles
+ * con las OTRAS facetas: la selección propia de tipos no cuenta, igual que en
+ * `disponibles`. Sirve para ordenar el dropdown por relevancia real.
+ */
+export function volumenTipos(
+  events: readonly CurvaEventOption[],
+  facetas: readonly Faceta<CurvaEventOption>[],
+  sel: Selecciones,
+  idx: TiposIndex,
+): Map<string, number> {
+  const omitir = new Set([TIPO_PARAM]);
+  const out = new Map<string, number>();
   for (const e of events) {
-    if (!eventoMatches(e, estado, "tipos", idx)) continue;
+    if (!calza(e, facetas, sel, omitir)) continue;
     const own = idx.tiposByEvento.get(e.eventoId);
     if (!own) continue;
     for (const t of own) {
       const vol = idx.ticketsPorPar.get(`${e.eventoId}|${t}`) ?? 0;
-      tipos.set(t, (tipos.get(t) ?? 0) + vol);
+      out.set(t, (out.get(t) ?? 0) + vol);
     }
   }
-  return { byField, tipos };
-}
-
-/**
- * Purga las selecciones que quedaron huérfanas.
- *
- * Al cambiar una faceta, las otras pueden conservar valores que ya no existen
- * en el universo resultante — y como esos valores ahora se OCULTAN, la
- * selección quedaría atrapada dando cero resultados sin forma de deshacerla.
- * La faceta que el usuario acaba de tocar (`exceptParam`) nunca se purga: su
- * acción manda y las demás se adaptan.
- *
- * Se itera a punto fijo porque purgar una faceta puede volver incompatible un
- * valor de otra. Una faceta que queda sin valores válidos se libera (`null`,
- * sin restricción) en vez de quedar en "ninguno". El `guard` acota el bucle:
- * cada pasada sin cambios lo corta, y como cada cambio solo puede QUITAR
- * valores, converge siempre.
- */
-export function purgarSelecciones(
-  events: CurvaEventOption[],
-  estado: FacetEstado,
-  exceptParam: string,
-  idx: TiposIndex,
-): FacetEstado {
-  const byField = { ...estado.byField };
-  let tipos = estado.tipos;
-
-  let changed = true;
-  for (let guard = 0; changed && guard < 8; guard++) {
-    changed = false;
-
-    for (const f of CURVA_FACETS) {
-      if (f.param === exceptParam) continue;
-      const s = byField[f.field];
-      // null = sin restricción; Set vacío = "ninguno" elegido a propósito.
-      if (s === null || s.size === 0) continue;
-      const avail = new Set<string>();
-      for (const e of events) {
-        if (eventoMatches(e, { byField, tipos }, f.field, idx) && e[f.field]) {
-          avail.add(e[f.field]);
-        }
-      }
-      const kept = [...s].filter((v) => avail.has(v));
-      if (kept.length !== s.size) {
-        byField[f.field] = kept.length ? new Set(kept) : null;
-        changed = true;
-      }
-    }
-
-    if (exceptParam !== TIPO_PARAM && tipos !== null && tipos.size > 0) {
-      const avail = new Set<string>();
-      for (const e of events) {
-        if (!eventoMatches(e, { byField, tipos }, "tipos", idx)) continue;
-        const own = idx.tiposByEvento.get(e.eventoId);
-        if (own) for (const t of own) avail.add(t);
-      }
-      const kept = [...tipos].filter((v) => avail.has(v));
-      if (kept.length !== tipos.size) {
-        tipos = kept.length ? new Set(kept) : null;
-        changed = true;
-      }
-    }
-  }
-
-  return { byField, tipos };
+  return out;
 }

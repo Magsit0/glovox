@@ -1,8 +1,7 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useRouter } from "@/lib/use-router";
 import { X } from "lucide-react";
+import { useQueryFiltros } from "@/components/filters/useQueryFiltros";
 import type { CategoriaBreakdownRow } from "@/lib/queries/interno";
 import CategoriaCombobox from "@/components/interno/CategoriaCombobox";
 import MontoModeToggle from "@/components/MontoModeToggle";
@@ -26,17 +25,25 @@ export default function InternoFilters({
   to,
   monto,
 }: Props) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  // Query vigente (el último cambio pedido aunque la navegación no haya
+  // terminado), para que dos cambios seguidos (p. ej. Desde y Hasta) se sumen.
+  const { search, navegar } = useQueryFiltros("/interno");
 
   function update(patch: Record<string, string | null>) {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(search);
     for (const [key, value] of Object.entries(patch)) {
       if (value === null || value === "") params.delete(key);
       else params.set(key, value);
     }
-    const qs = params.toString();
-    router.push(`/interno${qs ? `?${qs}` : ""}`);
+    navegar(params.toString());
+  }
+
+  // Limpiar borra los filtros (categoría, rango de fechas) y deja Montos como
+  // esté en la query vigente, aunque su cambio todavía no haya terminado.
+  function limpiar() {
+    const params = new URLSearchParams(search);
+    for (const key of ["categoria", "from", "to"]) params.delete(key);
+    navegar(params.toString());
   }
 
   const hasActiveFilters = Boolean(categoria) || Boolean(from) || Boolean(to);
@@ -86,9 +93,7 @@ export default function InternoFilters({
       {hasActiveFilters && (
         <button
           type="button"
-          onClick={() =>
-            router.push(`/interno${monto === "bruto" ? "?monto=bruto" : ""}`)
-          }
+          onClick={limpiar}
           className="flex items-center gap-1 px-2 py-2 font-sans text-sm text-[#666666] transition-colors hover:text-[#333333]"
         >
           <X className="h-4 w-4" />

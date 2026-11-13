@@ -24,6 +24,7 @@
     "audit:referido": "dotenv -e .env.local -- tsx scripts/audit-referido.ts",
     "test:atribucion": "tsx lib/marketing/atribucion.checks.ts",
     "test:dias-evento": "tsx lib/marketing/diasEvento.checks.ts",
+    "test:filtros": "tsx lib/filters/facetas.checks.ts",
     "audit:atribucion": "dotenv -e .env.local -- tsx scripts/audit-atribucion.ts"
   },
   "dependencies": {

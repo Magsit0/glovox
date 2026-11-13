@@ -1,10 +1,18 @@
 "use client";
 
 import { useMemo } from "react";
-import { useSearchParams } from "next/navigation";
-import { useRouter } from "@/lib/use-router";
 import { X } from "lucide-react";
-import MultiSelectFilter from "@/components/cierre-mensual/filters/MultiSelectFilter";
+import StandardMultiFilter, {
+  type StandardFilterOption,
+} from "@/components/filters/StandardMultiFilter";
+import FilterConflictNotice from "@/components/filters/FilterConflictNotice";
+import { useQueryFiltros } from "@/components/filters/useQueryFiltros";
+import { disponibles, enConflicto, opcionesVisibles } from "@/lib/filters/facetas";
+import {
+  leerSeleccion,
+  normalizarSeleccion,
+  reemplazarSeleccion,
+} from "@/lib/filters/url";
 import type {
   CurvaEventOption,
   CurvaComunidad,
@@ -17,16 +25,20 @@ import type {
 } from "@/lib/marketing/curvas";
 import {
   CURVA_FACETS as FACETS,
-  NONE,
   TIPO_PARAM,
   buildTiposIndex,
-  compatibles as compatiblesDe,
-  purgarSelecciones,
-  type FacetEstado as Estado,
-  type FacetField,
-  type Sel,
+  eventosConTickets,
+  facetasCurvas,
+  volumenTipos,
 } from "@/lib/marketing/curvasFacetas";
 import type { Country } from "@/lib/queries/comunidad";
+
+const TIPO_LABEL = "Tipo de ticket";
+
+const LABEL_POR_PARAM: Record<string, string> = Object.fromEntries([
+  ...FACETS.map((f) => [f.param, f.label]),
+  [TIPO_PARAM, TIPO_LABEL],
+]);
 
 interface Props {
   events: CurvaEventOption[];
@@ -108,13 +120,17 @@ export default function CurvasFilters({
   normalizar,
   promedio,
 }: Props) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const search = searchParams.toString();
+  // Query vigente: el último cambio pedido aunque la navegación (que espera a
+  // BigQuery) no haya terminado, para que dos cambios seguidos se sumen.
+  const { search, navegar: push } = useQueryFiltros("/marketing/curvas");
 
   // Qué tipos de ticket vende cada evento: es lo que permite encadenar ese
   // filtro en las dos direcciones sin volver al servidor.
   const tiposIdx = useMemo(() => buildTiposIndex(tipoTicketMap), [tipoTicketMap]);
+  const facetas = useMemo(() => facetasCurvas(tiposIdx), [tiposIdx]);
+  // Ítems de las facetas: solo eventos con tickets bajo los filtros de fila
+  // (ver eventosConTickets). Etiquetas y orden salen de todos los eventos.
+  const items = useMemo(() => eventosConTickets(events, tiposIdx), [events, tiposIdx]);
 
   const labelEvento = useMemo(() => {
     const m = new Map<string, string>();
@@ -124,89 +140,77 @@ export default function CurvasFilters({
     return m;
   }, [events]);
 
-  /** Universo completo por faceta: sirve para colapsar "todos" a param ausente. */
+  /** Universo de cada faceta de evento, en orden alfabético de su etiqueta. */
   const universo = useMemo(() => {
-    const byField = {} as Record<FacetField, Set<string>>;
+    const out: Record<string, string[]> = {};
     for (const f of FACETS) {
-      byField[f.field] = new Set(events.map((e) => e[f.field]).filter(Boolean));
+      const label = (v: string) =>
+        f.field === "eventoId" ? (labelEvento.get(v) ?? v) : v;
+      const values = new Set<string>();
+      for (const e of events) if (e[f.field]) values.add(e[f.field]);
+      out[f.param] = [...values].sort((a, b) => label(a).localeCompare(label(b), "es-CL"));
     }
-    return { byField, tipos: tiposIdx.universo };
-  }, [events, tiposIdx]);
+    return out;
+  }, [events, labelEvento]);
 
-  /** Selección vigente, leída de la URL. */
-  const sel = useMemo<Estado>(() => {
+  /** Selección vigente por param, leída de la URL. Vacía = "Todos". */
+  const sel = useMemo(() => {
     const sp = new URLSearchParams(search);
-    const parse = (param: string): Sel => {
-      const v = sp.getAll(param);
-      if (v.length === 0) return null;
-      if (v.length === 1 && v[0] === NONE) return new Set<string>();
-      return new Set(v);
-    };
-    const byField = {} as Record<FacetField, Sel>;
-    for (const f of FACETS) byField[f.field] = parse(f.param);
-    return { byField, tipos: parse(TIPO_PARAM) };
+    const out: Record<string, Set<string>> = {};
+    for (const f of FACETS) out[f.param] = leerSeleccion(sp, f.param);
+    out[TIPO_PARAM] = leerSeleccion(sp, TIPO_PARAM);
+    return out;
   }, [search]);
 
-  /** Valores compatibles por faceta, dado el resto de la selección. */
-  const compatibles = useMemo(
-    () => compatiblesDe(events, sel, tiposIdx),
-    [events, sel, tiposIdx],
+  /** Valores compatibles de cada faceta con lo elegido en las otras. */
+  const disp = useMemo(() => disponibles(items, facetas, sel), [items, facetas, sel]);
+
+  /** Tickets de cada tipo sobre los eventos compatibles con las otras facetas. */
+  const volTipos = useMemo(
+    () => volumenTipos(items, facetas, sel, tiposIdx),
+    [items, facetas, sel, tiposIdx],
   );
 
   /**
-   * Opciones que se muestran: solo las compatibles. Se suman las que estén
-   * seleccionadas pero ya no sean compatibles (puede pasar al abrir una URL
-   * compartida): quedan visibles y atenuadas para poder destildarlas.
+   * Opciones de cada dropdown: las compatibles con los otros filtros más las
+   * ya seleccionadas, aunque hayan quedado incompatibles (se ven atenuadas vía
+   * `available` y se pueden desmarcar).
    */
-  const optionsByField = useMemo(() => {
-    const m = {} as Record<FacetField, { value: string; label: string }[]>;
+  const optionsByParam = useMemo(() => {
+    const m: Record<string, StandardFilterOption[]> = {};
     for (const f of FACETS) {
-      const values = new Set(compatibles.byField[f.field]);
-      const s = sel.byField[f.field];
-      if (s) for (const v of s) values.add(v);
-      m[f.field] = [...values]
-        .filter(Boolean)
-        .map((v) => ({
+      m[f.param] = opcionesVisibles(universo[f.param], disp[f.param], sel[f.param]).map(
+        (v) => ({
           value: v,
           label: f.field === "eventoId" ? (labelEvento.get(v) ?? v) : v,
-        }))
-        .sort((a, b) => a.label.localeCompare(b.label, "es"));
+        }),
+      );
     }
     return m;
-  }, [compatibles, sel, labelEvento]);
+  }, [universo, disp, sel, labelEvento]);
 
-  const tipoOptions = useMemo(() => {
-    const counts = new Map(compatibles.tipos);
-    if (sel.tipos) for (const t of sel.tipos) if (!counts.has(t)) counts.set(t, 0);
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "es"))
-      .map(([t, n]) => ({
-        value: t,
-        label: n > 0 ? `${t} · ${n.toLocaleString("es-CL")}` : t,
-      }));
-  }, [compatibles, sel]);
-
-  /** Set que recibe el componente: sin restricción = todas las visibles. */
-  const selectedFor = (visibles: string[], s: Sel): Set<string> =>
-    s === null ? new Set(visibles) : s;
-
-  // Categoría 3 solo tiene contenido real en las familias que numeran sus
-  // ediciones (Piknic, After Piknic, Maxi). En el resto vale 'Otro', así que la
-  // faceta se muestra solo si hay al menos una edición distinta de 'Otro'.
-  const cat3Util = useMemo(
-    () =>
-      [...compatibles.byField.categoriaEvento3].some(
-        (v) => v && v.toLowerCase() !== "otro",
-      ),
-    [compatibles],
-  );
-
-  function push(params: URLSearchParams) {
-    const qs = params.toString();
-    router.push(qs ? `/marketing/curvas?${qs}` : "/marketing/curvas", {
-      scroll: false,
+  // Tipo de ticket va por volumen desc (desempate alfabético). Lo seleccionado
+  // sin volumen con las otras facetas queda al final y sin número.
+  const tipoOptions = useMemo<StandardFilterOption[]>(() => {
+    const vol = (t: string) => volTipos.get(t) ?? 0;
+    const todos = [...tiposIdx.universo].sort(
+      (a, b) => vol(b) - vol(a) || a.localeCompare(b, "es-CL"),
+    );
+    return opcionesVisibles(todos, disp[TIPO_PARAM], sel[TIPO_PARAM]).map((t) => {
+      const n = vol(t);
+      return { value: t, label: t, meta: n > 0 ? n.toLocaleString("es-CL") : undefined };
     });
-  }
+  }, [tiposIdx, volTipos, disp, sel]);
+
+  /** Facetas que chocan cuando la combinación no deja ningún evento. */
+  const conflictos = useMemo(
+    () =>
+      enConflicto(items, facetas, sel).map((key) => ({
+        key,
+        label: LABEL_POR_PARAM[key] ?? key,
+      })),
+    [items, facetas, sel],
+  );
 
   /** Escribe params que NO son facetas (los toggles). */
   function commit(patch: Record<string, string | string[] | null>) {
@@ -218,51 +222,24 @@ export default function CurvasFilters({
         else params.set(key, value);
       }
     }
-    push(params);
+    push(params.toString());
   }
 
-  function onFacetChange(param: string, field: FacetField | "tipos") {
-    return (_name: string, next: Set<string>) => {
-      const visibles =
-        field === "tipos"
-          ? tipoOptions.map((o) => o.value)
-          : optionsByField[field].map((o) => o.value);
-      // "Todas las visibles" = sin restricción, para no arrastrar en la URL una
-      // lista que quedaría congelada al mover las otras facetas.
-      const cubreTodo =
-        next.size === visibles.length && visibles.every((v) => next.has(v));
-      const value: Sel = next.size === 0 ? new Set<string>() : cubreTodo ? null : next;
-
-      const base: Estado = { byField: { ...sel.byField }, tipos: sel.tipos };
-      if (field === "tipos") base.tipos = value;
-      else base.byField[field] = value;
-
-      const purgado = purgarSelecciones(events, base, param, tiposIdx);
-
-      const params = new URLSearchParams(search);
-      const write = (p: string, s: Sel, todo: Set<string>) => {
-        params.delete(p);
-        if (s === null) return;
-        if (s.size === 0) {
-          params.append(p, NONE);
-          return;
-        }
-        if (s.size === todo.size) return; // cubre el universo entero
-        for (const v of s) params.append(p, v);
-      };
-      for (const f of FACETS) {
-        write(f.param, purgado.byField[f.field], universo.byField[f.field]);
-      }
-      write(TIPO_PARAM, purgado.tipos, universo.tipos);
-      push(params);
-    };
+  /**
+   * Escribe SOLO la selección de esta faceta (vacía = borra el param). Las
+   * otras facetas no se tocan aunque queden incompatibles: el encadenamiento
+   * acota opciones, no selecciones. Marcar el universo entero de la faceta se
+   * guarda como "Todos" (normalizarSeleccion).
+   */
+  function setFaceta(param: string, next: Iterable<string>) {
+    const todo = param === TIPO_PARAM ? tiposIdx.universo : universo[param];
+    push(reemplazarSeleccion(search, param, normalizarSeleccion(next, todo)));
   }
 
-  const anyFacetActive =
-    FACETS.some((f) => sel.byField[f.field] !== null) || sel.tipos !== null;
+  const anyFacetActive = Object.values(sel).some((s) => s.size > 0);
   const hasActiveFilters =
     anyFacetActive ||
-    country !== "all" ||
+    (!countryLocked && country !== "all") ||
     comunidad !== "todos" ||
     incluirDevueltos ||
     incluirCortesias ||
@@ -277,38 +254,48 @@ export default function CurvasFilters({
       {/* Fila 1: universo de eventos (facetas encadenadas) + tipo de ticket */}
       <div className="flex flex-wrap items-end gap-3">
         {FACETS.map((f) => {
-          if (f.field === "categoriaEvento3" && !cat3Util) return null;
-          const options = optionsByField[f.field];
-          if (options.length === 0) return null;
+          const options = optionsByParam[f.param];
+          const selected = sel[f.param];
+          // Una faceta con selección nunca se oculta: hay que poder limpiarla.
+          if (selected.size === 0) {
+            if (options.length === 0) return null;
+            // Categoría 3 solo tiene contenido real en las familias que numeran
+            // sus ediciones (Piknic, After Piknic, Maxi); en el resto vale
+            // 'Otro'. Se muestra si alguna edición compatible no es 'Otro'.
+            if (
+              f.field === "categoriaEvento3" &&
+              ![...disp[f.param]].some((v) => v.toLowerCase() !== "otro")
+            ) {
+              return null;
+            }
+          }
           return (
-            <MultiSelectFilter
+            <StandardMultiFilter
               key={f.param}
-              name={f.param}
               label={f.label}
               options={options}
-              available={compatibles.byField[f.field]}
-              selected={selectedFor(
-                options.map((o) => o.value),
-                sel.byField[f.field],
-              )}
-              onChange={onFacetChange(f.param, f.field)}
+              available={disp[f.param]}
+              selected={selected}
+              onChange={(next) => setFaceta(f.param, next)}
+              allLabel={f.field === "eventoId" ? "Todos" : "Todas"}
             />
           );
         })}
-        {tipoOptions.length > 0 && (
-          <MultiSelectFilter
-            name={TIPO_PARAM}
-            label="Tipo de ticket"
+        {(tipoOptions.length > 0 || sel[TIPO_PARAM].size > 0) && (
+          <StandardMultiFilter
+            label={TIPO_LABEL}
             options={tipoOptions}
-            available={new Set(compatibles.tipos.keys())}
-            selected={selectedFor(
-              tipoOptions.map((o) => o.value),
-              sel.tipos,
-            )}
-            onChange={onFacetChange(TIPO_PARAM, "tipos")}
+            available={disp[TIPO_PARAM]}
+            selected={sel[TIPO_PARAM]}
+            onChange={(next) => setFaceta(TIPO_PARAM, next)}
           />
         )}
       </div>
+
+      <FilterConflictNotice
+        conflicts={conflictos}
+        onClear={(key) => setFaceta(key, [])}
+      />
 
       {/* Fila 2: qué se cuenta */}
       <div className="flex flex-wrap items-end gap-3">
@@ -407,7 +394,7 @@ export default function CurvasFilters({
         {hasActiveFilters && (
           <button
             type="button"
-            onClick={() => router.push("/marketing/curvas", { scroll: false })}
+            onClick={() => push("")}
             className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 font-sans text-sm text-[#666666] transition-colors hover:bg-[#FAFAFA] hover:text-[#333333]"
           >
             <X className="h-3.5 w-3.5" />

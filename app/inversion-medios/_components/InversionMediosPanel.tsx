@@ -284,6 +284,13 @@ export default function InversionMediosPanel({
     // Solo la URL (compartible) — sin ida al servidor: el filtro es de cliente.
     setQueryParam("pais", p || null);
   }, []);
+  // País elegido sin eventos en el rango cargado (p. ej. un link con ?pais=PE
+  // abierto cuando los eventos de Perú ya salieron del rango por defecto). La
+  // selección se conserva (regla de filtros: el encadenamiento acota opciones,
+  // nunca selecciones): su opción sigue visible, atenuada, y un aviso ofrece
+  // limpiarla.
+  const paisSinEventos = pais !== "" && !paises.includes(pais);
+  const opcionesPais = paisSinEventos ? [...paises, pais] : paises;
   // Toggle "sumar cargos extra" al total diario y semanal (`?cargos=1`). Los
   // cargos son de compañía, sin país: con un país elegido no se suman.
   const [conCargos, setConCargos] = useState(cargosInicial);
@@ -964,27 +971,35 @@ export default function InversionMediosPanel({
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
-          {/* Filtro de país (solo si el rango cargado tiene más de uno) */}
-          {paises.length > 1 && (
+          {/* Filtro de país: si el rango cargado tiene algún país, o si hay
+              uno elegido (un filtro con selección nunca se oculta). Con un
+              solo país, elegirlo no es lo mismo que "Todos": saca el no
+              atribuido, las iniciativas y los cargos. Que se vea no depende
+              de la selección, así "Todos" no lo desmonta bajo el cursor. */}
+          {(paises.length > 0 || pais !== "") && (
             <div
               className="flex overflow-hidden rounded-lg border border-[var(--divider)] bg-[var(--surface)] font-sans text-sm"
               role="group"
               aria-label="Filtrar por país"
             >
-              {(["", ...paises] as string[]).map((k) => (
-                <button
-                  key={k || "todos"}
-                  onClick={() => elegirPais(k)}
-                  aria-pressed={pais === k}
-                  className={`px-3 py-2 transition-colors ${
-                    pais === k
-                      ? "bg-[var(--purple-tint)] font-medium text-[#9F99F8]"
-                      : "text-[var(--ink-muted)] hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
-                  }`}
-                >
-                  {k ? (PAIS_LABEL[k] ?? k) : "Todos"}
-                </button>
-              ))}
+              {(["", ...opcionesPais] as string[]).map((k) => {
+                const sinEventos = k !== "" && !paises.includes(k);
+                return (
+                  <button
+                    key={k || "todos"}
+                    onClick={() => elegirPais(k)}
+                    aria-pressed={pais === k}
+                    title={sinEventos ? "Sin eventos de este país en el rango cargado" : undefined}
+                    className={`px-3 py-2 transition-colors ${
+                      pais === k
+                        ? "bg-[var(--purple-tint)] font-medium text-[#9F99F8]"
+                        : "text-[var(--ink-muted)] hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
+                    } ${sinEventos ? "opacity-50" : ""}`}
+                  >
+                    {k ? (PAIS_LABEL[k] ?? k) : "Todos"}
+                  </button>
+                );
+              })}
             </div>
           )}
           {/* Switch resumen ↔ por canal */}
@@ -1016,6 +1031,31 @@ export default function InversionMediosPanel({
           </button>
         </div>
       </header>
+
+      {/* El país elegido no tiene eventos en el rango cargado: KPIs y grilla
+          quedan vacíos por el filtro, no por falta de datos. Mismo aspecto que
+          FilterConflictNotice, pero con el motivo real: País no choca con otro
+          filtro sino con el rango cargado, y "Campañas activas" (que no sigue
+          el rango) sí puede listar campañas de ese país. */}
+      {paisSinEventos && (
+        <div
+          role="status"
+          className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 py-2"
+        >
+          <span className="inline-flex items-center gap-2 font-sans text-sm text-[var(--ink)]">
+            <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#EF8C34]" />
+            Sin eventos de {PAIS_LABEL[pais] ?? pais} en el rango cargado ({rangoCargadoLabel}).
+          </span>
+          <button
+            type="button"
+            onClick={() => elegirPais("")}
+            className="inline-flex items-center gap-1 rounded-lg px-2 py-1 font-sans text-sm text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
+          >
+            <X className="h-3.5 w-3.5" />
+            Limpiar País
+          </button>
+        </div>
+      )}
 
       {/* Resumen del tramo visible: KPIs globales o desglose por canal */}
       {modo === "resumen" ? (
@@ -1195,7 +1235,11 @@ export default function InversionMediosPanel({
               {visibleIds.size === 0 && (
                 <tr>
                   <td className="sticky left-0 z-10 border-t border-r border-[var(--divider)] bg-[var(--surface)] px-4 py-8 text-sm text-[var(--ink-subtle)]">
-                    Sin eventos con presupuesto o gasto en este tramo
+                    {paisSinEventos
+                      ? `Sin eventos de ${PAIS_LABEL[pais] ?? pais} en el rango cargado`
+                      : pais
+                        ? `Sin eventos de ${PAIS_LABEL[pais] ?? pais} con presupuesto o gasto en este tramo`
+                        : "Sin eventos con presupuesto o gasto en este tramo"}
                   </td>
                   <td colSpan={dias.length} className="border-t border-[var(--divider)]" />
                 </tr>

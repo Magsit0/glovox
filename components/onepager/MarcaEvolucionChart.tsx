@@ -22,7 +22,14 @@ import {
   SURFACE,
 } from "@/lib/chart-colors";
 import { ChartTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
-import MultiFilter from "./MultiFilter";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import FilterConflictNotice from "@/components/filters/FilterConflictNotice";
+import {
+  disponibles,
+  enConflicto,
+  opcionesVisibles,
+  type Faceta,
+} from "@/lib/filters/facetas";
 
 type Props = {
   /** Eventos en pantalla (ya acotados por los filtros de la vista global). */
@@ -43,6 +50,10 @@ type Metric = "neto" | "bruto";
 
 // Clave de la serie "agregada" cuando no hay marca seleccionada.
 const ALL_KEY = "__todas__";
+// Key de la faceta Marca (lib/filters/facetas).
+const MARCA_KEY = "marca";
+
+const porNombre = (a: string, b: string) => a.localeCompare(b, "es-CL");
 
 function fmtClp(value: number) {
   return "$" + Math.round(value).toLocaleString("es-CL");
@@ -100,52 +111,72 @@ export default function MarcaEvolucionChart({
     return m;
   }, [clientes]);
 
-  // Opciones del filtro: solo marcas con imputación en los eventos en scope.
-  const marcaOpts = useMemo(() => {
-    const ids = new Set(scopedMatrix.map((c) => c.clienteId));
-    const nombres: string[] = [];
-    for (const id of ids) {
-      const n = nombreById.get(id);
-      if (n) nombres.push(n);
-    }
-    return nombres.sort((a, b) => a.localeCompare(b, "es-CL"));
-  }, [scopedMatrix, nombreById]);
+  // Faceta Marca sobre las imputaciones en scope. El scope (Categoría/Grupo del
+  // listado) acota las OPCIONES, nunca la selección: `marcas` se usa cruda en
+  // todo el componente y solo la escriben el dropdown y "Limpiar".
+  const facetas = useMemo<Faceta<MarcaMatrixCell>[]>(
+    () => [{ key: MARCA_KEY, valores: (c) => nombreById.get(c.clienteId) ?? null }],
+    [nombreById],
+  );
+  const selecciones = useMemo(() => ({ [MARCA_KEY]: marcas }), [marcas]);
 
-  // Descarta marcas elegidas que ya no están disponibles (sin perder el estado
-  // crudo de `marcas`).
-  const effectiveMarcas = useMemo(() => {
-    if (marcas.size === 0) return marcas;
-    const valid = new Set(marcaOpts);
-    const next = new Set<string>();
-    for (const m of marcas) if (valid.has(m)) next.add(m);
-    return next;
-  }, [marcas, marcaOpts]);
+  // Marcas con imputación en los eventos en pantalla.
+  const conDatos = useMemo(
+    () => disponibles(scopedMatrix, facetas, {})[MARCA_KEY],
+    [scopedMatrix, facetas],
+  );
 
-  // Series (líneas): una por marca seleccionada (key = clienteId), o una
-  // agregada si no hay ninguna marcada.
+  // Opciones del dropdown: las marcas con datos en scope + las ya elegidas
+  // (atenuadas vía `available` si quedaron sin datos), en orden alfabético.
+  const todasLasMarcas = useMemo(
+    () => clientes.map((c) => c.nombre).sort(porNombre),
+    [clientes],
+  );
+  const marcaItems = useMemo(
+    () =>
+      opcionesVisibles(todasLasMarcas, conDatos, marcas).map((v) => ({
+        value: v,
+        label: v,
+      })),
+    [todasLasMarcas, conDatos, marcas],
+  );
+
+  // Selección cruda ordenada, y las elegidas sin imputación en scope (se
+  // conservan, pero no se grafican y se avisa debajo del filtro).
+  const elegidas = useMemo(() => Array.from(marcas).sort(porNombre), [marcas]);
+  const sinDatos = useMemo(
+    () => elegidas.filter((n) => !conDatos.has(n)),
+    [elegidas, conDatos],
+  );
+
+  // Ninguna marca elegida tiene datos en scope: aviso en vez de caer en
+  // silencio a la serie agregada. Sin imputaciones en los eventos en pantalla
+  // no hay choque que reportar (limpiar la marca no traería datos): ahí aplica
+  // el mensaje de vacío, igual que en FfbbConsumoChart.
+  const conflicts = useMemo(
+    () =>
+      scopedMatrix.length === 0
+        ? []
+        : enConflicto(scopedMatrix, facetas, selecciones).map((key) => ({
+            key,
+            label: filterLabel,
+          })),
+    [scopedMatrix, facetas, selecciones, filterLabel],
+  );
+
+  // Series (líneas): una por marca elegida CON datos en scope (key =
+  // clienteId), o una agregada si no hay ninguna marcada. El color sale de la
+  // posición en la selección, así no cambia cuando otra elegida queda sin datos.
   const series = useMemo<{ key: string; label: string; color: string }[]>(() => {
-    if (effectiveMarcas.size === 0) {
+    if (marcas.size === 0) {
       return [{ key: ALL_KEY, label: aggLabel, color: seriesColor(0) }];
     }
-    const nombres = Array.from(effectiveMarcas).sort((a, b) =>
-      a.localeCompare(b, "es-CL"),
-    );
-    return nombres.map((nombre, i) => ({
-      key: idByNombre.get(nombre) ?? nombre,
-      label: nombre,
-      color: seriesColor(i),
-    }));
-  }, [effectiveMarcas, idByNombre, aggLabel]);
-
-  // clienteIds seleccionados, para lookup rápido al acumular.
-  const selectedIds = useMemo(() => {
-    const s = new Set<string>();
-    for (const nombre of effectiveMarcas) {
+    return elegidas.flatMap((nombre, i) => {
       const id = idByNombre.get(nombre);
-      if (id) s.add(id);
-    }
-    return s;
-  }, [effectiveMarcas, idByNombre]);
+      if (!id || !conDatos.has(nombre)) return [];
+      return [{ key: id, label: nombre, color: seriesColor(i) }];
+    });
+  }, [marcas, elegidas, conDatos, idByNombre, aggLabel]);
 
   // Índice de netos por evento → marca, para acumular en una sola pasada.
   const byEvento = useMemo(() => {
@@ -170,19 +201,19 @@ export default function MarcaEvolucionChart({
         fecha: ev.fecha,
       };
       const inner = byEvento.get(ev.eventoId);
-      if (effectiveMarcas.size === 0) {
+      if (marcas.size === 0) {
         let sumNeto = 0;
         if (inner) for (const v of inner.values()) sumNeto += v;
         point[ALL_KEY] = metric === "bruto" ? netoToBruto(sumNeto) : sumNeto;
       } else {
-        for (const id of selectedIds) {
-          const neto = inner?.get(id) ?? 0;
-          point[id] = metric === "bruto" ? netoToBruto(neto) : neto;
+        for (const s of series) {
+          const neto = inner?.get(s.key) ?? 0;
+          point[s.key] = metric === "bruto" ? netoToBruto(neto) : neto;
         }
       }
       return point;
     });
-  }, [events, byEvento, effectiveMarcas, selectedIds, metric]);
+  }, [events, byEvento, marcas, series, metric]);
 
   // ¿Hay algún valor no nulo/no cero para mostrar?
   const hasValues = useMemo(
@@ -196,17 +227,18 @@ export default function MarcaEvolucionChart({
     [chartData, series],
   );
 
-  const hasActiveFilter = effectiveMarcas.size > 0;
+  const hasActiveFilter = marcas.size > 0;
 
   return (
     <div className="space-y-4">
       {/* Toolbar: filtro de marca + métrica neto/bruto */}
       <div className="flex flex-wrap items-end gap-3">
-        <MultiFilter
+        <StandardMultiFilter
           label={filterLabel}
-          selected={effectiveMarcas}
+          selected={marcas}
           onChange={setMarcas}
-          options={marcaOpts}
+          options={marcaItems}
+          available={conDatos}
           searchPlaceholder="Buscar marca…"
         />
         {hasActiveFilter && (
@@ -253,10 +285,25 @@ export default function MarcaEvolucionChart({
         </div>
       </div>
 
+      {events.length > 0 && conflicts.length === 0 && sinDatos.length > 0 && (
+        <p
+          role="status"
+          className="flex items-center gap-2 font-sans text-xs text-[var(--ink-muted)]"
+        >
+          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#EF8C34]" />
+          Sin ingresos en los eventos en pantalla (no se grafican): {sinDatos.join(", ")}.
+        </p>
+      )}
+
       {events.length === 0 ? (
         <p className="font-sans text-sm text-[#999999]">
           No hay eventos en la vista actual.
         </p>
+      ) : conflicts.length > 0 ? (
+        <FilterConflictNotice
+          conflicts={conflicts}
+          onClear={() => setMarcas(new Set())}
+        />
       ) : !hasValues ? (
         <p className="font-sans text-sm text-[#999999]">{emptyLabel}</p>
       ) : (

@@ -11,6 +11,7 @@ import {
   getTicketingKpis,
   getTicketingPrecioMatriz,
   type ClaseVenta,
+  type TicketingEventOption,
   type TicketingEvolucionRow,
   type TicketingFilters,
 } from "@/lib/queries/ticketing";
@@ -26,6 +27,7 @@ import GlobalAnalysisSection from "@/components/ticketing/GlobalAnalysisSection"
 import DemandaSection from "@/components/ticketing/DemandaSection";
 import type { DemandaGranularidad } from "@/lib/queries/ticketing";
 import type { ProyeccionMetodo } from "@/lib/ticketing/demanda-forecast";
+import { valoresDeParam } from "@/lib/filters/url";
 
 export const dynamic = "force-dynamic";
 
@@ -144,7 +146,10 @@ export default async function TicketingPage({ searchParams }: PageProps) {
   }
 
   // Tab Análisis global: tabla general de eventos (no requiere las queries
-  // pesadas del análisis por evento).
+  // pesadas del análisis por evento). Los filtros multi-selección de este tab y
+  // del de Demanda pasan por `valoresDeParam`: `[]` = "Todos", y el centinela
+  // viejo `__none__` de links guardados se descarta (antes llegaba a BigQuery
+  // como `IN UNNEST(['__none__'])` y vaciaba el resultado).
   if (tab === "global") {
     return (
       <Shell>
@@ -153,9 +158,9 @@ export default async function TicketingPage({ searchParams }: PageProps) {
         <GlobalAnalysisSection
           country={country}
           countryLocked={countryLocked}
-          categoriaEventos={toArray(params.categorias)}
-          eventoIds={toArray(params.eventos)}
-          productos={toArray(params.productos)}
+          categoriaEventos={valoresDeParam(params.categorias)}
+          eventoIds={valoresDeParam(params.eventos)}
+          productos={valoresDeParam(params.productos)}
         />
       </Shell>
     );
@@ -170,11 +175,11 @@ export default async function TicketingPage({ searchParams }: PageProps) {
         <DemandaSection
           country={country}
           countryLocked={countryLocked}
-          categoriaEventos={toArray(params.categorias)}
-          categoriaEventos2={toArray(params.categorias2)}
-          categoriaEventos3={toArray(params.categorias3)}
-          temporadas={toArray(params.temporadas)}
-          eventoIds={toArray(params.eventos)}
+          categoriaEventos={valoresDeParam(params.categorias)}
+          categoriaEventos2={valoresDeParam(params.categorias2)}
+          categoriaEventos3={valoresDeParam(params.categorias3)}
+          temporadas={valoresDeParam(params.temporadas)}
+          eventoIds={valoresDeParam(params.eventos)}
           granularidad={parseGranularidad(params.granularidad)}
           metrica={parseMetrica(params.metrica)}
           proyeccion={parseProyeccion(params.proyeccion)}
@@ -206,16 +211,24 @@ export default async function TicketingPage({ searchParams }: PageProps) {
     events = await getTicketingEventOptions(country);
 
     // Default = último evento ocurrido (la fecha más reciente que ya pasó),
-    // dentro de la categoría seleccionada si la hay.
+    // dentro de la categoría y del rango Desde/Hasta si los hay. Se deriva de
+    // los otros filtros; no escribe nada en la URL. `fechaEvento` es el
+    // MAX(FechaEvento) del catálogo, el mismo campo que filtra baseCte, así
+    // que un evento con esa fecha dentro del rango tiene tickets en él. Si
+    // ninguno cae en el rango, se usa el de la categoría (TicketingFilters
+    // avisa cuando su fecha es anterior a Desde).
     const selectedCategorias = new Set(baseFilters.categoriaEventos ?? []);
     const scopedEvents = selectedCategorias.size
       ? events.filter((e) => selectedCategorias.has(e.categoriaEvento))
       : events;
-    const today = new Date().toISOString().slice(0, 10);
-    const pastEvents = scopedEvents.filter(
-      (e) => e.fechaEvento && e.fechaEvento <= today,
+    const { from, to } = baseFilters;
+    const enRango = scopedEvents.filter(
+      (e) => (!from || e.fechaEvento >= from) && (!to || e.fechaEvento <= to),
     );
-    defaultEventId = pastEvents[0]?.eventoId ?? scopedEvents[0]?.eventoId;
+    const today = new Date().toISOString().slice(0, 10);
+    const ultimoOcurrido = (lista: TicketingEventOption[]) =>
+      (lista.find((e) => e.fechaEvento && e.fechaEvento <= today) ?? lista[0])?.eventoId;
+    defaultEventId = ultimoOcurrido(enRango) ?? ultimoOcurrido(scopedEvents);
 
     isAll = params.event === "all";
     selectedEventId = isAll ? undefined : params.event || defaultEventId;
@@ -285,13 +298,10 @@ export default async function TicketingPage({ searchParams }: PageProps) {
       <TicketingFilters_
         events={events}
         eventoId={isAll ? "all" : (selectedEventId ?? "")}
-        defaultEventId={defaultEventId ?? ""}
-        categoriaEventos={baseFilters.categoriaEventos ?? []}
         country={country}
         countryLocked={countryLocked}
         from={baseFilters.from ?? ""}
         to={baseFilters.to ?? ""}
-        clases={baseFilters.clases ?? []}
         incluirDevueltos={baseFilters.incluirDevueltos}
       />
 

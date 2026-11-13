@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "@/lib/use-router";
+import { useQueryFiltros } from "@/components/filters/useQueryFiltros";
 import type { TrimestreOption } from "@/lib/queries/cierreTrimestral";
 
 interface Props {
@@ -8,12 +8,26 @@ interface Props {
   selectedId: string;
 }
 
+const PARAM = "trimestre";
+
 export default function TrimestreSelector({ options, selectedId }: Props) {
-  const router = useRouter();
+  // Query vigente (el último cambio pedido aunque la navegación no haya
+  // terminado), para que dos cambios seguidos se sumen.
+  const { search, navegar } = useQueryFiltros("/cierre-trimestral");
+
+  // Mientras el servidor responde se ve el trimestre pedido. Si la URL trae uno
+  // que no existe, o lo trae repetido (misma regla que page.tsx), manda el que
+  // resolvió el servidor (el más reciente).
+  const pedidos = new URLSearchParams(search).getAll(PARAM);
+  const pedido = pedidos.length === 1 ? pedidos[0] : null;
+  const value = pedido && options.some((o) => o.id === pedido) ? pedido : selectedId;
 
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const id = e.target.value;
-    router.push(`/cierre-trimestral?trimestre=${encodeURIComponent(id)}`);
+    // Regla única de filtros: escribe solo `trimestre`. Red social (`network`)
+    // y Montos (`monto`) quedan como estaban.
+    const params = new URLSearchParams(search);
+    params.set(PARAM, e.target.value);
+    navegar(params.toString());
   }
 
   return (
@@ -23,7 +37,7 @@ export default function TrimestreSelector({ options, selectedId }: Props) {
         aria-hidden="true"
       />
       <select
-        value={selectedId}
+        value={value}
         onChange={handleChange}
         className="appearance-none rounded-lg border border-[#E5E5E5] bg-white py-2 pl-7 pr-9 font-sans text-sm text-[#333333] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
         aria-label="Seleccionar trimestre"

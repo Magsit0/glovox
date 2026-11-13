@@ -1,22 +1,34 @@
 "use client";
 
-import { useRouter } from "@/lib/use-router";
+import { useQueryFiltros } from "@/components/filters/useQueryFiltros";
 
 interface Props {
   options: string[];
   selected: string;
-  trimestreId: string;
 }
 
-export default function RrssNetworkSelector({ options, selected, trimestreId }: Props) {
-  const router = useRouter();
+const PARAM = "network";
+
+export default function RrssNetworkSelector({ options, selected }: Props) {
+  // Query vigente (el último cambio pedido aunque la navegación no haya
+  // terminado), para que dos cambios seguidos se sumen.
+  const { search, navegar } = useQueryFiltros("/cierre-trimestral");
+
+  // Mientras el servidor responde se ve la red pedida. Si la URL trae una que
+  // no existe, o la trae repetida (misma regla que page.tsx), manda la que
+  // resolvió el servidor (instagram o la primera).
+  const pedidos = new URLSearchParams(search).getAll(PARAM);
+  const pedido = pedidos.length === 1 ? pedidos[0] : null;
+  const value = pedido && options.includes(pedido) ? pedido : selected;
 
   function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const network = e.target.value;
-    const params = new URLSearchParams();
-    params.set("trimestre", trimestreId);
-    params.set("network", network);
-    router.push(`/cierre-trimestral?${params.toString()}#rrss`);
+    // Regla única de filtros: escribe solo `network`. Trimestre y Montos
+    // (`monto`) quedan como estaban. Ya no hace falta el ancla `#rrss`:
+    // `navegar` no sube al inicio y, como solo cambian los searchParams, la
+    // página sigue a la vista mientras carga, así que no se pierde la sección.
+    const params = new URLSearchParams(search);
+    params.set(PARAM, e.target.value);
+    navegar(params.toString());
   }
 
   const labelFor = (v: string) => v.charAt(0).toUpperCase() + v.slice(1);
@@ -28,7 +40,7 @@ export default function RrssNetworkSelector({ options, selected, trimestreId }: 
         aria-hidden="true"
       />
       <select
-        value={selected}
+        value={value}
         onChange={handleChange}
         className="appearance-none rounded-lg border border-[#E5E5E5] bg-white py-2 pl-7 pr-9 font-sans text-sm text-[#333333] transition-colors hover:border-[#333333] focus:border-[#9F99F8] focus:outline-none focus:ring-1 focus:ring-[#9F99F8]"
         aria-label="Seleccionar red social"

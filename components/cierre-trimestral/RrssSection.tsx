@@ -8,7 +8,6 @@ interface Props {
   kpis: RrssKpis;
   networkOptions: string[];
   selectedNetwork: string;
-  trimestreId: string;
   trimestreLabel: string;
 }
 
@@ -59,7 +58,6 @@ export default function RrssSection({
   kpis,
   networkOptions,
   selectedNetwork,
-  trimestreId,
   trimestreLabel,
 }: Props) {
   const networkLabel = labelFor(selectedNetwork);
@@ -79,11 +77,7 @@ export default function RrssSection({
 
       <div className="flex flex-col gap-2">
         <p className="font-sans text-xs text-[#666666]">Red social</p>
-        <RrssNetworkSelector
-          options={networkOptions}
-          selected={selectedNetwork}
-          trimestreId={trimestreId}
-        />
+        <RrssNetworkSelector options={networkOptions} selected={selectedNetwork} />
       </div>
 
       {rows.length === 0 ? (

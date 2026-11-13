@@ -14,7 +14,16 @@ import {
 import type { OnepagerFfbbConsumoRow } from "@/lib/queries/onepager";
 import { axisTick, gridProps, legendProps, seriesColor, SURFACE } from "@/lib/chart-colors";
 import { ChartTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
-import MultiFilter from "./MultiFilter";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import FilterConflictNotice from "@/components/filters/FilterConflictNotice";
+import {
+  calza,
+  disponibles,
+  enConflicto,
+  opcionesVisibles,
+  type Faceta,
+} from "@/lib/filters/facetas";
+import { normalizarSeleccion } from "@/lib/filters/url";
 
 export type FfbbConsumoEvento = {
   eventoId: string;
@@ -35,6 +44,25 @@ type Metric = "venta" | "cantidad";
 // Clave de la serie "agregada" cuando no hay categoría seleccionada.
 const ALL_KEY = "__todas__";
 const ALL_LABEL = "FF&BB (todas)";
+
+// Facetas encadenadas (lib/filters/facetas.ts) sobre el consumo de los eventos
+// en pantalla. Categoría es el padre: acota las opciones de Producto, pero
+// elegir un producto no le esconde categorías (`ignora`), que además son las
+// series del gráfico. Ningún filtro modifica a otro, y cambiar los eventos en
+// pantalla (filtros del listado) tampoco toca estas selecciones.
+const FACETAS: Faceta<OnepagerFfbbConsumoRow>[] = [
+  { key: "categoria", valores: (r) => r.categoria, ignora: ["producto"] },
+  { key: "producto", valores: (r) => r.producto },
+];
+
+const FACETA_LABEL: Record<string, string> = {
+  categoria: "Categoría FF&BB",
+  producto: "Producto",
+};
+
+function toItems(values: readonly string[]) {
+  return values.map((v) => ({ value: v, label: v }));
+}
 
 function fmtClp(value: number) {
   return "$" + Math.round(value).toLocaleString("es-CL");
@@ -90,8 +118,9 @@ function unitLabel(metric: Metric, perCapita: boolean): string {
 }
 
 export default function FfbbConsumoChart({ events, consumo }: Props) {
-  const [categorias, setCategorias] = useState<Set<string>>(new Set());
-  const [productos, setProductos] = useState<Set<string>>(new Set());
+  // Selección cruda de cada filtro (vacía = "Todos").
+  const [categorias, setCategorias] = useState<Set<string>>(() => new Set());
+  const [productos, setProductos] = useState<Set<string>>(() => new Set());
   const [metric, setMetric] = useState<Metric>("venta");
   const [perCapita, setPerCapita] = useState(false);
 
@@ -105,31 +134,70 @@ export default function FfbbConsumoChart({ events, consumo }: Props) {
     [consumo, eventoIds],
   );
 
-  const categoriasOpts = useMemo(
+  const sel = useMemo(
+    () => ({ categoria: categorias, producto: productos }),
+    [categorias, productos],
+  );
+
+  // Universo de cada faceta en los eventos en pantalla.
+  const todasCategorias = useMemo(
     () => uniqueSorted(scopedConsumo.map((r) => r.categoria)),
     [scopedConsumo],
   );
+  const todosProductos = useMemo(
+    () => uniqueSorted(scopedConsumo.map((r) => r.producto)),
+    [scopedConsumo],
+  );
+  // Universo completo de Producto (todos los eventos, sin el scope del
+  // listado): contra este se normaliza la selección, porque el scope de
+  // eventos es otro filtro acotando y no puede decidir qué se guarda.
+  const universoProductos = useMemo(
+    () => uniqueSorted(consumo.map((r) => r.producto)),
+    [consumo],
+  );
 
-  // Productos acotados a las categorías seleccionadas (cascada).
-  const productosOpts = useMemo(() => {
-    const set = new Set<string>();
-    for (const r of scopedConsumo) {
-      if (categorias.size === 0 || categorias.has(r.categoria)) {
-        if (r.producto) set.add(r.producto);
-      }
-    }
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "es-CL"));
-  }, [scopedConsumo, categorias]);
+  // Opciones de cada dropdown: lo compatible con el otro filtro + lo ya
+  // elegido. Lo elegido que no calza (otra categoría, o fuera de los eventos
+  // en pantalla) sigue a la vista, atenuado (`available`), para poder
+  // desmarcarlo; nunca se descarta solo.
+  const disp = useMemo(
+    () => disponibles(scopedConsumo, FACETAS, sel),
+    [scopedConsumo, sel],
+  );
+  const categoriasItems = useMemo(
+    () => toItems(opcionesVisibles(todasCategorias, disp.categoria, categorias)),
+    [todasCategorias, disp, categorias],
+  );
+  const productosItems = useMemo(
+    () => toItems(opcionesVisibles(todosProductos, disp.producto, productos)),
+    [todosProductos, disp, productos],
+  );
 
-  // Descarta productos elegidos que ya no están disponibles (sin perder el
-  // estado crudo de `productos`).
-  const effectiveProductos = useMemo(() => {
-    if (productos.size === 0) return productos;
-    const valid = new Set(productosOpts);
-    const next = new Set<string>();
-    for (const p of productos) if (valid.has(p)) next.add(p);
-    return next;
-  }, [productos, productosOpts]);
+  // Filtros que chocan entre sí cuando la combinación no deja consumo. Sin
+  // consumo en los eventos en pantalla no hay choque que reportar: ahí aplica
+  // el mensaje de vacío de siempre.
+  const conflictos = useMemo(
+    () =>
+      scopedConsumo.length === 0
+        ? []
+        : enConflicto(scopedConsumo, FACETAS, sel).map((key) => ({
+            key,
+            label: FACETA_LABEL[key] ?? key,
+          })),
+    [scopedConsumo, sel],
+  );
+
+  // Cada filtro escribe solo su propio estado. En Producto, marcar todo su
+  // universo se guarda como "Todos" (normalizarSeleccion). En Categoría no:
+  // además de filtrar, decide las series (una línea por categoría marcada vs.
+  // una sola agregada), así que "todas marcadas" no es lo mismo que "Todos".
+  function cambiarProductos(next: Set<string>) {
+    setProductos(new Set(normalizarSeleccion(next, universoProductos)));
+  }
+  function limpiarFaceta(key: string) {
+    if (key === "categoria") setCategorias(new Set());
+    else if (key === "producto") setProductos(new Set());
+  }
 
   // Series (líneas): una por categoría seleccionada, o una agregada si no hay
   // ninguna categoría marcada.
@@ -167,14 +235,13 @@ export default function FfbbConsumoChart({ events, consumo }: Props) {
       const rows = byEvento.get(ev.eventoId) ?? [];
       const sums = new Map<string, number>();
       for (const r of rows) {
-        if (effectiveProductos.size > 0 && !effectiveProductos.has(r.producto))
-          continue;
+        // Selección cruda de los dos filtros: un producto que no calza con la
+        // categoría deja la serie en cero (y el aviso de conflicto), no la
+        // amplía a "Todos".
+        if (!calza(r, FACETAS, sel)) continue;
         const val = metric === "venta" ? r.venta : r.qtty;
-        if (categorias.size === 0) {
-          sums.set(ALL_KEY, (sums.get(ALL_KEY) ?? 0) + val);
-        } else if (categorias.has(r.categoria)) {
-          sums.set(r.categoria, (sums.get(r.categoria) ?? 0) + val);
-        }
+        const key = categorias.size === 0 ? ALL_KEY : r.categoria;
+        sums.set(key, (sums.get(key) ?? 0) + val);
       }
       for (const sKey of series) {
         const raw = sums.get(sKey.key) ?? 0;
@@ -187,7 +254,7 @@ export default function FfbbConsumoChart({ events, consumo }: Props) {
       }
       return point;
     });
-  }, [events, byEvento, series, categorias, effectiveProductos, metric, perCapita]);
+  }, [events, byEvento, series, categorias, sel, metric, perCapita]);
 
   // ¿Hay algún valor no nulo/no cero para mostrar?
   const hasValues = useMemo(
@@ -201,26 +268,30 @@ export default function FfbbConsumoChart({ events, consumo }: Props) {
     [chartData, series],
   );
 
-  const hasActiveFilter = categorias.size > 0 || effectiveProductos.size > 0;
+  const hasActiveFilter = categorias.size > 0 || productos.size > 0;
 
   return (
     <div className="space-y-4">
       {/* Toolbar: filtros + métrica + per cápita */}
       <div className="flex flex-wrap items-end gap-3">
-        <MultiFilter
-          label="Categoría FF&BB"
+        <StandardMultiFilter
+          label={FACETA_LABEL.categoria}
           selected={categorias}
           onChange={setCategorias}
-          options={categoriasOpts}
+          options={categoriasItems}
+          available={disp.categoria}
           searchPlaceholder="Buscar categoría…"
         />
-        <MultiFilter
-          label="Producto"
-          selected={effectiveProductos}
-          onChange={setProductos}
-          options={productosOpts}
+        <StandardMultiFilter
+          label={FACETA_LABEL.producto}
+          selected={productos}
+          onChange={cambiarProductos}
+          options={productosItems}
+          available={disp.producto}
           searchPlaceholder="Buscar producto…"
         />
+        {/* Único control que toca los dos filtros: vuelve al estado por
+            defecto (todo en "Todos"). */}
         {hasActiveFilter && (
           <button
             type="button"
@@ -295,6 +366,8 @@ export default function FfbbConsumoChart({ events, consumo }: Props) {
         <p className="font-sans text-sm text-[#999999]">
           No hay eventos en la vista actual.
         </p>
+      ) : conflictos.length > 0 ? (
+        <FilterConflictNotice conflicts={conflictos} onClear={limpiarFaceta} />
       ) : !hasValues ? (
         <p className="font-sans text-sm text-[#999999]">
           Sin consumo FF&BB para los filtros seleccionados

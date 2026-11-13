@@ -1,8 +1,8 @@
 "use client";
 
-import { usePathname, useSearchParams } from "next/navigation";
-import { useRouter } from "@/lib/use-router";
-import type { MontoMode } from "@/components/montoMode";
+import { usePathname } from "next/navigation";
+import { useQueryFiltros } from "@/components/filters/useQueryFiltros";
+import { montoModeFrom, type MontoMode } from "@/components/montoMode";
 
 /**
  * Switch neto/bruto compartido por los dashboards de finanzas.
@@ -23,18 +23,27 @@ const OPTIONS: { value: MontoMode; label: string; title: string }[] = [
   { value: "bruto", label: "Bruto", title: "Montos brutos (con IVA)" },
 ];
 
-export default function MontoModeToggle({ value }: { value: MontoMode }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
+const PARAM = "monto";
 
+export default function MontoModeToggle({ value: confirmado }: { value: MontoMode }) {
+  // Query vigente de la página en la que está montado el switch (el último
+  // cambio pedido aunque la navegación no haya terminado), para que un cambio
+  // de Montos y otro filtro seguidos se sumen en vez de pisarse.
+  const { search, navegar } = useQueryFiltros(usePathname());
+
+  // Mientras el servidor responde se ve el modo pedido (y un segundo clic se
+  // compara contra él, no contra la URL vieja). Con el param repetido manda el
+  // que resolvió el servidor (montoModeFrom solo acepta un "bruto" suelto).
+  const pedidos = new URLSearchParams(search).getAll(PARAM);
+  const value = pedidos.length > 1 ? confirmado : montoModeFrom(pedidos[0]);
+
+  // Escribe SOLO `monto` (neto = sin param); el resto de la URL queda igual.
   function set(mode: MontoMode) {
     if (mode === value) return;
-    const params = new URLSearchParams(searchParams.toString());
-    if (mode === "neto") params.delete("monto");
-    else params.set("monto", mode);
-    const qs = params.toString();
-    router.push(`${pathname}${qs ? `?${qs}` : ""}`);
+    const params = new URLSearchParams(search);
+    if (mode === "neto") params.delete(PARAM);
+    else params.set(PARAM, mode);
+    navegar(params.toString());
   }
 
   return (

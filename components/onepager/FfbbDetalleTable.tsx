@@ -4,12 +4,38 @@ import { useMemo, useState } from "react";
 import { Download } from "lucide-react";
 import { downloadCsv } from "@/components/proveedor/csv";
 import type { OnepagerFfbbCategoriaProductoRow } from "@/lib/queries/onepager";
-import MultiFilter from "./MultiFilter";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import FilterConflictNotice from "@/components/filters/FilterConflictNotice";
+import {
+  disponibles,
+  enConflicto,
+  filtrar,
+  opcionesVisibles,
+  type Faceta,
+} from "@/lib/filters/facetas";
+import { normalizarSeleccion } from "@/lib/filters/url";
 
 type Props = {
   data: OnepagerFfbbCategoriaProductoRow[];
   eventoId: string;
 };
+
+// Facetas encadenadas (lib/filters/facetas.ts). Categoría es el padre: acota
+// las opciones de Producto, pero elegir un producto no le esconde categorías
+// (`ignora`). Ningún filtro modifica a otro: cada uno escribe solo su estado.
+const FACETAS: Faceta<OnepagerFfbbCategoriaProductoRow>[] = [
+  { key: "categoria", valores: (r) => r.categoria, ignora: ["producto"] },
+  { key: "producto", valores: (r) => r.producto },
+];
+
+const FACETA_LABEL: Record<string, string> = {
+  categoria: "Categoría",
+  producto: "Producto",
+};
+
+function toItems(values: readonly string[]) {
+  return values.map((v) => ({ value: v, label: v }));
+}
 
 function fmtClp(value: number) {
   return "$" + Math.round(value).toLocaleString("es-CL");
@@ -21,46 +47,65 @@ function uniqueSorted(values: Iterable<string>): string[] {
     .sort((a, b) => a.localeCompare(b, "es-CL"));
 }
 
-function inSet(set: Set<string>, value: string): boolean {
-  return set.size === 0 || set.has(value);
-}
-
 export default function FfbbDetalleTable({ data, eventoId }: Props) {
-  const [categorias, setCategorias] = useState<Set<string>>(new Set());
-  const [productos, setProductos] = useState<Set<string>>(new Set());
+  // Selección cruda de cada filtro (vacía = "Todos").
+  const [categorias, setCategorias] = useState<Set<string>>(() => new Set());
+  const [productos, setProductos] = useState<Set<string>>(() => new Set());
 
-  const categoriasOpts = useMemo(
+  const sel = useMemo(
+    () => ({ categoria: categorias, producto: productos }),
+    [categorias, productos],
+  );
+
+  // Universo de cada faceta en los datos del evento.
+  const todasCategorias = useMemo(
     () => uniqueSorted(data.map((r) => r.categoria)),
     [data],
   );
-
-  // Las opciones de producto se acotan a las categorías seleccionadas.
-  const productosOpts = useMemo(() => {
-    const filtered = data.filter((r) => inSet(categorias, r.categoria));
-    return uniqueSorted(filtered.map((r) => r.producto));
-  }, [data, categorias]);
-
-  // Si una categoría se deselecciona, descartamos los productos elegidos que ya
-  // no están disponibles (sin perder el estado crudo de `productos`).
-  const effectiveProductos = useMemo(() => {
-    if (productos.size === 0) return productos;
-    const valid = new Set(productosOpts);
-    const next = new Set<string>();
-    for (const p of productos) if (valid.has(p)) next.add(p);
-    return next;
-  }, [productos, productosOpts]);
-
-  const filtered = useMemo(
-    () =>
-      data.filter(
-        (r) =>
-          inSet(categorias, r.categoria) &&
-          inSet(effectiveProductos, r.producto),
-      ),
-    [data, categorias, effectiveProductos],
+  const todosProductos = useMemo(
+    () => uniqueSorted(data.map((r) => r.producto)),
+    [data],
   );
 
-  const hasActiveFilter = categorias.size > 0 || effectiveProductos.size > 0;
+  // Opciones de cada dropdown: lo compatible con el otro filtro + lo ya
+  // elegido. Un producto elegido que no calza con la categoría sigue a la
+  // vista, atenuado (`available`), para poder desmarcarlo.
+  const disp = useMemo(() => disponibles(data, FACETAS, sel), [data, sel]);
+  const categoriasItems = useMemo(
+    () => toItems(opcionesVisibles(todasCategorias, disp.categoria, categorias)),
+    [todasCategorias, disp, categorias],
+  );
+  const productosItems = useMemo(
+    () => toItems(opcionesVisibles(todosProductos, disp.producto, productos)),
+    [todosProductos, disp, productos],
+  );
+
+  const filtered = useMemo(() => filtrar(data, FACETAS, sel), [data, sel]);
+
+  // Filtros que chocan entre sí cuando la combinación no deja ninguna fila.
+  const conflictos = useMemo(
+    () =>
+      enConflicto(data, FACETAS, sel).map((key) => ({
+        key,
+        label: FACETA_LABEL[key] ?? key,
+      })),
+    [data, sel],
+  );
+
+  // Cada filtro escribe solo su propio estado. Marcar todo su universo se
+  // guarda como "Todos" (normalizarSeleccion).
+  function cambiarCategorias(next: Set<string>) {
+    setCategorias(new Set(normalizarSeleccion(next, todasCategorias)));
+  }
+  function cambiarProductos(next: Set<string>) {
+    setProductos(new Set(normalizarSeleccion(next, todosProductos)));
+  }
+  function limpiarFaceta(key: string) {
+    if (key === "categoria") setCategorias(new Set());
+    else if (key === "producto") setProductos(new Set());
+  }
+
+  const hasActiveFilter = categorias.size > 0 || productos.size > 0;
 
   if (data.length === 0) {
     return <p className="font-sans text-sm text-[#999999]">Sin datos.</p>;
@@ -86,18 +131,24 @@ export default function FfbbDetalleTable({ data, eventoId }: Props) {
     <div className="space-y-4">
       {/* Filtros + descarga */}
       <div className="flex flex-wrap items-end gap-3">
-        <MultiFilter
-          label="Categoría"
+        <StandardMultiFilter
+          label={FACETA_LABEL.categoria}
           selected={categorias}
-          onChange={setCategorias}
-          options={categoriasOpts}
+          onChange={cambiarCategorias}
+          options={categoriasItems}
+          available={disp.categoria}
+          searchPlaceholder="Buscar categoría…"
         />
-        <MultiFilter
-          label="Producto"
-          selected={effectiveProductos}
-          onChange={setProductos}
-          options={productosOpts}
+        <StandardMultiFilter
+          label={FACETA_LABEL.producto}
+          selected={productos}
+          onChange={cambiarProductos}
+          options={productosItems}
+          available={disp.producto}
+          searchPlaceholder="Buscar producto…"
         />
+        {/* Único control que toca los dos filtros: vuelve al estado por
+            defecto (todo en "Todos"). */}
         {hasActiveFilter && (
           <button
             type="button"
@@ -122,9 +173,13 @@ export default function FfbbDetalleTable({ data, eventoId }: Props) {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="font-sans text-sm text-[#999999]">
-          Sin datos para la combinación de filtros seleccionada.
-        </p>
+        conflictos.length > 0 ? (
+          <FilterConflictNotice conflicts={conflictos} onClear={limpiarFaceta} />
+        ) : (
+          <p className="font-sans text-sm text-[#999999]">
+            Sin datos para la combinación de filtros seleccionada.
+          </p>
+        )
       ) : (
         <div className="bg-white border border-[#E5E5E5] rounded-lg overflow-auto max-h-[60vh]">
           <table className="w-full border-collapse">

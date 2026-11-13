@@ -1,7 +1,6 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useRouter } from "@/lib/use-router";
+import { useQueryWeekly } from "@/components/marketing/WeeklyQueryProvider";
 
 export type DiaOpcion = {
   /** "YYYY-MM-DD" de la jornada: el valor de `?dia=`. */
@@ -17,21 +16,20 @@ const PARAM = "dia";
  * Filtro "Día" de /marketing/weekly: solo existe en eventos de varias jornadas
  * (la page no lo renderiza si getEventJornadas viene vacío). Una sola jornada o
  * "Todos". Escribe SOLO `dia` y deja el resto de la URL como está. Arma la URL
- * sobre useSearchParams(), como EventSelector y CompareEventSelector.
+ * sobre la query vigente de la página (WeeklyQueryProvider), así un clic en
+ * otro filtro mientras BigQuery responde no deshace el día recién pedido.
  */
 export default function DiaEventoFilter({ opciones }: { opciones: DiaOpcion[] }) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const pedido = searchParams.get(PARAM);
+  const { search, navegar } = useQueryWeekly();
+  const pedido = new URLSearchParams(search).get(PARAM);
   // Un `?dia=` que no es de este evento no filtra (la page lo ignora igual).
   const activo = opciones.some((o) => o.dia === pedido) ? pedido : null;
 
   function elegir(dia: string | null) {
-    const qs = new URLSearchParams(searchParams.toString());
+    const qs = new URLSearchParams(search);
     if (dia) qs.set(PARAM, dia);
     else qs.delete(PARAM);
-    const s = qs.toString();
-    router.push(s ? `/marketing/weekly?${s}` : "/marketing/weekly", { scroll: false });
+    navegar(qs.toString());
   }
 
   const boton = (on: boolean) =>

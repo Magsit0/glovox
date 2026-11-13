@@ -1,9 +1,142 @@
 "use client";
 
 import { useMemo, useState, type KeyboardEvent } from "react";
+import { X } from "lucide-react";
 import { useRouter } from "@/lib/use-router";
 import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import FilterConflictNotice from "@/components/filters/FilterConflictNotice";
+import {
+  calza,
+  disponibles,
+  enConflicto,
+  filtrar,
+  opcionesVisibles,
+  type Faceta,
+} from "@/lib/filters/facetas";
+import { normalizarSeleccion } from "@/lib/filters/url";
 import type { NegocioRow } from "@/lib/unabase/types";
+
+/**
+ * Filtros del listado (regla única de lib/filters/facetas.ts):
+ *   - Área de negocio y Cliente: multi-selección (StandardMultiFilter).
+ *   - Estado del negocio, Estado NV y Estado de compras: pills de un valor, con
+ *     una pill "Todos" (= selección vacía).
+ * Cada control escribe solo su propia key. El encadenamiento acota las
+ * opciones, nunca las selecciones: el valor activo siempre se ve, aunque los
+ * otros filtros lo dejen sin datos (atenuado), y se puede cambiar o limpiar.
+ */
+type FacetaKey = "area" | "cliente" | "estado" | "estadonv" | "estadocierre";
+type Selecciones = Record<FacetaKey, Set<string>>;
+
+const FACETAS: Faceta<NegocioRow>[] = [
+  { key: "area", valores: (r) => r.area_negocio },
+  { key: "cliente", valores: (r) => r.razon_cliente },
+  { key: "estado", valores: (r) => r.estado },
+  { key: "estadonv", valores: (r) => r.estadonv },
+  // "true" / "false" (LOWER(compras_cerradas)); String() por si llega booleano.
+  {
+    key: "estadocierre",
+    valores: (r) => (r.estadocierre == null ? null : String(r.estadocierre)),
+  },
+];
+
+const FACETA_KEYS = FACETAS.map((f) => f.key as FacetaKey);
+
+const FACETA_LABEL: Record<FacetaKey, string> = {
+  area: "Área de negocio",
+  cliente: "Cliente",
+  estado: "Estado del negocio",
+  estadonv: "Estado NV",
+  estadocierre: "Estado de compras",
+};
+
+/**
+ * Estado por defecto del listado: negocios abiertos pendientes de cierre
+ * (NOTA DE VENTA / EN PROCESO / compras abiertas), sin área ni cliente. Es a
+ * donde vuelve "Limpiar filtros". Nadie muta estos Sets.
+ */
+const DEFAULT_SEL: Selecciones = {
+  area: new Set(),
+  cliente: new Set(),
+  estado: new Set(["NOTA DE VENTA"]),
+  estadonv: new Set(["EN PROCESO"]),
+  estadocierre: new Set(["false"]),
+};
+
+const EMPTY: ReadonlySet<string> = new Set();
+
+function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  if (a.size !== b.size) return false;
+  for (const v of a) if (!b.has(v)) return false;
+  return true;
+}
+
+function formatEstadoCierre(v: string): string {
+  if (v === "true") return "Cerrado";
+  if (v === "false") return "Abierto";
+  return v;
+}
+
+/**
+ * Pills de un solo valor. "Todos" escribe la selección vacía. Un valor activo
+ * que no calza con los otros filtros sigue visible (borde punteado, tinte
+ * --purple-tint y texto morado en vez del relleno sólido) para que se entienda
+ * por qué no hay resultados.
+ */
+function PillFilter({
+  label,
+  options,
+  selected,
+  available,
+  onChange,
+  format = (v) => v,
+}: {
+  label: string;
+  options: readonly string[];
+  selected: ReadonlySet<string>;
+  available: ReadonlySet<string>;
+  onChange: (next: Set<string>) => void;
+  format?: (value: string) => string;
+}) {
+  const pillBase =
+    "rounded-full border px-4 py-1.5 font-sans text-xs font-medium transition-colors";
+  const inactive =
+    "border-[var(--divider)] bg-[var(--surface)] text-[var(--ink-muted)] hover:text-[var(--ink)]";
+  const active = "border-[#9F99F8] bg-[#9F99F8] text-white";
+  const activeUnavailable = "border-dashed border-[#9F99F8] bg-[var(--purple-tint)] text-[#9F99F8]";
+  const isAll = selected.size === 0;
+  return (
+    <div role="group" aria-label={label} className="flex flex-wrap items-center justify-end gap-3">
+      <span className="font-sans text-sm text-[var(--ink-muted)]">{label}</span>
+      <button
+        type="button"
+        aria-pressed={isAll}
+        onClick={() => onChange(new Set())}
+        className={`${pillBase} ${isAll ? active : inactive}`}
+      >
+        Todos
+      </button>
+      {options.map((value) => {
+        const isActive = selected.has(value);
+        const unavailable = !available.has(value);
+        return (
+          <button
+            key={value}
+            type="button"
+            aria-pressed={isActive}
+            onClick={() => onChange(new Set([value]))}
+            title={unavailable ? "Sin datos con los otros filtros" : undefined}
+            className={`${pillBase} ${
+              isActive ? (unavailable ? activeUnavailable : active) : inactive
+            }`}
+          >
+            {format(value)}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 function parseDateStr(dateStr: string): Date | null {
   if (!dateStr) return null;
@@ -51,68 +184,77 @@ const COLUMNS: { key: keyof NegocioRow; label: string }[] = [
 
 export default function CierreTable({ rows }: { rows: NegocioRow[] }) {
   const router = useRouter();
-  const [area, setArea] = useState<Set<string>>(new Set());
-  const [cliente, setCliente] = useState<Set<string>>(new Set());
-  const [estado, setEstado] = useState("NOTA DE VENTA");
-  const [estadonv, setEstadonv] = useState("EN PROCESO");
-  const [estadocierre, setEstaodocierre] = useState("false");
+  // Los defaults no se corrigen cuando cambian `rows` (GrupoNav cambia de grupo
+  // sin volver a montar la tabla): si ya no calzan, se ven atenuados y el aviso
+  // de conflicto ofrece limpiar cada filtro.
+  const [sel, setSel] = useState<Selecciones>(DEFAULT_SEL);
 
-  const inSelection = (selection: Set<string>, value: string | null | undefined) =>
-    selection.size === 0 || selection.has(value ?? "");
+  // Regla 2: cada filtro escribe solo su propia key.
+  const setFaceta = (key: FacetaKey, next: Set<string>) =>
+    setSel((prev) => ({ ...prev, [key]: next }));
 
-  const applyExcept = (exclude: "area" | "cliente" | "estado" | "estadonv" | "estadocierre") =>
-    rows
-      .filter((r) => exclude === "area"       || inSelection(area, r.area_negocio))
-      .filter((r) => exclude === "cliente"    || inSelection(cliente, r.razon_cliente))
-      .filter((r) => exclude === "estado"     || estado     === "__all__" || r.estado === estado)
-      .filter((r) => exclude === "estadonv"   || estadonv   === "__all__" || r.estadonv === estadonv)
-      .filter((r) => exclude === "estadocierre" || estadocierre === "__all__" || String(r.estadocierre) === estadocierre);
+  // Universo de cada faceta en `rows` (orden alfabético), sin vacíos.
+  const universo = useMemo(() => {
+    const out = {} as Record<FacetaKey, string[]>;
+    for (const f of FACETAS) {
+      const set = new Set<string>();
+      for (const r of rows) {
+        const v = f.valores(r);
+        if (typeof v === "string" && v) set.add(v);
+      }
+      out[f.key as FacetaKey] = Array.from(set).sort();
+    }
+    return out;
+  }, [rows]);
 
-  const areas = useMemo(() => {
-    const set = new Set(applyExcept("area").map((r) => r.area_negocio).filter(Boolean));
-    // Mantené visibles las áreas ya elegidas aunque el cascadeo (cliente, etc.)
-    // las excluya, para poder destildarlas en vez de quedar en un dead-end.
-    for (const a of area) set.add(a);
-    return Array.from(set).sort();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, area, cliente, estado, estadonv, estadocierre]);
+  // Valores compatibles de cada faceta con lo elegido en las otras.
+  const disp = useMemo(() => disponibles(rows, FACETAS, sel), [rows, sel]);
 
-  const clientes = useMemo(() => {
-    const set = new Set(applyExcept("cliente").map((r) => r.razon_cliente).filter(Boolean));
-    for (const c of cliente) set.add(c);
-    return Array.from(set).sort();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, area, cliente, estado, estadonv, estadocierre]);
+  // Opciones visibles: compatibles + lo ya seleccionado (aunque haya quedado
+  // incompatible o no exista en `rows`), para poder verlo y cambiarlo.
+  const opciones = useMemo(() => {
+    const out = {} as Record<FacetaKey, string[]>;
+    for (const key of FACETA_KEYS) {
+      out[key] = opcionesVisibles(universo[key], disp[key] ?? EMPTY, sel[key]);
+    }
+    return out;
+  }, [universo, disp, sel]);
 
-  const estados = useMemo(() => {
-    const set = new Set(applyExcept("estado").map((r) => r.estado).filter(Boolean));
-    return Array.from(set).sort();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, area, cliente, estadonv, estadocierre]);
+  const filtered = useMemo(() => filtrar(rows, FACETAS, sel), [rows, sel]);
 
-  const estadosnv = useMemo(() => {
-    const set = new Set(applyExcept("estadonv").map((r) => r.estadonv).filter(Boolean));
-    return Array.from(set).sort();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, area, cliente, estado, estadocierre]);
-
-  const estadoscierre = useMemo(() => {
-    const set = new Set(
-      applyExcept("estadocierre")
-        .map((r) => r.estadocierre)
-        .filter((v) => v != null)
-        .map((v) => String(v)),
+  // Filtros que chocan entre sí cuando la combinación no deja ningún negocio.
+  // Sin filas de entrada no hay conflicto que explicar: la tabla dice "Sin resultados".
+  // Ninguna faceta declara `ignora`, así que enConflicto devuelve todas las
+  // activas (incluidos los 3 estados por defecto). Primero se ofrecen solo las
+  // que, limpiadas por sí solas, devuelven negocios; si ninguna basta, enConflicto.
+  const conflictos = useMemo(() => {
+    if (rows.length === 0 || filtered.length > 0) return [];
+    const liberan = FACETA_KEYS.filter(
+      (key) =>
+        sel[key].size > 0 && rows.some((r) => calza(r, FACETAS, sel, new Set([key]))),
     );
-    return Array.from(set).sort();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, area, cliente, estado, estadonv]);
+    const keys = liberan.length > 0 ? liberan : (enConflicto(rows, FACETAS, sel) as FacetaKey[]);
+    return keys.map((key) => ({ key, label: FACETA_LABEL[key] ?? key }));
+  }, [rows, sel, filtered]);
 
-  const filtered = rows
-    .filter((r) => inSelection(area, r.area_negocio))
-    .filter((r) => inSelection(cliente, r.razon_cliente))
-    .filter((r) => estado === "__all__" || r.estado === estado)
-    .filter((r) => estadonv === "__all__" || r.estadonv === estadonv)
-    .filter((r) => estadocierre === "__all__" || String(r.estadocierre) === estadocierre);
+  // Multi-selección: marcar el universo entero de la faceta se guarda como "Todos".
+  const onMultiChange = (key: "area" | "cliente", next: Set<string>) =>
+    setFaceta(key, new Set(normalizarSeleccion(next, universo[key])));
+
+  const isDefault = FACETA_KEYS.every((key) => sameSet(sel[key], DEFAULT_SEL[key]));
+
+  // Cliente único: el elegido, o el único del universo (grupo de GrupoNav por
+  // RUT). En ese caso elegirlo se normaliza a "Todos", y el RUT igual debe verse.
+  const clienteUnico =
+    sel.cliente.size === 1
+      ? Array.from(sel.cliente)[0]
+      : universo.cliente.length === 1
+        ? universo.cliente[0]
+        : null;
+  const rutClienteUnico =
+    clienteUnico != null
+      ? rows.find((r) => r.razon_cliente === clienteUnico)?.rut_cliente
+      : undefined;
 
   function goToInforme(id: string) {
     const params = new URLSearchParams();
@@ -136,93 +278,86 @@ export default function CierreTable({ rows }: { rows: NegocioRow[] }) {
     <div className="flex flex-col gap-4">
       <div className="flex items-start justify-between gap-4">
         <div className="flex flex-col justify-center">
-          <span className="font-sans text-2xl font-bold text-[#333333]">{filtered.length}</span>
-          <span className="font-sans text-xs text-[#666666]">negocio{filtered.length !== 1 ? "s" : ""}</span>
+          <span className="font-sans text-2xl font-bold text-[var(--ink)]">{filtered.length}</span>
+          <span className="font-sans text-xs text-[var(--ink-muted)]">
+            negocio{filtered.length !== 1 ? "s" : ""}
+          </span>
         </div>
         <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-end gap-3">
-        <span className="font-sans text-sm text-[#666666]">Estado del negocio</span>
-        {estados.map((e) => (
-          <button
-            key={e}
-            onClick={() => setEstado(e)}
-            className={`rounded-full px-4 py-1.5 font-sans text-xs font-medium transition-colors ${
-              estado === e
-                ? "bg-[#9F99F8] text-white"
-                : "border border-[#E5E5E5] bg-white text-[#666666] hover:text-[#333333]"
-            }`}
-          >
-            {e}
-          </button>
-        ))}
-      </div>
-      <div className="flex items-center justify-end gap-3">
-        <span className="font-sans text-sm text-[#666666]">Estado NV</span>
-        {estadosnv.map((e) => (
-          <button
-            key={e}
-            onClick={() => setEstadonv(e)}
-            className={`rounded-full px-4 py-1.5 font-sans text-xs font-medium transition-colors ${
-              estadonv === e
-                ? "bg-[#9F99F8] text-white"
-                : "border border-[#E5E5E5] bg-white text-[#666666] hover:text-[#333333]"
-            }`}
-          >
-            {e}
-          </button>
-        ))}
-      </div>
-      <div className="flex items-center justify-end gap-3">
-        <span className="font-sans text-sm text-[#666666]">Estado de compras</span>
-        {estadoscierre.map((e) => (
-          <button
-            key={e}
-            onClick={() => setEstaodocierre(e)}
-            className={`rounded-full px-4 py-1.5 font-sans text-xs font-medium transition-colors ${
-              estadocierre === e
-                ? "bg-[#9F99F8] text-white"
-                : "border border-[#E5E5E5] bg-white text-[#666666] hover:text-[#333333]"
-            }`}
-          >
-            {e === "true" ? "Cerrado" : "Abierto"}
-          </button>
-        ))}
-      </div>
-        </div>
-      </div>
-      <div className="flex flex-wrap items-center gap-4">
-        <StandardMultiFilter
-          label="Área de negocio"
-          selected={area}
-          onChange={setArea}
-          options={areas.map((a) => ({ value: a, label: a }))}
-          allLabel="Todas"
-          searchPlaceholder="Buscar área..."
-        />
-        <div className="flex items-end gap-2">
-          <StandardMultiFilter
-            label="Cliente"
-            selected={cliente}
-            onChange={setCliente}
-            options={clientes.map((c) => ({ value: c, label: c }))}
-            allLabel="Todos"
-            searchPlaceholder="Buscar cliente..."
+          <PillFilter
+            label={FACETA_LABEL.estado}
+            options={opciones.estado}
+            selected={sel.estado}
+            available={disp.estado ?? EMPTY}
+            onChange={(next) => setFaceta("estado", next)}
           />
-          {cliente.size === 1 && (() => {
-            const selectedCliente = Array.from(cliente)[0];
-            const rut = rows.find((r) => r.razon_cliente === selectedCliente)?.rut_cliente;
-            return rut ? (
-              <span className="pb-2 font-sans text-sm text-[#666666]">
-                Rut del cliente: <span className="text-[#333333]">{formatRut(rut)}</span>
-              </span>
-            ) : null;
-          })()}
+          <PillFilter
+            label={FACETA_LABEL.estadonv}
+            options={opciones.estadonv}
+            selected={sel.estadonv}
+            available={disp.estadonv ?? EMPTY}
+            onChange={(next) => setFaceta("estadonv", next)}
+          />
+          <PillFilter
+            label={FACETA_LABEL.estadocierre}
+            options={opciones.estadocierre}
+            selected={sel.estadocierre}
+            available={disp.estadocierre ?? EMPTY}
+            onChange={(next) => setFaceta("estadocierre", next)}
+            format={formatEstadoCierre}
+          />
         </div>
-        {(area.size > 0 || cliente.size > 0) && (
-          <span className="font-sans text-xs text-[#666666]">
-            {filtered.length} resultado{filtered.length !== 1 ? "s" : ""}
-          </span>
-        )}
+      </div>
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-end gap-4">
+          <StandardMultiFilter
+            label={FACETA_LABEL.area}
+            selected={sel.area}
+            onChange={(next) => onMultiChange("area", next)}
+            options={opciones.area.map((a) => ({ value: a, label: a }))}
+            available={disp.area}
+            allLabel="Todas"
+            searchPlaceholder="Buscar área..."
+          />
+          <div className="flex items-end gap-2">
+            <StandardMultiFilter
+              label={FACETA_LABEL.cliente}
+              selected={sel.cliente}
+              onChange={(next) => onMultiChange("cliente", next)}
+              options={opciones.cliente.map((c) => ({ value: c, label: c }))}
+              available={disp.cliente}
+              allLabel="Todos"
+              searchPlaceholder="Buscar cliente..."
+            />
+            {rutClienteUnico && (
+              <span className="pb-2 font-sans text-sm text-[var(--ink-muted)]">
+                Rut del cliente:{" "}
+                <span className="text-[var(--ink)]">{formatRut(rutClienteUnico)}</span>
+              </span>
+            )}
+          </div>
+          {(sel.area.size > 0 || sel.cliente.size > 0) && (
+            <span className="pb-2.5 font-sans text-xs text-[var(--ink-muted)]">
+              {filtered.length} resultado{filtered.length !== 1 ? "s" : ""}
+            </span>
+          )}
+          {/* Vuelve al estado por defecto (NOTA DE VENTA / EN PROCESO / Abierto,
+              sin área ni cliente). Único control que toca varios filtros. */}
+          {!isDefault && (
+            <button
+              type="button"
+              onClick={() => setSel(DEFAULT_SEL)}
+              className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 font-sans text-sm text-[var(--ink-muted)] transition-colors hover:bg-[var(--surface-alt)] hover:text-[var(--ink)]"
+            >
+              <X className="h-3.5 w-3.5" />
+              Limpiar filtros
+            </button>
+          )}
+        </div>
+        <FilterConflictNotice
+          conflicts={conflictos}
+          onClear={(key) => setFaceta(key as FacetaKey, new Set())}
+        />
       </div>
 
       <div className="flex items-start gap-3">

@@ -17,6 +17,7 @@ import {
   type CurvaVista,
 } from "@/lib/marketing/curvas";
 import { compactCurrency, formatCurrency, formatNumber } from "@/lib/unabase/formatting";
+import { valoresDeParam } from "@/lib/filters/url";
 import CurvasFilters from "@/components/marketing/CurvasFilters";
 import CurvasCompraChart from "@/components/marketing/charts/CurvasCompraChart";
 
@@ -45,16 +46,14 @@ interface PageProps {
   }>;
 }
 
-/** Normaliza un searchParam repetible a string[] (descarta vacíos y `__none__`). */
-function toArray(v: string | string[] | undefined): string[] {
-  if (v == null) return [];
-  return (Array.isArray(v) ? v : [v]).filter((x) => Boolean(x) && x !== "__none__");
-}
-
-/** `__none__` = el usuario deseleccionó todo (distinto de "sin filtro"). */
-function isNone(v: string | string[] | undefined): boolean {
-  const list = v == null ? [] : Array.isArray(v) ? v : [v];
-  return list.length === 1 && list[0] === "__none__";
+/**
+ * Faceta de la URL → valores para la query. Vacía = "Todos" (`undefined`, sin
+ * condición en el SQL). Los links viejos con `__none__` también caen acá:
+ * `valoresDeParam` los descarta y se leen como "Todos".
+ */
+function facet(v: string | string[] | undefined): string[] | undefined {
+  const list = valoresDeParam(v);
+  return list.length ? list : undefined;
 }
 
 function parseComunidad(v?: string): CurvaComunidad {
@@ -118,14 +117,6 @@ export default async function CurvasPage({ searchParams }: PageProps) {
   const vista = parseVista(params.vista);
   const normalizar = params.escala === "pct";
   const promedio = params.promedio !== "0";
-
-  // Deseleccionar todo en una faceta debe dar cero resultados, no "todos". Se
-  // fuerza con un valor imposible en lugar de omitir la condición.
-  const facet = (v: string | string[] | undefined): string[] | undefined => {
-    if (isNone(v)) return ["__ninguno__"];
-    const list = toArray(v);
-    return list.length ? list : undefined;
-  };
 
   const filters: CurvasQueryFilters = {
     country,

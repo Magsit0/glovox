@@ -6,7 +6,8 @@ import Link from "next/link";
 import { motion } from "motion/react";
 import { DashboardProvider, useDashboard, useDataset, useDateFilter } from "@/components/cierre-mensual/context/DashboardContext";
 import FilterBar from "@/components/cierre-mensual/filters/FilterBar";
-import MultiSelectFilter from "@/components/cierre-mensual/filters/MultiSelectFilter";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import { opcionesVisibles } from "@/lib/filters/facetas";
 import SummaryCards from "@/components/cierre-mensual/panels/SummaryCards";
 import AlertsPanel from "@/components/cierre-mensual/panels/AlertsPanel";
 import InsightsPanel from "@/components/cierre-mensual/panels/InsightsPanel";
@@ -139,10 +140,15 @@ function DashboardBody() {
             {badgeLabel}
           </span>
         </div>
-        {!loading && businessRows.length > 0 && (
+        {/* FilterBar queda montado mientras recarga (p. ej. al cambiar
+            neto/bruto): sus selecciones viven en su estado local y se
+            perderían al desmontarse. useDashboardData conserva las filas
+            anteriores hasta que llegan las nuevas, así que el skeleton solo
+            hace falta en la primera carga. */}
+        {businessRows.length > 0 && (
           <FilterBar rows={businessRows} onFilter={handleFilter} />
         )}
-        {loading && (
+        {loading && businessRows.length === 0 && (
           <div className="flex flex-wrap gap-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <div
@@ -334,15 +340,23 @@ function NegociosTab() {
     [rows, dateStart, dateEnd],
   );
 
-  const areaOptions = useMemo(() => {
+  // Áreas con negocios en el rango de fechas. Vacío = todas las áreas.
+  const availableAreas = useMemo(() => {
     const set = new Set<string>();
     filteredRows.forEach((r) => { if (r.area_negocio) set.add(r.area_negocio); });
-    return Array.from(set).sort((a, b) => a.localeCompare(b, "es")).map((v) => ({ value: v, label: v }));
+    return set;
   }, [filteredRows]);
 
-  const availableAreas = useMemo(
-    () => new Set(areaOptions.map((o) => o.value)),
-    [areaOptions],
+  // Las áreas del rango + las ya elegidas que el rango dejó sin datos (se ven
+  // atenuadas para poder desmarcarlas).
+  const areaOptions = useMemo(
+    () =>
+      opcionesVisibles(
+        Array.from(availableAreas).sort((a, b) => a.localeCompare(b, "es")),
+        availableAreas,
+        selectedAreas,
+      ).map((v) => ({ value: v, label: v })),
+    [availableAreas, selectedAreas],
   );
 
   const chartRows = useMemo(
@@ -374,13 +388,12 @@ function NegociosTab() {
       className="flex flex-col gap-6"
     >
       <div className="flex flex-wrap gap-3">
-        <MultiSelectFilter
-          name="area_negocio"
+        <StandardMultiFilter
           label="Área de negocio"
           options={areaOptions}
           available={availableAreas}
           selected={selectedAreas}
-          onChange={(_, next) => setSelectedAreas(next)}
+          onChange={setSelectedAreas}
         />
       </div>
       <Panel title="Resultado por área de negocio">

@@ -1,13 +1,20 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useRouter } from "@/lib/use-router";
 import { useMemo } from "react";
 import { X } from "lucide-react";
-import MultiSelectFilter from "@/components/cierre-mensual/filters/MultiSelectFilter";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import FilterConflictNotice from "@/components/filters/FilterConflictNotice";
+import { useQueryFiltros } from "@/components/filters/useQueryFiltros";
+import {
+  disponibles,
+  enConflicto,
+  opcionesVisibles,
+  type Faceta,
+} from "@/lib/filters/facetas";
+import { escribirSeleccion, leerSeleccion, normalizarSeleccion } from "@/lib/filters/url";
 import type { TicketingEventOption } from "@/lib/queries/ticketing";
 import type { Country } from "@/lib/queries/comunidad";
-import { PRODUCTOS, PRODUCTO_LABEL } from "@/lib/ticketing-pricing/formulas";
+import { PRODUCTOS, PRODUCTO_LABEL, type Producto } from "@/lib/ticketing-pricing/formulas";
 
 interface Props {
   events: TicketingEventOption[];
@@ -15,118 +22,125 @@ interface Props {
   countryLocked: boolean;
 }
 
-// Centinela para el estado "ninguno seleccionado" en la URL: hay que poder
-// distinguir "sin filtro = todos" (param ausente) de "desmarqué todo = nada"
-// (param presente con este valor). Ningún EventoID/categoría real lo usa, así
-// que `IN UNNEST(['__none__'])` no matchea nada → resultado vacío.
-const NONE = "__none__";
+// Facetas encadenadas sobre el catálogo de eventos del país (lib/filters/facetas.ts).
+// Categoría es el padre: acota las opciones de Evento, pero elegir un evento no
+// le esconde categorías (`ignora`), igual que antes de la regla única. Ningún
+// filtro modifica a otro: cada uno escribe solo su param.
+const FACETAS: Faceta<TicketingEventOption>[] = [
+  { key: "categorias", valores: (e) => e.categoriaEvento, ignora: ["eventos"] },
+  { key: "eventos", valores: (e) => e.eventoId },
+];
+
+const FACETA_LABEL: Record<string, string> = {
+  categorias: "Categoría de evento",
+  eventos: "Evento",
+};
+
+const TODOS_PRODUCTOS: ReadonlySet<string> = new Set(PRODUCTOS);
 
 export default function GlobalFilters({ events, country, countryLocked }: Props) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  // Query vigente (el último cambio pedido aunque la navegación no haya
+  // terminado), para que dos cambios seguidos se sumen.
+  const { search, navegar } = useQueryFiltros("/ticketing");
 
-  // Estado multi-selección desde la URL (params repetidos). Vacío = sin filtro.
-  const urlCategorias = useMemo(() => searchParams.getAll("categorias"), [searchParams]);
-  const urlEventos = useMemo(() => searchParams.getAll("eventos"), [searchParams]);
-  const urlProductos = useMemo(() => searchParams.getAll("productos"), [searchParams]);
+  // Selección por filtro desde la URL (params repetidos). Vacía = "Todos".
+  const sel = useMemo(() => {
+    const sp = new URLSearchParams(search);
+    return {
+      categorias: leerSeleccion(sp, "categorias"),
+      eventos: leerSeleccion(sp, "eventos"),
+      productos: leerSeleccion(sp, "productos"),
+    };
+  }, [search]);
 
-  // Opciones de categoría = categorías presentes en los eventos del país.
-  const categoriaOptions = useMemo(
+  const selFacetas = useMemo(
+    () => ({ categorias: sel.categorias, eventos: sel.eventos }),
+    [sel],
+  );
+  const disp = useMemo(() => disponibles(events, FACETAS, selFacetas), [events, selFacetas]);
+  const conflictos = useMemo(
     () =>
-      [...new Set(events.map((e) => e.categoriaEvento).filter(Boolean))]
-        .sort((a, b) => a.localeCompare(b, "es"))
-        .map((c) => ({ value: c, label: c })),
+      enConflicto(events, FACETAS, selFacetas).map((key) => ({
+        key,
+        label: FACETA_LABEL[key] ?? key,
+      })),
+    [events, selFacetas],
+  );
+
+  // Categoría: las presentes en los eventos del país, en orden alfabético.
+  const todasCategorias = useMemo(
+    () =>
+      [...new Set(events.map((e) => e.categoriaEvento).filter(Boolean))].sort((a, b) =>
+        a.localeCompare(b, "es"),
+      ),
     [events],
   );
-  const allCategoriaValues = useMemo(
-    () => categoriaOptions.map((o) => o.value),
-    [categoriaOptions],
-  );
-  const categoriaSelected = useMemo(() => {
-    if (urlCategorias.length === 0) return new Set(allCategoriaValues); // sin filtro = todos
-    if (urlCategorias.length === 1 && urlCategorias[0] === NONE) return new Set<string>(); // ninguno
-    return new Set(urlCategorias);
-  }, [urlCategorias, allCategoriaValues]);
-
-  // Eventos acotados a las categorías elegidas (ya vienen ordenados por fecha desc).
-  const scopedEvents = useMemo(
+  const categoriaOptions = useMemo(
     () =>
-      urlCategorias.length
-        ? events.filter((e) => categoriaSelected.has(e.categoriaEvento))
-        : events,
-    [events, urlCategorias, categoriaSelected],
+      opcionesVisibles(todasCategorias, disp.categorias, sel.categorias).map((c) => ({
+        value: c,
+        label: c,
+      })),
+    [todasCategorias, disp, sel.categorias],
   );
+
+  // Evento: en el orden en que vienen (fecha desc). Un ID seleccionado que no
+  // está en el catálogo (link viejo, cambio de país) se muestra con su ID.
+  const todosEventos = useMemo(() => events.map((e) => e.eventoId).filter(Boolean), [events]);
+  const eventoPorId = useMemo(() => new Map(events.map((e) => [e.eventoId, e])), [events]);
   const eventoOptions = useMemo(
-    () => scopedEvents.map((e) => ({ value: e.eventoId, label: `${e.eventoId} — ${e.nombre}` })),
-    [scopedEvents],
+    () =>
+      opcionesVisibles(todosEventos, disp.eventos, sel.eventos).map((id) => {
+        const nombre = eventoPorId.get(id)?.nombre;
+        return { value: id, label: nombre ? `${id} — ${nombre}` : id };
+      }),
+    [todosEventos, eventoPorId, disp, sel.eventos],
   );
-  const eventoAvailable = useMemo(
-    () => new Set(eventoOptions.map((o) => o.value)),
-    [eventoOptions],
-  );
-  const eventoSelected = useMemo(() => {
-    if (urlEventos.length === 0) return new Set(eventoAvailable); // sin filtro = todos
-    if (urlEventos.length === 1 && urlEventos[0] === NONE) return new Set<string>(); // ninguno
-    return new Set(urlEventos);
-  }, [urlEventos, eventoAvailable]);
 
   // Producto: enum fijo (familias de producto), independiente de categoría/evento.
   const productoOptions = useMemo(
-    () => PRODUCTOS.map((p) => ({ value: p, label: PRODUCTO_LABEL[p] })),
-    [],
+    () =>
+      opcionesVisibles(PRODUCTOS, TODOS_PRODUCTOS, sel.productos).map((p) => ({
+        value: p,
+        label: PRODUCTO_LABEL[p as Producto] ?? p,
+      })),
+    [sel.productos],
   );
-  const allProductoValues = useMemo(() => [...PRODUCTOS] as string[], []);
-  const productoSelected = useMemo(() => {
-    if (urlProductos.length === 0) return new Set(allProductoValues); // sin filtro = todos
-    if (urlProductos.length === 1 && urlProductos[0] === NONE) return new Set<string>(); // ninguno
-    return new Set(urlProductos);
-  }, [urlProductos, allProductoValues]);
 
-  // Reescribe la URL conservando el resto de params. Un valor `null` borra el
-  // param; un array lo reemplaza por completo (params repetidos).
-  function commit(patch: Record<string, string[] | null>) {
-    const params = new URLSearchParams(searchParams.toString());
+  // Universo completo de cada filtro en el país (no solo lo visible).
+  const universoPorParam: Record<string, readonly string[]> = {
+    categorias: todasCategorias,
+    eventos: todosEventos,
+    productos: PRODUCTOS,
+  };
+
+  // Cada filtro reescribe solo su propio param y conserva el resto de la URL.
+  // Marcar el universo entero ("Seleccionar todos" sin otro filtro acotando) se
+  // guarda como "Todos" (param ausente), no como lista: en el servidor la lista
+  // sería `IN UNNEST` y dejaría fuera los tickets de eventos sin categoría o
+  // fuera del catálogo, que "Todos" sí cuenta. Se compara con el universo y no
+  // con lo visible: "todos los eventos de FDS" sigue siendo una lista.
+  function onFilterChange(param: string, next: Set<string>) {
+    const universo = universoPorParam[param] ?? [];
+    const params = new URLSearchParams(search);
     params.set("tab", "global");
-    for (const [key, values] of Object.entries(patch)) {
-      params.delete(key);
-      if (values) for (const v of values) params.append(key, v);
-    }
-    router.push(`/ticketing?${params.toString()}`, { scroll: false });
-  }
-
-  // Tres estados → URL: todos (param ausente), ninguno (centinela), subconjunto.
-  // Cambiar categoría resetea el filtro de eventos (su alcance cambia).
-  function onCategoriaChange(_name: string, next: Set<string>) {
-    const categorias =
-      next.size === allCategoriaValues.length ? null : next.size === 0 ? [NONE] : [...next];
-    commit({ categorias, eventos: null });
-  }
-
-  function onEventoChange(_name: string, next: Set<string>) {
-    const eventos =
-      next.size === eventoAvailable.size ? null : next.size === 0 ? [NONE] : [...next];
-    commit({ eventos });
-  }
-
-  function onProductoChange(_name: string, next: Set<string>) {
-    const productos =
-      next.size === allProductoValues.length ? null : next.size === 0 ? [NONE] : [...next];
-    commit({ productos });
+    escribirSeleccion(params, param, normalizarSeleccion(next, universo));
+    navegar(params.toString());
   }
 
   function updateCountry(value: string | null) {
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(search);
     params.set("tab", "global");
     if (value === null) params.delete("country");
     else params.set("country", value);
-    router.push(`/ticketing?${params.toString()}`, { scroll: false });
+    navegar(params.toString());
   }
 
   const hasActiveFilters =
-    urlCategorias.length > 0 ||
-    urlEventos.length > 0 ||
-    urlProductos.length > 0 ||
-    country !== "all";
+    sel.categorias.size > 0 ||
+    sel.eventos.size > 0 ||
+    sel.productos.size > 0 ||
+    (!countryLocked && country !== "all");
 
   const countryButtons: { id: Country; label: string }[] = [
     { id: "all", label: "Todos" },
@@ -135,72 +149,79 @@ export default function GlobalFilters({ events, country, countryLocked }: Props)
   ];
 
   return (
-    <section className="flex flex-wrap items-end gap-3">
-      <MultiSelectFilter
-        name="categorias"
-        label="Categoría de evento"
-        options={categoriaOptions}
-        available={new Set(allCategoriaValues)}
-        selected={categoriaSelected}
-        onChange={onCategoriaChange}
-      />
+    <section className="flex flex-col gap-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <StandardMultiFilter
+          label={FACETA_LABEL.categorias}
+          allLabel="Todas"
+          options={categoriaOptions}
+          available={disp.categorias}
+          selected={sel.categorias}
+          onChange={(next) => onFilterChange("categorias", next)}
+          searchPlaceholder="Buscar categoría…"
+        />
 
-      <MultiSelectFilter
-        name="eventos"
-        label="Evento"
-        options={eventoOptions}
-        available={eventoAvailable}
-        selected={eventoSelected}
-        onChange={onEventoChange}
-      />
+        <StandardMultiFilter
+          label={FACETA_LABEL.eventos}
+          options={eventoOptions}
+          available={disp.eventos}
+          selected={sel.eventos}
+          onChange={(next) => onFilterChange("eventos", next)}
+          searchPlaceholder="Buscar evento…"
+        />
 
-      <MultiSelectFilter
-        name="productos"
-        label="Producto"
-        options={productoOptions}
-        available={new Set(allProductoValues)}
-        selected={productoSelected}
-        onChange={onProductoChange}
-      />
+        <StandardMultiFilter
+          label="Producto"
+          options={productoOptions}
+          selected={sel.productos}
+          onChange={(next) => onFilterChange("productos", next)}
+          searchPlaceholder="Buscar producto…"
+        />
 
-      {/* País */}
-      <div className="flex flex-col gap-1.5">
-        <span className="font-sans text-xs text-[#666666]">País</span>
-        <div className="flex gap-1 rounded-lg border border-[#E5E5E5] bg-white p-1">
-          {countryButtons.map((b) => {
-            const isActive = country === b.id;
-            const disabled = countryLocked && !isActive;
-            return (
-              <button
-                key={b.id}
-                type="button"
-                disabled={disabled}
-                onClick={() => updateCountry(b.id === "all" ? null : b.id)}
-                className={`rounded-md px-3 py-1.5 font-sans text-sm font-medium transition-colors ${
-                  isActive
-                    ? "bg-[#F0EFFE] text-[#9F99F8]"
-                    : disabled
-                      ? "cursor-not-allowed text-[#E5E5E5]"
-                      : "text-[#666666] hover:text-[#333333]"
-                }`}
-              >
-                {b.label}
-              </button>
-            );
-          })}
+        {/* País */}
+        <div className="flex flex-col gap-1.5">
+          <span className="font-sans text-xs text-[#666666]">País</span>
+          <div className="flex gap-1 rounded-lg border border-[#E5E5E5] bg-white p-1">
+            {countryButtons.map((b) => {
+              const isActive = country === b.id;
+              const disabled = countryLocked && !isActive;
+              return (
+                <button
+                  key={b.id}
+                  type="button"
+                  disabled={disabled}
+                  onClick={() => updateCountry(b.id === "all" ? null : b.id)}
+                  className={`rounded-md px-3 py-1.5 font-sans text-sm font-medium transition-colors ${
+                    isActive
+                      ? "bg-[#F0EFFE] text-[#9F99F8]"
+                      : disabled
+                        ? "cursor-not-allowed text-[#E5E5E5]"
+                        : "text-[#666666] hover:text-[#333333]"
+                  }`}
+                >
+                  {b.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
+
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={() => navegar("tab=global")}
+            className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 font-sans text-sm text-[#666666] transition-colors hover:bg-[#FAFAFA] hover:text-[#333333]"
+          >
+            <X className="h-3.5 w-3.5" />
+            Limpiar filtros
+          </button>
+        )}
       </div>
 
-      {hasActiveFilters && (
-        <button
-          type="button"
-          onClick={() => router.push("/ticketing?tab=global", { scroll: false })}
-          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 font-sans text-sm text-[#666666] transition-colors hover:bg-[#FAFAFA] hover:text-[#333333]"
-        >
-          <X className="h-3.5 w-3.5" />
-          Limpiar filtros
-        </button>
-      )}
+      <FilterConflictNotice
+        conflicts={conflictos}
+        onClear={(key) => onFilterChange(key, new Set())}
+      />
     </section>
   );
 }

@@ -65,29 +65,111 @@ No hagas commit de secretos ni credenciales reales.
 
 ## Estándar de filtros
 
-Todo filtro nuevo en dashboards debe tener tres elementos:
+Todo filtro multi-selección de un dashboard usa [`components/filters/StandardMultiFilter.tsx`](components/filters/StandardMultiFilter.tsx) (buscador, checkboxes, "Seleccionar todos" y "Limpiar") y la lógica pura de [`lib/filters/`](lib/filters/). Es el único multi-select del proyecto: no crees otro; si un panel necesita algo distinto, extiende ese componente. El estilo está en [`docs/STYLE_DASHBOARD.md`](docs/STYLE_DASHBOARD.md) § FILTER CONTROLS.
 
-1. **Buscador**: input que filtra opciones por texto, sub-string y case-insensitive.
-2. **Multiselector**: selección múltiple con checkboxes; conjunto vacío = "Todos".
-3. **Limpiador**: botón "Limpiar" que vacía la selección.
+Reglas (las mismas de Power BI, Looker, Metabase y Superset):
 
-Por defecto reutiliza [`components/onepager/MultiFilter.tsx`](components/onepager/MultiFilter.tsx):
+1. **Selección vacía = "Todos".** No existe el estado "ninguno": un filtro sin nada marcado no restringe.
+2. **Un filtro nunca modifica a otro.** Cambiar o limpiar un filtro escribe solo su propia selección (su param de URL o su key de estado). Nada de resets en cascada, purgas ni `useEffect` que corrijan otro filtro.
+3. **El encadenamiento acota las opciones, no las selecciones.** Cada dropdown muestra lo compatible con los otros filtros más lo ya seleccionado; lo seleccionado que quedó incompatible se ve atenuado (prop `available`) y nunca se borra. Si la combinación no deja resultados, muestra [`FilterConflictNotice`](components/filters/FilterConflictNotice.tsx) con un "Limpiar <filtro>" por cada faceta en conflicto. Nunca ocultes una faceta que tiene selección: el usuario tiene que poder limpiarla.
+4. **El botón global "Limpiar filtros" vuelve al estado por defecto del dashboard.** Es el único control que toca varios filtros a la vez.
+
+Piezas de `lib/filters/`:
+
+- [`facetas.ts`](lib/filters/facetas.ts): cada filtro es una `Faceta<T>` (`key`, `valores(item)` que devuelve uno o varios valores, e `ignora` opcional para jerarquías de un solo sentido, padre → hijo). Con ellas usas `filtrar` (ítems que pasan todos los filtros), `disponibles` (valores compatibles por faceta), `opcionesVisibles` (opciones del dropdown: disponibles + seleccionadas) y `enConflicto` (facetas que chocan cuando nada calza).
+- [`url.ts`](lib/filters/url.ts): `leerSeleccion`, `escribirSeleccion` y `reemplazarSeleccion` en el cliente (param repetido, `?eventos=GLO181&eventos=GLO213`; selección vacía = se borra el param), `normalizarSeleccion` (marcar el universo entero de una faceta se guarda como "Todos": filtra lo mismo y no arrastra listas de cientos de valores a la URL) y `valoresDeParam` en el servidor (`[]` = "Todos", sin condición en la query). Los links viejos con `__none__` se leen como "Todos".
+- [`components/filters/useQueryFiltros.ts`](components/filters/useQueryFiltros.ts): hook de toda barra de filtros por URL. Devuelve `search` (el último cambio pedido aunque la navegación todavía no termine) y `navegar(qs)`. Arma siempre los cambios sobre ese `search`, nunca sobre `useSearchParams()` directo: si no, dos cambios seguidos se pisan mientras carga el servidor. El pedido pendiente se comparte entre todas las instancias de la misma ruta, así que dos controles separados de una página (un filtro y el switch neto/bruto, por ejemplo) pueden llamar cada uno a su propio `useQueryFiltros`.
+
+Ejemplo mínimo con estado local:
 
 ```tsx
-import { useState } from "react";
-import MultiFilter from "@/components/onepager/MultiFilter";
+"use client";
 
-const [seleccion, setSeleccion] = useState<Set<string>>(new Set());
+import { useMemo, useState } from "react";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import FilterConflictNotice from "@/components/filters/FilterConflictNotice";
+import {
+  disponibles,
+  enConflicto,
+  filtrar,
+  opcionesVisibles,
+  type Faceta,
+} from "@/lib/filters/facetas";
 
-<MultiFilter
-  label="Categoría"
-  options={opcionesUnicasYOrdenadas}
-  selected={seleccion}
-  onChange={setSeleccion}
-  searchPlaceholder="Buscar categoría..."
-/>;
+type Evento = { id: string; nombre: string; categoria: string };
+
+const FACETAS: Faceta<Evento>[] = [
+  { key: "categorias", valores: (e) => e.categoria },
+  { key: "eventos", valores: (e) => e.id },
+];
+const LABEL: Record<string, string> = { categorias: "Categoría", eventos: "Evento" };
+
+export default function EventosFiltros({ eventos }: { eventos: Evento[] }) {
+  const [sel, setSel] = useState<Record<string, Set<string>>>({});
+  // Regla 2: cada filtro escribe solo su propia key.
+  const setFaceta = (key: string, next: Set<string>) =>
+    setSel((prev) => ({ ...prev, [key]: next }));
+
+  const disp = useMemo(() => disponibles(eventos, FACETAS, sel), [eventos, sel]);
+  const filas = useMemo(() => filtrar(eventos, FACETAS, sel), [eventos, sel]);
+  const conflictos = enConflicto(eventos, FACETAS, sel).map((key) => ({
+    key,
+    label: LABEL[key],
+  }));
+
+  const categorias = [...new Set(eventos.map((e) => e.categoria))].sort();
+  const nombre = new Map(eventos.map((e) => [e.id, e.nombre]));
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-3">
+        <StandardMultiFilter
+          label="Categoría"
+          allLabel="Todas"
+          options={opcionesVisibles(categorias, disp.categorias, sel.categorias).map((c) => ({
+            value: c,
+            label: c,
+          }))}
+          available={disp.categorias}
+          selected={sel.categorias ?? new Set()}
+          onChange={(next) => setFaceta("categorias", next)}
+        />
+        <StandardMultiFilter
+          label="Evento"
+          options={opcionesVisibles(
+            eventos.map((e) => e.id),
+            disp.eventos,
+            sel.eventos,
+          ).map((id) => ({ value: id, label: `${id} — ${nombre.get(id) ?? id}` }))}
+          available={disp.eventos}
+          selected={sel.eventos ?? new Set()}
+          onChange={(next) => setFaceta("eventos", next)}
+          searchPlaceholder="Buscar evento…"
+        />
+      </div>
+      <FilterConflictNotice conflicts={conflictos} onClear={(key) => setFaceta(key, new Set())} />
+      <p className="font-sans text-sm text-[var(--ink-muted)]">{filas.length} eventos</p>
+    </div>
+  );
+}
 ```
 
-Para filtros en cascada, deriva las `options` del segundo filtro desde la selección del primero. Ver [`FfbbDetalleTable.tsx`](components/onepager/FfbbDetalleTable.tsx) y [`FfbbEvolucionChart.tsx`](components/onepager/FfbbEvolucionChart.tsx).
+Si los filtros viven en la URL, usa `useQueryFiltros`, lee cada filtro con `leerSeleccion` y haz que cada `onChange` reescriba solo su param:
 
-Si un panel necesita otro look, igual debe cumplir buscador, multiselección y limpiador, salvo que haya una razón explícita documentada en el cambio.
+```tsx
+const { search, navegar } = useQueryFiltros("/mi-dashboard");
+const sp = new URLSearchParams(search);
+const sel = { categorias: leerSeleccion(sp, "categorias"), eventos: leerSeleccion(sp, "eventos") };
+
+function setFaceta(param: string, next: Set<string>, universo: string[]) {
+  // Solo este param; marcar el universo entero = "Todos".
+  navegar(reemplazarSeleccion(search, param, normalizarSeleccion(next, universo)));
+}
+
+// Servidor (page.tsx)
+const eventos = valoresDeParam((await searchParams).eventos); // [] = "Todos": sin condición
+```
+
+Casos reales: [`CurvasFilters.tsx`](components/marketing/CurvasFilters.tsx) y [`DemandaFilters.tsx`](components/ticketing/DemandaFilters.tsx) (URL), [`cierre-mensual/filters/FilterBar.tsx`](components/cierre-mensual/filters/FilterBar.tsx) (estado local con valor por defecto e `ignora`).
+
+Los chequeos de `lib/filters/` corren con `npm run test:filtros`; agrega un caso ahí si cambias esa lógica.

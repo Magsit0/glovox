@@ -1,8 +1,7 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
-import { useRouter } from "@/lib/use-router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQueryWeekly } from "@/components/marketing/WeeklyQueryProvider";
 
 type CompareEventOption = {
   eventoId: string;
@@ -13,17 +12,19 @@ type CompareEventOption = {
 
 type Props = {
   events: CompareEventOption[];
-  selected: string[];
   defaultCategory?: string;
 };
 
+const PARAM = "compare";
+
 export default function CompareEventSelector({
   events,
-  selected,
   defaultCategory = "",
 }: Props) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+  // Query vigente de la página (WeeklyQueryProvider): el último cambio pedido
+  // aunque BigQuery no haya respondido, para que dos comparativos marcados
+  // seguidos (o un comparativo y otro filtro) se sumen en vez de pisarse.
+  const { search: query, navegar } = useQueryWeekly();
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState(defaultCategory);
@@ -50,11 +51,22 @@ export default function CompareEventSelector({
     return () => document.removeEventListener("mousedown", handleClick);
   }, []);
 
+  // Comparativos vigentes, con la misma regla que page.tsx (sin repetidos y
+  // solo eventos comparables: ni el principal ni uno fuera del alcance), así
+  // en la URL confirmada coincide con lo que resolvió el servidor.
+  const selected = useMemo(() => {
+    const comparables = new Set(events.map((e) => e.eventoId));
+    return Array.from(new Set(new URLSearchParams(query).getAll(PARAM))).filter(
+      (id) => comparables.has(id),
+    );
+  }, [query, events]);
+
+  // Escribe SOLO `compare`; el resto de la URL queda como está.
   function commit(next: string[]) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.delete("compare");
-    for (const v of next) params.append("compare", v);
-    router.push(`/marketing/weekly?${params.toString()}`, { scroll: false });
+    const params = new URLSearchParams(query);
+    params.delete(PARAM);
+    for (const v of next) params.append(PARAM, v);
+    navegar(params.toString());
   }
 
   function toggle(value: string) {

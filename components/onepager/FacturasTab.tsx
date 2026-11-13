@@ -5,7 +5,7 @@ import { Download } from "lucide-react";
 import { downloadCsv } from "@/components/proveedor/csv";
 import type { OnepagerFacturaRow } from "@/lib/queries/onepagerCostos";
 import BrutalChartPanel from "./BrutalChartPanel";
-import MultiFilter from "./MultiFilter";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
 
 type Props = {
   eventoId: string;
@@ -87,14 +87,17 @@ export default function FacturasTab({ eventoId, facturas }: Props) {
     () => uniqueSorted(facturas.map((f) => f.cliente)),
     [facturas],
   );
+  const clientesItems = useMemo(() => clientesOpts.map((o) => ({ value: o, label: o })), [clientesOpts]);
   const tiposOpts = useMemo(
     () => uniqueSorted(facturas.map(tipoLabel)),
     [facturas],
   );
+  const tiposItems = useMemo(() => tiposOpts.map((o) => ({ value: o, label: o })), [tiposOpts]);
   const negociosOpts = useMemo(
     () => uniqueSorted(facturas.map(negocioKey)),
     [facturas],
   );
+  const negociosItems = useMemo(() => negociosOpts.map((o) => ({ value: o, label: o })), [negociosOpts]);
   const negociosCount = negociosOpts.length;
 
   const filtered = useMemo(
@@ -199,26 +202,26 @@ export default function FacturasTab({ eventoId, facturas }: Props) {
       <BrutalChartPanel title="Facturación — Documentos de venta">
         <div className="space-y-4">
           <div className="flex flex-wrap items-end gap-3">
-            <MultiFilter
+            <StandardMultiFilter
               label="Cliente"
               selected={clientes}
               onChange={setClientes}
-              options={clientesOpts}
+              options={clientesItems}
               searchPlaceholder="Buscar cliente…"
             />
-            <MultiFilter
+            <StandardMultiFilter
               label="Tipo de documento"
               selected={tipos}
               onChange={setTipos}
-              options={tiposOpts}
+              options={tiposItems}
               searchPlaceholder="Buscar tipo…"
             />
             {multiNegocio && (
-              <MultiFilter
+              <StandardMultiFilter
                 label="Negocio"
                 selected={negociosSel}
                 onChange={setNegociosSel}
-                options={negociosOpts}
+                options={negociosItems}
                 searchPlaceholder="Buscar negocio…"
               />
             )}

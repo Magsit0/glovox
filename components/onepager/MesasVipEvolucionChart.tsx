@@ -16,7 +16,15 @@ import type { MesasVipClienteRow, MesasVipMatrixCell } from "@/lib/queries/mesas
 import { netoFromPrecio } from "@/lib/constants/mesasVip";
 import { seriesColor, gridProps, legendProps, axisTick, SURFACE } from "@/lib/chart-colors";
 import { ChartTooltip } from "@/components/cierre-mensual/charts/ChartTooltip";
-import MultiFilter from "./MultiFilter";
+import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import FilterConflictNotice from "@/components/filters/FilterConflictNotice";
+import {
+  disponibles,
+  enConflicto,
+  opcionesVisibles,
+  type Faceta,
+} from "@/lib/filters/facetas";
+import { normalizarSeleccion } from "@/lib/filters/url";
 
 type Props = {
   /** Eventos en pantalla (ya acotados por los filtros de la vista global). */
@@ -33,6 +41,10 @@ type Grouping = "evento" | "cliente";
 // Clave de la serie "agregada" en modo por evento.
 const ALL_KEY = "__todas__";
 const ALL_LABEL = "Mesas VIP (total)";
+// Key de la faceta Cliente (lib/filters/facetas).
+const CLIENTE_KEY = "cliente";
+
+const porNombre = (a: string, b: string) => a.localeCompare(b, "es-CL");
 
 function fmtClp(value: number) {
   return "$" + Math.round(value).toLocaleString("es-CL");
@@ -85,55 +97,102 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
     return m;
   }, [clientes]);
 
-  // Opciones del filtro: solo clientes con imputación en los eventos en scope.
-  const clienteOpts = useMemo(() => {
-    const ids = new Set(scopedMatrix.map((c) => c.clienteId));
-    const nombres: string[] = [];
-    for (const id of ids) {
-      const n = nombreById.get(id);
-      if (n) nombres.push(n);
-    }
-    return nombres.sort((a, b) => a.localeCompare(b, "es-CL"));
-  }, [scopedMatrix, nombreById]);
+  // Faceta Cliente sobre las imputaciones en scope. El scope (Categoría/Grupo
+  // del listado) acota las OPCIONES, nunca la selección: `seleccion` se usa
+  // cruda en todo el componente y solo la escriben el dropdown y "Limpiar".
+  const facetas = useMemo<Faceta<MesasVipMatrixCell>[]>(
+    () => [{ key: CLIENTE_KEY, valores: (c) => nombreById.get(c.clienteId) ?? null }],
+    [nombreById],
+  );
+  const selecciones = useMemo(() => ({ [CLIENTE_KEY]: seleccion }), [seleccion]);
 
-  // Descarta selección que ya no está disponible (sin perder el estado crudo).
-  const effectiveSeleccion = useMemo(() => {
-    if (seleccion.size === 0) return seleccion;
-    const valid = new Set(clienteOpts);
-    const next = new Set<string>();
-    for (const n of seleccion) if (valid.has(n)) next.add(n);
-    return next;
-  }, [seleccion, clienteOpts]);
+  // Clientes con imputación en los eventos en pantalla.
+  const conDatos = useMemo(
+    () => disponibles(scopedMatrix, facetas, {})[CLIENTE_KEY],
+    [scopedMatrix, facetas],
+  );
+
+  // Catálogo de clientes (da el orden de las opciones) y los que tienen datos
+  // en scope, en orden alfabético.
+  const todosLosClientes = useMemo(
+    () => clientes.map((c) => c.nombre).sort(porNombre),
+    [clientes],
+  );
+  const clienteOpts = useMemo(
+    () => todosLosClientes.filter((n) => conDatos.has(n)),
+    [todosLosClientes, conDatos],
+  );
+  // Universo completo de Cliente: los clientes con imputación (distinta de
+  // cero, como en scope) en cualquier evento de la matrix, sin el scope del
+  // listado. Contra este se normaliza la selección.
+  const universoClientes = useMemo(
+    () => disponibles(matrix.filter((c) => c.precio !== 0), facetas, {})[CLIENTE_KEY],
+    [matrix, facetas],
+  );
+
+  // Opciones del dropdown: los clientes con datos en scope + los ya elegidos
+  // (atenuados vía `available` si quedaron sin datos).
+  const clienteItems = useMemo(
+    () =>
+      opcionesVisibles(todosLosClientes, conDatos, seleccion).map((v) => ({
+        value: v,
+        label: v,
+      })),
+    [todosLosClientes, conDatos, seleccion],
+  );
+
+  // Selección cruda ordenada, y los elegidos sin imputación en scope (se
+  // conservan, pero no se grafican y se avisa debajo del filtro).
+  const elegidos = useMemo(() => Array.from(seleccion).sort(porNombre), [seleccion]);
+  const sinDatos = useMemo(
+    () => (grouping === "cliente" ? elegidos.filter((n) => !conDatos.has(n)) : []),
+    [grouping, elegidos, conDatos],
+  );
+
+  // Ningún cliente elegido tiene datos en scope: aviso en vez de caer en
+  // silencio a "una línea por cada cliente". Solo aplica en modo "cliente"
+  // (en "evento" la selección no participa). Sin imputaciones en los eventos
+  // en pantalla no hay choque que reportar (limpiar el cliente no traería
+  // datos): ahí aplica el mensaje de vacío, igual que en FfbbConsumoChart.
+  const conflicts = useMemo(
+    () =>
+      grouping === "cliente" && scopedMatrix.length > 0
+        ? enConflicto(scopedMatrix, facetas, selecciones).map((key) => ({
+            key,
+            label: "Cliente",
+          }))
+        : [],
+    [grouping, scopedMatrix, facetas, selecciones],
+  );
+
+  // Marcar el universo entero de clientes se guarda como "Todos": dibuja lo
+  // mismo (una línea por cliente con datos). El universo son los clientes con
+  // imputaciones en TODOS los eventos (universoClientes), como Producto en
+  // FfbbConsumoChart: el scope de eventos es otro filtro acotando y no puede
+  // decidir qué se guarda, así que "Seleccionar todos" con el listado acotado
+  // queda como lista. Tampoco es el catálogo, que trae clientes sin
+  // imputaciones que nunca aparecen como opción y harían que "Seleccionar
+  // todos" no llegue nunca a "Todos".
+  const onSeleccion = (next: Set<string>) =>
+    setSeleccion(new Set(normalizarSeleccion(next, universoClientes)));
 
   // Series (líneas):
   //  - "evento" → una línea agregada (suma de todos los clientes).
-  //  - "cliente" → una línea por cliente seleccionado; si no hay selección,
-  //    una línea por cada cliente con datos.
+  //  - "cliente" → una línea por cliente elegido CON datos en scope (el color
+  //    sale de su posición en la selección, así no cambia cuando otro elegido
+  //    queda sin datos); si no hay selección, una línea por cada cliente con
+  //    datos.
   const series = useMemo<{ key: string; label: string; color: string }[]>(() => {
     if (grouping === "evento") {
       return [{ key: ALL_KEY, label: ALL_LABEL, color: seriesColor(0) }];
     }
-    const nombres =
-      effectiveSeleccion.size > 0
-        ? Array.from(effectiveSeleccion).sort((a, b) => a.localeCompare(b, "es-CL"))
-        : clienteOpts;
-    return nombres.map((nombre, i) => ({
-      key: idByNombre.get(nombre) ?? nombre,
-      label: nombre,
-      color: seriesColor(i),
-    }));
-  }, [grouping, effectiveSeleccion, clienteOpts, idByNombre]);
-
-  // clienteIds a graficar en modo "cliente".
-  const selectedIds = useMemo(() => {
-    const s = new Set<string>();
-    const nombres = effectiveSeleccion.size > 0 ? effectiveSeleccion : new Set(clienteOpts);
-    for (const nombre of nombres) {
+    const nombres = seleccion.size > 0 ? elegidos : clienteOpts;
+    return nombres.flatMap((nombre, i) => {
       const id = idByNombre.get(nombre);
-      if (id) s.add(id);
-    }
-    return s;
-  }, [effectiveSeleccion, clienteOpts, idByNombre]);
+      if (!id || !conDatos.has(nombre)) return [];
+      return [{ key: id, label: nombre, color: seriesColor(i) }];
+    });
+  }, [grouping, seleccion, elegidos, clienteOpts, conDatos, idByNombre]);
 
   // Índice por evento → cliente con bruto (lo cobrado) y neto (exento aporta
   // completo; afecto ÷1,19), para acumular en una sola pasada.
@@ -169,14 +228,14 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
         if (inner) for (const v of inner.values()) sum += pick(v);
         point[ALL_KEY] = sum;
       } else {
-        for (const id of selectedIds) {
-          const v = inner?.get(id);
-          point[id] = v ? pick(v) : 0;
+        for (const s of series) {
+          const v = inner?.get(s.key);
+          point[s.key] = v ? pick(v) : 0;
         }
       }
       return point;
     });
-  }, [events, byEvento, grouping, selectedIds, metric]);
+  }, [events, byEvento, grouping, series, metric]);
 
   // ¿Hay algún valor no nulo/no cero para mostrar?
   const hasValues = useMemo(
@@ -190,7 +249,7 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
     [chartData, series],
   );
 
-  const hasActiveFilter = effectiveSeleccion.size > 0;
+  const hasActiveFilter = seleccion.size > 0;
 
   return (
     <div className="space-y-4">
@@ -232,11 +291,12 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
 
         {grouping === "cliente" && (
           <>
-            <MultiFilter
+            <StandardMultiFilter
               label="Cliente"
-              selected={effectiveSeleccion}
-              onChange={setSeleccion}
-              options={clienteOpts}
+              selected={seleccion}
+              onChange={onSeleccion}
+              options={clienteItems}
+              available={conDatos}
               searchPlaceholder="Buscar cliente…"
             />
             {hasActiveFilter && (
@@ -285,10 +345,25 @@ export default function MesasVipEvolucionChart({ events, clientes, matrix }: Pro
         </div>
       </div>
 
+      {events.length > 0 && conflicts.length === 0 && sinDatos.length > 0 && (
+        <p
+          role="status"
+          className="flex items-center gap-2 font-sans text-xs text-[var(--ink-muted)]"
+        >
+          <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#EF8C34]" />
+          Sin ingresos en los eventos en pantalla (no se grafican): {sinDatos.join(", ")}.
+        </p>
+      )}
+
       {events.length === 0 ? (
         <p className="font-sans text-sm text-[#999999]">
           No hay eventos en la vista actual.
         </p>
+      ) : conflicts.length > 0 ? (
+        <FilterConflictNotice
+          conflicts={conflicts}
+          onClear={() => setSeleccion(new Set())}
+        />
       ) : !hasValues ? (
         <p className="font-sans text-sm text-[#999999]">
           Sin ingresos de mesas VIP para los filtros seleccionados.

@@ -3,6 +3,7 @@
 import { Fragment, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   ArrowDown,
   ArrowUp,
@@ -12,6 +13,7 @@ import {
   Copy,
   Download,
   Inbox,
+  X,
 } from "lucide-react";
 import { motion } from "motion/react";
 import {
@@ -57,6 +59,18 @@ import type {
 } from "@/lib/queries/frees";
 import { FreesEventSelect } from "./FreesEventSelect";
 import StandardMultiFilter from "@/components/filters/StandardMultiFilter";
+import FilterConflictNotice from "@/components/filters/FilterConflictNotice";
+import {
+  disponibles,
+  enConflicto,
+  opcionesVisibles,
+  type Faceta,
+} from "@/lib/filters/facetas";
+import {
+  leerSeleccion,
+  normalizarSeleccion,
+  reemplazarSeleccion,
+} from "@/lib/filters/url";
 import { downloadCsv } from "@/components/proveedor/csv";
 
 const numberFormatter = new Intl.NumberFormat("es-CL");
@@ -772,6 +786,48 @@ function recipientKey(category: string, recipient: string): string {
   return `${category}::${recipient}`;
 }
 
+/** Par categoría → recipient del árbol de género: la base del encadenamiento. */
+type GeneroPar = { category: string; recipient: string | null };
+
+/**
+ * Facetas de la pestaña Género (regla de lib/filters/facetas.ts). Jerarquía de
+ * un solo sentido: Categoría acota las opciones de Recipient, pero elegir un
+ * recipient no le esconde categorías (`ignora`), igual que antes.
+ */
+const GENERO_FACETAS: Faceta<GeneroPar>[] = [
+  { key: "category", valores: (p) => p.category, ignora: ["recipient"] },
+  { key: "recipient", valores: (p) => p.recipient },
+];
+
+const GENERO_FACETA_LABELS: Record<string, string> = {
+  category: "Categoría",
+  recipient: "Recipient",
+};
+
+const GENERO_VALORES = ["Hombre", "Mujer", "Sin clasificar"] as const;
+
+/** Param de URL de cada filtro de la pestaña Género. */
+const GENERO_PARAMS = {
+  category: "categoria",
+  recipient: "recipient",
+  genero: "genero",
+} as const;
+type GeneroFiltroKey = keyof typeof GENERO_PARAMS;
+
+/**
+ * Refleja un filtro de la pestaña Género en la URL sin ir al servidor. Filtra
+ * datos ya cargados: navegar (useQueryFiltros/router.push) solo volvería a
+ * correr las consultas de BigQuery de la page en cada clic. Arma sobre
+ * window.location.search, que replaceState actualiza al instante, así varios
+ * cambios seguidos ("Limpiar filtros" escribe tres) se suman y cada uno toca
+ * solo su param. Next sincroniza useSearchParams con replaceState, y
+ * FreesEventSelect copia esos params al cambiar de evento.
+ */
+function escribirFiltroGenero(key: GeneroFiltroKey, sel: readonly string[]) {
+  const qs = reemplazarSeleccion(window.location.search, GENERO_PARAMS[key], sel);
+  window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
+}
+
 function GeneroSection({
   data,
   ingresoRows,
@@ -784,9 +840,21 @@ function GeneroSection({
   eventoId: string;
 }) {
   const hasEventoFilter = Boolean(eventoId);
-  const [categoryFilter, setCategoryFilter] = useState<Set<string>>(new Set());
-  const [recipientFilter, setRecipientFilter] = useState<Set<string>>(new Set());
-  const [generoFilter, setGeneroFilter] = useState<Set<string>>(new Set());
+  // Los tres filtros parten de la URL (?categoria=…&recipient=…&genero=…) y se
+  // escriben ahí. Así cambiar el Evento, que remonta el dashboard (<Suspense
+  // key> en app/frees/page.tsx), o salir y volver a la pestaña no los borra
+  // (regla 2). Lo que no exista en el evento nuevo queda visible y atenuado, y
+  // el aviso de conflicto ofrece limpiarlo.
+  const searchParams = useSearchParams();
+  const [categoryFilter, setCategoryFilter] = useState<Set<string>>(() =>
+    leerSeleccion(searchParams, GENERO_PARAMS.category),
+  );
+  const [recipientFilter, setRecipientFilter] = useState<Set<string>>(() =>
+    leerSeleccion(searchParams, GENERO_PARAMS.recipient),
+  );
+  const [generoFilter, setGeneroFilter] = useState<Set<string>>(() =>
+    leerSeleccion(searchParams, GENERO_PARAMS.genero),
+  );
 
   const categoryOptions = useMemo(
     () =>
@@ -796,36 +864,90 @@ function GeneroSection({
     [data.byCategory],
   );
 
-  const recipientOptions = useMemo(() => {
-    const cats =
-      categoryFilter.size > 0
-        ? data.byCategory.filter((c) => categoryFilter.has(c.label))
-        : data.byCategory;
+  const pares = useMemo<GeneroPar[]>(
+    () =>
+      data.byCategory.flatMap<GeneroPar>((c) =>
+        c.recipients.length
+          ? c.recipients.map((r) => ({ category: c.label, recipient: r.label }))
+          : [{ category: c.label, recipient: null }],
+      ),
+    [data.byCategory],
+  );
+
+  const allRecipients = useMemo(() => {
     const set = new Set<string>();
-    for (const c of cats) for (const r of c.recipients) set.add(r.label);
+    for (const p of pares) if (p.recipient) set.add(p.recipient);
     return Array.from(set).sort((a, b) => a.localeCompare(b, "es"));
-  }, [data.byCategory, categoryFilter]);
+  }, [pares]);
 
-  const effectiveRecipientFilter = useMemo(() => {
-    if (recipientFilter.size === 0) return recipientFilter;
-    const available = new Set(recipientOptions);
-    return new Set([...recipientFilter].filter((r) => available.has(r)));
-  }, [recipientOptions, recipientFilter]);
+  // Selección cruda de cada filtro: el encadenamiento acota las OPCIONES, nunca
+  // la selección. Un recipient que no calza con la categoría elegida sigue
+  // seleccionado (atenuado en su dropdown) y la combinación muestra el aviso de
+  // conflicto en vez de ampliarse en silencio a "Todos".
+  const seleccion = useMemo(
+    () => ({ category: categoryFilter, recipient: recipientFilter }),
+    [categoryFilter, recipientFilter],
+  );
 
-  const hasNonGenderFilter =
-    categoryFilter.size > 0 || effectiveRecipientFilter.size > 0;
+  const disp = useMemo(
+    () => disponibles(pares, GENERO_FACETAS, seleccion),
+    [pares, seleccion],
+  );
+
+  const categoryVisible = useMemo(
+    () => opcionesVisibles(categoryOptions, disp.category, categoryFilter),
+    [categoryOptions, disp, categoryFilter],
+  );
+
+  const recipientOptions = useMemo(
+    () => opcionesVisibles(allRecipients, disp.recipient, recipientFilter),
+    [allRecipients, disp, recipientFilter],
+  );
+
+  const conflicts = useMemo(
+    () =>
+      enConflicto(pares, GENERO_FACETAS, seleccion).map((key) => ({
+        key,
+        label: GENERO_FACETA_LABELS[key] ?? key,
+      })),
+    [pares, seleccion],
+  );
+
+  // Cada filtro escribe solo su propia selección (estado + su param). Marcar
+  // todo su universo se guarda como "Todos" (normalizarSeleccion).
+  function aplicarFiltro(key: GeneroFiltroKey, sel: string[]) {
+    const next = new Set(sel);
+    if (key === "category") setCategoryFilter(next);
+    else if (key === "recipient") setRecipientFilter(next);
+    else setGeneroFilter(next);
+    escribirFiltroGenero(key, sel);
+  }
+  function handleCategoryChange(next: Set<string>) {
+    aplicarFiltro("category", normalizarSeleccion(next, categoryOptions));
+  }
+  function handleRecipientChange(next: Set<string>) {
+    aplicarFiltro("recipient", normalizarSeleccion(next, allRecipients));
+  }
+  function handleGeneroChange(next: Set<string>) {
+    aplicarFiltro("genero", normalizarSeleccion(next, GENERO_VALORES));
+  }
+  function handleClearConflict(key: string) {
+    if (key === "category" || key === "recipient") aplicarFiltro(key, []);
+  }
+
+  const hasNonGenderFilter = categoryFilter.size > 0 || recipientFilter.size > 0;
 
   const filteredCategories = useMemo<FreesGeneroCategory[]>(() => {
     let cats = data.byCategory;
     if (categoryFilter.size > 0) {
       cats = cats.filter((c) => categoryFilter.has(c.label));
     }
-    if (effectiveRecipientFilter.size === 0) return cats;
+    if (recipientFilter.size === 0) return cats;
 
     return cats
       .map((cat) => {
-        const recipients = cat.recipients.filter(
-          (r) => effectiveRecipientFilter.has(r.label),
+        const recipients = cat.recipients.filter((r) =>
+          recipientFilter.has(r.label),
         );
         if (!recipients.length) return null;
         const totals = recipients.reduce(
@@ -850,7 +972,7 @@ function GeneroSection({
         } satisfies FreesGeneroCategory;
       })
       .filter((c): c is FreesGeneroCategory => c !== null);
-  }, [data.byCategory, categoryFilter, effectiveRecipientFilter]);
+  }, [data.byCategory, categoryFilter, recipientFilter]);
 
   const filteredDonutTotals = useMemo(() => {
     let h = 0;
@@ -884,10 +1006,10 @@ function GeneroSection({
       invitados.filter(
         (r) =>
           matchesSelection(categoryFilter, r.category) &&
-          matchesSelection(effectiveRecipientFilter, r.recipient) &&
+          matchesSelection(recipientFilter, r.recipient) &&
           matchesSelection(generoFilter, r.genero),
       ),
-    [invitados, categoryFilter, effectiveRecipientFilter, generoFilter],
+    [invitados, categoryFilter, recipientFilter, generoFilter],
   );
 
   const invitadosByRecipient = useMemo(() => {
@@ -930,11 +1052,11 @@ function GeneroSection({
   const filteredIngresoRows = useMemo<FreesIngresoRow[]>(() => {
     return ingresoRows.filter((r) => {
       if (!matchesSelection(categoryFilter, r.category)) return false;
-      if (!matchesSelection(effectiveRecipientFilter, r.recipient)) return false;
+      if (!matchesSelection(recipientFilter, r.recipient)) return false;
       if (!matchesSelection(generoFilter, r.genero)) return false;
       return true;
     });
-  }, [ingresoRows, categoryFilter, effectiveRecipientFilter, generoFilter]);
+  }, [ingresoRows, categoryFilter, recipientFilter, generoFilter]);
 
   const horaMediaLabel = useMemo(() => {
     if (filteredIngresoRows.length === 0) return "—";
@@ -964,16 +1086,24 @@ function GeneroSection({
         title="Filtros"
         subtitle="Filtra por categoría, recipient y género."
       >
-        <GeneroFilters
-          categories={categoryOptions}
-          categoryFilter={categoryFilter}
-          onCategoryChange={setCategoryFilter}
-          recipients={recipientOptions}
-          recipientFilter={effectiveRecipientFilter}
-          onRecipientChange={setRecipientFilter}
-          generoFilter={generoFilter}
-          onGeneroChange={setGeneroFilter}
-        />
+        <div className="flex flex-col gap-3">
+          <GeneroFilters
+            categories={categoryVisible}
+            categoryAvailable={disp.category}
+            categoryFilter={categoryFilter}
+            onCategoryChange={handleCategoryChange}
+            recipients={recipientOptions}
+            recipientAvailable={disp.recipient}
+            recipientFilter={recipientFilter}
+            onRecipientChange={handleRecipientChange}
+            generoFilter={generoFilter}
+            onGeneroChange={handleGeneroChange}
+          />
+          <FilterConflictNotice
+            conflicts={conflicts}
+            onClear={handleClearConflict}
+          />
+        </div>
         <p className="font-sans text-xs text-[#999999]">
           Categoría y recipient filtran toda la pestaña. El filtro de género
           aplica a la curva horaria, la hora media y la lista de invitados; los
@@ -1109,18 +1239,22 @@ function GeneroKpis({
 
 function GeneroFilters({
   categories,
+  categoryAvailable,
   categoryFilter,
   onCategoryChange,
   recipients,
+  recipientAvailable,
   recipientFilter,
   onRecipientChange,
   generoFilter,
   onGeneroChange,
 }: {
   categories: string[];
+  categoryAvailable: ReadonlySet<string>;
   categoryFilter: Set<string>;
   onCategoryChange: (v: Set<string>) => void;
   recipients: string[];
+  recipientAvailable: ReadonlySet<string>;
   recipientFilter: Set<string>;
   onRecipientChange: (v: Set<string>) => void;
   generoFilter: Set<string>;
@@ -1136,6 +1270,7 @@ function GeneroFilters({
         selected={categoryFilter}
         onChange={onCategoryChange}
         options={categories.map((c) => ({ value: c, label: c }))}
+        available={categoryAvailable}
         allLabel="Todas las categorías"
         searchPlaceholder="Buscar categoría..."
       />
@@ -1146,6 +1281,7 @@ function GeneroFilters({
         selected={recipientFilter}
         onChange={onRecipientChange}
         options={recipients.map((r) => ({ value: r, label: r }))}
+        available={recipientAvailable}
         allLabel="Todos los recipients"
         searchPlaceholder="Buscar recipient..."
       />
@@ -1155,15 +1291,13 @@ function GeneroFilters({
         label="Género"
         selected={generoFilter}
         onChange={onGeneroChange}
-        options={[
-          { value: "Hombre", label: "Hombre" },
-          { value: "Mujer", label: "Mujer" },
-          { value: "Sin clasificar", label: "Sin clasificar" },
-        ]}
+        options={GENERO_VALORES.map((g) => ({ value: g, label: g }))}
         allLabel="Todos"
         searchPlaceholder="Buscar género..."
       />
 
+      {/* Único control que toca varios filtros a la vez: vuelve al estado por
+          defecto de la pestaña (todo en "Todos"). */}
       {hasFilter && (
         <button
           type="button"
@@ -1172,9 +1306,10 @@ function GeneroFilters({
             onRecipientChange(new Set());
             onGeneroChange(new Set());
           }}
-          className="rounded-lg px-3 py-2 font-sans text-sm text-[#666666] transition-colors hover:bg-[#FAFAFA] hover:text-[#333333]"
+          className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 font-sans text-sm text-[#666666] transition-colors hover:bg-[#FAFAFA] hover:text-[#333333]"
         >
-          Limpiar
+          <X className="h-3.5 w-3.5" />
+          Limpiar filtros
         </button>
       )}
     </div>
