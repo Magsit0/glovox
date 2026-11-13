@@ -23,6 +23,7 @@
     "audit:tipos": "dotenv -e .env.local -- tsx scripts/audit-tipos-campana.ts",
     "audit:referido": "dotenv -e .env.local -- tsx scripts/audit-referido.ts",
     "test:atribucion": "tsx lib/marketing/atribucion.checks.ts",
+    "test:dias-evento": "tsx lib/marketing/diasEvento.checks.ts",
     "audit:atribucion": "dotenv -e .env.local -- tsx scripts/audit-atribucion.ts"
   },
   "dependencies": {

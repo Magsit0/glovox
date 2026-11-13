@@ -24,6 +24,7 @@ import {
   type VentanaMedida,
 } from "@/lib/marketing/atribucion";
 import { tipoDeObjetivo } from "@/lib/inversion-medios/tipos";
+import { jornadasDelEvento, type FiltroDia, type JornadaEvento } from "@/lib/marketing/diasEvento";
 
 const P = process.env.BIGQUERY_PROJECT_ID;
 const TICKETS = `\`${P}.glovox.tickets\``;
@@ -296,6 +297,14 @@ export type Scope = DataScope;
 
 const scopeFilter = countryEventoFilter;
 
+// Filtro "Día" (eventos de varias jornadas): solo los tickets de esas fechas de
+// FechaEvento. Compara texto: @diasEvento llega como ARRAY<STRING> y
+// BigQuery no compara DATE con STRING. `a` = alias de la tabla ("t." o "").
+function diaEventoSql(dia: Pick<FiltroDia, "dias"> | undefined, a = ""): string {
+  return dia ? ` AND FORMAT_DATE('%Y-%m-%d', DATE(${a}FechaEvento)) IN UNNEST(@diasEvento)` : "";
+}
+const diaEventoParams = (dia: Pick<FiltroDia, "dias"> | undefined) => (dia ? { diasEvento: dia.dias } : {});
+
 function n(v: unknown): number {
   if (v == null) return 0;
   if (typeof v === "object" && "value" in (v as object))
@@ -539,6 +548,35 @@ export async function getUpcomingEvents(scope?: Scope): Promise<EventOption[]> {
   }));
 }
 
+/**
+ * Jornadas del evento para el filtro "Día" (vacío en un evento de un día).
+ * Same ticket rules as the KPIs. React.cache: the filter and every section it
+ * filters ask for it in the same request.
+ */
+export const getEventJornadas = cache(async function getEventJornadas(
+  eventoId: string,
+  country: Scope["country"],
+): Promise<JornadaEvento[]> {
+  const t = scopeFilter({ country });
+  const rows = await query<Record<string, unknown>>(
+    `
+    SELECT
+      FORMAT_DATE('%Y-%m-%d', DATE(FechaEvento)) AS dia,
+      COUNT(*)                                   AS tickets,
+      SUM(PersonasPorTicket)                     AS personas
+    FROM ${TICKETS}
+    WHERE EventoID = @eventoId
+      AND FechaEvento IS NOT NULL
+      AND ${TICKET_TYPE_FILTER}${t.sql}
+    GROUP BY dia
+    `,
+    { eventoId, ...t.params },
+  );
+  return jornadasDelEvento(
+    rows.map((r) => ({ dia: s(r.dia), tickets: n(r.tickets), personas: n(r.personas) })),
+  );
+});
+
 export async function getTicketDateRange(
   eventoId: string,
   scope?: Scope,
@@ -565,19 +603,27 @@ export async function getTicketDateRange(
 // Four sections of the page ask for the same KPIs: React.cache (request-scoped)
 // makes that one BigQuery job. Keyed on primitives because cache() compares
 // arguments by identity. Same semantics as before; `scope` only carries country.
-const getEventKpisCached = cache((eventoId: string, country: Scope["country"]) =>
-  getEventKpisImpl(eventoId, { country }),
+// `dias` (filtro "Día") joined as text for the same reason; "" = whole event.
+const getEventKpisCached = cache((eventoId: string, country: Scope["country"], dias: string) =>
+  getEventKpisImpl(eventoId, { country }, dias ? dias.split(",") : undefined),
 );
 
-export function getEventKpis(eventoId: string, scope?: Scope): Promise<EventKpiRow> {
-  return getEventKpisCached(eventoId, scope?.country ?? null);
+/**
+ * With `dia`, the ticket figures (personas, tickets, packs, revenue, service
+ * fee) only count that day of a multi-day event. Spend, budget, goal and the
+ * CPA's spend are the event's, so read CPA and the goal from the call without it.
+ */
+export function getEventKpis(eventoId: string, scope?: Scope, dia?: FiltroDia): Promise<EventKpiRow> {
+  return getEventKpisCached(eventoId, scope?.country ?? null, dia ? dia.dias.join(",") : "");
 }
 
 async function getEventKpisImpl(
   eventoId: string,
   scope?: Scope,
+  dias?: string[],
 ): Promise<EventKpiRow> {
   const t = scopeFilter(scope);
+  const dia = dias ? { dias } : undefined;
   const rows = await query<Record<string, unknown>>(
     `
     WITH ticket_stats AS (
@@ -602,7 +648,7 @@ async function getEventKpisImpl(
       -- CategoriaEvento to personasExpr. Dropping it also fixes GLO042, which
       -- has 6 rows in categoriaEvento and was fanning this CTE out x6.
       WHERE t.EventoID = @eventoId
-        AND ${TICKET_TYPE_FILTER}${t.sql}
+        AND ${TICKET_TYPE_FILTER}${t.sql}${diaEventoSql(dia, "t.")}
     ),
     ${ticketPeriodCte(t.sql)},
     ads_evt AS (${attributedAds(false)}),
@@ -634,7 +680,7 @@ async function getEventKpisImpl(
     CROSS JOIN ad_stats a
     CROSS JOIN event_meta em
     `,
-    { eventoId, ...t.params }
+    { eventoId, ...t.params, ...diaEventoParams(dia) }
   );
   const r = rows[0] ?? {};
   return {
@@ -663,6 +709,7 @@ async function getEventKpisImpl(
 export async function getCommunityTicketsCount(
   eventoId: string,
   scope?: Scope,
+  dia?: FiltroDia,
 ): Promise<CommunityCount> {
   const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
@@ -680,9 +727,9 @@ export async function getCommunityTicketsCount(
     FROM ${TICKETS} t
     WHERE t.EventoID = @eventoId
       AND t.VentaComunidad IS TRUE
-      AND ${TICKET_TYPE_FILTER}${t.sql}
+      AND ${TICKET_TYPE_FILTER}${t.sql}${diaEventoSql(dia, "t.")}
     `,
-    { eventoId, ...t.params }
+    { eventoId, ...t.params, ...diaEventoParams(dia) }
   );
   const r = rows[0] ?? {};
   return {
@@ -704,6 +751,11 @@ export async function getCumulativeSalesRelative(
   eventoIds: string[],
   scope?: Scope,
   tipoTickets?: string[],
+  // Filtro "Día": the main event (`eventoId`) keeps only its tickets for that
+  // day; the comparators keep the ones for the same day of the week (FDS 26's
+  // Saturday against FDS 25's Saturday). `event_dates` is filtered too, so day
+  // 0 is the chosen day and not the event's last one.
+  dia?: FiltroDia & { eventoId: string },
 ): Promise<CumulativeSalesRelativeRow[]> {
   if (eventoIds.length === 0) return [];
   const t = scopeFilter(scope);
@@ -714,13 +766,19 @@ export async function getCumulativeSalesRelative(
   // own naming, so cross-event semantics are the caller's concern).
   const hasTipo = (tipoTickets?.length ?? 0) > 0;
   const tipoSql = hasTipo ? ` AND TipoTicket IN UNNEST(@tipoTickets)` : ``;
+  const diaSql = (a: string) =>
+    dia
+      ? ` AND (CASE WHEN ${a}EventoID = @diaEventoId
+            THEN FORMAT_DATE('%Y-%m-%d', DATE(${a}FechaEvento)) IN UNNEST(@diasEvento)
+            ELSE EXTRACT(DAYOFWEEK FROM DATE(${a}FechaEvento)) = @diaSemana END)`
+      : ``;
   const rows = await query<Record<string, unknown>>(
     `
     WITH event_dates AS (
       SELECT EventoID, MAX(FechaEvento) AS fecha_evento
       FROM ${TICKETS}
       WHERE EventoID IN UNNEST(@eventoIds)
-        AND ${TICKET_TYPE_FILTER}${t.sql}
+        AND ${TICKET_TYPE_FILTER}${t.sql}${diaSql("")}
       GROUP BY EventoID
     ),
     daily AS (
@@ -737,7 +795,7 @@ export async function getCumulativeSalesRelative(
       FROM ${TICKETS} t
       JOIN event_dates e ON e.EventoID = t.EventoID
       WHERE t.EventoID IN UNNEST(@eventoIds)
-        AND ${TICKET_TYPE_FILTER}${tipoSql}${tT.sql}
+        AND ${TICKET_TYPE_FILTER}${tipoSql}${tT.sql}${diaSql("t.")}
       GROUP BY evento_id, days_to_event
     )
     SELECT
@@ -753,7 +811,12 @@ export async function getCumulativeSalesRelative(
     FROM daily
     ORDER BY evento_id, days_to_event DESC
     `,
-    { eventoIds, ...t.params, ...(hasTipo ? { tipoTickets } : {}) },
+    {
+      eventoIds,
+      ...t.params,
+      ...(hasTipo ? { tipoTickets } : {}),
+      ...(dia ? { diaEventoId: dia.eventoId, diasEvento: dia.dias, diaSemana: dia.diaSemana } : {}),
+    },
   );
   return rows.map((r) => ({
     eventoId: s(r.evento_id),
@@ -890,6 +953,7 @@ export async function getPaidMediaSummary(
 export async function getSalesOriginByDay(
   eventoId: string,
   scope?: Scope,
+  dia?: FiltroDia,
 ): Promise<SalesOriginDayRow[]> {
   const t = scopeFilter(scope);
   const rows = await query<Record<string, unknown>>(
@@ -905,11 +969,11 @@ export async function getSalesOriginByDay(
       SUM(PrecioFinal) AS revenue
     FROM ${TICKETS}
     WHERE EventoID = @eventoId
-      AND ${TICKET_TYPE_FILTER}${t.sql}
+      AND ${TICKET_TYPE_FILTER}${t.sql}${diaEventoSql(dia)}
     GROUP BY origin, dia
     ORDER BY origin, dia
     `,
-    { eventoId, ...t.params }
+    { eventoId, ...t.params, ...diaEventoParams(dia) }
   );
   return rows.map((r) => ({
     origin: s(r.origin),

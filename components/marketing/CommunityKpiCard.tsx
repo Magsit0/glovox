@@ -21,6 +21,8 @@ type CommunityKpiCardProps = {
   // denominators as the rest of the KPI strip.
   personasPct: number;
   revenuePct: number;
+  // Card title; the page adds the day when the "Día" filter is on.
+  label?: string;
 };
 
 const MODES: { id: Mode; label: string }[] = [
@@ -40,13 +42,14 @@ export default function CommunityKpiCard({
   cargoServicio,
   personasPct,
   revenuePct,
+  label = "Comunidad",
 }: CommunityKpiCardProps) {
   const [mode, setMode] = useState<Mode>("personas");
   const isPersonas = mode === "personas";
 
   return (
     <BrutalKpiCard
-      label="Comunidad"
+      label={label}
       value={isPersonas ? personas : revenue}
       formatType={isPersonas ? "number" : "clp-compact"}
       // The "(N packs)" note explains how the personas figure was weighted, so

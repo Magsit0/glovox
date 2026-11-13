@@ -377,6 +377,7 @@ export default function EventSelector({
     if (eventsInCat.length > 0 && !eventsInCat.find((e) => e.eventoId === selected)) {
       const params = new URLSearchParams(searchParams.toString());
       params.set("event", eventsInCat[0].eventoId);
+      params.delete("dia"); // a day belongs to one event
       router.push(`/marketing/weekly?${params.toString()}`);
     }
   }
@@ -384,6 +385,7 @@ export default function EventSelector({
   function handleEventChange(eventoId: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("event", eventoId);
+    params.delete("dia"); // a day belongs to one event
     router.push(`/marketing/weekly?${params.toString()}`);
   }
 
@@ -391,6 +393,7 @@ export default function EventSelector({
     setSelectedCategory(ev.categoriaEvento);
     const params = new URLSearchParams(searchParams.toString());
     params.set("event", ev.eventoId);
+    params.delete("dia"); // a day belongs to one event
     router.push(`/marketing/weekly?${params.toString()}`);
   }
 

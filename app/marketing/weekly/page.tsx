@@ -18,6 +18,7 @@ import {
   getTrafficTimeline,
   getAtribucionCompras,
   getFunnelCompra,
+  getEventJornadas,
   type EventOption,
   type FunnelRow,
   type Scope,
@@ -25,6 +26,15 @@ import {
 import EventSelector from "@/components/marketing/EventSelector";
 import CompareEventSelector from "@/components/marketing/CompareEventSelector";
 import TipoTicketFilter from "@/components/marketing/TipoTicketFilter";
+import DiaEventoFilter from "@/components/marketing/DiaEventoFilter";
+import {
+  etiquetaDia,
+  filtroDeJornada,
+  jornadaElegida,
+  nombreDiaSemana,
+  type FiltroDia,
+  type JornadaEvento,
+} from "@/lib/marketing/diasEvento";
 import BrutalKpiCard from "@/components/marketing/BrutalKpiCard";
 import CommunityKpiCard from "@/components/marketing/CommunityKpiCard";
 import BrutalChartPanel from "@/components/marketing/BrutalChartPanel";
@@ -84,6 +94,7 @@ export default async function MarketingWeeklyPage({
     compare?: string | string[];
     tipoTicket?: string | string[];
     funnelVentana?: string; // "ga4" = Funnel "Desde medición GA4"; ausente = toda la venta
+    dia?: string; // filtro "Día": "YYYY-MM-DD" de una jornada (solo eventos de varios días)
   }>;
 }) {
   const params = await searchParams;
@@ -155,6 +166,10 @@ export default async function MarketingWeeklyPage({
       : [];
   const selectedTipoTickets = Array.from(new Set(rawTipoTicket)).sort();
   const funnelVentanaGa4 = params.funnelVentana === "ga4";
+  // Filtro "Día": only the ticket sections read it (see DiaEventoFilter's note).
+  // Each one resolves it against the event's days on its own (getEventJornadas
+  // is request-cached), so the page shell does not wait for BigQuery.
+  const diaParam = typeof params.dia === "string" ? params.dia : undefined;
 
   return (
     <div className="bg-white text-black min-h-full">
@@ -166,26 +181,35 @@ export default async function MarketingWeeklyPage({
       />
 
       <div className="p-6 space-y-6">
-        <div className="flex items-center justify-end gap-4">
-          <Suspense
-            key={`countdown-${selectedId}`}
-            fallback={
-              <div className="px-4 py-2 h-[44px] w-[200px] animate-pulse bg-black/5" />
-            }
-          >
-            <EventCountdownBanner eventoId={selectedId} scope={scope} />
+        <div className="flex items-start gap-4 flex-wrap">
+          {/* Only multi-day events get the "Día" filter; it renders nothing otherwise. */}
+          <Suspense key={`dia-${selectedId}`} fallback={null}>
+            <DiaEventoSection eventoId={selectedId} scope={scope} />
           </Suspense>
+          <div className="ml-auto">
+            <Suspense
+              key={`countdown-${selectedId}`}
+              fallback={
+                <div className="px-4 py-2 h-[44px] w-[200px] animate-pulse bg-black/5" />
+              }
+            >
+              <EventCountdownBanner eventoId={selectedId} scope={scope} />
+            </Suspense>
+          </div>
         </div>
 
         {/* KPI Strip */}
-        <Suspense fallback={<div className="grid grid-cols-2 md:grid-cols-5 gap-4"><Skeleton /><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>}>
-          <KpiStrip eventoId={selectedId} scope={scope} />
+        <Suspense
+          key={`kpi-${selectedId}-${diaParam ?? ""}`}
+          fallback={<div className="grid grid-cols-2 md:grid-cols-5 gap-4"><Skeleton /><Skeleton /><Skeleton /><Skeleton /><Skeleton /></div>}
+        >
+          <KpiStrip eventoId={selectedId} scope={scope} diaParam={diaParam} />
         </Suspense>
 
         {/* Row: Cumulative Sales + Paid Media */}
         <div className="grid grid-cols-4 gap-6">
           <Suspense
-            key={`cum-${selectedId}-${compareIds.join("|")}-${selectedTipoTickets.join("|")}`}
+            key={`cum-${selectedId}-${compareIds.join("|")}-${selectedTipoTickets.join("|")}-${diaParam ?? ""}`}
             fallback={<Skeleton />}
           >
             <CumulativeSalesSection
@@ -195,6 +219,7 @@ export default async function MarketingWeeklyPage({
               compareIds={compareIds}
               comparableEvents={comparableEvents}
               tipoTickets={selectedTipoTickets}
+              diaParam={diaParam}
               scope={scope}
             />
           </Suspense>
@@ -210,8 +235,8 @@ export default async function MarketingWeeklyPage({
 
         {/* Row: Sales Origin + Funnel */}
         <div className="grid grid-cols-4 gap-6">
-          <Suspense fallback={<Skeleton />}>
-            <SalesOriginSection eventoId={selectedId} scope={scope} />
+          <Suspense key={`origen-${selectedId}-${diaParam ?? ""}`} fallback={<Skeleton />}>
+            <SalesOriginSection eventoId={selectedId} scope={scope} diaParam={diaParam} />
           </Suspense>
           <Suspense
             key={`funnel-${selectedId}-${selectedLandingPages.join("|")}-${funnelVentanaGa4 ? "ga4" : "todo"}`}
@@ -241,6 +266,27 @@ export default async function MarketingWeeklyPage({
 }
 
 // ---------- Section components ----------
+
+/** The day `?dia=` asks for, if it is one of this event's days; else no filter. */
+async function diaElegido(
+  eventoId: string,
+  scope: Scope | undefined,
+  diaParam: string | undefined,
+): Promise<{ jornada: JornadaEvento; filtro: FiltroDia; etiqueta: string } | null> {
+  if (!diaParam) return null;
+  const jornada = jornadaElegida(await getEventJornadas(eventoId, scope?.country ?? null), diaParam);
+  return jornada ? { jornada, filtro: filtroDeJornada(jornada), etiqueta: etiquetaDia(jornada.dia) } : null;
+}
+
+async function DiaEventoSection({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
+  const jornadas = await getEventJornadas(eventoId, scope?.country ?? null);
+  if (jornadas.length === 0) return null;
+  return (
+    <DiaEventoFilter
+      opciones={jornadas.map((j) => ({ dia: j.dia, etiqueta: etiquetaDia(j.dia), personas: j.personas }))}
+    />
+  );
+}
 
 // Spanish date formatter used by EventCountdownBanner for past events.
 // Renders "14 jun 2026" — short, locale-aware, no day-of-week clutter.
@@ -316,13 +362,30 @@ async function EventCountdownBanner({
   );
 }
 
-async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
-  const [kpis, followers, community] = await Promise.all([
+async function KpiStrip({
+  eventoId,
+  scope,
+  diaParam,
+}: {
+  eventoId: string;
+  scope?: Scope;
+  diaParam?: string;
+}) {
+  const dia = await diaElegido(eventoId, scope, diaParam);
+  // `kpis` is always the whole event (goal, CPA); `venta` is what the ticket
+  // cards show: that day only when the "Día" filter is on.
+  const [kpis, kpisDia, followers, community] = await Promise.all([
     getEventKpis(eventoId, scope),
+    dia ? getEventKpis(eventoId, scope, dia.filtro) : Promise.resolve(null),
     getFollowersDelta(eventoId, scope),
-    getCommunityTicketsCount(eventoId, scope),
+    getCommunityTicketsCount(eventoId, scope, dia?.filtro),
   ]);
+  const venta = kpisDia ?? kpis;
+  const conDia = (label: string) => (dia ? `${label} · ${dia.etiqueta}` : label);
   const soldPct = kpis.goalTickets > 0 ? Math.round((kpis.totalTickets / kpis.goalTickets) * 100) : 0;
+  // With a day: its share of the event's personas (the goal is for the whole
+  // event, there is no goal per day).
+  const diaPct = kpis.totalTickets > 0 ? Math.round((venta.totalTickets / kpis.totalTickets) * 100) : 0;
   // Build the Instagram card's "initial → final" progression line. Only shown
   // when the IG window actually has observations (e.g. very short past events
   // can have no rows). Otherwise the card renders just the delta.
@@ -346,12 +409,12 @@ async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }
   // show. Personas over `totalTickets` (both counted as personas) and revenue
   // over `totalRevenue` (both are Precio - Descuento, service fee excluded).
   const communityPersonasPct =
-    kpis.totalTickets > 0
-      ? Math.round((community.personas / kpis.totalTickets) * 100)
+    venta.totalTickets > 0
+      ? Math.round((community.personas / venta.totalTickets) * 100)
       : 0;
   const communityRevenuePct =
-    kpis.totalRevenue > 0
-      ? Math.round((community.revenue / kpis.totalRevenue) * 100)
+    venta.totalRevenue > 0
+      ? Math.round((community.revenue / venta.totalRevenue) * 100)
       : 0;
   return (
     <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -360,24 +423,28 @@ async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }
           159 "PACK PARA 2" are 159 tickets but 318 personas, and without the
           second unit on the card that gap reads as an error. */}
       <BrutalKpiCard
-        label="Personas"
-        value={kpis.totalTickets}
-        suffix={`/${kpis.goalTickets.toLocaleString("es-CL")} (${soldPct}%)`}
+        label={conDia("Personas")}
+        value={venta.totalTickets}
+        suffix={
+          dia
+            ? `/${kpis.totalTickets.toLocaleString("es-CL")} del evento (${diaPct}%)`
+            : `/${kpis.goalTickets.toLocaleString("es-CL")} (${soldPct}%)`
+        }
         secondary={{
           label: "Tickets",
           value:
-            kpis.packs > 0
-              ? `${kpis.totalTransactions.toLocaleString("es-CL")} (${kpis.packs.toLocaleString("es-CL")} packs)`
-              : kpis.totalTransactions.toLocaleString("es-CL"),
+            venta.packs > 0
+              ? `${venta.totalTransactions.toLocaleString("es-CL")} (${venta.packs.toLocaleString("es-CL")} packs)`
+              : venta.totalTransactions.toLocaleString("es-CL"),
         }}
       />
       <BrutalKpiCard
-        label="Venta Tickets"
-        value={kpis.totalRevenue}
+        label={conDia("Venta Tickets")}
+        value={venta.totalRevenue}
         formatType="clp-compact"
         secondary={{
           label: "Cargo Servicio",
-          value: fmtClpCompact(kpis.cargoServicio),
+          value: fmtClpCompact(venta.cargoServicio),
         }}
       />
       <BrutalKpiCard label="CPA Total Vendidos" value={kpis.cpa} formatType="usd" />
@@ -388,6 +455,7 @@ async function KpiStrip({ eventoId, scope }: { eventoId: string; scope?: Scope }
         cargoServicio={fmtClpCompact(community.cargoServicio)}
         personasPct={communityPersonasPct}
         revenuePct={communityRevenuePct}
+        label={conDia("Comunidad")}
       />
       <BrutalKpiCard
         label="Instagram Followers Δ"
@@ -407,6 +475,7 @@ async function CumulativeSalesSection({
   compareIds,
   comparableEvents,
   tipoTickets,
+  diaParam,
   scope,
 }: {
   eventoId: string;
@@ -415,11 +484,13 @@ async function CumulativeSalesSection({
   compareIds: string[];
   comparableEvents: EventOption[];
   tipoTickets: string[];
+  diaParam?: string;
   scope?: Scope;
 }) {
   const ids = [eventoId, ...compareIds];
+  const dia = await diaElegido(eventoId, scope, diaParam);
   const [series, kpis, range, tipoOptions] = await Promise.all([
-    getCumulativeSalesRelative(ids, scope, tipoTickets),
+    getCumulativeSalesRelative(ids, scope, tipoTickets, dia ? { ...dia.filtro, eventoId } : undefined),
     getEventKpis(eventoId, scope),
     getTicketDateRange(eventoId, scope),
     // List of available TipoTickets is the union across the visible events
@@ -442,12 +513,12 @@ async function CumulativeSalesSection({
       if (diff > 0) saleStartDaysToEvent = diff;
     }
   }
-  // When a TipoTicket filter is active, hide the target line: `goalTickets`
-  // is the event's total goal (not broken down by ticket type), so it would
-  // be misleading next to a filtered series.
-  const filterActive = tipoTickets.length > 0;
+  // When a TipoTicket or Día filter is active, hide the target line and the
+  // sale-start marker: `goalTickets` is the event's total goal (not broken down
+  // by ticket type or day), so it would be misleading next to a filtered series.
+  const filterActive = tipoTickets.length > 0 || dia != null;
   return (
-    <BrutalChartPanel title="Venta Acumulada" className="col-span-3">
+    <BrutalChartPanel title={dia ? `Venta Acumulada · ${dia.etiqueta}` : "Venta Acumulada"} className="col-span-3">
       <div className="flex flex-wrap gap-2">
         <CompareEventSelector
           events={comparableEvents.map((e) => ({
@@ -468,6 +539,11 @@ async function CumulativeSalesSection({
         goalTickets={filterActive ? undefined : kpis.goalTickets}
         saleStartDaysToEvent={filterActive ? undefined : saleStartDaysToEvent}
       />
+      {dia && compareIds.length > 0 && (
+        <p className="mt-2 font-mono-data text-[11px] text-black/60">
+          Los eventos comparados muestran solo sus entradas de {nombreDiaSemana(dia.jornada.dia)}.
+        </p>
+      )}
     </BrutalChartPanel>
   );
 }
@@ -554,10 +630,19 @@ async function CompararGa4Link({ eventoId, country }: { eventoId: string; countr
   );
 }
 
-async function SalesOriginSection({ eventoId, scope }: { eventoId: string; scope?: Scope }) {
-  const data = await getSalesOriginByDay(eventoId, scope);
+async function SalesOriginSection({
+  eventoId,
+  scope,
+  diaParam,
+}: {
+  eventoId: string;
+  scope?: Scope;
+  diaParam?: string;
+}) {
+  const dia = await diaElegido(eventoId, scope, diaParam);
+  const data = await getSalesOriginByDay(eventoId, scope, dia?.filtro);
   return (
-    <BrutalChartPanel title="Origen de Venta" className="col-span-2">
+    <BrutalChartPanel title={dia ? `Origen de Venta · ${dia.etiqueta}` : "Origen de Venta"} className="col-span-2">
       <SalesOriginTable data={data} eventoId={eventoId} />
     </BrutalChartPanel>
   );
