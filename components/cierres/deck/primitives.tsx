@@ -456,3 +456,36 @@ export function PlazosTimeline({
     </div>
   );
 }
+
+/* ───────────────────────────── Notas por área ───────────────────────────── */
+
+export interface AreaConNotas {
+  area: string;
+  /** Aclaración junto al nombre (ej. "no estuvo en la reunión"). */
+  nota?: string;
+  notas: { texto: string; tag?: { label: string; tone: Tone } }[];
+}
+
+/** Columna de un área: nombre + viñetas, cada una con su estado opcional. */
+export function AreaNotas({ area, nota, notas }: AreaConNotas) {
+  return (
+    <section className="flex min-w-0 flex-col gap-2 border-t border-[var(--ink)] pt-2">
+      <h3 className="font-display text-base font-bold leading-tight text-[var(--ink)]">
+        {area}
+        {nota && (
+          <span className="ml-1.5 font-sans text-xs font-normal text-[var(--ink-subtle)]">
+            · {nota}
+          </span>
+        )}
+      </h3>
+      <ul className="flex flex-col gap-3">
+        {notas.map((n) => (
+          <li key={n.texto} className="flex flex-col items-start gap-1 text-sm leading-snug text-[var(--ink)]">
+            {n.tag && <Pill tone={n.tag.tone}>{n.tag.label}</Pill>}
+            <span>{n.texto}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}

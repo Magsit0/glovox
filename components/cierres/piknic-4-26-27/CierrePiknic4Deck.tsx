@@ -6,6 +6,7 @@ import {
   DaysBar,
   Kpi,
   Note,
+  AreaNotas,
   Pill,
   PlazosTimeline,
   Slide,
@@ -20,37 +21,130 @@ import {
 import {
   ANTICIPACION,
   ANTICIPACION_ESCALA,
-  HITOS,
-  AREAS,
+  BANOS,
   BARRAS_TOP,
   CANALES,
   CANALES_TOTAL,
-  CMP_CONTROL,
   CMP_RESULTADO,
+  EQUILIBRIO,
+  HITOS,
   INGRESOS,
   INGRESOS_CARGA,
   INGRESOS_TOTAL,
   MAPA_ALT,
   META,
+  NOTAS_AREA,
   OC,
+  OC_ANTES,
   OC_TOTAL,
   PENDIENTES,
   PERMISOS,
   PORTADA_FACTS,
   PUNTOS_CONTROL,
   SEGUIMIENTO_P3,
+  TRAMOS_VENTA,
+  ZONAS,
+  ZONAS_TOTAL,
 } from "@/lib/cierres/piknic-4-26-27";
 import mapaVentas from "./mapa-ventas.jpg";
 
-const TOTAL = 14;
+const TOTAL = 17;
+
+const fmtN = (v: number) => new Intl.NumberFormat("es-CL").format(v);
+
+const TRAMOS = [
+  { key: "antes", label: "Antes de 3 semanas", color: "bg-[#9F99F8]" },
+  { key: "semanas1a3", label: "Entre 1 y 3 semanas", color: "bg-[#87DACD]" },
+  { key: "ultimaSemana", label: "Última semana", color: "bg-[#F6C544]" },
+  { key: "dia", label: "Día del evento", color: "bg-[#EF8C34]" },
+] as const;
+
+/** Barras apiladas: entradas pagadas de cada evento según cuándo se compraron. */
+function TramosVenta() {
+  const max = Math.max(
+    ...TRAMOS_VENTA.map((e) => Object.values(e.tramos).reduce((a, b) => a + b, 0)),
+  );
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--ink-muted)]">
+        {TRAMOS.map((t) => (
+          <span key={t.key} className="inline-flex items-center gap-1.5">
+            <span aria-hidden="true" className={`inline-block h-2.5 w-2.5 rounded-sm ${t.color}`} />
+            {t.label}
+          </span>
+        ))}
+      </div>
+      {TRAMOS_VENTA.map((e) => {
+        const total = Object.values(e.tramos).reduce((a, b) => a + b, 0);
+        return (
+          <div key={e.evento} className="grid grid-cols-[calc(var(--spacing)*18)_minmax(0,1fr)] items-center gap-3">
+            <span className="text-sm font-semibold text-[var(--ink)]">{e.evento}</span>
+            <div className="flex items-center gap-2">
+              <div
+                className="flex h-8 overflow-hidden rounded-md"
+                style={{ width: `${(total / max) * 85}%` }}
+                role="img"
+                aria-label={`${e.evento}: ${TRAMOS.map((t) => `${t.label.toLowerCase()} ${e.tramos[t.key]}`).join(", ")}; total ${e.total}.`}
+              >
+                {TRAMOS.map((t) =>
+                  e.tramos[t.key] > 0 ? (
+                    <div
+                      key={t.key}
+                      className={`flex items-center justify-center text-xs font-semibold tabular-nums text-[var(--ink)] ${t.color}`}
+                      style={{ width: `${(e.tramos[t.key] / total) * 100}%` }}
+                    >
+                      {fmtN(e.tramos[t.key])}
+                    </div>
+                  ) : null,
+                )}
+              </div>
+              <span className="text-sm font-semibold tabular-nums text-[var(--ink)]">{e.total}</span>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Escala de personas: las que entraron contra el equilibrio con y sin marcas. */
+function EquilibrioBarra() {
+  const max = 4500;
+  const x = (v: number) => `${(v / max) * 100}%`;
+  return (
+    <div className="flex flex-col gap-1">
+      <div className="relative h-[calc(var(--spacing)*24)]">
+        <span className="absolute top-0 -translate-x-1/2 whitespace-nowrap text-xs font-semibold text-[var(--ink)]" style={{ left: x(EQUILIBRIO.conMarcas) }}>
+          Equilibrio con marcas: {fmtN(EQUILIBRIO.conMarcas)}
+        </span>
+        <div aria-hidden="true" className="absolute inset-x-0 top-1/2 h-3 -translate-y-1/2 rounded-full bg-[var(--divider)]" />
+        <div aria-hidden="true" className="absolute left-0 top-1/2 h-3 -translate-y-1/2 rounded-full bg-[#9F99F8]" style={{ width: x(EQUILIBRIO.entraron) }} />
+        <div aria-hidden="true" className="absolute top-[calc(var(--spacing)*6)] bottom-[calc(var(--spacing)*6)] w-0.5 -translate-x-1/2 bg-[var(--ink)]" style={{ left: x(EQUILIBRIO.conMarcas) }} />
+        <div aria-hidden="true" className="absolute top-[calc(var(--spacing)*6)] bottom-[calc(var(--spacing)*6)] w-0.5 -translate-x-1/2 bg-[var(--ink-subtle)]" style={{ left: x(EQUILIBRIO.sinMarcas) }} />
+        <span className="absolute bottom-0 right-0 whitespace-nowrap text-xs text-[var(--ink-muted)]">
+          Sin marcas: {fmtN(EQUILIBRIO.sinMarcas)}
+        </span>
+        <span className="absolute bottom-0 left-0 whitespace-nowrap text-xs text-[var(--ink)]">
+          Entraron: <b>{fmtN(EQUILIBRIO.entraron)}</b> ({Math.round((EQUILIBRIO.entraron / EQUILIBRIO.conMarcas) * 100)}% del equilibrio con marcas)
+        </span>
+      </div>
+      <div className="flex justify-between text-xs text-[var(--ink-subtle)]">
+        <span>0</span>
+        <span>{fmtN(max)} personas</span>
+      </div>
+    </div>
+  );
+}
 
 /**
- * Presentación de cierre del Piknic 4 · 26-27 (GLO216): 14 láminas (la última
- * es un anexo), misma
- * estructura que la del Piknic 3 para poder compararlas. Borrador con datos al
- * 9-nov (D+2) en lib/cierres/piknic-4-26-27.ts; las observaciones por área se
- * completan en la reunión. La mecánica de láminas, navegación y PDF vive en
- * components/cierres/deck. El control de acceso lo hace la page.
+ * Presentación de cierre del Piknic 4 · 26-27 (GLO216): 14 láminas para la
+ * reunión + 3 de anexo (permisos, tragos y anticipación por evento). Misma base
+ * que la del Piknic 3 para compararlas, ajustada el 17-nov con lo que pidieron
+ * las notas por área del Piknic 3: VIP contra general, punto de equilibrio, meta
+ * de OC antes del evento y el seguimiento de esas notas. Datos en
+ * lib/cierres/piknic-4-26-27.ts (foto al 9-nov; lo nuevo, al 17-nov). La mecánica
+ * de láminas, navegación y PDF vive en components/cierres/deck. El control de
+ * acceso lo hace la page.
  */
 export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
   const { max, marcas } = ANTICIPACION_ESCALA;
@@ -139,61 +233,10 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 3 · Permisos */}
-      <Slide
-        id="permisos"
-        n={3}
-        total={TOTAL}
-        label="Permisos"
-        detail="Piknic 4 · en parque · sobre 3.000 personas"
-      >
-        <SlideTitle>Qué permisos tocaban, cuándo, y qué quedó registrado</SlideTitle>
-        <Table className="text-xs">
-          <thead>
-            <tr>
-              <Th>Trámite</Th>
-              <Th>Ante quién</Th>
-              <Th>Plazo para el Piknic 4</Th>
-              <Th>Qué quedó registrado</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {PERMISOS.map((p) => (
-              <tr key={p.tramite}>
-                <Td className={`text-sm ${p.destacado ? "font-semibold" : ""}`}>
-                  {p.tramite}
-                </Td>
-                <Td className="text-sm">{p.anteQuien}</Td>
-                <Td className="whitespace-nowrap text-sm font-semibold">
-                  {p.plazo}
-                  {p.plazoDetalle && <CellSub>{p.plazoDetalle}</CellSub>}
-                </Td>
-                <Td className="text-sm">
-                  {"texto" in p.registro ? (
-                    p.registro.texto
-                  ) : (
-                    <span className="inline-flex flex-wrap items-center gap-2">
-                      <Pill tone={p.registro.tone}>{p.registro.estado}</Pill>
-                      {p.registro.extra}
-                    </span>
-                  )}
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-        <Source>
-          Plazos de referencia del mapa de procesos (d02, validado con Producción
-          el 1-oct-2026), contados hacia atrás desde el 7-nov; cambian según la
-          municipalidad. Presupuesto de permisos: $4,7 M; documentado en
-          Unabase: $0,6 M. Todo lo demás vive en Drive, correo y portales.
-        </Source>
-      </Slide>
-
-      {/* 4 · Anticipación (el detalle por evento va en el anexo) */}
+      {/* 3 · Anticipación (el detalle por evento va en el anexo) */}
       <Slide
         id="anticipacion"
-        n={4}
+        n={3}
         total={TOTAL}
         label="Anticipación"
         detail="cuántos días antes del evento pasó cada cosa"
@@ -211,17 +254,16 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 5 · Comparación con Piknic 3 */}
+      {/* 4 · Comparación con Piknic 3 */}
       <Slide
         id="piknic-3"
-        n={5}
+        n={4}
         total={TOTAL}
         label="Comparación"
         detail="Piknic 3 · sáb 3-oct"
       >
         <SlideTitle>
-          Con 14 días más de venta, el Piknic 4 tuvo 46% más personas que compraron
-          que el Piknic 3
+          Lo que el Piknic 4 vendió de más, lo vendió antes de las 3 semanas
         </SlideTitle>
         <div className="grid grid-cols-1 items-start gap-10 deck:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-3">
@@ -248,53 +290,32 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
                 ))}
               </tbody>
             </Table>
-            <Note>
-              A 3 semanas del evento, el Piknic 4 ya tenía <b>970</b> entradas
-              pagadas y el Piknic 3, <b>ninguna</b>. En las últimas 3 semanas
-              vendieron casi lo mismo: <b>1.806</b> contra <b>1.853</b>. Lo que se
-              ganó salió de abrir antes.
-            </Note>
           </div>
           <div className="flex min-w-0 flex-col gap-3">
-            <SubTitle>Puntos de control</SubTitle>
-            <Table className="text-xs">
-              <thead>
-                <tr>
-                  <Th>Punto</Th>
-                  <Th right>Piknic 3</Th>
-                  <Th right>Piknic 4</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {CMP_CONTROL.map((r) => (
-                  <tr key={r.punto}>
-                    <Td>{r.punto}</Td>
-                    <Td right>{r.p3}</Td>
-                    <Td right className="whitespace-nowrap">
-                      <Delta tone={r.p4.tone}>{r.p4.texto}</Delta>
-                    </Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
+            <SubTitle>Cuándo se vendió</SubTitle>
+            <TramosVenta />
             <Note>
-              Mejoraron la salida a la venta y el inicio del plan. El negocio, los
-              permisos y la carga del onepager quedaron igual que en el Piknic 3.
+              A 3 semanas del evento, el Piknic 4 ya tenía <b>970</b> entradas
+              pagadas y el Piknic 3, <b>ninguna</b>. De ahí en adelante vendieron
+              casi lo mismo: <b>1.806</b> contra <b>1.853</b>.
+            </Note>
+            <Note>
+              Es lo que pidió Marketing en el cierre del Piknic 3: con campañas más
+              largas se vende más y se puede dimensionar la producción antes.
             </Note>
           </div>
         </div>
         <Source>
           Mismas fuentes y reglas en los dos eventos. Venta de tickets bruta = con
-          cargo por servicio. El gasto documentado se mide en momentos distintos
-          (Piknic 3 a D+5, Piknic 4 a D+2). Las tareas vencidas del Piknic 3 son
-          las que tenía a D+5.
+          cargo por servicio. Entradas pagadas por día de compra; «antes de 3
+          semanas» = 21 días o más antes del evento.
         </Source>
       </Slide>
 
-      {/* 6 · Venta y público */}
+      {/* 5 · Venta y público */}
       <Slide
         id="venta"
-        n={6}
+        n={5}
         total={TOTAL}
         label="Venta y público"
         detail="canal según el código del link de compra"
@@ -375,10 +396,10 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </div>
       </Slide>
 
-      {/* 7 · Mapa de ventas */}
+      {/* 6 · Mapa de ventas */}
       <Slide
         id="mapa"
-        n={7}
+        n={6}
         total={TOTAL}
         label="Operaciones · mapa de ventas"
         detail="Onfire sobre el layout rev3"
@@ -419,66 +440,104 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 8 · Barras */}
+      {/* 7 · VIP y general */}
       <Slide
-        id="barras"
-        n={8}
+        id="zonas"
+        n={7}
         total={TOTAL}
-        label="Operaciones · barras"
-        detail="Onfire · 9.516 tragos"
+        label="Operaciones · VIP y general"
+        detail="consumo y baños por zona · al 17-nov"
       >
-        <SlideTitle>Los tragos más vendidos, en total y por sector</SlideTitle>
+        <SlideTitle>
+          Una de cada cuatro personas estuvo en VIP o mesa, y en VIP se consumió
+          lo mismo que en general
+        </SlideTitle>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
           <Kpi value="$78,6 M" caption="vendido en barras (bruto). Piknic 3: $57,5 M" />
           <Kpi value="$23.371" caption="por persona. Piknic 3: $18.941" />
           <Kpi value="25%" caption="de la venta salió en promos 2x ($19,7 M)" />
         </div>
-        <Table className="text-sm">
-          <thead>
-            <tr>
-              <Th>Sector</Th>
-              <Th>1</Th>
-              <Th>2</Th>
-              <Th>3</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {BARRAS_TOP.map((s) => (
-              <tr key={s.sector}>
-                <Td className="font-semibold">
-                  {s.sector}
-                  <CellSub>{s.tragos}</CellSub>
-                </Td>
-                {s.top.map((t, i) => (
-                  <Td key={i}>
-                    {t.nombre}
-                    <CellSub>{t.detalle}</CellSub>
-                  </Td>
+        <div className="grid grid-cols-1 items-start gap-10 deck:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div className="flex min-w-0 flex-col gap-3">
+            <SubTitle>Personas y consumo por zona</SubTitle>
+            <Table className="text-xs">
+              <thead>
+                <tr>
+                  <Th>Zona</Th>
+                  <Th right>Personas</Th>
+                  <Th right>%</Th>
+                  <Th right>Consumo</Th>
+                  <Th right>Por persona</Th>
+                  <Th right>Piknic 3</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {ZONAS.map((z) => (
+                  <tr key={z.zona}>
+                    <Td>{z.zona}</Td>
+                    <Td right>{z.personas}</Td>
+                    <Td right>{z.pct}</Td>
+                    <Td right>{z.consumo}</Td>
+                    <Td right className="font-semibold">{z.porPersona}</Td>
+                    <Td right className="text-[var(--ink-muted)]">{z.porPersonaP3}</Td>
+                  </tr>
                 ))}
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-        <Note>
-          <b>Mesa VIP ya se puede medir en parte:</b> Onfire registra 612 tragos
-          (en el Piknic 3 fueron 30), porque la barra Cocktail VIP y los cobros a
-          mesa pasaron por Onfire. <b>Promos:</b> 868 de los 1.608 Tropical Gin
-          salieron en la promo «2 Tropical Gin».
-        </Note>
+                <tr className="font-semibold">
+                  <Td>Total</Td>
+                  <Td right>{ZONAS_TOTAL.personas}</Td>
+                  <Td right>100%</Td>
+                  <Td right>{ZONAS_TOTAL.consumo}</Td>
+                  <Td right>{ZONAS_TOTAL.porPersona}</Td>
+                  <Td right className="font-normal text-[var(--ink-muted)]">{ZONAS_TOTAL.porPersonaP3}</Td>
+                </tr>
+              </tbody>
+            </Table>
+            <Note>
+              VIP y mesa fueron el <b>26%</b> de las personas (Piknic 3: 28%). En
+              VIP cada persona consumió casi lo mismo que en general; en el Piknic 3
+              consumía más. En mesa VIP parte del consumo (las botellas del paquete)
+              no pasa por Onfire.
+            </Note>
+          </div>
+          <div className="flex min-w-0 flex-col gap-3">
+            <SubTitle>Baños: gasto por persona</SubTitle>
+            <Table className="text-xs">
+              <thead>
+                <tr>
+                  <Th>Tipo</Th>
+                  <Th right>Piknic 3</Th>
+                  <Th right>Piknic 4</Th>
+                </tr>
+              </thead>
+              <tbody>
+                {BANOS.map((b) => (
+                  <tr key={b.tipo}>
+                    <Td>{b.tipo}</Td>
+                    <Td right>{b.p3}</Td>
+                    <Td right className="font-semibold">{b.p4}</Td>
+                  </tr>
+                ))}
+              </tbody>
+            </Table>
+            <Note>
+              Es lo único por zona que queda registrado: <b>cuántos</b> baños,
+              guardias y barras hubo en general y en VIP no está en ningún sistema,
+              así que no se puede medir si sobró en general o faltó en VIP.
+            </Note>
+          </div>
+        </div>
         <Source>
-          General = barras Corchete, CDGA 360, Entel, Mistral, Heineken, Red Bull,
-          Casa Entel y las de activación (Épica, Carpano). VIP = Barra VIP y JW
-          VIP. Mesa VIP = barra de mesas, Cocktail VIP y cobros a mesa. Promos 2x
-          cuentan como dos tragos; variantes con bebida y con Pepsi, juntas. Sin
-          agua, bebidas, Red Bull solo, vasos, agregados ni versiones sin alcohol.
-          «Pisco 35 + Bebida» de la Barra Entel (265) se cuenta aparte.
+          Personas = escaneos menos upgrades. Consumo por zona = todo Onfire en las
+          barras de esa zona (una persona de VIP también puede comprar en una barra
+          general). Baños = gasto real en Unabase: baterías generales y accesibles
+          contra trailers VIP.
         </Source>
       </Slide>
 
-      {/* 9 · Resultado */}
+      {/* 8 · Resultado */}
       <Slide
         id="resultado"
-        n={9}
+        n={8}
         total={TOTAL}
         label="Resultado · ingresos"
         detail={META.corte}
@@ -504,15 +563,18 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Note>
       </Slide>
 
-      {/* 10 · Avance de OC */}
+      {/* 9 · Avance de OC */}
       <Slide
         id="oc"
-        n={10}
+        n={9}
         total={TOTAL}
         label="Compras"
         detail="OC emitidas en Unabase · al 9-nov"
       >
-        <SlideTitle>OC emitidas: 53% del presupuesto</SlideTitle>
+        <SlideTitle>
+          Antes del evento había OC por el {OC_ANTES.pct}% del presupuesto; la meta
+          es {OC_ANTES.meta}%
+        </SlideTitle>
         <Table className="text-xs">
           <thead>
             <tr>
@@ -561,7 +623,9 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           </tbody>
         </Table>
         <Note>
-          Faltan <b>$86,7 M</b> por emitir. Lo que más falta:{" "}
+          <b>Meta del Piknic 3:</b> el {OC_ANTES.meta}% de las OC antes del evento. El
+          Piknic 4 llegó al {OC_ANTES.pct}% (${OC_ANTES.monto} M); el Piknic 3, al{" "}
+          {OC_ANTES.piknic3}%. Al 9-nov faltaban <b>$86,7 M</b> por emitir. Lo que más falta:{" "}
           <b>Operaciones ($34,1 M)</b>, <b>Artística ($25,3 M)</b> y{" "}
           <b>Venue ($14,0 M)</b>, que no tiene ninguna OC. Marketing pasó su
           presupuesto con una sola OC de radio por $18,8 M.
@@ -570,6 +634,67 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           Millones de pesos netos. OC = gastos del negocio GLO216 en Unabase (44
           folios; una OC puede cubrir más de una categoría). $4,0 M de esas OC
           aún no están validadas.
+        </Source>
+      </Slide>
+
+      {/* 10 · Punto de equilibrio */}
+      <Slide
+        id="equilibrio"
+        n={10}
+        total={TOTAL}
+        label="Punto de equilibrio"
+        detail="estimación al 17-nov"
+      >
+        <SlideTitle>
+          Con las marcas, el Piknic 4 quedó en su punto de equilibrio: necesitaba
+          unas {fmtN(EQUILIBRIO.conMarcas)} personas y entraron {fmtN(EQUILIBRIO.entraron)}
+        </SlideTitle>
+        <div className="grid grid-cols-1 items-start gap-10 deck:grid-cols-2">
+          <div className="flex min-w-0 flex-col gap-3">
+            <SubTitle>Cómo se calcula</SubTitle>
+            <ul className="flex flex-col text-sm text-[var(--ink)]">
+              {[
+                ["Presupuesto de gasto", EQUILIBRIO.presupuesto, `incluye artística por ${EQUILIBRIO.artistica}`],
+                ["− Marcas (fees)", EQUILIBRIO.marcas, "Entel, Banco de Chile, Heinz, Pepsi y Cupra"],
+                ["= Por cubrir con público", EQUILIBRIO.porCubrir, ""],
+                ["÷ Ingreso neto por persona", EQUILIBRIO.porPersona, `tickets ${EQUILIBRIO.porPersonaTickets} + barras ${EQUILIBRIO.porPersonaBarras}`],
+                ["= Personas necesarias", fmtN(EQUILIBRIO.conMarcas), `entraron ${fmtN(EQUILIBRIO.entraron)}`],
+              ].map(([concepto, valor, detalle], i, arr) => (
+                <li
+                  key={concepto}
+                  className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 border-b border-[var(--divider)] py-2.5 first:border-t ${i === arr.length - 1 ? "font-semibold" : ""}`}
+                >
+                  <span>
+                    {concepto}
+                    {detalle && <CellSub>{detalle}</CellSub>}
+                  </span>
+                  <span className="text-right font-display text-xl font-bold tabular-nums">{valor}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex min-w-0 flex-col gap-4">
+            <SubTitle>Personas</SubTitle>
+            <EquilibrioBarra />
+            <Note>
+              Sin las marcas harían falta <b>{fmtN(EQUILIBRIO.sinMarcas)}</b> personas:
+              justo el «tope rentable de 4.000 a 4.500» que se mencionó en el cierre
+              del Piknic 3.
+            </Note>
+            <Note>
+              Cada <b>$1 M</b> más de artística son unas{" "}
+              <b>{EQUILIBRIO.personasPorMillon}</b> personas más; la artística completa
+              equivale a unas {EQUILIBRIO.personasArtistica}.
+            </Note>
+          </div>
+        </div>
+        <Source>
+          Estimación con la misma mezcla de público del Piknic 4 y el gasto fijo
+          (baños, guardias y barras en realidad suben con la gente). Gasto =
+          presupuesto en Unabase (documentado al 17-nov: $105,9 M). Tickets = venta
+          + 55% del cargo por servicio; barras = todo Onfire; ambos sin IVA. No
+          incluye producto de marcas ($2,0 M), mesas VIP ni pases de temporada, que
+          bajarían el número.
         </Source>
       </Slide>
 
@@ -602,10 +727,33 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 12 · Pendientes del Piknic 4 */}
+      {/* 12 y 13 · Seguimiento de las notas por área del Piknic 3 */}
+      {[NOTAS_AREA.slice(0, 5), NOTAS_AREA.slice(5)].map((areas, i) => (
+        <Slide
+          key={i}
+          id={i === 0 ? "notas-area" : "notas-area-2"}
+          n={12 + i}
+          total={TOTAL}
+          label="Seguimiento"
+          detail={`notas por área del Piknic 3 · ${i + 1} de 2 · al 17-nov`}
+        >
+          <SlideTitle>Qué pasó con las notas por área del Piknic 3</SlideTitle>
+          <div className="grid grid-cols-1 gap-x-6 gap-y-5 sm:grid-cols-2 deck:grid-cols-5">
+            {areas.map((a) => (
+              <AreaNotas key={a.area} {...a} />
+            ))}
+          </div>
+          <Source>
+            Gris = no queda en ningún sistema: lo confirma cada área en la reunión.
+            Las notas nuevas de esta reunión se suman después, desde la transcripción.
+          </Source>
+        </Slide>
+      ))}
+
+      {/* 14 · Pendientes del Piknic 4 */}
       <Slide
         id="pendientes"
-        n={12}
+        n={14}
         total={TOTAL}
         label="Para salir de la reunión con esto resuelto"
       >
@@ -633,37 +781,115 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </ol>
       </Slide>
 
-      {/* 13 · Observaciones por área (se completa en la reunión) */}
+      {/* 15 · Anexo: permisos */}
       <Slide
-        id="observaciones"
-        n={13}
-        total={TOTAL}
-        label="Ronda final"
-        detail="qué funcionó y qué cambiamos para el próximo Piknic"
-      >
-        <SlideTitle>Observaciones por área</SlideTitle>
-        <div className="grid flex-1 grid-cols-2 gap-x-6 gap-y-5 deck:grid-cols-5">
-          {AREAS.map((area) => (
-            <div key={area} className="flex min-w-0 flex-col gap-1 border-t border-[var(--ink)] pt-2">
-              <h3 className="font-display text-sm font-bold text-[var(--ink)]">{area}</h3>
-              {/* Renglones para anotar en la reunión o sobre el PDF. */}
-              <div aria-hidden="true" className="flex flex-1 flex-col">
-                {Array.from({ length: 6 }, (_, i) => (
-                  <div key={i} className="min-h-6 flex-1 border-b border-[var(--divider)]" />
-                ))}
-              </div>
-            </div>
-          ))}
-        </div>
-      </Slide>
-
-      {/* 14 · Anexo: anticipación por evento */}
-      <Slide
-        id="anexo-anticipacion"
-        n={14}
+        id="permisos"
+        n={15}
         total={TOTAL}
         label="Anexo"
-        detail="detalle de la lámina 4"
+        detail="permisos del Piknic 4 · en parque · sobre 3.000 personas"
+      >
+        <SlideTitle>Qué permisos tocaban, cuándo, y qué quedó registrado</SlideTitle>
+        <Table className="text-xs">
+          <thead>
+            <tr>
+              <Th>Trámite</Th>
+              <Th>Ante quién</Th>
+              <Th>Plazo para el Piknic 4</Th>
+              <Th>Qué quedó registrado</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {PERMISOS.map((p) => (
+              <tr key={p.tramite}>
+                <Td className={`text-sm ${p.destacado ? "font-semibold" : ""}`}>
+                  {p.tramite}
+                </Td>
+                <Td className="text-sm">{p.anteQuien}</Td>
+                <Td className="whitespace-nowrap text-sm font-semibold">
+                  {p.plazo}
+                  {p.plazoDetalle && <CellSub>{p.plazoDetalle}</CellSub>}
+                </Td>
+                <Td className="text-sm">
+                  {"texto" in p.registro ? (
+                    p.registro.texto
+                  ) : (
+                    <span className="inline-flex flex-wrap items-center gap-2">
+                      <Pill tone={p.registro.tone}>{p.registro.estado}</Pill>
+                      {p.registro.extra}
+                    </span>
+                  )}
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+        <Source>
+          Plazos de referencia del mapa de procesos (d02, validado con Producción
+          el 1-oct-2026), contados hacia atrás desde el 7-nov; cambian según la
+          municipalidad. Presupuesto de permisos: $4,7 M; documentado en
+          Unabase: $0,6 M. Todo lo demás vive en Drive, correo y portales.
+        </Source>
+      </Slide>
+
+      {/* 16 · Anexo: tragos más vendidos */}
+      <Slide
+        id="barras"
+        n={16}
+        total={TOTAL}
+        label="Anexo"
+        detail="Onfire · 9.516 tragos"
+      >
+        <SlideTitle>Los tragos más vendidos, en total y por sector</SlideTitle>
+        <Table className="text-sm">
+          <thead>
+            <tr>
+              <Th>Sector</Th>
+              <Th>1</Th>
+              <Th>2</Th>
+              <Th>3</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {BARRAS_TOP.map((s) => (
+              <tr key={s.sector}>
+                <Td className="font-semibold">
+                  {s.sector}
+                  <CellSub>{s.tragos}</CellSub>
+                </Td>
+                {s.top.map((t, i) => (
+                  <Td key={i}>
+                    {t.nombre}
+                    <CellSub>{t.detalle}</CellSub>
+                  </Td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+        <Note>
+          <b>Mesa VIP ya se puede medir en parte:</b> Onfire registra 612 tragos
+          (en el Piknic 3 fueron 30), porque la barra Cocktail VIP y los cobros a
+          mesa pasaron por Onfire. <b>Promos:</b> 868 de los 1.608 Tropical Gin
+          salieron en la promo «2 Tropical Gin».
+        </Note>
+        <Source>
+          General = barras Corchete, CDGA 360, Entel, Mistral, Heineken, Red Bull,
+          Casa Entel y las de activación (Épica, Carpano). VIP = Barra VIP y JW
+          VIP. Mesa VIP = barra de mesas, Cocktail VIP y cobros a mesa. Promos 2x
+          cuentan como dos tragos; variantes con bebida y con Pepsi, juntas. Sin
+          agua, bebidas, Red Bull solo, vasos, agregados ni versiones sin alcohol.
+          «Pisco 35 + Bebida» de la Barra Entel (265) se cuenta aparte.
+        </Source>
+      </Slide>
+
+      {/* 17 · Anexo: anticipación por evento */}
+      <Slide
+        id="anexo-anticipacion"
+        n={17}
+        total={TOTAL}
+        label="Anexo"
+        detail="detalle de la lámina 3"
       >
         <SlideTitle>Anticipación de cada Piknic</SlideTitle>
         <p className="text-sm text-[var(--ink-muted)]">

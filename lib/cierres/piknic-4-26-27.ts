@@ -14,9 +14,15 @@
  * - Plan de producción: glovox-produccion, plan 1238-CL-PKN.
  * - Onepager: tablas data.marca_ingresos / mesas_vip_ingresos / rebate_config.
  * Lo que necesita la reunión (acuerdos nuevos, observaciones) queda abierto.
+ *
+ * Revisión del 17-nov (después de las notas por área del Piknic 3): se suman
+ * VIP vs general, punto de equilibrio, OC antes del evento y el seguimiento de
+ * las notas por área, con datos al 17-nov; las marcas del onepager (cargadas el
+ * 9-nov por la tarde) y el cierre semanal ya cuentan. Permisos, tragos y la
+ * tabla de anticipación pasan al anexo.
  */
 
-import type { HitoPlazo, Tone } from "@/components/cierres/deck/primitives";
+import type { AreaConNotas, HitoPlazo, Tone } from "@/components/cierres/deck/primitives";
 
 export const META = {
   evento: "Piknic 4 · 26-27",
@@ -99,7 +105,7 @@ export const PUNTOS_CONTROL: {
     area: "Finanzas y Datos",
     plazo: "D+3 · 10-nov",
     quePaso:
-      "Onfire ya está cargado. Marcas y mesas VIP siguen en $0 en el onepager y los pases de temporada no aparecen en la ticketera.",
+      "Onfire y las marcas ya están cargados. Mesas VIP sigue en $0 en el onepager y los pases de temporada no aparecen en la ticketera.",
     estado: "en curso",
     tone: "pending",
   },
@@ -255,15 +261,14 @@ export const CMP_RESULTADO: { indicador: string; p3: string; p4: string; cambio:
   { indicador: "Trago más vendido", p3: "Tropical Gin · 1.413", p4: "Mistral 35° · 1.652", cambio: { texto: "≠", tone: "eq" } },
 ];
 
-export const CMP_CONTROL: { punto: string; p3: string; p4: Cambio }[] = [
-  { punto: "Salida a la venta", p3: "D−18", p4: { texto: "D−32", tone: "good" } },
-  { punto: "Negocio en Unabase", p3: "D−8", p4: { texto: "D−11", tone: "eq" } },
-  { punto: "Primer pago de permisos", p3: "D−8", p4: { texto: "D−10", tone: "eq" } },
-  { punto: "Plan de producción desde", p3: "D−12", p4: { texto: "D−32", tone: "good" } },
-  { punto: "Tareas vencidas sin cerrar", p3: "10 de 92", p4: { texto: "30 de 125", tone: "bad" } },
-  { punto: "Marcas en el onepager", p3: "$0", p4: { texto: "$0", tone: "bad" } },
-  { punto: "Mesas VIP en el onepager", p3: "$0", p4: { texto: "$0", tone: "bad" } },
-  { punto: "Gasto documentado", p3: "53% · D+5", p4: { texto: "53% · D+2", tone: "eq" } },
+/** Entradas pagadas (personas, sin devueltas) según cuántos días antes del evento se compraron. */
+export const TRAMOS_VENTA: {
+  evento: string;
+  tramos: { antes: number; semanas1a3: number; ultimaSemana: number; dia: number };
+  total: string;
+}[] = [
+  { evento: "Piknic 3", tramos: { antes: 0, semanas1a3: 692, ultimaSemana: 734, dia: 427 }, total: "1.853" },
+  { evento: "Piknic 4", tramos: { antes: 970, semanas1a3: 394, ultimaSemana: 788, dia: 624 }, total: "2.776" },
 ];
 
 /* ── 6 · Venta y público ── */
@@ -348,16 +353,15 @@ export const INGRESOS_CARGA: { estado: string; tone: Tone; texto: string }[] = [
     texto: "Tickets: $98,0 M bruto (con cargo por servicio), desde la ticketera.",
   },
   {
-    estado: "revisar",
-    tone: "pending",
-    texto:
-      "Barras: $78,6 M bruto en Onfire. El cierre semanal (cierreEventos) todavía lo muestra en $0: se recalcula los lunes a las 11:00.",
+    estado: "cargado",
+    tone: "success",
+    texto: "Barras: $78,6 M bruto, desde Onfire. El cierre semanal ya lo incluye.",
   },
   {
-    estado: "falta",
-    tone: "error",
+    estado: "cargado",
+    tone: "success",
     texto:
-      "Marcas: el onepager dice $0. En Unabase hay 3 negocios de marca (Heinz, Entel vasos y Johnnie Walker; $21,9 M de venta neta) sin «GLO216» en la referencia, así que no suman al evento.",
+      "Marcas: $39,7 M netos en fees (Entel, Banco de Chile, Heinz, Pepsi y Cupra) y $2,0 M en producto, cargados en el onepager el 9-nov. Los 3 negocios de marca de Unabase siguen sin «GLO216».",
   },
   {
     estado: "falta",
@@ -400,14 +404,63 @@ export const OC: {
 ];
 export const OC_TOTAL = { presupuesto: "184,4", emitido: "97,7", nOc: 44, pct: 53 };
 
+/** OC con fecha de documento hasta el día del evento, al 17-nov (meta acordada en el Piknic 3: 95%). */
+export const OC_ANTES = { pct: 53, monto: "97,8", piknic3: 44, meta: 95 };
+
+/* ── VIP contra general (al 17-nov) ──
+ * Personas = escaneos menos upgrades. Consumo = todo Onfire en las barras de
+ * cada zona (una persona VIP también puede comprar en una barra general).
+ * Baños = gasto real en Unabase por tipo (generales vs trailers VIP); las
+ * cantidades por zona no se registran en ningún sistema. */
+export const ZONAS: {
+  zona: string;
+  personas: string;
+  pct: string;
+  consumo: string;
+  porPersona: string;
+  porPersonaP3: string;
+}[] = [
+  { zona: "General", personas: "2.500", pct: "74%", consumo: "$60,9 M", porPersona: "$24.358", porPersonaP3: "$21.472" },
+  { zona: "VIP", personas: "454", pct: "13%", consumo: "$10,5 M", porPersona: "$23.211", porPersonaP3: "$25.031" },
+  { zona: "Mesa VIP", personas: "410", pct: "12%", consumo: "$7,2 M", porPersona: "$17.528", porPersonaP3: "sin medir" },
+];
+export const ZONAS_TOTAL = { personas: "3.364", consumo: "$78,6 M", porPersona: "$23.371", porPersonaP3: "$18.941" };
+
+export const BANOS: { tipo: string; p3: string; p4: string }[] = [
+  { tipo: "Generales, por persona de general", p3: "$1.144", p4: "$1.439" },
+  { tipo: "Trailers VIP, por persona de VIP y mesa", p3: "$3.914", p4: "$4.360" },
+];
+
+/* ── Punto de equilibrio (al 17-nov) ──
+ * Costo = presupuesto de gasto del negocio 8910 (neto). Ingreso por persona que
+ * entró, sin IVA: tickets = (precio − descuento + 55% del cargo por servicio) /
+ * 1,19 = $77,1 M; barras = Onfire / 1,19 = $66,1 M; entre 3.364 personas.
+ * Marcas = fees del onepager (neto). No incluye producto de marcas, mesas VIP ni
+ * pases de temporada. Supone gasto fijo y la misma mezcla de público. */
+export const EQUILIBRIO = {
+  presupuesto: "$184,4 M",
+  artistica: "$27,9 M",
+  marcas: "$39,7 M",
+  porCubrir: "$144,7 M",
+  porPersona: "$42.569",
+  porPersonaTickets: "$22.930",
+  porPersonaBarras: "$19.639",
+  conMarcas: 3400,
+  sinMarcas: 4333,
+  entraron: 3364,
+  personasPorMillon: 23,
+  personasArtistica: 655,
+} as const;
+
+
 /* ── 11 · Qué pasó con los acuerdos del Piknic 3 ── */
 export const SEGUIMIENTO_P3: { acuerdo: string; estado: string; tone: Tone; texto: string }[] = [
   {
     acuerdo: "Cargar marcas y mesas VIP",
-    estado: "se repite",
-    tone: "error",
+    estado: "a medias",
+    tone: "pending",
     texto:
-      "El onepager del Piknic 3 sigue en $0 en marcas y mesas VIP, y en el Piknic 4 los negocios de marca se crearon otra vez sin el GLO.",
+      "Las marcas del Piknic 3 y del 4 se cargaron el 9-nov. Mesas VIP sigue en $0 en los dos, y los negocios de marca del Piknic 4 se crearon otra vez sin el GLO.",
   },
   {
     acuerdo: "Facturas que faltan",
@@ -425,7 +478,7 @@ export const SEGUIMIENTO_P3: { acuerdo: string; estado: string; tone: Tone; text
     acuerdo: "Informe de ruido al parque",
     estado: "sin dato",
     tone: "neutral",
-    texto: "Vence el 16-nov. Todavía no hay gasto de ETFA en Unabase.",
+    texto: "Venció el 16-nov. No hay gasto de ETFA en Unabase: confirmar si se entregó.",
   },
   {
     acuerdo: "Dueños y umbrales",
@@ -445,9 +498,9 @@ export const SEGUIMIENTO_P3: { acuerdo: string; estado: string; tone: Tone; text
 /* ── 12 · Pendientes del Piknic 4 ── */
 export const PENDIENTES: { titulo: string; texto: string }[] = [
   {
-    titulo: "Cargar marcas, mesas VIP y rebate",
+    titulo: "Mesas VIP, rebate y GLO de marcas",
     texto:
-      "En el onepager, y poner «GLO216» en los 3 negocios de marca de Unabase (Heinz, Entel vasos y Johnnie Walker) para que sumen al evento.",
+      "Cargar las mesas VIP y el % de rebate en el onepager, y poner «GLO216» en los 3 negocios de marca de Unabase (Heinz, Entel vasos y Johnnie Walker).",
   },
   {
     titulo: "Pases de temporada",
@@ -457,7 +510,7 @@ export const PENDIENTES: { titulo: string; texto: string }[] = [
   {
     titulo: "OC que faltan",
     texto:
-      "Operaciones ($34,1 M por emitir), Artística ($25,3 M), Venue ($14,0 M) y Marcas y patrocinios ($1,9 M). Hay $4,0 M sin validar.",
+      "Operaciones ($34,1 M por emitir al 9-nov), Artística ($25,3 M), Venue ($14,0 M) y Marcas y patrocinios ($1,9 M). Para el Piknic 5: 95% antes del evento.",
   },
   {
     titulo: "Marketing sobre presupuesto",
@@ -465,26 +518,97 @@ export const PENDIENTES: { titulo: string; texto: string }[] = [
       "Una OC de radio (Megamedia) por $18,8 M contra $8,6 M de presupuesto. ¿Es canje o compra? ¿Va al presupuesto de canjes?",
   },
   {
-    titulo: "Cerrar el plan",
+    titulo: "Cantidades por zona",
     texto:
-      "30 de 125 tareas vencidas sin cerrar: marcar las que se hicieron y anotar por qué no las otras.",
+      "Registrar en el plan de producción cuántos baños, guardias y barras van en general y en VIP: hoy no está en ningún sistema.",
+  },
+  {
+    titulo: "Piknic 5 es domingo",
+    texto:
+      "Es el domingo 6-dic: en el Piknic 3 se dijo que los domingos se vende menos. Revisar campaña y producción.",
+  },
+  {
+    titulo: "Cerrar el plan",
+    texto: "30 de 125 tareas vencidas sin cerrar: marcar las que se hicieron y anotar por qué no las otras.",
   },
   {
     titulo: "Informes de ruido",
-    texto: "Piknic 3: vence el 16-nov. Piknic 4: ≈21-dic. ¿Quién los pide a la ETFA y los entrega?",
+    texto: "Piknic 3: venció el 16-nov. Piknic 4: ≈21-dic. ¿Quién los pide a la ETFA y los entrega?",
   },
 ];
 
-/* ── 13 · Observaciones por área (se completa en la reunión) ── */
-export const AREAS = [
-  "Dirección",
-  "Comercial y Marcas",
-  "Programación Artística",
-  "Marketing",
-  "Ticketing y Comunidad",
-  "Permisos y Legal",
-  "Producción",
-  "Operaciones",
-  "Finanzas",
-  "Datos y Tecnología",
-] as const;
+/* ── Seguimiento de las notas por área del Piknic 3 (al 17-nov) ──
+ * Sin repetir lo que ya está en los acuerdos. Gris = no queda en ningún
+ * sistema: lo confirma cada área en la reunión. */
+export const NOTAS_AREA: AreaConNotas[] = [
+  {
+    area: "Dirección",
+    notas: [
+      { tag: { label: "en esta reunión", tone: "info" }, texto: "Punto de equilibrio y aforo objetivo: ver la lámina 10." },
+      { tag: { label: "revisar", tone: "pending" }, texto: "Domingos: el Piknic 5 es el domingo 6-dic." },
+    ],
+  },
+  {
+    area: "Comercial y Marcas",
+    notas: [
+      { tag: { label: "confirmar", tone: "neutral" }, texto: "Heineken (fee + producto) en su centro de costo." },
+      { tag: { label: "confirmar", tone: "neutral" }, texto: "Cuánta venta cuesta tener la gráfica 2 semanas antes por los sponsors." },
+    ],
+  },
+  {
+    area: "Programación Artística",
+    notas: [
+      { tag: { label: "abierto", tone: "error" }, texto: "Costo visible: al 9-nov había OC por el 9% de los $27,9 M." },
+      { tag: { label: "en esta reunión", tone: "info" }, texto: "Cada $1 M de artística son ~23 personas más para cubrir el gasto." },
+    ],
+  },
+  {
+    area: "Marketing",
+    notas: [
+      { tag: { label: "mejoró", tone: "success" }, texto: "Campaña más larga: abrió en D−32 y todo lo vendido de más salió antes de D−21." },
+      { tag: { label: "confirmar", tone: "neutral" }, texto: "Propuesta de dirección de arte y decoración (plantas, sin banderitas)." },
+    ],
+  },
+  {
+    area: "Ticketing y Comunidad",
+    notas: [
+      { tag: { label: "revisar", tone: "pending" }, texto: "Invitaciones sin usar: entraron 811 de 993, y de Pilates 23 de 189." },
+      { tag: { label: "confirmar", tone: "neutral" }, texto: "Cortesías validadas por sistema (RUT o link): no se mide." },
+    ],
+  },
+  {
+    area: "Permisos y Legal",
+    notas: [
+      { tag: { label: "se repite", tone: "error" }, texto: "El ingreso de los trámites sigue sin registro: solo aparecen pagos." },
+      { tag: { label: "confirmar", tone: "neutral" }, texto: "Cómo se tramitó el Piknic 4 (la nota decía: sobre 3.000 personas)." },
+    ],
+  },
+  {
+    area: "Producción",
+    notas: [
+      { tag: { label: "confirmar", tone: "neutral" }, texto: "Layout: arco de bienvenida, foto opportunity, rejas, baños y barra VIP cerca de las mesas." },
+      { tag: { label: "confirmar", tone: "neutral" }, texto: "Pasillo a la cabina DJ para artistas y videógrafos." },
+    ],
+  },
+  {
+    area: "Operaciones",
+    notas: [
+      { tag: { label: "mejoró", tone: "success" }, texto: "Mesa VIP ya pasa por Onfire: 612 tragos (Piknic 3: 30)." },
+      { tag: { label: "confirmar", tone: "neutral" }, texto: "App de Onfire por contrato en todos los bartenders; productos fríos en la barra VIP." },
+    ],
+  },
+  {
+    area: "Finanzas",
+    notas: [
+      { tag: { label: "no se cumplió", tone: "error" }, texto: "95% de OC antes del evento: llegó al 53% (Piknic 3: 44%)." },
+      { tag: { label: "confirmar", tone: "neutral" }, texto: "Centros de costo y boletas del personal de barra." },
+    ],
+  },
+  {
+    area: "Datos y Tecnología",
+    notas: [
+      { tag: { label: "abierto", tone: "error" }, texto: "Rentabilidad de mesas VIP: falta el ingreso de mesas en el onepager." },
+      { tag: { label: "confirmar", tone: "neutral" }, texto: "Avisos de plazos por Slack (propuesta del Piknic 3)." },
+    ],
+  },
+];
