@@ -335,6 +335,19 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     accentText: "text-white",
   },
   {
+    key: "cierres.fds-26",
+    pathPrefix: "/cierres/fds-26",
+    label: "Cierre Feria del Sánguche 2026",
+    appliesCountryScope: false,
+    sortOrder: 113,
+    title: "CIERRE FERIA DEL SÁNGUCHE 2026",
+    description:
+      "Presentación de la reunión de cierre de la Feria del Sánguche 2026 (13 al 15 nov): puntos de control, anticipación, comparación con la FDS 25, venta y convenios, ingreso por hora, mapa de ventas, Onfire por tipo de puesto, expositores, montaje y desmontaje, resultado, OC y acuerdos.",
+    icon: "presentation",
+    accentClass: "bg-[#A0522D]",
+    accentText: "text-white",
+  },
+  {
     key: "cierres.mapas",
     pathPrefix: "/cierres/mapas",
     label: "Mapas de ventas",
@@ -342,7 +355,7 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     sortOrder: 112,
     title: "MAPAS DE VENTAS",
     description:
-      "Mapas de venta por punto (Onfire) y asistentes por zona sobre el layout de cada evento: Piknic 1, 3 y 4 26-27 y FDS 25.",
+      "Mapas de venta por punto (Onfire) y asistentes por zona sobre el layout de cada evento: Piknic 1, 3 y 4 26-27, FDS 25 y FDS 26.",
     icon: "map",
     accentClass: "bg-[#F06292]",
     accentText: "text-black",

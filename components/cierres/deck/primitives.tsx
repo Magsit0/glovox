@@ -373,11 +373,14 @@ export function PlazosTimeline({
   hitos,
   max = 90,
   evento,
+  normal = { leyenda: "Lo normal (mediana de los Piknic, incluido este)", etiqueta: "Lo normal" },
 }: {
   hitos: HitoPlazo[];
   max?: number;
   /** Nombre corto del evento para la leyenda, ej. "Piknic 4". */
   evento: string;
+  /** Cómo se llama el punto gris: en la leyenda y junto al punto. */
+  normal?: { leyenda: string; etiqueta: string };
 }) {
   const ejes = [90, 60, 30, 0].filter((d) => d <= max);
   return (
@@ -390,7 +393,7 @@ export function PlazosTimeline({
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--ink-subtle)]" />
-          Lo normal (mediana de los Piknic, incluido este)
+          {normal.leyenda}
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className="inline-block h-3 w-0.5 bg-[var(--ink)]" />
@@ -426,7 +429,7 @@ export function PlazosTimeline({
             <div
               className="relative h-[calc(var(--spacing)*20)]"
               role="img"
-              aria-label={`${h.hito}: ${plazoTexto}; lo normal ${h.medianaTexto}; ${evento} ${h.actual} días antes (${estado.texto}).`}
+              aria-label={`${h.hito}: ${plazoTexto}; ${normal.etiqueta.toLowerCase()} ${h.medianaTexto}; ${evento} ${h.actual} días antes (${estado.texto}).`}
             >
               {ejes.map((d) => (
                 <div
@@ -483,7 +486,7 @@ export function PlazosTimeline({
                 className="absolute bottom-0 whitespace-nowrap text-xs text-[var(--ink-subtle)]"
                 style={alinear(xMediana)}
               >
-                Lo normal: {h.medianaTexto} días
+                {normal.etiqueta}: {h.medianaTexto} días
               </span>
               {/* Este evento */}
               <div

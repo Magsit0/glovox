@@ -219,9 +219,11 @@ function EquilibrioComparado() {
 }
 
 /**
- * Presentación de cierre del Piknic 4 · 26-27 (GLO216): 16 láminas para la
- * reunión + 4 de anexo (detalle de venta, tragos, anticipación por evento y
- * notas por confirmar). Misma base que la del Piknic 3 para compararlas.
+ * Presentación de cierre del Piknic 4 · 26-27 (GLO216): 15 láminas para la
+ * reunión + 5 de anexo (resultado, detalle de venta, tragos, anticipación por
+ * evento y notas por confirmar). Orden en actos: tablero (1-2), llegamos antes
+ * (3-5), el día (6-8), la cuenta (9-10), lo que prometimos la vez pasada
+ * (11-12) y lo que viene (13-15). Misma base que la del Piknic 3 para compararlas.
  * Ajustada el 17-nov dos veces: con las notas por área del cierre del Piknic 3
  * y con la reunión con Producción Site, Técnica y Seguridad (próximos eventos,
  * ingreso por hora, acuerdos de Producción, Piknic 1 en la comparación, pagos
@@ -256,7 +258,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
             Cierre Piknic 4
           </h1>
           <p className="max-w-[62ch] text-lg leading-relaxed text-[var(--ink-muted)]">
-            Sábado 7-nov · Parque Padre Hurtado · Guy Gerber, Tinikicker DJ y
+            Sábado 7-nov · Parque Padre Hurtado · Guy Gerber, Tinlicker DJ y
             Rampue (live). Qué pasó con el evento, medido con los mismos puntos de
             control del Piknic 3.
           </p>
@@ -274,6 +276,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           ))}
         </div>
       </Slide>
+
 
       {/* 2 · Tarjeta de control */}
       <Slide
@@ -319,6 +322,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
+
       {/* 3 · Anticipación (el detalle por evento va en el anexo) */}
       <Slide
         id="anticipacion"
@@ -347,73 +351,11 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 4 · Lo que viene */}
-      <Slide
-        id="proximos"
-        n={4}
-        total={TOTAL}
-        areas={["Dirección", "Marketing", "Producción", "Finanzas"]}
-        label="Lo que viene"
-        detail="próximos eventos contra los mismos plazos · al 17-nov"
-      >
-        <SlideTitle>
-          El Piknic 5 está a 19 días, sin negocio en Unabase y sin carta Gantt
-        </SlideTitle>
-        <Table className="text-xs">
-          <thead>
-            <tr>
-              <Th>Evento</Th>
-              <Th right>Faltan</Th>
-              <Th>Salida a la venta · mínimo 30 días antes</Th>
-              <Th>Negocio en Unabase · 30 días antes</Th>
-              <Th>Carta Gantt</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {PROXIMOS.map((p) => (
-              <tr key={p.evento}>
-                <Td className="font-semibold">
-                  {p.evento}
-                  <CellSub>{p.fecha}</CellSub>
-                </Td>
-                <Td right className="whitespace-nowrap">
-                  {p.faltan} días
-                </Td>
-                <Td>
-                  <EstadoCelda e={p.venta} />
-                </Td>
-                <Td>
-                  <EstadoCelda e={p.negocio} />
-                </Td>
-                <Td>
-                  <EstadoCelda e={p.gantt} />
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-        <Note>
-          <b>Piknic 5 es domingo:</b> en el cierre del Piknic 3 se dijo que los
-          domingos se vende menos; lleva 939 entradas pagadas.{" "}
-          <b>Bocas Moradas:</b> el 17-nov se dijo que ya salió a la venta, pero
-          todavía no aparece en la ticketera; en la planilla de eventos no tiene
-          GLO y figura dos veces (5-dic y 19-dic).
-        </Note>
-        <Source>
-          Eventos propios de la planilla de eventos hasta el Piknic 7 (sin
-          corporativos ni eventos de marca; los Piknic 8, 9 y 10 aún están en
-          plazo). Venta = primer día con 10 o más entradas pagadas. Negocio =
-          asignación en Unabase (al 16-nov). Verde = a tiempo; amarillo = vence
-          pronto o hay algo que revisar; rojo = ya pasó; gris = aún no vence. En
-          la carta Gantt nadie ha marcado tareas como cerradas: no significa que
-          no se hicieron.
-        </Source>
-      </Slide>
 
-      {/* 5 · Comparación con Piknic 1 y Piknic 3 */}
+      {/* 4 · Comparación con Piknic 1 y Piknic 3 */}
       <Slide
         id="piknic-3"
-        n={5}
+        n={4}
         total={TOTAL}
         areas={["Dirección", "Marketing"]}
         label="Comparación"
@@ -479,10 +421,11 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 6 · Venta: cómo llegó la gente a comprar */}
+
+      {/* 5 · Venta: cómo llegó la gente a comprar */}
       <Slide
         id="venta"
-        n={6}
+        n={5}
         total={TOTAL}
         areas={["Marketing", "Ticketing y Comunidad"]}
         label="Venta"
@@ -537,6 +480,54 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
+
+      {/* 6 · Ingreso por hora */}
+      <Slide
+        id="ingreso"
+        n={6}
+        total={TOTAL}
+        areas={["Seguridad", "Producción"]}
+        label="Seguridad · ingreso por hora"
+        detail="escaneos en el acceso cada 30 minutos"
+      >
+        <SlideTitle>
+          En una hora, de {INGRESO_RESUMEN.horaPunta}, entró el{" "}
+          {INGRESO_RESUMEN.horaPuntaPct} del público
+        </SlideTitle>
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+          <Kpi
+            value={INGRESO_RESUMEN.horaPuntaPersonas}
+            caption={`escaneos en la hora punta. Piknic 3: ${INGRESO_RESUMEN.horaPuntaP3}`}
+          />
+          <Kpi
+            value={`${INGRESO_RESUMEN.pico15PorMinuto} por minuto`}
+            caption={`en el cuarto de hora más cargado, de ${INGRESO_RESUMEN.pico15} (${INGRESO_RESUMEN.pico15Personas} escaneos)`}
+          />
+          <Kpi
+            value={INGRESO_RESUMEN.mitad}
+            caption={`hora en que ya había entrado la mitad. El 90%, a las ${INGRESO_RESUMEN.noventa} (Piknic 3: ${INGRESO_RESUMEN.noventaP3})`}
+          />
+        </div>
+        <IngresoHora />
+        <Note>
+          <b>Para preguntarle a Seguridad:</b> entre las 18:29 y las 18:40 no se
+          escaneó ninguna entrada (11 minutos; desde las 18:23 ya casi ninguna).
+          Al volver entraron 40 y 45 por minuto, los dos minutos más cargados
+          del día. ¿Se cerró el acceso o se cayó el escaneo? El gráfico va cada
+          media hora y no lo muestra. <b>Mesa VIP llega más tarde:</b>{" "}
+          la mitad entró después de las {INGRESO_RESUMEN.mesaMitad}. Antes de las
+          15:00 entraron {INGRESO_RESUMEN.antes15} ({INGRESO_RESUMEN.antes15Pct}).
+        </Note>
+        <Source>
+          Hora de escaneo de cada ticket en el acceso (ticketera). Mide el flujo
+          en la puerta, no el largo de la fila. Son escaneos: incluyen 127
+          upgrades que se escanean aparte (40 en el Piknic 3). Hora punta = los
+          60 minutos seguidos con más ingresos. La salida no se mide: ver el
+          piloto de conteo en la lámina 14.
+        </Source>
+      </Slide>
+
+
       {/* 7 · Mapa de ventas */}
       <Slide
         id="mapa"
@@ -584,6 +575,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           personas distintas.
         </Source>
       </Slide>
+
 
       {/* 8 · VIP y general */}
       <Slide
@@ -690,86 +682,84 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 9 · Ingreso por hora */}
+
+      {/* 9 · Punto de equilibrio */}
       <Slide
-        id="ingreso"
+        id="equilibrio"
         n={9}
         total={TOTAL}
-        areas={["Seguridad", "Producción"]}
-        label="Seguridad · ingreso por hora"
-        detail="escaneos en el acceso cada 30 minutos"
+        areas={["Dirección", "Finanzas", "Programación Artística"]}
+        label="Punto de equilibrio"
+        detail="estimación al 17-nov"
       >
         <SlideTitle>
-          En una hora, de {INGRESO_RESUMEN.horaPunta}, entró el{" "}
-          {INGRESO_RESUMEN.horaPuntaPct} del público
+          Con las marcas, el Piknic 4 quedó en su punto de equilibrio: necesitaba
+          unas {fmtN(EQUILIBRIO.conMarcas)} personas y entraron {fmtN(EQUILIBRIO.entraron)}
         </SlideTitle>
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-          <Kpi
-            value={INGRESO_RESUMEN.horaPuntaPersonas}
-            caption={`escaneos en la hora punta. Piknic 3: ${INGRESO_RESUMEN.horaPuntaP3}`}
-          />
-          <Kpi
-            value={`${INGRESO_RESUMEN.pico15PorMinuto} por minuto`}
-            caption={`en el cuarto de hora más cargado, de ${INGRESO_RESUMEN.pico15} (${INGRESO_RESUMEN.pico15Personas} escaneos)`}
-          />
-          <Kpi
-            value={INGRESO_RESUMEN.mitad}
-            caption={`hora en que ya había entrado la mitad. El 90%, a las ${INGRESO_RESUMEN.noventa} (Piknic 3: ${INGRESO_RESUMEN.noventaP3})`}
-          />
+        <div className="grid grid-cols-1 items-start gap-10 deck:grid-cols-2">
+          <div className="flex min-w-0 flex-col gap-3">
+            <SubTitle>Cómo se calcula (Piknic 4)</SubTitle>
+            <ul className="flex flex-col text-sm text-[var(--ink)]">
+              {[
+                ["Presupuesto de gasto", EQUILIBRIO.presupuesto, `incluye artística por ${EQUILIBRIO.artistica}`],
+                ["− Marcas (fees)", EQUILIBRIO.marcas, "Entel, Banco de Chile, Heinz, Pepsi y Cupra"],
+                ["= Por cubrir con público", EQUILIBRIO.porCubrir, ""],
+                ["÷ Ingreso neto por persona", EQUILIBRIO.porPersona, `tickets ${EQUILIBRIO.porPersonaTickets} + barras ${EQUILIBRIO.porPersonaBarras}`],
+                ["= Personas necesarias", fmtN(EQUILIBRIO.conMarcas), `entraron ${fmtN(EQUILIBRIO.entraron)}`],
+              ].map(([concepto, valor, detalle], i, arr) => (
+                <li
+                  key={concepto}
+                  className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 border-b border-[var(--divider)] py-2 first:border-t ${i === arr.length - 1 ? "font-semibold" : ""}`}
+                >
+                  <span>
+                    {concepto}
+                    {detalle && <CellSub>{detalle}</CellSub>}
+                  </span>
+                  <span className="text-right font-display text-xl font-bold tabular-nums">{valor}</span>
+                </li>
+              ))}
+            </ul>
+            <Note>
+              <b>Las marcas pagan la artística:</b> aportan {EQUILIBRIO.marcas} y
+              la artística cuesta {EQUILIBRIO.artistica}. Sin marcas harían falta{" "}
+              <b>{fmtN(EQUILIBRIO.sinMarcas)}</b> personas. Cada <b>$1 M</b> más de
+              artística son unas {EQUILIBRIO.personasPorMillon} personas más.
+            </Note>
+          </div>
+          <div className="flex min-w-0 flex-col gap-4">
+            <SubTitle>Los tres Piknic de la temporada</SubTitle>
+            <EquilibrioComparado />
+            <Note>
+              El Piknic 1 y el 3 quedaron a unas <b>1.000</b> y <b>1.100</b>{" "}
+              personas del equilibrio. La diferencia con el Piknic 4 es el{" "}
+              <b>ingreso por persona</b>; ahí también pesa que en esos dos
+              entraron 185 y 177 personas con pase de temporada, que aquí no
+              suman tickets.
+            </Note>
+            <Note>
+              <b>La radio decide:</b> los tres van sin la radio de{" "}
+              {EQUILIBRIO_CON_RADIO.radio} (Megamedia), que en el Piknic 4 es una
+              OC fuera de presupuesto. Si es compra y no canje, el Piknic 4
+              necesitaba unas <b>{fmtN(EQUILIBRIO_CON_RADIO.necesarias)}</b>{" "}
+              personas y llegó al {EQUILIBRIO_CON_RADIO.pct}%.
+            </Note>
+          </div>
         </div>
-        <IngresoHora />
-        <Note>
-          <b>Para preguntarle a Seguridad:</b> entre las 18:29 y las 18:40 no se
-          escaneó ninguna entrada (11 minutos; desde las 18:23 ya casi ninguna).
-          Al volver entraron 40 y 45 por minuto, los dos minutos más cargados
-          del día. ¿Se cerró el acceso o se cayó el escaneo? El gráfico va cada
-          media hora y no lo muestra. <b>Mesa VIP llega más tarde:</b>{" "}
-          la mitad entró después de las {INGRESO_RESUMEN.mesaMitad}. Antes de las
-          15:00 entraron {INGRESO_RESUMEN.antes15} ({INGRESO_RESUMEN.antes15Pct}).
-        </Note>
         <Source>
-          Hora de escaneo de cada ticket en el acceso (ticketera). Mide el flujo
-          en la puerta, no el largo de la fila. Son escaneos: incluyen 127
-          upgrades que se escanean aparte (40 en el Piknic 3). Hora punta = los
-          60 minutos seguidos con más ingresos. La salida no se mide: ver el
-          piloto de conteo en la lámina 15.
+          Estimación con la mezcla de público de cada evento y el gasto fijo
+          (baños, guardias y barras en realidad suben con la gente). Gasto =
+          presupuesto de hoy en Unabase, no gasto real. Tickets = venta + 55% del
+          cargo por servicio; barras = todo Onfire; ambos sin IVA. No incluye
+          producto de marcas, mesas VIP, pases de temporada ni el negocio BTL
+          (montaje de activaciones), que en Unabase va aparte.
         </Source>
       </Slide>
 
-      {/* 10 · Resultado */}
-      <Slide
-        id="resultado"
-        n={10}
-        total={TOTAL}
-        areas={["Finanzas", "Comercial y Marcas", "Ticketing y Comunidad", "Datos y Tecnología"]}
-        label="Resultado · ingresos"
-        detail={META.corte}
-      >
-        <SlideTitle>El resultado todavía no se puede cerrar</SlideTitle>
-        <SubTitle>Ingresos: qué está cargado</SubTitle>
-        <ul className="flex flex-col">
-          {INGRESOS_CARGA.map((r, i) => (
-            <li
-              key={i}
-              className="grid grid-cols-[calc(var(--spacing)*28)_minmax(0,1fr)] items-baseline gap-3 border-b border-[var(--divider)] py-2 text-sm text-[var(--ink)] first:border-t"
-            >
-              <span>
-                <Pill tone={r.tone}>{r.estado}</Pill>
-              </span>
-              <p className="leading-relaxed">{r.texto}</p>
-            </li>
-          ))}
-        </ul>
-        <Note>
-          <b>Costos:</b> hay OC por el 57% del presupuesto ($105,8 M de $184,4 M).
-          El detalle por categoría está en la lámina siguiente.
-        </Note>
-      </Slide>
 
-      {/* 11 · Avance de OC y pagos */}
+      {/* 10 · Avance de OC y pagos */}
       <Slide
         id="oc"
-        n={11}
+        n={10}
         total={TOTAL}
         areas={["Finanzas", "cada área con presupuesto"]}
         label="Compras"
@@ -856,82 +846,11 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 12 · Punto de equilibrio */}
-      <Slide
-        id="equilibrio"
-        n={12}
-        total={TOTAL}
-        areas={["Dirección", "Finanzas", "Programación Artística"]}
-        label="Punto de equilibrio"
-        detail="estimación al 17-nov"
-      >
-        <SlideTitle>
-          Con las marcas, el Piknic 4 quedó en su punto de equilibrio: necesitaba
-          unas {fmtN(EQUILIBRIO.conMarcas)} personas y entraron {fmtN(EQUILIBRIO.entraron)}
-        </SlideTitle>
-        <div className="grid grid-cols-1 items-start gap-10 deck:grid-cols-2">
-          <div className="flex min-w-0 flex-col gap-3">
-            <SubTitle>Cómo se calcula (Piknic 4)</SubTitle>
-            <ul className="flex flex-col text-sm text-[var(--ink)]">
-              {[
-                ["Presupuesto de gasto", EQUILIBRIO.presupuesto, `incluye artística por ${EQUILIBRIO.artistica}`],
-                ["− Marcas (fees)", EQUILIBRIO.marcas, "Entel, Banco de Chile, Heinz, Pepsi y Cupra"],
-                ["= Por cubrir con público", EQUILIBRIO.porCubrir, ""],
-                ["÷ Ingreso neto por persona", EQUILIBRIO.porPersona, `tickets ${EQUILIBRIO.porPersonaTickets} + barras ${EQUILIBRIO.porPersonaBarras}`],
-                ["= Personas necesarias", fmtN(EQUILIBRIO.conMarcas), `entraron ${fmtN(EQUILIBRIO.entraron)}`],
-              ].map(([concepto, valor, detalle], i, arr) => (
-                <li
-                  key={concepto}
-                  className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 border-b border-[var(--divider)] py-2 first:border-t ${i === arr.length - 1 ? "font-semibold" : ""}`}
-                >
-                  <span>
-                    {concepto}
-                    {detalle && <CellSub>{detalle}</CellSub>}
-                  </span>
-                  <span className="text-right font-display text-xl font-bold tabular-nums">{valor}</span>
-                </li>
-              ))}
-            </ul>
-            <Note>
-              <b>Las marcas pagan la artística:</b> aportan {EQUILIBRIO.marcas} y
-              la artística cuesta {EQUILIBRIO.artistica}. Sin marcas harían falta{" "}
-              <b>{fmtN(EQUILIBRIO.sinMarcas)}</b> personas. Cada <b>$1 M</b> más de
-              artística son unas {EQUILIBRIO.personasPorMillon} personas más.
-            </Note>
-          </div>
-          <div className="flex min-w-0 flex-col gap-4">
-            <SubTitle>Los tres Piknic de la temporada</SubTitle>
-            <EquilibrioComparado />
-            <Note>
-              El Piknic 1 y el 3 quedaron a unas <b>1.000</b> y <b>1.100</b>{" "}
-              personas del equilibrio. La diferencia con el Piknic 4 es el{" "}
-              <b>ingreso por persona</b>; ahí también pesa que en esos dos
-              entraron 185 y 177 personas con pase de temporada, que aquí no
-              suman tickets.
-            </Note>
-            <Note>
-              <b>La radio decide:</b> los tres van sin la radio de{" "}
-              {EQUILIBRIO_CON_RADIO.radio} (Megamedia), que en el Piknic 4 es una
-              OC fuera de presupuesto. Si es compra y no canje, el Piknic 4
-              necesitaba unas <b>{fmtN(EQUILIBRIO_CON_RADIO.necesarias)}</b>{" "}
-              personas y llegó al {EQUILIBRIO_CON_RADIO.pct}%.
-            </Note>
-          </div>
-        </div>
-        <Source>
-          Estimación con la mezcla de público de cada evento y el gasto fijo
-          (baños, guardias y barras en realidad suben con la gente). Gasto =
-          presupuesto de hoy en Unabase, no gasto real. Tickets = venta + 55% del
-          cargo por servicio; barras = todo Onfire; ambos sin IVA. No incluye
-          producto de marcas, mesas VIP, pases de temporada ni el negocio BTL
-          (montaje de activaciones), que en Unabase va aparte.
-        </Source>
-      </Slide>
 
-      {/* 13 · Seguimiento de los acuerdos del Piknic 3 */}
+      {/* 11 · Seguimiento de los acuerdos del Piknic 3 */}
       <Slide
         id="seguimiento"
-        n={13}
+        n={11}
         total={TOTAL}
         areas={[TODAS_LAS_AREAS]}
         label="Seguimiento"
@@ -961,10 +880,11 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 14 · Notas por área del Piknic 3 que hoy tienen dato */}
+
+      {/* 12 · Notas por área del Piknic 3 que hoy tienen dato */}
       <Slide
         id="notas-area"
-        n={14}
+        n={12}
         total={TOTAL}
         areas={[TODAS_LAS_AREAS]}
         label="Seguimiento"
@@ -983,10 +903,75 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 15 · Lo acordado con Producción Site, Técnica y Seguridad */}
+
+      {/* 13 · Lo que viene */}
+      <Slide
+        id="proximos"
+        n={13}
+        total={TOTAL}
+        areas={["Dirección", "Marketing", "Producción", "Finanzas"]}
+        label="Lo que viene"
+        detail="próximos eventos contra los mismos plazos · al 17-nov"
+      >
+        <SlideTitle>
+          El Piknic 5 está a 19 días, sin negocio en Unabase y sin carta Gantt
+        </SlideTitle>
+        <Table className="text-xs">
+          <thead>
+            <tr>
+              <Th>Evento</Th>
+              <Th right>Faltan</Th>
+              <Th>Salida a la venta · mínimo 30 días antes</Th>
+              <Th>Negocio en Unabase · 30 días antes</Th>
+              <Th>Carta Gantt</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {PROXIMOS.map((p) => (
+              <tr key={p.evento}>
+                <Td className="font-semibold">
+                  {p.evento}
+                  <CellSub>{p.fecha}</CellSub>
+                </Td>
+                <Td right className="whitespace-nowrap">
+                  {p.faltan} días
+                </Td>
+                <Td>
+                  <EstadoCelda e={p.venta} />
+                </Td>
+                <Td>
+                  <EstadoCelda e={p.negocio} />
+                </Td>
+                <Td>
+                  <EstadoCelda e={p.gantt} />
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+        <Note>
+          <b>Piknic 5 es domingo:</b> en el cierre del Piknic 3 se dijo que los
+          domingos se vende menos; lleva 939 entradas pagadas.{" "}
+          <b>Bocas Moradas:</b> el 17-nov se dijo que ya salió a la venta, pero
+          todavía no aparece en la ticketera; en la planilla de eventos no tiene
+          GLO y figura dos veces (5-dic y 19-dic).
+        </Note>
+        <Source>
+          Eventos propios de la planilla de eventos hasta el Piknic 7 (sin
+          corporativos ni eventos de marca; los Piknic 8, 9 y 10 aún están en
+          plazo). Venta = primer día con 10 o más entradas pagadas. Negocio =
+          asignación en Unabase (al 16-nov). Verde = a tiempo; amarillo = vence
+          pronto o hay algo que revisar; rojo = ya pasó; gris = aún no vence. En
+          la carta Gantt nadie ha marcado tareas como cerradas: no significa que
+          no se hicieron.
+        </Source>
+      </Slide>
+
+
+      {/* 14 · Lo acordado con Producción Site, Técnica y Seguridad */}
       <Slide
         id="produccion"
-        n={15}
+        n={14}
         total={TOTAL}
         areas={["Producción", "Seguridad", "Datos y Tecnología"]}
         label="Acuerdos nuevos"
@@ -1012,10 +997,11 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 16 · Pendientes del Piknic 4 */}
+
+      {/* 15 · Pendientes del Piknic 4 */}
       <Slide
         id="pendientes"
-        n={16}
+        n={15}
         total={TOTAL}
         areas={[TODAS_LAS_AREAS]}
         label="Para salir de la reunión con esto resuelto"
@@ -1045,6 +1031,38 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </ol>
       </Slide>
 
+
+      {/* 16 · Anexo: resultado (qué ingresos están cargados) */}
+      <Slide
+        id="resultado"
+        n={16}
+        total={TOTAL}
+        areas={["Finanzas", "Comercial y Marcas", "Ticketing y Comunidad", "Datos y Tecnología"]}
+        label="Anexo"
+        detail="qué ingresos están cargados · datos al 17-nov"
+      >
+        <SlideTitle>El resultado todavía no se puede cerrar</SlideTitle>
+        <SubTitle>Ingresos: qué está cargado</SubTitle>
+        <ul className="flex flex-col">
+          {INGRESOS_CARGA.map((r, i) => (
+            <li
+              key={i}
+              className="grid grid-cols-[calc(var(--spacing)*28)_minmax(0,1fr)] items-baseline gap-3 border-b border-[var(--divider)] py-2 text-sm text-[var(--ink)] first:border-t"
+            >
+              <span>
+                <Pill tone={r.tone}>{r.estado}</Pill>
+              </span>
+              <p className="leading-relaxed">{r.texto}</p>
+            </li>
+          ))}
+        </ul>
+        <Note>
+          <b>Costos:</b> hay OC por el 57% del presupuesto ($105,8 M de $184,4 M).
+          El detalle por categoría está en la lámina 10.
+        </Note>
+      </Slide>
+
+
       {/* 17 · Anexo: venta y público (detalle) */}
       <Slide
         id="anexo-venta"
@@ -1052,7 +1070,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         total={TOTAL}
         areas={["Marketing", "Ticketing y Comunidad"]}
         label="Anexo"
-        detail="detalle de la lámina 6 · canal según el código del link de compra"
+        detail="detalle de la lámina 5 · canal según el código del link de compra"
       >
         <SlideTitle>Por dónde se vendió y quién entró</SlideTitle>
         <div className="grid grid-cols-1 items-start gap-10 deck:grid-cols-2">
@@ -1126,6 +1144,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </div>
       </Slide>
 
+
       {/* 18 · Anexo: tragos más vendidos */}
       <Slide
         id="barras"
@@ -1180,6 +1199,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
+
       {/* 19 · Anexo: anticipación por evento */}
       <Slide
         id="anexo-anticipacion"
@@ -1229,6 +1249,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           mide cuándo se ingresan los trámites.
         </Source>
       </Slide>
+
 
       {/* 20 · Anexo: notas del Piknic 3 por confirmar */}
       <Slide

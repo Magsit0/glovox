@@ -279,11 +279,21 @@ export const CIERRES_GROUP: DashboardGroup = {
       accentText: "text-white",
     },
     {
+      key: "cierres.fds-26",
+      label: "Feria del Sánguche 2026",
+      path: "/cierres/fds-26",
+      description:
+        "Reunión de cierre de la Feria del Sánguche 2026 (13 al 15 nov 2026): puntos de control, comparación con la FDS 25, venta, ingreso por hora, mapa de ventas, expositores, montaje, resultado, OC y acuerdos.",
+      icon: "presentation",
+      accentClass: "bg-[#A0522D]",
+      accentText: "text-white",
+    },
+    {
       key: "cierres.mapas",
       label: "Mapas de ventas",
       path: "/cierres/mapas",
       description:
-        "Venta de Onfire por punto y asistentes por zona sobre el layout de cada evento (Piknic 1, 3 y 4 26-27, FDS 25). Interactivos.",
+        "Venta de Onfire por punto y asistentes por zona sobre el layout de cada evento (Piknic 1, 3 y 4 26-27, FDS 25 y FDS 26). Interactivos.",
       icon: "map",
       accentClass: "bg-[#F06292]",
       accentText: "text-black",

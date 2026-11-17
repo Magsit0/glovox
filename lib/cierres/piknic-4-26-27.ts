@@ -49,9 +49,8 @@ export const PORTADA_FACTS: { value: string; caption: string; tone?: "warn" }[] 
   },
   { value: "$78,6 M", caption: "vendido en barras · $23.371 por persona" },
   {
-    value: "Sin resultado",
-    caption: "gasto documentado: 57% del presupuesto",
-    tone: "warn",
+    value: "99%",
+    caption: "del punto de equilibrio: hacían falta unas 3.400 personas y entraron 3.364",
   },
 ];
 
@@ -189,7 +188,7 @@ export const ANTICIPACION: {
   { evento: "Piknic 4 26-27", fecha: "7-nov-26", pagadas: "2.776", lanzamiento: 32, negocio: 11, actual: true },
 ];
 
-/* ── 4 · Lo que viene: próximos eventos contra los mismos plazos (al 17-nov) ──
+/* ── 13 · Lo que viene: próximos eventos contra los mismos plazos (al 17-nov) ──
  * Eventos propios de glovox.categoriaEvento con fecha futura (sin corporativos
  * ni eventos de marca), hasta el Piknic 7. Venta = primer día con 10 o más entradas pagadas en la
  * ticketera; negocio = fecha de asignación en Unabase del negocio con ese GLO
@@ -261,7 +260,7 @@ export const PROXIMOS: {
   },
 ];
 
-/* ── 5 · Comparación con el Piknic 1 y el Piknic 3 ──
+/* ── 4 · Comparación con el Piknic 1 y el Piknic 3 ──
  * Columnas p1 y p3 = cifras publicadas en el cierre del Piknic 3 (foto al
  * 8-oct). Ojo: ese cierre contó «personas que entraron» descontando solo los
  * upgrades emparejados por email; con la regla de este deck (todos los upgrades
@@ -290,7 +289,7 @@ export const TRAMOS_VENTA: {
   { evento: "Piknic 4", tramos: { antes: 970, semanas1a3: 394, ultimaSemana: 788, dia: 624 }, total: "2.776" },
 ];
 
-/* ── 6 · Venta: cómo llegó la gente a comprar ──
+/* ── 5 · Venta: cómo llegó la gente a comprar ──
  * Los tres que pesan, con el Piknic 3 al lado. El ranking completo (CANALES) y
  * «Quién entró» (INGRESOS) van en el anexo. */
 export const CANALES_CLAVE: { canal: string; que: string; p3: string; p4: string; pctP3: string; pctP4: string }[] = [
@@ -395,7 +394,7 @@ export const BARRAS_TOP: {
   },
 ];
 
-/* ── 10 · Resultado ── */
+/* ── 16 · Anexo: resultado ── */
 export const INGRESOS_CARGA: { estado: string; tone: Tone; texto: string }[] = [
   {
     estado: "cargado",
@@ -439,7 +438,7 @@ export const INGRESOS_CARGA: { estado: string; tone: Tone; texto: string }[] = [
   },
 ];
 
-/* ── 11 · Avance de OC (millones de pesos netos) ──
+/* ── 10 · Avance de OC (millones de pesos netos) ──
  * conFactura = parte de lo emitido que ya tiene su documento de respaldo
  * registrado en Unabase (factura, boleta o rendición). responsable = lo confirmado en la
  * reunión del 17-nov; el resto queda sin nombre hasta que se defina. */
@@ -524,7 +523,7 @@ export const BANOS: { tipo: string; p3: string; p4: string }[] = [
   { tipo: "Trailers VIP, por persona de VIP y mesa", p3: "$3.914", p4: "$4.360" },
 ];
 
-/* ── 9 · Ingreso por hora (escaneos en el acceso, tramos de 30 minutos) ──
+/* ── 6 · Ingreso por hora (escaneos en el acceso, tramos de 30 minutos) ──
  * glovox.tickets, HoraQuemado (hora local), mismo criterio que la curva de
  * llegada del onepager. Son escaneos: incluyen los upgrades (127 en el Piknic 4
  * y 40 en el Piknic 3), que se escanean aparte de la entrada. */
@@ -615,7 +614,7 @@ export const EQUILIBRIO_CMP: {
 /** Si la OC de radio del Piknic 4 es compra y no canje, su equilibrio sube. */
 export const EQUILIBRIO_CON_RADIO = { radio: "$18,8 M", necesarias: 3842, pct: 88 } as const;
 
-/* ── 13 · Qué pasó con los acuerdos del Piknic 3 ── */
+/* ── 11 · Qué pasó con los acuerdos del Piknic 3 ── */
 export const SEGUIMIENTO_P3: { acuerdo: string; areas: string; estado: string; tone: Tone; texto: string }[] = [
   {
     acuerdo: "Cargar marcas y mesas VIP",
@@ -664,7 +663,7 @@ export const SEGUIMIENTO_P3: { acuerdo: string; areas: string; estado: string; t
   },
 ];
 
-/* ── 16 · Pendientes del Piknic 4 ── */
+/* ── 15 · Pendientes del Piknic 4 ── */
 export const PENDIENTES: { titulo: string; areas: string; texto: string }[] = [
   {
     titulo: "Mesas VIP, rebate y GLO de marcas",
@@ -714,14 +713,14 @@ export const PENDIENTES: { titulo: string; areas: string; texto: string }[] = [
   },
 ];
 
-/* ── 14 · Notas por área del Piknic 3 que hoy tienen dato (al 17-nov) ──
+/* ── 12 · Notas por área del Piknic 3 que hoy tienen dato (al 17-nov) ──
  * Sin repetir lo que ya está en los acuerdos. Las que no quedan en ningún
  * sistema van aparte, en NOTAS_POR_CONFIRMAR (anexo). */
 export const NOTAS_AREA: AreaConNotas[] = [
   {
     area: "Dirección",
     notas: [
-      { tag: { label: "en esta reunión", tone: "info" }, texto: "Punto de equilibrio y aforo objetivo: ver la lámina 12." },
+      { tag: { label: "en esta reunión", tone: "info" }, texto: "Punto de equilibrio y aforo objetivo: ver la lámina 9." },
       { tag: { label: "revisar", tone: "pending" }, texto: "Domingos: el Piknic 5 es el domingo 6-dic." },
     ],
   },
@@ -810,7 +809,7 @@ export const NOTAS_POR_CONFIRMAR: AreaConNotas[] = [
   },
 ];
 
-/* ── 15 · Lo acordado con Producción Site, Técnica y Seguridad ──
+/* ── 14 · Lo acordado con Producción Site, Técnica y Seguridad ──
  * Reunión del 17-nov con Rodrigo Saavedra (líder de las tres áreas). Sale de la
  * transcripción; «acordado» = quedó dicho como acuerdo, «piloto» = se va a
  * probar, «por escribir» = existe en la práctica y falta dejarlo escrito. */

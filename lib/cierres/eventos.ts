@@ -30,6 +30,16 @@ export interface EventoCierre {
 
 export const EVENTOS_CIERRE: readonly EventoCierre[] = [
   {
+    slug: "fds-26",
+    nombre: "Feria del Sánguche 2026",
+    eventoId: "GLO213",
+    fecha: "2026-11-13",
+    fechaTexto: "13 al 15 nov 2026",
+    lugar: "Parque Padre Hurtado",
+    cierre: "/cierres/fds-26",
+    mapa: true,
+  },
+  {
     slug: "piknic-4-26-27",
     nombre: "Piknic 4 · 26-27",
     eventoId: "GLO216",
