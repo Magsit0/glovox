@@ -7,6 +7,7 @@ import {
   Kpi,
   Note,
   Pill,
+  PlazosTimeline,
   Slide,
   SlideTitle,
   Source,
@@ -19,7 +20,7 @@ import {
 import {
   ANTICIPACION,
   ANTICIPACION_ESCALA,
-  ANTICIPACION_MEDIANAS,
+  HITOS,
   AREAS,
   BARRAS_TOP,
   CANALES,
@@ -41,10 +42,11 @@ import {
 } from "@/lib/cierres/piknic-4-26-27";
 import mapaVentas from "./mapa-ventas.jpg";
 
-const TOTAL = 13;
+const TOTAL = 14;
 
 /**
- * Presentación de cierre del Piknic 4 · 26-27 (GLO216): 13 láminas, misma
+ * Presentación de cierre del Piknic 4 · 26-27 (GLO216): 14 láminas (la última
+ * es un anexo), misma
  * estructura que la del Piknic 3 para poder compararlas. Borrador con datos al
  * 9-nov (D+2) en lib/cierres/piknic-4-26-27.ts; las observaciones por área se
  * completan en la reunión. La mecánica de láminas, navegación y PDF vive en
@@ -188,64 +190,24 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </Source>
       </Slide>
 
-      {/* 4 · Anticipación */}
+      {/* 4 · Anticipación (el detalle por evento va en el anexo) */}
       <Slide
         id="anticipacion"
         n={4}
         total={TOTAL}
         label="Anticipación"
-        detail="Piknic 4 frente a los 11 Piknic anteriores"
+        detail="cuántos días antes del evento pasó cada cosa"
       >
-        <SlideTitle>Lanzamos antes, pero el negocio y los permisos siguen al final</SlideTitle>
-        <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-          <Kpi
-            value="32 días"
-            caption={`Lanzamiento del Piknic 4. Mediana de los 12 Piknic: ${ANTICIPACION_MEDIANAS.lanzamiento} días. El ciclo dice M−2 (≈60).`}
-          />
-          <Kpi
-            value="11 días"
-            caption={`Negocio en Unabase. Mediana: ${ANTICIPACION_MEDIANAS.negocio} días. Regla de Finanzas: ≥5 días hábiles.`}
-          />
-          <Kpi
-            value="10 días"
-            caption={`Primer pago de permisos. Mediana: ${ANTICIPACION_MEDIANAS.permisos} días. El área dice iniciar en M−3 (≈90).`}
-          />
-        </div>
-        <Table className="text-xs">
-          <thead>
-            <tr>
-              <Th>Evento</Th>
-              <Th>Fecha</Th>
-              <Th right>Pagadas</Th>
-              <Th className="w-[23%]">Lanzamiento (días antes) · marca D−60</Th>
-              <Th className="w-[23%]">Negocio Unabase · marca D−30</Th>
-              <Th className="w-[23%]">1er pago permisos · marca D−90</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {ANTICIPACION.map((r) => (
-              <tr key={r.evento} className={r.actual ? "bg-[var(--purple-tint)]" : ""}>
-                <Td className={r.actual ? "font-semibold" : ""}>{r.evento}</Td>
-                <Td className="whitespace-nowrap">{r.fecha}</Td>
-                <Td right>{r.pagadas}</Td>
-                <Td>
-                  <DaysBar value={r.lanzamiento} max={max} mark={marcas.lanzamiento} />
-                </Td>
-                <Td>
-                  <DaysBar value={r.negocio} max={max} mark={marcas.negocio} />
-                </Td>
-                <Td>
-                  <DaysBar value={r.permisos} max={max} mark={marcas.permisos} />
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
+        <SlideTitle>
+          Abrimos la venta antes que el Piknic 3, pero los tres hitos siguen tarde
+        </SlideTitle>
+        <PlazosTimeline hitos={HITOS} evento="Piknic 4" />
         <Source>
-          Lanzamiento = primer día con 10 o más entradas pagadas. Negocio = fecha
-          de asignación del negocio GLO en Unabase. Permisos = primer documento
-          de gasto «Permisos y autoridades» (el pago, no el ingreso del trámite).
-          Días corridos. Sin el Piknic 2 26-27 (cancelado).
+          Salida a la venta = primer día con 10 o más entradas pagadas. Negocio =
+          fecha de asignación del negocio GLO en Unabase. Permisos = primer
+          documento de gasto «Permisos y autoridades» (el pago; el plazo de 90
+          días es para iniciar los trámites). Lo normal = mediana de los 12 Piknic
+          de las temporadas 25-26 y 26-27. Detalle por evento en el anexo.
         </Source>
       </Slide>
 
@@ -693,6 +655,58 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
             </div>
           ))}
         </div>
+      </Slide>
+
+      {/* 14 · Anexo: anticipación por evento */}
+      <Slide
+        id="anexo-anticipacion"
+        n={14}
+        total={TOTAL}
+        label="Anexo"
+        detail="detalle de la lámina 4"
+      >
+        <SlideTitle>Anticipación de cada Piknic</SlideTitle>
+        <p className="text-sm text-[var(--ink-muted)]">
+          Días antes del evento en que pasó cada hito. La barra más larga es mejor;
+          la raya negra es el plazo propuesto.
+        </p>
+        <Table className="text-xs">
+          <thead>
+            <tr>
+              <Th>Evento</Th>
+              <Th>Fecha</Th>
+              <Th right>Pagadas</Th>
+              <Th className="w-[23%]">Lanzamiento (días antes) · marca D−60</Th>
+              <Th className="w-[23%]">Negocio Unabase · marca D−30</Th>
+              <Th className="w-[23%]">1er pago permisos · marca D−90</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {ANTICIPACION.map((r) => (
+              <tr key={r.evento} className={r.actual ? "bg-[var(--purple-tint)]" : ""}>
+                <Td className={r.actual ? "font-semibold" : ""}>{r.evento}</Td>
+                <Td className="whitespace-nowrap">{r.fecha}</Td>
+                <Td right>{r.pagadas}</Td>
+                <Td>
+                  <DaysBar value={r.lanzamiento} max={max} mark={marcas.lanzamiento} />
+                </Td>
+                <Td>
+                  <DaysBar value={r.negocio} max={max} mark={marcas.negocio} />
+                </Td>
+                <Td>
+                  <DaysBar value={r.permisos} max={max} mark={marcas.permisos} />
+                </Td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+
+        <Source>
+          Lanzamiento = primer día con 10 o más entradas pagadas. Negocio = fecha
+          de asignación del negocio GLO en Unabase. Permisos = primer documento
+          de gasto «Permisos y autoridades» (el pago, no el ingreso del trámite).
+          Días corridos. Sin el Piknic 2 26-27 (cancelado).
+        </Source>
       </Slide>
     </Deck>
   );

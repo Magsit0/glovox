@@ -16,7 +16,7 @@
  * Lo que necesita la reunión (acuerdos nuevos, observaciones) queda abierto.
  */
 
-import type { Tone } from "@/components/cierres/deck/primitives";
+import type { HitoPlazo, Tone } from "@/components/cierres/deck/primitives";
 
 export const META = {
   evento: "Piknic 4 · 26-27",
@@ -180,14 +180,43 @@ export const PERMISOS: {
   },
 ];
 
-/* ── 4 · Anticipación ── */
+/* ── 4 · Anticipación: línea de tiempo de los 3 hitos ──
+ * Días antes del evento. Medianas de los 12 Piknic de la tabla del anexo. */
+export const HITOS: HitoPlazo[] = [
+  {
+    hito: "Salida a la venta",
+    area: "Dirección y Marketing",
+    plazo: 60,
+    mediana: 36.5,
+    medianaTexto: "36,5",
+    actual: 32,
+    anterior: { nombre: "Piknic 3", dias: 18 },
+  },
+  {
+    hito: "Negocio en Unabase",
+    area: "Producción y Finanzas",
+    plazo: 30,
+    mediana: 6.5,
+    medianaTexto: "6,5",
+    actual: 11,
+    anterior: { nombre: "Piknic 3", dias: 8 },
+  },
+  {
+    hito: "Primer pago de permisos",
+    area: "Permisos y Legal",
+    plazo: 90,
+    mediana: 9,
+    medianaTexto: "9",
+    actual: 10,
+    anterior: { nombre: "Piknic 3", dias: 8 },
+  },
+];
+
+/* ── 14 · Anexo: anticipación por evento ── */
 export const ANTICIPACION_ESCALA = {
   max: 90,
   marcas: { lanzamiento: 60, negocio: 30, permisos: 90 },
 } as const;
-
-/** Medianas de los 12 Piknic de la tabla (temporadas 25-26 y 26-27). */
-export const ANTICIPACION_MEDIANAS = { lanzamiento: "36,5", negocio: "6,5", permisos: "9" } as const;
 
 export const ANTICIPACION: {
   evento: string;

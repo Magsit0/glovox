@@ -279,3 +279,180 @@ export function SpendBar({ pct }: { pct: number | null }) {
     </div>
   );
 }
+
+/* ───────────────────────── Línea de tiempo de plazos ───────────────────────── */
+
+export interface HitoPlazo {
+  hito: string;
+  area: string;
+  /** Plazo propuesto, en días antes del evento. */
+  plazo: number;
+  /** Mediana de los eventos anteriores (días antes) y cómo se escribe. */
+  mediana: number;
+  medianaTexto: string;
+  /** Este evento (días antes). */
+  actual: number;
+  /** Evento anterior, para comparar en el texto de la derecha. */
+  anterior: { nombre: string; dias: number };
+}
+
+/** Posición en % sobre un eje que va de D−max (0%) al día del evento (100%). */
+const posicion = (dias: number, max: number) =>
+  Math.min(100, Math.max(0, ((max - dias) / max) * 100));
+
+/** Etiqueta centrada en x, pegada al borde si queda muy cerca de un extremo. */
+function alinear(x: number): React.CSSProperties {
+  if (x < 6) return { left: `${x}%` };
+  if (x > 94) return { right: `${100 - x}%` };
+  return { left: `${x}%`, transform: "translateX(-50%)" };
+}
+
+/**
+ * Un hito por fila sobre un eje de tiempo común (de D−max al día del evento,
+ * de izquierda a derecha). En cada fila: el plazo propuesto (raya en tinta),
+ * lo normal en los eventos anteriores (punto gris, la mediana) y este evento
+ * (punto morado). Si el evento quedó después del plazo, el tramo entre ambos
+ * se pinta rosa: es el atraso. A la derecha, el resumen en palabras.
+ */
+export function PlazosTimeline({
+  hitos,
+  max = 90,
+  evento,
+}: {
+  hitos: HitoPlazo[];
+  max?: number;
+  /** Nombre corto del evento para las etiquetas, ej. "Piknic 4". */
+  evento: string;
+}) {
+  const ejes = [90, 60, 30, 0].filter((d) => d <= max);
+  return (
+    <div className="flex flex-col">
+      {/* Leyenda */}
+      <div className="flex flex-wrap items-center gap-x-5 gap-y-1 pb-3 text-xs text-[var(--ink-muted)]">
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="inline-block h-3 w-3 rounded-full bg-[#9F99F8]" />
+          {evento}
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--ink-subtle)]" />
+          Lo normal (mediana de los Piknic anteriores)
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="inline-block h-3 w-0.5 bg-[var(--ink)]" />
+          Plazo propuesto
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <span aria-hidden="true" className="inline-block h-1 w-4 rounded-full bg-[#ED75A0]" />
+          Atraso contra el plazo
+        </span>
+      </div>
+
+      {hitos.map((h) => {
+        const xPlazo = posicion(h.plazo, max);
+        const xMediana = posicion(h.mediana, max);
+        const xActual = posicion(h.actual, max);
+        const atraso = h.plazo - h.actual;
+        return (
+          <div
+            key={h.hito}
+            className="grid grid-cols-1 items-center gap-x-6 gap-y-2 border-t border-[var(--divider)] py-6 deck:grid-cols-[calc(var(--spacing)*44)_minmax(0,1fr)_calc(var(--spacing)*52)]"
+          >
+            <div>
+              <p className="text-base font-semibold text-[var(--ink)]">{h.hito}</p>
+              <p className="text-xs text-[var(--ink-muted)]">{h.area}</p>
+            </div>
+
+            {/* Eje: etiquetas arriba (plazo y este evento) y abajo (lo normal). */}
+            <div
+              className="relative h-[calc(var(--spacing)*20)]"
+              role="img"
+              aria-label={`${h.hito}: plazo ${h.plazo} días antes; lo normal ${h.medianaTexto}; ${evento} ${h.actual} días antes.`}
+            >
+              {ejes.map((d) => (
+                <div
+                  key={d}
+                  aria-hidden="true"
+                  className="absolute inset-y-[calc(var(--spacing)*5)] w-px bg-[var(--grid)]"
+                  style={{ left: `${posicion(d, max)}%` }}
+                />
+              ))}
+              <div aria-hidden="true" className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-[var(--divider)]" />
+              {atraso > 0 && (
+                <div
+                  aria-hidden="true"
+                  className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-[#ED75A0]"
+                  style={{ left: `${xPlazo}%`, width: `${xActual - xPlazo}%` }}
+                />
+              )}
+              {/* Plazo */}
+              <div
+                aria-hidden="true"
+                className="absolute top-[calc(var(--spacing)*5)] bottom-[calc(var(--spacing)*5)] w-0.5 -translate-x-1/2 rounded-full bg-[var(--ink)]"
+                style={{ left: `${xPlazo}%` }}
+              />
+              <span
+                aria-hidden="true"
+                className="absolute top-0 whitespace-nowrap text-xs text-[var(--ink-muted)]"
+                style={alinear(xPlazo)}
+              >
+                Plazo: {h.plazo} días antes
+              </span>
+              {/* Lo normal */}
+              <div
+                aria-hidden="true"
+                className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--surface)] bg-[var(--ink-subtle)]"
+                style={{ left: `${xMediana}%` }}
+              />
+              <span
+                aria-hidden="true"
+                className="absolute bottom-0 whitespace-nowrap text-xs text-[var(--ink-subtle)]"
+                style={alinear(xMediana)}
+              >
+                Lo normal: {h.medianaTexto} días
+              </span>
+              {/* Este evento */}
+              <div
+                aria-hidden="true"
+                className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--surface)] bg-[#9F99F8]"
+                style={{ left: `${xActual}%` }}
+              />
+              <span
+                aria-hidden="true"
+                className="absolute top-0 whitespace-nowrap text-xs font-semibold text-[var(--ink)]"
+                style={alinear(xActual)}
+              >
+                {evento}: {h.actual} días
+              </span>
+            </div>
+
+            <div>
+              <p className="font-display text-2xl font-bold leading-none tracking-tight text-[var(--ink)]">
+                {h.actual} días antes
+              </p>
+              <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[var(--ink)]">
+                <Dot tone={atraso > 0 ? "error" : "success"} />
+                {atraso > 0 ? `${atraso} días tarde` : "a tiempo"}
+                <span className="text-[var(--ink-muted)]">
+                  · {h.anterior.nombre}: {h.anterior.dias}
+                </span>
+              </p>
+            </div>
+          </div>
+        );
+      })}
+
+      {/* Eje común */}
+      <div className="hidden grid-cols-[calc(var(--spacing)*44)_minmax(0,1fr)_calc(var(--spacing)*52)] gap-x-6 border-t border-[var(--divider)] pt-1.5 deck:grid">
+        <span />
+        <div className="relative h-4 text-xs text-[var(--ink-subtle)]">
+          {ejes.map((d) => (
+            <span key={d} className="absolute whitespace-nowrap" style={alinear(posicion(d, max))}>
+              {d === 0 ? "día del evento" : `${d} días antes`}
+            </span>
+          ))}
+        </div>
+        <span />
+      </div>
+    </div>
+  );
+}
