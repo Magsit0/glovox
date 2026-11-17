@@ -329,7 +329,7 @@ export const DASHBOARDS_CATALOG: readonly DashboardCatalogEntry[] = [
     sortOrder: 111,
     title: "CIERRE PIKNIC 4 · 26-27",
     description:
-      "Presentación de la reunión de cierre del Piknic 4 (7 nov 2026): puntos de control, permisos, anticipación, comparación con el Piknic 3, venta, mapa de ventas, barras, resultado, OC y seguimiento de acuerdos.",
+      "Presentación de la reunión de cierre del Piknic 4 (7 nov 2026): puntos de control, anticipación, próximos eventos, comparación con el Piknic 1 y el 3, venta, mapa de ventas, VIP y general, ingreso por hora, resultado, OC y pagos, punto de equilibrio y acuerdos.",
     icon: "presentation",
     accentClass: "bg-[#B8860B]",
     accentText: "text-white",

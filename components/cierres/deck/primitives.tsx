@@ -253,10 +253,13 @@ export function DaysBar({
   value,
   max,
   mark,
+  marks = [],
 }: {
   value: number | null;
   max: number;
   mark: number;
+  /** Umbrales secundarios (rayas grises), además del plazo principal. */
+  marks?: readonly number[];
 }) {
   const pct = value == null ? 0 : Math.min(100, Math.max(0, (value / max) * 100));
   return (
@@ -268,6 +271,13 @@ export function DaysBar({
             style={{ width: `${pct}%` }}
           />
         )}
+        {marks.map((m) => (
+          <div
+            key={m}
+            className="absolute -inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-[var(--ink-subtle)]"
+            style={{ left: `${(m / max) * 100}%` }}
+          />
+        ))}
         <div
           className="absolute -inset-y-1 w-0.5 -translate-x-1/2 rounded-full bg-[var(--ink)]"
           style={{ left: `${(mark / max) * 100}%` }}
@@ -303,8 +313,13 @@ export function SpendBar({ pct }: { pct: number | null }) {
 export interface HitoPlazo {
   hito: string;
   area: string;
-  /** Plazo propuesto, en días antes del evento. */
+  /** Plazo propuesto, en días antes del evento (con `niveles`, el mínimo). */
   plazo: number;
+  /**
+   * Umbrales graduados (días antes), del más exigente al mínimo; ej. ideal 60,
+   * bueno 45, mínimo 30. Sin esto el hito tiene un solo plazo.
+   */
+  niveles?: readonly { dias: number; label: string }[];
   /** Mediana de los eventos anteriores (días antes) y cómo se escribe. */
   mediana: number;
   medianaTexto: string;
@@ -320,17 +335,39 @@ const posicion = (dias: number, max: number) =>
 
 /** Etiqueta centrada en x, pegada al borde si queda muy cerca de un extremo. */
 function alinear(x: number): React.CSSProperties {
-  if (x < 6) return { left: `${x}%` };
-  if (x > 94) return { right: `${100 - x}%` };
+  if (x < 12) return { left: `${x}%` };
+  if (x > 88) return { right: `${100 - x}%` };
   return { left: `${x}%`, transform: "translateX(-50%)" };
+}
+
+/** Estado de un hito contra su plazo (o contra sus umbrales graduados). */
+function estadoHito(h: HitoPlazo): { tone: Tone; texto: string; atrasoDesde: number | null } {
+  if (h.niveles && h.niveles.length > 0) {
+    const alcanzado = h.niveles.find((n) => h.actual >= n.dias);
+    const minimo = h.niveles[h.niveles.length - 1];
+    if (!alcanzado) {
+      return { tone: "error", texto: `bajo el ${minimo.label} (${minimo.dias})`, atrasoDesde: minimo.dias };
+    }
+    const esMinimo = alcanzado === minimo;
+    return {
+      tone: esMinimo ? "pending" : "success",
+      texto: esMinimo ? `cumple el ${alcanzado.label} (${alcanzado.dias})` : `nivel ${alcanzado.label} (${alcanzado.dias})`,
+      atrasoDesde: null,
+    };
+  }
+  const atraso = h.plazo - h.actual;
+  return atraso > 0
+    ? { tone: "error", texto: `${atraso} días tarde`, atrasoDesde: h.plazo }
+    : { tone: "success", texto: "a tiempo", atrasoDesde: null };
 }
 
 /**
  * Un hito por fila sobre un eje de tiempo común (de D−max al día del evento,
- * de izquierda a derecha). En cada fila: el plazo propuesto (raya en tinta),
- * lo normal en los eventos anteriores (punto gris, la mediana) y este evento
- * (punto morado). Si el evento quedó después del plazo, el tramo entre ambos
- * se pinta rosa: es el atraso. A la derecha, el resumen en palabras.
+ * de izquierda a derecha). En cada fila: el plazo (raya en tinta; si el hito
+ * tiene umbrales graduados, una raya por umbral, la del mínimo en tinta), lo
+ * normal en los eventos anteriores (punto gris, la mediana) y este evento
+ * (punto morado). Si el evento quedó después del plazo mínimo, el tramo entre
+ * ambos se pinta rosa: es el atraso. A la derecha, el resumen en palabras.
  */
 export function PlazosTimeline({
   hitos,
@@ -339,7 +376,7 @@ export function PlazosTimeline({
 }: {
   hitos: HitoPlazo[];
   max?: number;
-  /** Nombre corto del evento para las etiquetas, ej. "Piknic 4". */
+  /** Nombre corto del evento para la leyenda, ej. "Piknic 4". */
   evento: string;
 }) {
   const ejes = [90, 60, 30, 0].filter((d) => d <= max);
@@ -353,11 +390,11 @@ export function PlazosTimeline({
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className="inline-block h-2.5 w-2.5 rounded-full bg-[var(--ink-subtle)]" />
-          Lo normal (mediana de los Piknic anteriores)
+          Lo normal (mediana de los Piknic, incluido este)
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className="inline-block h-3 w-0.5 bg-[var(--ink)]" />
-          Plazo propuesto
+          Plazo (el mínimo, si hay más de uno)
         </span>
         <span className="inline-flex items-center gap-1.5">
           <span aria-hidden="true" className="inline-block h-1 w-4 rounded-full bg-[#ED75A0]" />
@@ -366,10 +403,15 @@ export function PlazosTimeline({
       </div>
 
       {hitos.map((h) => {
-        const xPlazo = posicion(h.plazo, max);
         const xMediana = posicion(h.mediana, max);
         const xActual = posicion(h.actual, max);
-        const atraso = h.plazo - h.actual;
+        const estado = estadoHito(h);
+        const marcas = h.niveles?.length
+          ? h.niveles.map((n, i, arr) => ({ dias: n.dias, label: `${n.label} · ${n.dias}`, principal: i === arr.length - 1 }))
+          : [{ dias: h.plazo, label: `Plazo: ${h.plazo} días antes`, principal: true }];
+        const plazoTexto = h.niveles?.length
+          ? `${h.niveles.map((n) => `${n.label} ${n.dias}`).join(", ")} días antes`
+          : `plazo ${h.plazo} días antes`;
         return (
           <div
             key={h.hito}
@@ -380,11 +422,11 @@ export function PlazosTimeline({
               <p className="text-xs text-[var(--ink-muted)]">{h.area}</p>
             </div>
 
-            {/* Eje: etiquetas arriba (plazo y este evento) y abajo (lo normal). */}
+            {/* Eje: plazos arriba, lo normal abajo; este evento es el punto morado. */}
             <div
               className="relative h-[calc(var(--spacing)*20)]"
               role="img"
-              aria-label={`${h.hito}: plazo ${h.plazo} días antes; lo normal ${h.medianaTexto}; ${evento} ${h.actual} días antes.`}
+              aria-label={`${h.hito}: ${plazoTexto}; lo normal ${h.medianaTexto}; ${evento} ${h.actual} días antes (${estado.texto}).`}
             >
               {ejes.map((d) => (
                 <div
@@ -395,26 +437,41 @@ export function PlazosTimeline({
                 />
               ))}
               <div aria-hidden="true" className="absolute inset-x-0 top-1/2 h-0.5 -translate-y-1/2 rounded-full bg-[var(--divider)]" />
-              {atraso > 0 && (
+              {estado.atrasoDesde != null && (
                 <div
                   aria-hidden="true"
                   className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-[#ED75A0]"
-                  style={{ left: `${xPlazo}%`, width: `${xActual - xPlazo}%` }}
+                  style={{
+                    left: `${posicion(estado.atrasoDesde, max)}%`,
+                    width: `${xActual - posicion(estado.atrasoDesde, max)}%`,
+                  }}
                 />
               )}
-              {/* Plazo */}
-              <div
-                aria-hidden="true"
-                className="absolute top-[calc(var(--spacing)*5)] bottom-[calc(var(--spacing)*5)] w-0.5 -translate-x-1/2 rounded-full bg-[var(--ink)]"
-                style={{ left: `${xPlazo}%` }}
-              />
-              <span
-                aria-hidden="true"
-                className="absolute top-0 whitespace-nowrap text-xs text-[var(--ink-muted)]"
-                style={alinear(xPlazo)}
-              >
-                Plazo: {h.plazo} días antes
-              </span>
+              {/* Plazos */}
+              {marcas.map((m) => {
+                const x = posicion(m.dias, max);
+                return (
+                  <span key={m.dias} aria-hidden="true">
+                    <span
+                      className={`absolute top-[calc(var(--spacing)*5)] bottom-[calc(var(--spacing)*5)] w-0.5 -translate-x-1/2 rounded-full ${m.principal ? "bg-[var(--ink)]" : "bg-[var(--ink-subtle)]"}`}
+                      style={{ left: `${x}%` }}
+                    />
+                    <span
+                      className={`absolute top-0 whitespace-nowrap text-xs ${m.principal ? "font-semibold text-[var(--ink)]" : "text-[var(--ink-muted)]"}`}
+                      style={alinear(x)}
+                    >
+                      {h.niveles?.length && !m.principal ? (
+                        <>
+                          <span className="deck:hidden">{m.dias}</span>
+                          <span className="hidden deck:inline">{m.label}</span>
+                        </>
+                      ) : (
+                        m.label
+                      )}
+                    </span>
+                  </span>
+                );
+              })}
               {/* Lo normal */}
               <div
                 aria-hidden="true"
@@ -434,13 +491,6 @@ export function PlazosTimeline({
                 className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--surface)] bg-[#9F99F8]"
                 style={{ left: `${xActual}%` }}
               />
-              <span
-                aria-hidden="true"
-                className="absolute top-0 whitespace-nowrap text-xs font-semibold text-[var(--ink)]"
-                style={alinear(xActual)}
-              >
-                {evento}: {h.actual} días
-              </span>
             </div>
 
             <div>
@@ -448,11 +498,11 @@ export function PlazosTimeline({
                 {h.actual} días antes
               </p>
               <p className="mt-1.5 flex items-center gap-1.5 text-xs text-[var(--ink)]">
-                <Dot tone={atraso > 0 ? "error" : "success"} />
-                {atraso > 0 ? `${atraso} días tarde` : "a tiempo"}
-                <span className="text-[var(--ink-muted)]">
-                  · {h.anterior.nombre}: {h.anterior.dias}
-                </span>
+                <Dot tone={estado.tone} />
+                {estado.texto}
+              </p>
+              <p className="mt-0.5 text-xs text-[var(--ink-muted)]">
+                {h.anterior.nombre}: {h.anterior.dias} días antes
               </p>
             </div>
           </div>
