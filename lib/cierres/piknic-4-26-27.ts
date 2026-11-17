@@ -1,8 +1,9 @@
 /**
  * Contenido de la presentación de cierre del Piknic 4 · temporada 26-27
- * (GLO216, sábado 7-nov-2026, Parque Padre Hurtado). Borrador armado el 9-nov.
+ * (GLO216, sábado 7-nov-2026, Parque Padre Hurtado). Borrador armado el 9-nov y
+ * actualizado al 17-nov (D+10).
  *
- * Datos ESTÁTICOS: foto al 9-nov (D+2), con los mismos criterios que la
+ * Datos ESTÁTICOS: foto al 17-nov (D+10), con los mismos criterios que la
  * presentación del Piknic 3 para que se puedan comparar:
  * - Tickets: glovox.tickets, clase ventaNoventa, sin devueltos. Venta bruta =
  *   PrecioFinal (con cargo por servicio). Personas = entradas menos upgrades.
@@ -27,8 +28,8 @@ import type { AreaConNotas, HitoPlazo, Tone } from "@/components/cierres/deck/pr
 export const META = {
   evento: "Piknic 4 · 26-27",
   eventoId: "GLO216",
-  corte: "datos al 9-nov · D+2",
-  pdfFilename: "Cierre Piknic 4 · 26-27 (datos al 9-nov-2026)",
+  corte: "datos al 17-nov · D+10",
+  pdfFilename: "Cierre Piknic 4 · 26-27 (datos al 17-nov-2026)",
 } as const;
 
 /* ── 1 · Portada ── */
@@ -41,7 +42,7 @@ export const PORTADA_FACTS: { value: string; caption: string; tone?: "warn" }[] 
   { value: "$78,6 M", caption: "vendido en barras · $23.371 por persona" },
   {
     value: "Sin resultado",
-    caption: "gasto documentado: 53% del presupuesto",
+    caption: "gasto documentado: 57% del presupuesto",
     tone: "warn",
   },
 ];
@@ -96,18 +97,18 @@ export const PUNTOS_CONTROL: {
     area: "Producción",
     plazo: "D+3 · 10-nov",
     quePaso:
-      "El plan empezó el 6-oct, 32 días antes (Piknic 3: 12). Hoy tiene 30 de 125 tareas vencidas sin cerrar.",
-    estado: "en curso",
-    tone: "pending",
+      "El plan empezó el 6-oct, 32 días antes (Piknic 3: 12). Al 17-nov tiene 30 de 125 tareas vencidas sin cerrar.",
+    estado: "abierto",
+    tone: "error",
   },
   {
     punto: "Cierre de datos",
     area: "Finanzas y Datos",
     plazo: "D+3 · 10-nov",
     quePaso:
-      "Onfire y las marcas ya están cargados. Mesas VIP sigue en $0 en el onepager y los pases de temporada no aparecen en la ticketera.",
-    estado: "en curso",
-    tone: "pending",
+      "Onfire y las marcas están cargados, pero mesas VIP y rebate siguen vacíos en el onepager y los pases de temporada no aparecen en la ticketera.",
+    estado: "incompleto",
+    tone: "error",
   },
 ];
 
@@ -389,10 +390,10 @@ export const OC: {
   nOc: number;
   pct: number | null;
 }[] = [
-  { categoria: "Operaciones", presupuesto: "38,9", emitido: "4,7", nOc: 12, pct: 12 },
-  { categoria: "Producción técnica", presupuesto: "31,0", emitido: "26,8", nOc: 6, pct: 86 },
-  { categoria: "Producción site", presupuesto: "29,5", emitido: "23,0", nOc: 14, pct: 78 },
-  { categoria: "Artística", presupuesto: "27,9", emitido: "2,5", nOc: 4, pct: 9 },
+  { categoria: "Operaciones", presupuesto: "38,9", emitido: "11,1", nOc: 19, pct: 29 },
+  { categoria: "Producción técnica", presupuesto: "31,0", emitido: "26,9", nOc: 7, pct: 87 },
+  { categoria: "Producción site", presupuesto: "29,5", emitido: "23,6", nOc: 15, pct: 80 },
+  { categoria: "Artística", presupuesto: "27,9", emitido: "3,6", nOc: 7, pct: 13 },
   { categoria: "Seguridad", presupuesto: "15,3", emitido: "11,5", nOc: 3, pct: 75 },
   { categoria: "Venue", presupuesto: "14,0", emitido: null, nOc: 0, pct: null },
   { categoria: "Logística y bodega", presupuesto: "12,0", emitido: "9,1", nOc: 2, pct: 76 },
@@ -402,7 +403,7 @@ export const OC: {
   { categoria: "Contenidos y experiencias", presupuesto: "0,6", emitido: "0,6", nOc: 3, pct: 100 },
   { categoria: "Sostenibilidad", presupuesto: "0,04", emitido: "0,03", nOc: 1, pct: 70 },
 ];
-export const OC_TOTAL = { presupuesto: "184,4", emitido: "97,7", nOc: 44, pct: 53 };
+export const OC_TOTAL = { presupuesto: "184,4", emitido: "105,8", nOc: 55, pct: 57 };
 
 /** OC con fecha de documento hasta el día del evento, al 17-nov (meta acordada en el Piknic 3: 95%). */
 export const OC_ANTES = { pct: 53, monto: "97,8", piknic3: 44, meta: 95 };
@@ -454,9 +455,10 @@ export const EQUILIBRIO = {
 
 
 /* ── 11 · Qué pasó con los acuerdos del Piknic 3 ── */
-export const SEGUIMIENTO_P3: { acuerdo: string; estado: string; tone: Tone; texto: string }[] = [
+export const SEGUIMIENTO_P3: { acuerdo: string; areas: string; estado: string; tone: Tone; texto: string }[] = [
   {
     acuerdo: "Cargar marcas y mesas VIP",
+    areas: "Comercial y Marcas · Finanzas · Datos",
     estado: "a medias",
     tone: "pending",
     texto:
@@ -464,30 +466,35 @@ export const SEGUIMIENTO_P3: { acuerdo: string; estado: string; tone: Tone; text
   },
   {
     acuerdo: "Facturas que faltan",
+    areas: "Finanzas",
     estado: "en curso",
     tone: "pending",
-    texto: "El gasto documentado del Piknic 3 pasó de $93,2 M a $112,8 M en Unabase.",
+    texto: "El gasto documentado del Piknic 3 pasó de $93,2 M (a D+5) a $115,9 M en Unabase.",
   },
   {
     acuerdo: "Cerrar el plan",
+    areas: "Producción",
     estado: "abierto",
     tone: "error",
     texto: "El plan del Piknic 3 tiene hoy 11 tareas vencidas sin cerrar (eran 10).",
   },
   {
     acuerdo: "Informe de ruido al parque",
+    areas: "Permisos y Legal",
     estado: "sin dato",
     tone: "neutral",
     texto: "Venció el 16-nov. No hay gasto de ETFA en Unabase: confirmar si se entregó.",
   },
   {
     acuerdo: "Dueños y umbrales",
+    areas: "Dirección",
     estado: "sin dato",
     tone: "neutral",
     texto: "Un nombre por punto de control y validar D−60, D−30 y M−3: revisar en la reunión.",
   },
   {
     acuerdo: "Presupuesto de canjes",
+    areas: "Marketing · Finanzas",
     estado: "sin dato",
     tone: "neutral",
     texto:
@@ -496,43 +503,51 @@ export const SEGUIMIENTO_P3: { acuerdo: string; estado: string; tone: Tone; text
 ];
 
 /* ── 12 · Pendientes del Piknic 4 ── */
-export const PENDIENTES: { titulo: string; texto: string }[] = [
+export const PENDIENTES: { titulo: string; areas: string; texto: string }[] = [
   {
     titulo: "Mesas VIP, rebate y GLO de marcas",
+    areas: "Comercial y Marcas · Finanzas · Datos",
     texto:
       "Cargar las mesas VIP y el % de rebate en el onepager, y poner «GLO216» en los 3 negocios de marca de Unabase (Heinz, Entel vasos y Johnnie Walker).",
   },
   {
     titulo: "Pases de temporada",
+    areas: "Ticketing y Comunidad",
     texto:
       "Aclarar cómo entraron los pases GLO205: la ticketera no trae ninguna entrada de pase para el Piknic 4.",
   },
   {
     titulo: "OC que faltan",
+    areas: "Finanzas · Operaciones · Artística · Producción",
     texto:
-      "Operaciones ($34,1 M por emitir al 9-nov), Artística ($25,3 M), Venue ($14,0 M) y Marcas y patrocinios ($1,9 M). Para el Piknic 5: 95% antes del evento.",
+      "Operaciones ($27,7 M por emitir), Artística ($24,2 M), Venue ($14,0 M) y Marcas y patrocinios ($1,9 M). Para el Piknic 5: 95% antes del evento.",
   },
   {
     titulo: "Marketing sobre presupuesto",
+    areas: "Marketing · Finanzas",
     texto:
       "Una OC de radio (Megamedia) por $18,8 M contra $8,6 M de presupuesto. ¿Es canje o compra? ¿Va al presupuesto de canjes?",
   },
   {
     titulo: "Cantidades por zona",
+    areas: "Producción · Operaciones",
     texto:
       "Registrar en el plan de producción cuántos baños, guardias y barras van en general y en VIP: hoy no está en ningún sistema.",
   },
   {
     titulo: "Piknic 5 es domingo",
+    areas: "Dirección · Marketing",
     texto:
       "Es el domingo 6-dic: en el Piknic 3 se dijo que los domingos se vende menos. Revisar campaña y producción.",
   },
   {
     titulo: "Cerrar el plan",
+    areas: "Producción",
     texto: "30 de 125 tareas vencidas sin cerrar: marcar las que se hicieron y anotar por qué no las otras.",
   },
   {
     titulo: "Informes de ruido",
+    areas: "Permisos y Legal",
     texto: "Piknic 3: venció el 16-nov. Piknic 4: ≈21-dic. ¿Quién los pide a la ETFA y los entrega?",
   },
 ];
@@ -558,7 +573,7 @@ export const NOTAS_AREA: AreaConNotas[] = [
   {
     area: "Programación Artística",
     notas: [
-      { tag: { label: "abierto", tone: "error" }, texto: "Costo visible: al 9-nov había OC por el 9% de los $27,9 M." },
+      { tag: { label: "abierto", tone: "error" }, texto: "Costo visible: hoy hay OC por el 13% de los $27,9 M." },
       { tag: { label: "en esta reunión", tone: "info" }, texto: "Cada $1 M de artística son ~23 personas más para cubrir el gasto." },
     ],
   },

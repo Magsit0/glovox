@@ -9,9 +9,14 @@
  * acentos de marca como literales.
  */
 
+import { UsersRound } from "lucide-react";
+
 type Children = { children?: React.ReactNode };
 
 /* ───────────────────────────── Lámina ───────────────────────────── */
+
+/** Valor de `areas` para las láminas que tocan a todas las áreas. */
+export const TODAS_LAS_AREAS = "Todas las áreas";
 
 export function Slide({
   id,
@@ -19,6 +24,7 @@ export function Slide({
   total,
   label,
   detail,
+  areas,
   className = "",
   children,
 }: Children & {
@@ -29,8 +35,11 @@ export function Slide({
   /** Antetítulo: etiqueta (en píldora) + detalle opcional. */
   label: string;
   detail?: string;
+  /** Áreas a las que se refiere la lámina (arriba a la derecha). */
+  areas?: readonly string[];
   className?: string;
 }) {
+  const todas = areas?.length === 1 && areas[0] === TODAS_LAS_AREAS;
   return (
     <section
       id={id}
@@ -48,9 +57,18 @@ export function Slide({
               <span className="text-xs text-[var(--ink-muted)]">{detail}</span>
             )}
           </div>
-          <span className="shrink-0 text-xs tabular-nums text-[var(--ink-subtle)]">
-            {n} / {total}
-          </span>
+          <div className="flex shrink-0 items-center gap-4">
+            {areas && areas.length > 0 && (
+              <span className="inline-flex items-center gap-1.5 text-xs text-[var(--ink-muted)]">
+                <UsersRound aria-hidden="true" className="h-3.5 w-3.5" />
+                {!todas && <span>{areas.length > 1 ? "Áreas:" : "Área:"}</span>}
+                <span className="font-semibold text-[var(--ink)]">{areas.join(" · ")}</span>
+              </span>
+            )}
+            <span className="text-xs tabular-nums text-[var(--ink-subtle)]">
+              {n} / {total}
+            </span>
+          </div>
         </div>
         {children}
       </div>

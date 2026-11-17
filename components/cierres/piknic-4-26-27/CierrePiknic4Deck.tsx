@@ -16,6 +16,7 @@ import {
   SubTitle,
   Table,
   Td,
+  TODAS_LAS_AREAS,
   Th,
 } from "@/components/cierres/deck/primitives";
 import {
@@ -142,7 +143,7 @@ function EquilibrioBarra() {
  * que la del Piknic 3 para compararlas, ajustada el 17-nov con lo que pidieron
  * las notas por área del Piknic 3: VIP contra general, punto de equilibrio, meta
  * de OC antes del evento y el seguimiento de esas notas. Datos en
- * lib/cierres/piknic-4-26-27.ts (foto al 9-nov; lo nuevo, al 17-nov). La mecánica
+ * lib/cierres/piknic-4-26-27.ts (foto al 17-nov, D+10). La mecánica
  * de láminas, navegación y PDF vive en components/cierres/deck. El control de
  * acceso lo hace la page.
  */
@@ -162,6 +163,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="portada"
         n={1}
         total={TOTAL}
+        areas={[TODAS_LAS_AREAS]}
         label="Reunión de cierre"
         detail={META.corte}
         className="justify-between"
@@ -195,6 +197,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="control"
         n={2}
         total={TOTAL}
+        areas={[TODAS_LAS_AREAS]}
         label="Puntos de control"
         detail="los mismos 6 del Piknic 3"
       >
@@ -227,8 +230,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           </tbody>
         </Table>
         <Source>
-          Rojo = pasó el plazo. Ámbar = el plazo vence mañana (D+3 es el 10-nov).
-          Gris = no hay dato para medirlo: nunca pinta rojo. «Vencida» en el plan
+          Rojo = pasó el plazo. Gris = no hay dato para medirlo: nunca pinta rojo. «Vencida» en el plan
           significa que nadie la marcó como cerrada, no que no se hizo.
         </Source>
       </Slide>
@@ -238,6 +240,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="anticipacion"
         n={3}
         total={TOTAL}
+        areas={["Dirección", "Marketing", "Producción", "Finanzas", "Permisos y Legal"]}
         label="Anticipación"
         detail="cuántos días antes del evento pasó cada cosa"
       >
@@ -259,6 +262,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="piknic-3"
         n={4}
         total={TOTAL}
+        areas={["Dirección", "Marketing"]}
         label="Comparación"
         detail="Piknic 3 · sáb 3-oct"
       >
@@ -317,6 +321,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="venta"
         n={5}
         total={TOTAL}
+        areas={["Marketing", "Ticketing y Comunidad"]}
         label="Venta y público"
         detail="canal según el código del link de compra"
       >
@@ -401,6 +406,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="mapa"
         n={6}
         total={TOTAL}
+        areas={["Operaciones", "Producción"]}
         label="Operaciones · mapa de ventas"
         detail="Onfire sobre el layout rev3"
       >
@@ -445,6 +451,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="zonas"
         n={7}
         total={TOTAL}
+        areas={["Operaciones", "Producción"]}
         label="Operaciones · VIP y general"
         detail="consumo y baños por zona · al 17-nov"
       >
@@ -539,6 +546,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="resultado"
         n={8}
         total={TOTAL}
+        areas={["Finanzas", "Comercial y Marcas", "Ticketing y Comunidad", "Datos y Tecnología"]}
         label="Resultado · ingresos"
         detail={META.corte}
       >
@@ -558,7 +566,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           ))}
         </ul>
         <Note>
-          <b>Costos:</b> hay OC por el 53% del presupuesto ($97,7 M de $184,4 M).
+          <b>Costos:</b> hay OC por el 57% del presupuesto ($105,8 M de $184,4 M).
           El detalle por categoría está en la lámina siguiente.
         </Note>
       </Slide>
@@ -568,8 +576,9 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="oc"
         n={9}
         total={TOTAL}
+        areas={["Finanzas", "cada área con presupuesto"]}
         label="Compras"
-        detail="OC emitidas en Unabase · al 9-nov"
+        detail="OC emitidas en Unabase · al 17-nov"
       >
         <SlideTitle>
           Antes del evento había OC por el {OC_ANTES.pct}% del presupuesto; la meta
@@ -625,13 +634,13 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         <Note>
           <b>Meta del Piknic 3:</b> el {OC_ANTES.meta}% de las OC antes del evento. El
           Piknic 4 llegó al {OC_ANTES.pct}% (${OC_ANTES.monto} M); el Piknic 3, al{" "}
-          {OC_ANTES.piknic3}%. Al 9-nov faltaban <b>$86,7 M</b> por emitir. Lo que más falta:{" "}
-          <b>Operaciones ($34,1 M)</b>, <b>Artística ($25,3 M)</b> y{" "}
+          {OC_ANTES.piknic3}%. Hoy faltan <b>$78,6 M</b> por emitir: sobre todo{" "}
+          <b>Operaciones ($27,7 M)</b>, <b>Artística ($24,2 M)</b> y{" "}
           <b>Venue ($14,0 M)</b>, que no tiene ninguna OC. Marketing pasó su
           presupuesto con una sola OC de radio por $18,8 M.
         </Note>
         <Source>
-          Millones de pesos netos. OC = gastos del negocio GLO216 en Unabase (44
+          Millones de pesos netos. OC = gastos del negocio GLO216 en Unabase (55
           folios; una OC puede cubrir más de una categoría). $4,0 M de esas OC
           aún no están validadas.
         </Source>
@@ -642,6 +651,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="equilibrio"
         n={10}
         total={TOTAL}
+        areas={["Dirección", "Finanzas", "Programación Artística"]}
         label="Punto de equilibrio"
         detail="estimación al 17-nov"
       >
@@ -691,7 +701,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         <Source>
           Estimación con la misma mezcla de público del Piknic 4 y el gasto fijo
           (baños, guardias y barras en realidad suben con la gente). Gasto =
-          presupuesto en Unabase (documentado al 17-nov: $105,9 M). Tickets = venta
+          presupuesto en Unabase (documentado al 17-nov: $105,8 M). Tickets = venta
           + 55% del cargo por servicio; barras = todo Onfire; ambos sin IVA. No
           incluye producto de marcas ($2,0 M), mesas VIP ni pases de temporada, que
           bajarían el número.
@@ -703,6 +713,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="seguimiento"
         n={11}
         total={TOTAL}
+        areas={[TODAS_LAS_AREAS]}
         label="Seguimiento"
         detail="acuerdos de la reunión del 8-oct"
       >
@@ -713,7 +724,10 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
               key={r.acuerdo}
               className="grid grid-cols-[calc(var(--spacing)*56)_calc(var(--spacing)*24)_minmax(0,1fr)] items-baseline gap-3 border-b border-[var(--divider)] py-3 text-sm text-[var(--ink)] first:border-t"
             >
-              <p className="font-semibold">{r.acuerdo}</p>
+              <p className="font-semibold">
+                {r.acuerdo}
+                <CellSub>{r.areas}</CellSub>
+              </p>
               <span>
                 <Pill tone={r.tone}>{r.estado}</Pill>
               </span>
@@ -723,7 +737,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </ul>
         <Source>
           Gris = no queda en ningún sistema: se confirma en la reunión. Fuentes:
-          onepager, Unabase y glovox-produccion al 9-nov.
+          onepager, Unabase y glovox-produccion al 17-nov.
         </Source>
       </Slide>
 
@@ -734,6 +748,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           id={i === 0 ? "notas-area" : "notas-area-2"}
           n={12 + i}
           total={TOTAL}
+          areas={[TODAS_LAS_AREAS]}
           label="Seguimiento"
           detail={`notas por área del Piknic 3 · ${i + 1} de 2 · al 17-nov`}
         >
@@ -755,6 +770,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="pendientes"
         n={14}
         total={TOTAL}
+        areas={[TODAS_LAS_AREAS]}
         label="Para salir de la reunión con esto resuelto"
       >
         <SlideTitle>Pendientes del Piknic 4</SlideTitle>
@@ -772,6 +788,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
               </span>
               <div>
                 <p className="text-base font-semibold text-[var(--ink)]">{a.titulo}</p>
+                <p className="mt-0.5 text-xs font-semibold text-[var(--ink-muted)]">{a.areas}</p>
                 <p className="mt-1 text-sm leading-relaxed text-[var(--ink-muted)]">
                   {a.texto}
                 </p>
@@ -786,6 +803,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="permisos"
         n={15}
         total={TOTAL}
+        areas={["Permisos y Legal"]}
         label="Anexo"
         detail="permisos del Piknic 4 · en parque · sobre 3.000 personas"
       >
@@ -837,6 +855,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="barras"
         n={16}
         total={TOTAL}
+        areas={["Operaciones"]}
         label="Anexo"
         detail="Onfire · 9.516 tragos"
       >
@@ -888,6 +907,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         id="anexo-anticipacion"
         n={17}
         total={TOTAL}
+        areas={["Dirección", "Marketing", "Producción", "Finanzas", "Permisos y Legal"]}
         label="Anexo"
         detail="detalle de la lámina 3"
       >
