@@ -44,6 +44,9 @@ import {
   RESULTADO_F26,
   TIPOS_F26,
 } from "@/lib/cierres/fds-26";
+import { aplicarFechaClave } from "@/lib/cierres/hitos";
+import type { FechaClaveEvento } from "@/lib/produccion/fechas-clave";
+import { FechaClaveInput } from "@/components/cierres/deck/FechaClaveInput";
 import mapaVentas from "./mapa-ventas.jpg";
 import ComparacionPorDia from "./ComparacionPorDia";
 
@@ -106,8 +109,25 @@ const FASE_TONE = { Montaje: "info", Feria: "success", Desmontaje: "pending" } a
  * láminas, navegación y PDF vive en components/cierres/deck. El control de
  * acceso lo hace la page.
  */
-export default function CierreFds26Deck({ mapaHref }: { mapaHref?: string }) {
+export default function CierreFds26Deck({
+  mapaHref,
+  informeMarcas = null,
+  editarFechasClave = false,
+}: {
+  mapaHref?: string;
+  /** Fecha clave «Informe de marcas» del plan en la carta Gantt (null si no se pudo leer). */
+  informeMarcas?: FechaClaveEvento | null;
+  /** Quien mira puede anotar la fecha real desde la lámina (escribe en la Gantt). */
+  editarFechasClave?: boolean;
+}) {
   const OC_F26 = OC_ESTADOS.find((e) => e.actual) ?? OC_ESTADOS[OC_ESTADOS.length - 1];
+  // Informe de marcas: plazo contado desde el último día de la feria. Sin fecha
+  // anotada, la fila queda como viene en los datos («vence el 20-nov»).
+  const puntos = PUNTOS_CONTROL.map((p) =>
+    p.fechaClave === "informe_marcas"
+      ? aplicarFechaClave(p, informeMarcas, { verbo: "Se entregó", base: META.fechaFin })
+      : p,
+  );
   return (
     <Deck
       title={`Cierre ${META.evento}`}
@@ -168,7 +188,7 @@ export default function CierreFds26Deck({ mapaHref }: { mapaHref?: string }) {
             </tr>
           </thead>
           <tbody>
-            {PUNTOS_CONTROL.map((p) => (
+            {puntos.map((p) => (
               <tr key={p.punto}>
                 <Td className="align-top whitespace-nowrap font-semibold">
                   {p.punto}
@@ -177,6 +197,16 @@ export default function CierreFds26Deck({ mapaHref }: { mapaHref?: string }) {
                 <Td className="align-top font-semibold">{p.plazo}</Td>
                 <Td className="align-top">
                   <ConDiasAntes>{p.quePaso}</ConDiasAntes>
+                  {p.fechaClave === "informe_marcas" && editarFechasClave && informeMarcas && (
+                    <FechaClaveInput
+                      slug="fds-26"
+                      fechaClaveId="informe_marcas"
+                      fecha={informeMarcas.fecha}
+                      min={META.fechaFin}
+                      max="2100-12-31"
+                      label="Fecha en que se entregó el informe a las marcas de la FDS 26"
+                    />
+                  )}
                 </Td>
                 <Td className="align-top">
                   <Pill tone={p.tone}>{p.estado}</Pill>

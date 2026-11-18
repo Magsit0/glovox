@@ -44,8 +44,8 @@ import {
   ZONAS_TOTAL,
   type EstadoProximo,
 } from "@/lib/cierres/piknic-4-26-27";
-import { diasAntes, fechaCorta } from "@/lib/cierres/hitos";
-import type { FechaClaveEvento } from "@/lib/produccion/fechas-clave";
+import { aplicarFechaClave, type ConfigFechaClave } from "@/lib/cierres/hitos";
+import type { FechaClaveAnotable, FechaClaveEvento } from "@/lib/produccion/fechas-clave";
 import mapaVentas from "./mapa-ventas.jpg";
 
 const TOTAL = 11;
@@ -60,25 +60,22 @@ const TRAMOS = [
 ] as const;
 
 
-type PuntoControl = (typeof PUNTOS_CONTROL)[number];
-
-/**
- * Fila de un punto de control que sale de una fecha clave de la carta Gantt:
- * qué pasó (fecha y días antes), el plazo si la categoría lo tiene y el estado.
- * Sin tarea marcada, queda la fila tal como viene en los datos (sin dato).
- */
-function conFechaClave(p: PuntoControl, fc: FechaClaveEvento | null): PuntoControl {
-  const plazo = fc?.plazoDias ?? null;
-  const conPlazo = plazo != null ? { plazo: `ideal ${plazo} días antes` } : {};
-  if (!fc?.fecha) return { ...p, ...conPlazo };
-  const dias = diasAntes(fc.fecha, META.fechaEvento);
-  const cuando = dias === 0 ? "el mismo día del evento" : `${dias} ${dias === 1 ? "día" : "días"} antes`;
-  const quePaso = `Se confirmó el ${fechaCorta(fc.fecha, Number(META.fechaEvento.slice(0, 4)))}, ${cuando}, según la carta Gantt.`;
-  if (plazo == null) return { ...p, quePaso, estado: "plazo por definir", tone: "neutral" };
-  return dias >= plazo
-    ? { ...p, ...conPlazo, quePaso, estado: "a tiempo", tone: "success" }
-    : { ...p, ...conPlazo, quePaso, estado: `${plazo - dias} días tarde`, tone: "error" };
-}
+/** Cómo se lee cada fecha clave en la lámina 2 y cómo se llama su campo. */
+const FECHAS_CLAVE: Record<FechaClaveAnotable, ConfigFechaClave & { label: string; min?: string; max?: string }> = {
+  lineup_confirmado: {
+    verbo: "Se confirmó",
+    prefijoPlazo: "ideal ",
+    base: META.fechaEvento,
+    label: "Fecha en que se confirmó el line up del Piknic 4",
+    max: META.fechaEvento,
+  },
+  informe_marcas: {
+    verbo: "Se entregó",
+    base: META.fechaEvento,
+    label: "Fecha en que se entregó el informe a las marcas del Piknic 4",
+    min: META.fechaEvento,
+  },
+};
 
 /** Estado de un hito de un evento próximo: píldora + detalle. */
 function EstadoCelda({ e }: { e: EstadoProximo }) {
@@ -199,17 +196,19 @@ function EquilibrioComparado() {
  */
 export default function CierrePiknic4Deck({
   mapaHref,
-  lineup,
-  editarLineup = false,
+  fechasClave,
+  editarFechasClave = false,
 }: {
   mapaHref?: string;
-  /** Fecha clave «Line up confirmado» del plan en la carta Gantt (null si no se pudo leer). */
-  lineup: FechaClaveEvento | null;
-  /** Quien mira puede anotar la fecha real desde la lámina (escribe en la Gantt). */
-  editarLineup?: boolean;
+  /** Fechas clave del plan en la carta Gantt (null si no se pudieron leer). */
+  fechasClave: Record<FechaClaveAnotable, FechaClaveEvento | null>;
+  /** Quien mira puede anotar las fechas reales desde la lámina (escribe en la Gantt). */
+  editarFechasClave?: boolean;
 }) {
   const OC_P4 = OC_ESTADOS.find((e) => e.actual) ?? OC_ESTADOS[OC_ESTADOS.length - 1];
-  const puntos = PUNTOS_CONTROL.map((p) => (p.fechaClave ? conFechaClave(p, lineup) : p));
+  const puntos = PUNTOS_CONTROL.map((p) =>
+    p.fechaClave ? aplicarFechaClave(p, fechasClave[p.fechaClave], FECHAS_CLAVE[p.fechaClave]) : p,
+  );
 
   return (
     <Deck
@@ -285,13 +284,14 @@ export default function CierrePiknic4Deck({
                 </Td>
                 <Td className="align-top">
                   <ConDiasAntes>{p.quePaso}</ConDiasAntes>
-                  {p.fechaClave && editarLineup && (
+                  {p.fechaClave && editarFechasClave && fechasClave[p.fechaClave] && (
                     <FechaClaveInput
                       slug="piknic-4-26-27"
                       fechaClaveId={p.fechaClave}
-                      fecha={lineup?.fecha ?? null}
-                      max={META.fechaEvento}
-                      label="Fecha en que se confirmó el line up del Piknic 4"
+                      fecha={fechasClave[p.fechaClave]?.fecha ?? null}
+                      min={FECHAS_CLAVE[p.fechaClave].min}
+                      max={FECHAS_CLAVE[p.fechaClave].max ?? "2100-12-31"}
+                      label={FECHAS_CLAVE[p.fechaClave].label}
                     />
                   )}
                 </Td>

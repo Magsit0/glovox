@@ -32,6 +32,7 @@
  */
 
 import type { AreaConNotas, Tone } from "@/components/cierres/deck/primitives";
+import type { FechaClaveAnotable } from "@/lib/produccion/fechas-clave";
 
 export const META = {
   evento: "Piknic 4 · 26-27",
@@ -71,7 +72,7 @@ export const PUNTOS_CONTROL: {
   estado: string;
   tone: Tone;
   /** Fecha clave de la carta Gantt que alimenta la fila (se lee en la page). */
-  fechaClave?: "lineup_confirmado";
+  fechaClave?: FechaClaveAnotable;
 }[] = [
   {
     punto: "Line up confirmado",
@@ -140,9 +141,10 @@ export const PUNTOS_CONTROL: {
     punto: "Informe de marcas",
     area: "Comercial y Marcas",
     plazo: "5 días después · 12-nov",
-    quePaso: "No hay registro de cuándo se entregó el informe a cada marca.",
+    quePaso: "Sin registro en la carta Gantt del Piknic 4.",
     estado: "sin dato",
     tone: "neutral",
+    fechaClave: "informe_marcas",
   },
 ];
 

@@ -26,10 +26,15 @@
  */
 
 import type { AreaConNotas, HitoPlazo, Tone } from "@/components/cierres/deck/primitives";
+import type { FechaClaveAnotable } from "@/lib/produccion/fechas-clave";
 
 export const META = {
   evento: "Feria del Sánguche 2026",
   eventoId: "GLO213",
+  /** Último día de la feria: base de los plazos «días después». */
+  fechaFin: "2026-11-15",
+  /** Plan en glovox-produccion (carta Gantt): `tareas.evento_id`. */
+  planGantt: "1240",
   corte: "datos al 17-nov · 2 días después del último día",
   pdfFilename: "Cierre Feria del Sánguche 2026 (datos al 17-nov-2026)",
 } as const;
@@ -54,6 +59,8 @@ export const PUNTOS_CONTROL: {
   quePaso: string;
   estado: string;
   tone: Tone;
+  /** Fecha clave de la carta Gantt que alimenta la fila (se lee en la page). */
+  fechaClave?: FechaClaveAnotable;
 }[] = [
   {
     punto: "Salida a la venta",
@@ -110,9 +117,10 @@ export const PUNTOS_CONTROL: {
     punto: "Informe de marcas",
     area: "Comercial y Marcas",
     plazo: "5 días después · 20-nov",
-    quePaso: "Aún en plazo. No hay registro de cuándo se entrega el informe a cada marca.",
+    quePaso: "Aún en plazo. Sin registro en la carta Gantt de la FDS 26.",
     estado: "vence el 20-nov",
     tone: "pending",
+    fechaClave: "informe_marcas",
   },
 ];
 

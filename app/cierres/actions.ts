@@ -38,7 +38,15 @@ export async function anotarFechaClaveAction(
   const evento = EVENTOS_CIERRE.find((e) => e.slug === slug);
   if (!evento?.planGantt || !evento.cierre) return NO_SE_PUDO;
   if (!Object.hasOwn(FECHAS_CLAVE_ANOTABLES, fechaClaveId)) return NO_SE_PUDO;
-  if (typeof fecha !== "string" || !FECHA_ISO_RE.test(fecha) || fecha < "2020-01-01" || fecha > evento.fecha) {
+  // Antes del evento (line up) la fecha no puede pasar del día del evento;
+  // después (informe de marcas), no puede ser anterior.
+  const despues = FECHAS_CLAVE_ANOTABLES[fechaClaveId as keyof typeof FECHAS_CLAVE_ANOTABLES].despues;
+  if (
+    typeof fecha !== "string" ||
+    !FECHA_ISO_RE.test(fecha) ||
+    fecha < "2020-01-01" ||
+    (despues ? fecha < evento.fecha : fecha > evento.fecha)
+  ) {
     return NO_SE_PUDO;
   }
   try {

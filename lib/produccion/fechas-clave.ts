@@ -53,7 +53,8 @@ export async function getFechaClaveEvento(
 
 /** Fechas clave que una presentación de cierre puede anotar en la Gantt. */
 export const FECHAS_CLAVE_ANOTABLES = {
-  lineup_confirmado: { nombre: "Line up confirmado", pilar: "Booking" },
+  lineup_confirmado: { nombre: "Line up confirmado", pilar: "Booking", fase: "pre_produccion", despues: false },
+  informe_marcas: { nombre: "Informe de marcas", pilar: "Comercial y Marcas", fase: "post_produccion", despues: true },
 } as const;
 export type FechaClaveAnotable = keyof typeof FECHAS_CLAVE_ANOTABLES;
 
@@ -73,7 +74,7 @@ export async function anotarFechaClave(
   const url = process.env.PRODUCCION_DATABASE_URL;
   if (!url) throw new Error("Falta PRODUCCION_DATABASE_URL");
   const sql = neon(url);
-  const { nombre, pilar } = FECHAS_CLAVE_ANOTABLES[fechaClaveId];
+  const { nombre, pilar, fase } = FECHAS_CLAVE_ANOTABLES[fechaClaveId];
   const actualizadas = await sql`
     update produccion.tareas
     set fecha_inicio = ${fecha}::date, fecha_fin = ${fecha}::date,
@@ -84,7 +85,7 @@ export async function anotarFechaClave(
   const creadas = await sql`
     insert into produccion.tareas
       (evento_id, pilar_id, nombre, fase, estado, tipo, fecha_inicio, fecha_fin, fecha_clave_id, orden, creado_por)
-    select ${planId}, p.id, ${nombre}, 'pre_produccion', 'completada', 'tarea', ${fecha}::date, ${fecha}::date,
+    select ${planId}, p.id, ${nombre}, ${fase}, 'completada', 'tarea', ${fecha}::date, ${fecha}::date,
            ${fechaClaveId},
            coalesce((select max(t.orden) from produccion.tareas t where t.evento_id = ${planId} and t.pilar_id = p.id), 0) + 1,
            ${email}

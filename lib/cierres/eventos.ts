@@ -44,6 +44,7 @@ export const EVENTOS_CIERRE: readonly EventoCierre[] = [
     lugar: "Parque Padre Hurtado",
     cierre: "/cierres/fds-26",
     mapa: true,
+    planGantt: "1240",
   },
   {
     slug: "piknic-4-26-27",

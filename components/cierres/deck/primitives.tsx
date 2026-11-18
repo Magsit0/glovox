@@ -242,7 +242,7 @@ export function Td({
 export function ConDiasAntes({ children }: { children: string }) {
   return (
     <>
-      {children.split(/(\d+ días? antes)/).map((parte, i) =>
+      {children.split(/(\d+ días? (?:antes|después))/).map((parte, i) =>
         i % 2 === 1 ? (
           <b key={i} className="font-semibold">
             {parte}
