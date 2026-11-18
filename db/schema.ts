@@ -670,6 +670,66 @@ export const inversionMediosEtapas = dataSchema.table("inversion_medios_etapas",
 
 export type InversionMediosEtapas = typeof inversionMediosEtapas.$inferSelect;
 
+// INVERSIÓN MEDIOS — Opciones de plan (escenarios, 2026-11-18): planes
+// alternativos de un EVENTO para comparar y presentar a la jefatura ("Opción
+// B" de TKM 2027). Viven en tablas APARTE a propósito: ninguna query del plan
+// vigente (`inversion_medios_diario`) las ve, así que una opción nunca suma en
+// el calendario, los totales, el desvío ni la holgura. Al elegir una como
+// vigente (solo editores de `metas-evento` o superadmin) sus días DESDE HOY
+// reemplazan a los del vigente, el vigente anterior queda guardado como otra
+// opción y la elegida se borra (ver elegirOpcionPlanAction). `evento_id` = ID
+// de la hoja (1248-CL-TKM). Máximo 3 por evento (MAX_OPCIONES).
+export const inversionMediosEscenarios = dataSchema.table(
+  "inversion_medios_escenarios",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    eventoId: text("evento_id").notNull(),
+    nombre: text("nombre").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedBy: uuid("updated_by"),
+  },
+  (t) => [
+    // Nombre único por evento, sin distinguir mayúsculas.
+    uniqueIndex("inversion_medios_escenarios_evento_nombre_uq").on(t.eventoId, sql`lower(${t.nombre})`),
+  ],
+);
+export type InversionMediosEscenario = typeof inversionMediosEscenarios.$inferSelect;
+
+// Celdas de una opción: misma forma que `inversion_medios_diario` (una fila por
+// día × plataforma × tipo), colgadas de su escenario. Se borran con él.
+export const inversionMediosEscenarioDiario = dataSchema.table(
+  "inversion_medios_escenario_diario",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    escenarioId: uuid("escenario_id")
+      .notNull()
+      .references(() => inversionMediosEscenarios.id, { onDelete: "cascade" }),
+    fecha: date("fecha").notNull(),
+    plataforma: text("plataforma").notNull(),
+    tipo: text("tipo").notNull().default(""),
+    montoUsd: doublePrecision("monto_usd").notNull(),
+    nota: text("nota"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    createdBy: uuid("created_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedBy: uuid("updated_by"),
+  },
+  (t) => [
+    // target del onConflictDoUpdate: una celda = (opción, día, plataforma, tipo)
+    uniqueIndex("inversion_medios_escenario_diario_celda_idx").on(t.escenarioId, t.fecha, t.plataforma, t.tipo),
+  ],
+);
+
 // INVERSIÓN MEDIOS — Iniciativas: frentes de inversión SIN fecha de evento
 // (Club Glovox, Now Mag…), que se activan y apagan en distintos momentos. Su
 // plan vive en `inversion_medios_diario` con `evento_id` = `id` de la

@@ -34,6 +34,8 @@ import CeldaPlan from "./CeldaPlan";
 import HolguraEvento, { fmtSigned, toneClass } from "./HolguraEvento";
 import { StatMeta } from "./MetaEventoEditor";
 import RendimientoEvento from "./RendimientoEvento";
+import OpcionesPlan from "./OpcionesPlan";
+import type { OpcionPlan } from "@/lib/inversion-medios/escenarios";
 import { BordeAncho, BotonAncho, CONTENEDOR_NOMBRE, useAnchoColumna, W_NOMBRE } from "./AnchoColumna";
 import { COL_DRILL } from "@/lib/inversion-medios/col-nombre";
 import { compactInt, fmtUsd, formatInt } from "./format";
@@ -96,6 +98,14 @@ type Props = {
    *  el lápiz de goalTickets/budgetPm (el input lee la hoja al abrirse). false o
    *  ausente = drill sin edición de metas (sin lápiz ni aviso). */
   editarMetas?: boolean;
+  /** Solo eventos: opciones de plan (escenarios) para comparar con el vigente. */
+  opciones?: OpcionPlan[];
+  /** Opción que se está mirando y editando (`?plan=`); null = el vigente. */
+  opcionActivaId?: string | null;
+  /** Plan vigente COMPLETO del evento (para comparar aunque se mire una opción). */
+  planVigente?: PlanDiarioRow[];
+  /** Puede elegir una opción como vigente (editor de metas o superadmin). */
+  elegirVigente?: boolean;
 };
 
 const MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"];
@@ -205,9 +215,16 @@ export default function EventoDrill({
   serieResultado,
   anchoNombreInicial,
   editarMetas = false,
+  opciones = [],
+  opcionActivaId = null,
+  planVigente = [],
+  elegirVigente = false,
 }: Props) {
   const { dias, plataformas, totalDia, totalPlan, totalReal } = drill;
   const esIniciativa = modo === "iniciativa";
+  // Las escrituras del plan van a la opción a la vista, o al vigente (null).
+  const escenarioId = esIniciativa ? null : opcionActivaId;
+  const opcionActiva = opciones.find((o) => o.id === escenarioId) ?? null;
   // Edición de metas: solo existe para un editor (la page manda `editarMetas`).
   const metaTecho = editarMetas && !esIniciativa ? { eventoId, campo: "budgetPm" as const } : null;
   const metaGoal = editarMetas && !esIniciativa ? { eventoId, campo: "goalTickets" as const } : null;
@@ -261,8 +278,11 @@ export default function EventoDrill({
     return out;
   }, [totalDia, corte, inicioComparacion]);
   // Bloqueo por calendario: antes de hoy solo edita superadmin.
-  const editableDia = (fecha: string) => !esDiaBloqueado(fecha, hoy, isSuperadmin);
-  const minEditable = isSuperadmin ? (dias[0] ?? "") : hoy;
+  // En una opción de plan los días pasados son los del vigente (se muestra lo que
+  // quedaría si se elige): no se editan, ni siquiera un superadmin.
+  const editableDia = (fecha: string) =>
+    escenarioId ? fecha >= hoy : !esDiaBloqueado(fecha, hoy, isSuperadmin);
+  const minEditable = isSuperadmin && !escenarioId ? (dias[0] ?? "") : hoy;
   const hayEditables = dias.length > 0 && dias[dias.length - 1] >= minEditable;
   const nPasados = dias.filter((d) => d < hoy).length;
   const hayBandaBloqueo = nPasados > 0;
@@ -462,6 +482,22 @@ export default function EventoDrill({
         </div>
       </header>
 
+      {/* Opciones de plan (escenarios): mirar, editar y comparar alternativas
+          al plan vigente. Lo de abajo (stats, holgura, sábana) muestra el plan
+          que esté elegido acá. */}
+      {!esIniciativa && (
+        <OpcionesPlan
+          eventoId={eventoId}
+          opciones={opciones}
+          activaId={escenarioId}
+          planVigente={planVigente}
+          techoUsd={techoUsd}
+          hoy={hoy}
+          canEdit={canEdit}
+          elegirVigente={elegirVigente}
+        />
+      )}
+
       {/* Bloque presupuesto (como el de la planilla, a la izquierda). Una
           iniciativa no tiene budgetPm: su techo ES la suma del plan, así que
           "por asignar" no aplica y el foco es plan vs real. */}
@@ -510,7 +546,11 @@ export default function EventoDrill({
           ) : (
             <Stat label="Presupuesto (techo)" value={techoUsd != null ? fmtUsd(techoUsd) : "—"} hint="budgetPm · /admin/eventos" />
           )}
-          <Stat label="Plan total" value={fmtUsd(totalPlan)} hint={pctPlan != null ? `${pctPlan.toFixed(0)}% del techo` : "sin techo"} />
+          <Stat
+            label={opcionActiva ? `Plan total · ${opcionActiva.nombre}` : "Plan total"}
+            value={fmtUsd(totalPlan)}
+            hint={pctPlan != null ? `${pctPlan.toFixed(0)}% del techo` : "sin techo"}
+          />
           <Stat label="Invertido (real)" value={fmtUsd(totalReal)} hint={pctReal != null ? `${pctReal.toFixed(0)}% del techo` : "sin techo"} />
           <Stat
             label="Por asignar"
@@ -558,6 +598,8 @@ export default function EventoDrill({
         <RellenarRango
           key={fill.seq}
           eventoId={eventoId}
+          escenarioId={escenarioId}
+          planLabel={opcionActiva?.nombre ?? null}
           plataforma={fill.plataforma}
           platLabel={fill.platLabel}
           tipoKey={fill.tipoKey}
@@ -819,6 +861,7 @@ export default function EventoDrill({
                           {canEdit && f.editable && (
                             <BorrarFila
                               eventoId={eventoId}
+                              escenarioId={escenarioId}
                               plataforma={p.plataforma}
                               platLabel={p.label}
                               tipoKey={f.tipoKey}
@@ -843,6 +886,7 @@ export default function EventoDrill({
                         >
                           <CeldaPlan
                             eventoId={eventoId}
+                            escenarioId={escenarioId}
                             plataforma={p.plataforma}
                             tipo={f.tipoKey}
                             cell={{
@@ -1389,6 +1433,7 @@ type EtapaDraft = { nombre: string; fechaInicio: string };
  */
 function BorrarFila({
   eventoId,
+  escenarioId,
   plataforma,
   platLabel,
   tipoKey,
@@ -1398,6 +1443,8 @@ function BorrarFila({
   hoy,
 }: {
   eventoId: string;
+  /** Opción de plan a la vista; null = el vigente. */
+  escenarioId: string | null;
   plataforma: string;
   platLabel: string;
   tipoKey: string;
@@ -1428,7 +1475,7 @@ function BorrarFila({
     )
       return;
     start(async () => {
-      const res = await deleteRowAction({ eventoId, plataforma, tipo: tipoKey });
+      const res = await deleteRowAction({ eventoId, plataforma, tipo: tipoKey, escenarioId });
       if (!res.ok) {
         window.alert(res.error);
         return;
@@ -1469,6 +1516,8 @@ function BorrarFila({
  */
 function RellenarRango({
   eventoId,
+  escenarioId,
+  planLabel,
   plataforma,
   platLabel,
   tipoKey,
@@ -1480,6 +1529,10 @@ function RellenarRango({
   onClose,
 }: {
   eventoId: string;
+  /** Opción de plan a la vista; null = el vigente. */
+  escenarioId: string | null;
+  /** Nombre de esa opción (va en el título: se escribe en ella, no en el vigente). */
+  planLabel: string | null;
   plataforma: string;
   platLabel: string;
   tipoKey: string;
@@ -1550,6 +1603,7 @@ function RellenarRango({
     start(async () => {
       const res = await bulkFillPlanAction({
         eventoId,
+        escenarioId,
         plataforma,
         tipo: tipoKey,
         montoUsd: num,
@@ -1576,6 +1630,7 @@ function RellenarRango({
       <div className="flex items-center justify-between gap-3">
         <p className="font-sans text-sm font-medium text-[var(--ink)]">
           Rellenar rango — {platLabel} · <span className="text-[var(--plan)]">{tipoLabel}</span>
+          {planLabel ? <span className="text-[var(--ink-muted)]"> · en {planLabel}</span> : null}
         </p>
         <button
           onClick={onClose}

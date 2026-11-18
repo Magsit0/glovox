@@ -3,7 +3,8 @@
  * una fila por capacidad × persona). Hoy existe una:
  *
  *   `metas-evento` → definir goalTickets y budgetPm de un evento desde el drill
- *   de /inversion-medios. Hasta 2 personas, más los superadmins, que siempre
+ *   de /inversion-medios, y elegir qué opción de plan pasa a ser el vigente
+ *   (desde 2026-11-18). Hasta 2 personas, más los superadmins, que siempre
  *   pueden y no ocupan cupo (puedeEjercer).
  *
  * Los editores se leen SIEMPRE de la base (al cargar la página y otra vez al

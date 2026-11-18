@@ -16,7 +16,8 @@ const FECHA = new Intl.DateTimeFormat("es-CL", {
 
 /**
  * Editores de `metas-evento`: las personas (hasta `max`) que definen goalTickets
- * y budgetPm desde el drill de Control inversión PM. Se guarda la lista entera y
+ * y budgetPm desde el drill de Control inversión PM, y eligen la opción de plan
+ * que pasa a ser vigente (elegirOpcionPlanAction). Se guarda la lista entera y
  * rige al instante, sin esperar un nuevo sign-in. Candidatos: usuarios activos
  * con acceso a /inversion-medios, más quien ya sea editor (para poder quitarlo
  * aunque haya perdido el acceso al panel).
@@ -100,9 +101,10 @@ export function EditorMetasCard({
       <div id="editores-metas-panel" className="border-t border-[var(--divider)] px-4 pb-4 pt-3">
       <p className="max-w-3xl font-sans text-sm text-[var(--ink-muted)]">
         Hasta {max} personas definen la meta de tickets (goalTickets) y el techo de inversión
-        (budgetPm) de un evento desde Control inversión PM. Escriben solo la celda de ese evento en
-        la planilla y en BigQuery. Quitar a alguien rige al instante. Los superadmins siempre
-        pueden editar y no ocupan cupo.
+        (budgetPm) de un evento desde Control inversión PM, y eligen cuál opción de plan pasa a ser
+        el plan vigente. La meta y el techo se escriben solo en la celda de ese evento, en la
+        planilla y en BigQuery. Quitar a alguien rige al instante. Los superadmins siempre pueden
+        editar y no ocupan cupo.
       </p>
 
       <div className="mt-4 grid gap-1 sm:grid-cols-2 lg:grid-cols-3">

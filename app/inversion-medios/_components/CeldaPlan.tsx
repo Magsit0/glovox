@@ -22,6 +22,7 @@ import { fmtUsd } from "./format";
  */
 export default function CeldaPlan({
   eventoId,
+  escenarioId = null,
   plataforma,
   tipo,
   cell,
@@ -31,6 +32,8 @@ export default function CeldaPlan({
   onFill,
 }: {
   eventoId: string;
+  /** Opción de plan (escenario) a la vista; null = el plan vigente. */
+  escenarioId?: string | null;
   plataforma: string;
   /** Tipo de campaña del plan ('' = "Sin tipo", el plan histórico). */
   tipo: string;
@@ -69,7 +72,7 @@ export default function CeldaPlan({
         return;
       }
       start(async () => {
-        const res = await deleteCellAction({ eventoId, fecha: cell.fecha, plataforma, tipo });
+        const res = await deleteCellAction({ eventoId, fecha: cell.fecha, plataforma, tipo, escenarioId });
         setError(!res.ok);
         if (res.ok) {
           router.refresh();
@@ -93,7 +96,7 @@ export default function CeldaPlan({
       return;
     }
     start(async () => {
-      const res = await upsertCellAction({ eventoId, fecha: cell.fecha, plataforma, tipo, montoUsd: num });
+      const res = await upsertCellAction({ eventoId, fecha: cell.fecha, plataforma, tipo, montoUsd: num, escenarioId });
       setError(!res.ok);
       if (res.ok) {
         router.refresh();

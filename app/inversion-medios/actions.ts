@@ -13,6 +13,8 @@ import {
   iniciativasPmCampanas,
   iniciativasPmReglas,
   inversionMediosDiario,
+  inversionMediosEscenarioDiario,
+  inversionMediosEscenarios,
   inversionMediosEtapas,
   PLATAFORMAS_MEDIOS,
   type EtapaCampana,
@@ -28,6 +30,18 @@ import {
   siguienteIdIniciativa,
 } from "@/lib/inversion-medios/iniciativas";
 import { SIN_TIPO, TIPOS_PLAN } from "@/lib/inversion-medios/tipos";
+import {
+  limpiarNombreOpcion,
+  MAX_OPCIONES,
+  NOMBRE_OPCION_MAX,
+  OPCION_ID_RE,
+} from "@/lib/inversion-medios/escenarios";
+import {
+  borrarOpcionTx,
+  crearOpcionTx,
+  elegirOpcionTx,
+  escribirEnOpcion,
+} from "@/lib/inversion-medios/opciones-service";
 import { withNeonRetry } from "@/lib/neon-retry";
 import { ID_HOJA_RE } from "@/lib/eventos-id";
 import { capturasDeIniciativa, getEventoPlanInfo, reglaDeCampana } from "@/lib/queries/inversion-medios";
@@ -156,6 +170,36 @@ async function validarIniciativa(iniciativaId: string): Promise<string | null> {
   return null;
 }
 
+/**
+ * Opción de plan (escenario) a la que va una escritura del drill. Sin
+ * `escenarioId` → el plan VIGENTE (`id: null`). Con él, la opción tiene que
+ * existir y ser de ESTE evento: así una pestaña vieja o un id cruzado nunca
+ * escriben en el plan de otro evento ni en el vigente.
+ */
+async function opcionDelEvento(
+  escenarioId: unknown,
+  eventoId: string,
+): Promise<{ ok: true; id: string | null } | { ok: false; error: string }> {
+  if (escenarioId == null || escenarioId === "") return { ok: true, id: null };
+  const id = String(escenarioId);
+  if (!OPCION_ID_RE.test(id)) return { ok: false, error: "Opción de plan inválida" };
+  const rows = await withNeonRetry(() =>
+    db
+      .select({ eventoId: inversionMediosEscenarios.eventoId })
+      .from(inversionMediosEscenarios)
+      .where(eq(inversionMediosEscenarios.id, id)),
+  );
+  if (rows.length === 0) {
+    return { ok: false, error: MSG_OPCION_NO_EXISTE };
+  }
+  if (rows[0].eventoId !== eventoId) return { ok: false, error: "La opción de plan no es de este evento" };
+  return { ok: true, id };
+}
+
+const MSG_OPCION_NO_EXISTE = "Esa opción de plan ya no existe (se eligió o se borró): recarga la página";
+// En una opción los días pasados son los del vigente (elegirla no los toca).
+const MSG_OPCION_PASADO = "En una opción de plan se planifica desde hoy: los días anteriores son los del plan vigente";
+
 // ---------- Celdas del plan diario ----------
 
 /** Upsert de una celda (evento, día, plataforma) del plan. Idempotente. */
@@ -167,6 +211,8 @@ export async function upsertCellAction(input: {
   tipo: string;
   montoUsd: number;
   nota?: string;
+  /** Opción de plan (escenario) en vez del plan vigente. */
+  escenarioId?: string | null;
 }): Promise<ActionResult> {
   let ctx: ActorCtx;
   try {
@@ -187,11 +233,40 @@ export async function upsertCellAction(input: {
   const nota = sanitizeNota(input.nota);
   if (esDiaBloqueado(fecha, hoySantiago(), ctx.isSuperadmin)) return { ok: false, error: MSG_DIA_BLOQUEADO };
 
-  const eventoError = await validarEvento(eventoId);
-  if (eventoError) return { ok: false, error: eventoError };
+  const op = await opcionDelEvento(input.escenarioId, eventoId);
+  if (!op.ok) return op;
+  if (op.id && fecha < hoySantiago()) return { ok: false, error: MSG_OPCION_PASADO };
+  if (!op.id) {
+    const eventoError = await validarEvento(eventoId);
+    if (eventoError) return { ok: false, error: eventoError };
+  }
 
   try {
-    await withNeonRetry(() =>
+    if (op.id) {
+      const escenarioId = op.id;
+      const hecho = await withNeonRetry(() =>
+        escribirEnOpcion(eventoId, escenarioId, (tx) =>
+        tx
+          .insert(inversionMediosEscenarioDiario)
+          .values({ escenarioId, fecha, plataforma, tipo, montoUsd: monto, nota, createdBy: ctx.userId, updatedBy: ctx.userId })
+          .onConflictDoUpdate({
+            target: [
+              inversionMediosEscenarioDiario.escenarioId,
+              inversionMediosEscenarioDiario.fecha,
+              inversionMediosEscenarioDiario.plataforma,
+              inversionMediosEscenarioDiario.tipo,
+            ],
+            set: {
+              montoUsd: monto,
+              ...(input.nota !== undefined ? { nota } : {}),
+              updatedBy: ctx.userId,
+              updatedAt: sql`now()`,
+            },
+          }),
+        ),
+      );
+      if (hecho === null) return { ok: false, error: MSG_OPCION_NO_EXISTE };
+    } else await withNeonRetry(() =>
       db
         .insert(inversionMediosDiario)
         .values({
@@ -223,6 +298,7 @@ export async function upsertCellAction(input: {
     );
     await logAudit(ctx.userId, "inversionMedios.upsertCell", {
       eventoId,
+      ...(op.id ? { opcion: op.id } : {}),
       fecha,
       plataforma,
       tipo,
@@ -242,6 +318,8 @@ export async function deleteCellAction(input: {
   plataforma: string;
   /** Tipo de campaña ('' = "Sin tipo"). */
   tipo: string;
+  /** Opción de plan (escenario) en vez del plan vigente. */
+  escenarioId?: string | null;
 }): Promise<ActionResult> {
   let ctx: ActorCtx;
   try {
@@ -264,9 +342,29 @@ export async function deleteCellAction(input: {
   const tipo = sanitizeTipo(input.tipo, plataforma);
   if (tipo === null) return { ok: false, error: "Tipo de campaña inválido" };
   if (esDiaBloqueado(fecha, hoySantiago(), ctx.isSuperadmin)) return { ok: false, error: MSG_DIA_BLOQUEADO };
+  const op = await opcionDelEvento(input.escenarioId, eventoId);
+  if (!op.ok) return op;
+  if (op.id && fecha < hoySantiago()) return { ok: false, error: MSG_OPCION_PASADO };
 
   try {
-    await withNeonRetry(() =>
+    if (op.id) {
+      const escenarioId = op.id;
+      const hecho = await withNeonRetry(() =>
+        escribirEnOpcion(eventoId, escenarioId, (tx) =>
+          tx
+            .delete(inversionMediosEscenarioDiario)
+            .where(
+              and(
+                eq(inversionMediosEscenarioDiario.escenarioId, escenarioId),
+                eq(inversionMediosEscenarioDiario.fecha, fecha),
+                eq(inversionMediosEscenarioDiario.plataforma, plataforma),
+                eq(inversionMediosEscenarioDiario.tipo, tipo),
+              ),
+            ),
+        ),
+      );
+      if (hecho === null) return { ok: false, error: MSG_OPCION_NO_EXISTE };
+    } else await withNeonRetry(() =>
       db
         .delete(inversionMediosDiario)
         .where(
@@ -278,7 +376,13 @@ export async function deleteCellAction(input: {
           ),
         ),
     );
-    await logAudit(ctx.userId, "inversionMedios.deleteCell", { eventoId, fecha, plataforma, tipo });
+    await logAudit(ctx.userId, "inversionMedios.deleteCell", {
+      eventoId,
+      ...(op.id ? { opcion: op.id } : {}),
+      fecha,
+      plataforma,
+      tipo,
+    });
     revalidatePath("/inversion-medios");
     return { ok: true };
   } catch (err) {
@@ -303,6 +407,8 @@ export async function deleteRowAction(input: {
   plataforma: string;
   /** Tipo de campaña ('' = "Sin tipo"). */
   tipo: string;
+  /** Opción de plan (escenario) en vez del plan vigente. */
+  escenarioId?: string | null;
 }): Promise<ActionResult<{ borradas: number }>> {
   let ctx: ActorCtx;
   try {
@@ -323,9 +429,31 @@ export async function deleteRowAction(input: {
   const tipo = sanitizeTipo(input.tipo, plataforma);
   if (tipo === null) return { ok: false, error: "Tipo de campaña inválido" };
   const hoy = hoySantiago();
+  const op = await opcionDelEvento(input.escenarioId, eventoId);
+  if (!op.ok) return op;
 
   try {
-    const borradas = await withNeonRetry(() =>
+    const borradas = op.id
+      ? await withNeonRetry(() =>
+          escribirEnOpcion(eventoId, op.id!, (tx) =>
+          tx
+            .delete(inversionMediosEscenarioDiario)
+            .where(
+              and(
+                eq(inversionMediosEscenarioDiario.escenarioId, op.id!),
+                eq(inversionMediosEscenarioDiario.plataforma, plataforma),
+                eq(inversionMediosEscenarioDiario.tipo, tipo),
+                gte(inversionMediosEscenarioDiario.fecha, hoy),
+              ),
+            )
+            .returning({
+              fecha: inversionMediosEscenarioDiario.fecha,
+              montoUsd: inversionMediosEscenarioDiario.montoUsd,
+              nota: inversionMediosEscenarioDiario.nota,
+            }),
+          ),
+        )
+      : await withNeonRetry(() =>
       db
         .delete(inversionMediosDiario)
         .where(
@@ -342,8 +470,10 @@ export async function deleteRowAction(input: {
           nota: inversionMediosDiario.nota,
         }),
     );
+    if (borradas === null) return { ok: false, error: MSG_OPCION_NO_EXISTE };
     await logAudit(ctx.userId, "inversionMedios.deleteRow", {
       eventoId,
+      ...(op.id ? { opcion: op.id } : {}),
       plataforma,
       tipo,
       desde: hoy,
@@ -391,6 +521,8 @@ export async function bulkFillPlanAction(input: {
   fechas: string[];
   /** true → no tocar las celdas que ya tienen plan (solo inserta en vacías). */
   soloVacios?: boolean;
+  /** Opción de plan (escenario) en vez del plan vigente. */
+  escenarioId?: string | null;
 }): Promise<ActionResult<{ escritas: number; omitidas: number }>> {
   let ctx: ActorCtx;
   try {
@@ -427,10 +559,66 @@ export async function bulkFillPlanAction(input: {
     return { ok: false, error: `El rango incluye días anteriores a hoy. ${MSG_DIA_BLOQUEADO}` };
   }
 
-  const eventoError = await validarEvento(eventoId);
-  if (eventoError) return { ok: false, error: eventoError };
+  const op = await opcionDelEvento(input.escenarioId, eventoId);
+  if (!op.ok) return op;
+  if (op.id && fechas.some((f) => f < hoy)) return { ok: false, error: MSG_OPCION_PASADO };
+  if (!op.id) {
+    const eventoError = await validarEvento(eventoId);
+    if (eventoError) return { ok: false, error: eventoError };
+  }
 
   try {
+    if (op.id) {
+      const escenarioId = op.id;
+      const valoresOpcion = fechas.map((fecha) => ({
+        escenarioId,
+        fecha,
+        plataforma,
+        tipo,
+        montoUsd: monto,
+        createdBy: ctx.userId,
+        updatedBy: ctx.userId,
+      }));
+      const targetOpcion = [
+        inversionMediosEscenarioDiario.escenarioId,
+        inversionMediosEscenarioDiario.fecha,
+        inversionMediosEscenarioDiario.plataforma,
+        inversionMediosEscenarioDiario.tipo,
+      ];
+      const escritasOpcion = await withNeonRetry(() =>
+        escribirEnOpcion(eventoId, escenarioId, (tx) =>
+        input.soloVacios
+          ? tx
+              .insert(inversionMediosEscenarioDiario)
+              .values(valoresOpcion)
+              .onConflictDoNothing({ target: targetOpcion })
+              .returning({ fecha: inversionMediosEscenarioDiario.fecha })
+          : tx
+              .insert(inversionMediosEscenarioDiario)
+              .values(valoresOpcion)
+              .onConflictDoUpdate({
+                target: targetOpcion,
+                set: { montoUsd: monto, updatedBy: ctx.userId, updatedAt: sql`now()` },
+              })
+              .returning({ fecha: inversionMediosEscenarioDiario.fecha }),
+        ),
+      );
+      if (escritasOpcion === null) return { ok: false, error: MSG_OPCION_NO_EXISTE };
+      await logAudit(ctx.userId, "inversionMedios.bulkFill", {
+        eventoId,
+        opcion: escenarioId,
+        plataforma,
+        tipo,
+        montoUsd: monto,
+        desde: fechas[0],
+        hasta: fechas[fechas.length - 1],
+        dias: fechas.length,
+        soloVacios: !!input.soloVacios,
+        escritas: escritasOpcion.length,
+      });
+      revalidatePath("/inversion-medios");
+      return { ok: true, data: { escritas: escritasOpcion.length, omitidas: fechas.length - escritasOpcion.length } };
+    }
     const values = fechas.map((fecha) => ({
       eventoId,
       fecha,
@@ -477,6 +665,159 @@ export async function bulkFillPlanAction(input: {
     return { ok: true, data: { escritas: escritas.length, omitidas: fechas.length - escritas.length } };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Error al rellenar el rango" };
+  }
+}
+
+// ---------- Opciones de plan (escenarios) ----------
+//
+// Planes alternativos de un evento para comparar y presentar a la jefatura.
+// Viven en tablas aparte: nunca suman en el calendario ni en los totales. Crear,
+// editar, renombrar y borrar opciones va con el grant del panel (como editar el
+// plan); ELEGIR una como vigente solo lo hacen los editores de `metas-evento`
+// (Ricardo y Anto) o un superadmin, igual que el techo y la meta.
+
+/** Opción por id, con su evento (null si no existe o el id no es válido). */
+async function leerOpcion(id: unknown): Promise<{ id: string; eventoId: string; nombre: string } | null> {
+  const v = String(id ?? "");
+  if (!OPCION_ID_RE.test(v)) return null;
+  const rows = await withNeonRetry(() =>
+    db
+      .select({ id: inversionMediosEscenarios.id, eventoId: inversionMediosEscenarios.eventoId, nombre: inversionMediosEscenarios.nombre })
+      .from(inversionMediosEscenarios)
+      .where(eq(inversionMediosEscenarios.id, v)),
+  );
+  return rows[0] ?? null;
+}
+
+/** ¿El error es el índice único de nombre por evento (dos opciones con el mismo nombre)? */
+function esNombreOpcionDuplicado(err: unknown): boolean {
+  const e = err as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } } | null;
+  const c = e?.cause ?? e;
+  return c?.code === "23505" && (c.constraint ?? "").includes("inversion_medios_escenarios_evento_nombre_uq");
+}
+
+/**
+ * Crea una opción de plan («Opción B», «Opción C»…) como COPIA del plan vigente
+ * completo del evento: se parte de lo que ya existe y se cambia lo que haga
+ * falta. Máximo MAX_OPCIONES por evento.
+ */
+export async function crearOpcionPlanAction(input: {
+  eventoId: string;
+}): Promise<ActionResult<{ id: string; nombre: string }>> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const eventoId = String(input.eventoId ?? "").trim().toUpperCase();
+  if (!ID_HOJA_RE.test(eventoId)) return { ok: false, error: "Las opciones de plan son para eventos" };
+  if (!(await getEventoPlanInfo(eventoId))) return { ok: false, error: `El evento ${eventoId} no está en la hoja de eventos` };
+  try {
+    const r = await withNeonRetry(() => db.transaction((tx) => crearOpcionTx(tx, eventoId, ctx.userId)));
+    if (!r) return { ok: false, error: `Máximo ${MAX_OPCIONES} opciones por evento: borra una para crear otra` };
+    await logAudit(ctx.userId, "inversionMedios.crearOpcion", { eventoId, id: r.id, nombre: r.nombre, filasCopiadas: r.filas });
+    revalidatePath("/inversion-medios");
+    return { ok: true, data: { id: r.id, nombre: r.nombre } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al crear la opción" };
+  }
+}
+
+/** Cambia el nombre de una opción («Opción B» → «Más TikTok»). */
+export async function renombrarOpcionPlanAction(input: { id: string; nombre: string }): Promise<ActionResult> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const nombre = limpiarNombreOpcion(input.nombre);
+  if (!nombre) return { ok: false, error: `El nombre debe tener entre 1 y ${NOMBRE_OPCION_MAX} caracteres` };
+  if (nombre.toLowerCase() === "vigente") return { ok: false, error: "«Vigente» es el nombre del plan actual: elige otro" };
+  const op = await leerOpcion(input.id);
+  if (!op) return { ok: false, error: "Esa opción de plan ya no existe: recarga la página" };
+  try {
+    await withNeonRetry(() =>
+      db
+        .update(inversionMediosEscenarios)
+        .set({ nombre, updatedBy: ctx.userId, updatedAt: sql`now()` })
+        .where(eq(inversionMediosEscenarios.id, op.id)),
+    );
+    await logAudit(ctx.userId, "inversionMedios.renombrarOpcion", { eventoId: op.eventoId, id: op.id, antes: op.nombre, nombre });
+    revalidatePath("/inversion-medios");
+    return { ok: true };
+  } catch (err) {
+    if (esNombreOpcionDuplicado(err)) return { ok: false, error: `Ya hay una opción llamada ${nombre} en este evento` };
+    return { ok: false, error: err instanceof Error ? err.message : "Error al renombrar" };
+  }
+}
+
+/** Borra una opción con sus celdas. El audit guarda las celdas para poder restaurarla. */
+export async function borrarOpcionPlanAction(input: { id: string }): Promise<ActionResult> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "No autorizado" };
+  }
+  const op = await leerOpcion(input.id);
+  if (!op) return { ok: true }; // ya no existe: nada que borrar
+  try {
+    const celdas = await withNeonRetry(() => db.transaction((tx) => borrarOpcionTx(tx, op)));
+    if (!celdas) return { ok: true }; // otra pestaña la borró o la eligió entremedio
+    await logAudit(ctx.userId, "inversionMedios.borrarOpcion", {
+      eventoId: op.eventoId,
+      id: op.id,
+      nombre: op.nombre,
+      totalUsd: celdas.reduce((a, c) => a + c.montoUsd, 0),
+      filas: celdas,
+    });
+    revalidatePath("/inversion-medios");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al borrar la opción" };
+  }
+}
+
+/**
+ * Elige una opción como plan VIGENTE: desde HOY sus días reemplazan a los del
+ * vigente (los días pasados no se tocan: son la vara del desvío). En la misma
+ * transacción el vigente completo queda guardado como otra opción («Vigente
+ * hasta 18-nov»), por si hay que volver, y la elegida se borra porque pasó a ser
+ * el vigente. Solo editores de `metas-evento` o superadmin, con el evento abierto.
+ */
+export async function elegirOpcionPlanAction(input: {
+  id: string;
+}): Promise<ActionResult<{ guardadoComo: string }>> {
+  let ctx: ActorCtx;
+  try {
+    ctx = await requireInversionMediosAccess();
+    if (!(await puedeEjercer("metas-evento", ctx.userId))) return { ok: false, error: NO_GUARDADO };
+  } catch {
+    return { ok: false, error: NO_GUARDADO };
+  }
+  const op = await leerOpcion(input.id);
+  if (!op) return { ok: false, error: "Esa opción de plan ya no existe: recarga la página" };
+  const info = await getEventoPlanInfo(op.eventoId);
+  if (!info) return { ok: false, error: `El evento ${op.eventoId} no está en la hoja de eventos` };
+  const hoy = hoySantiago();
+  if (!metasAbiertas(info.fecha, info.dias, hoy)) {
+    return { ok: false, error: "El evento ya terminó: su plan vigente queda cerrado" };
+  }
+  try {
+    const r = await withNeonRetry(() => db.transaction((tx) => elegirOpcionTx(tx, op, ctx.userId, hoy)));
+    if (!r) return { ok: false, error: "Esa opción de plan ya no existe: recarga la página" };
+    await logAudit(ctx.userId, "inversionMedios.elegirOpcion", {
+      eventoId: op.eventoId,
+      opcion: op.nombre,
+      desde: hoy,
+      ...r,
+    });
+    revalidatePath("/inversion-medios");
+    return { ok: true, data: { guardadoComo: r.guardadoComo } };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Error al elegir la opción" };
   }
 }
 

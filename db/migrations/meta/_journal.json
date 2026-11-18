@@ -281,6 +281,13 @@
       "when": 1793825490260,
       "tag": "0039_eventos_pm_campanas",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1795032202541,
+      "tag": "0040_opciones_plan",
+      "breakpoints": true
     }
   ]
 }

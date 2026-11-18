@@ -8,6 +8,7 @@ import { anchoDesdeCookie, COL_CALENDARIO, COL_DRILL, type ColumnaNombre } from 
 import { hoySantiago } from "@/lib/inversion-medios/holgura";
 import { campanaKey, describirRegla, esIniciativaId } from "@/lib/inversion-medios/iniciativas";
 import { EVENTO_ID_TICKETERA_RE, ID_HOJA_RE } from "@/lib/eventos-id";
+import { planSiSeElige } from "@/lib/inversion-medios/escenarios";
 import {
   buildDrillGrid,
   getAdsMetricasEvento,
@@ -23,7 +24,9 @@ import {
   getCargosExtra,
   getEtapas,
   getEventoPlanInfo,
+  getConteoOpcionesPlan,
   getIniciativas,
+  getOpcionesPlan,
   getPlanDiarioEvento,
   getPlanDiarioRango,
   getPlanExtent,
@@ -109,6 +112,7 @@ export default async function InversionMediosPage({
     return (
       <DrillView
         eventoId={evento}
+        opcionId={typeof sp.plan === "string" ? sp.plan : ""}
         canEdit={canEdit}
         isSuperadmin={isSuperadmin}
         userId={session.user.userId ?? null}
@@ -231,7 +235,7 @@ export default async function InversionMediosPage({
 
   // `campanasRecientes` no depende del rango cargado: es "qué corre ahora",
   // anclado a la última fecha del mart.
-  const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee, campanasRecientes, gcpSemanal, totalesIniciativas] =
+  const [budgetPm, totales, cargos, carddaConsumo, carddaConsumoSem, carddaFee, campanasRecientes, gcpSemanal, totalesIniciativas, opcionesPorEvento] =
     await Promise.all([
       getBudgetPmMap(ids),
       getTotalesEvento(
@@ -244,6 +248,7 @@ export default async function InversionMediosPage({
       getCampanasRecientes(),
       getGcpGastoSemanal(),
       getTotalesIniciativas(iniciativas),
+      getConteoOpcionesPlan(),
     ]);
 
   const grid = mergeGrid({ eventos, from: desde, to: hasta, plan, real, budgetPm });
@@ -258,6 +263,7 @@ export default async function InversionMediosPage({
       totales={Object.fromEntries(totales)}
       sinEvento={sinEvento}
       asignacionesEvento={asigEventos}
+      opcionesPorEvento={opcionesPorEvento}
       iniciativas={iniciativas}
       planIniciativas={planIniciativas}
       totalesIniciativas={totalesIniciativas}
@@ -378,22 +384,26 @@ async function IniciativaDrillView({
 
 async function DrillView({
   eventoId,
+  opcionId,
   canEdit,
   isSuperadmin,
   userId,
 }: {
   eventoId: string;
+  /** `?plan=<id>`: opción de plan que se está mirando/editando ("" = vigente). */
+  opcionId: string;
   canEdit: boolean;
   isSuperadmin: boolean;
   userId: string | null;
 }) {
-  const [info, realMaxFecha, realCorte, anchoNombreInicial, editorMetas, asigEventos] = await Promise.all([
+  const [info, realMaxFecha, realCorte, anchoNombreInicial, editorMetas, asigEventos, opciones] = await Promise.all([
     getEventoPlanInfo(eventoId),
     getRealMaxFecha(),
     getRealCorte(),
     anchoColumna(COL_DRILL),
     puedeEjercer("metas-evento", userId).catch(() => false),
     getAsignacionesEvento(),
+    getOpcionesPlan(eventoId),
   ]);
   if (!info) return <EventoNoExiste texto={`El evento ${eventoId} no está en la hoja de eventos.`} />;
   // Gasto del evento = el de su EventoID en el nombre + sus campañas asignadas a
@@ -416,11 +426,20 @@ async function DrillView({
   //  - LÍMITE INFERIOR = inicio de venta o primer dato; si no hay nada, hoy
   //    (así el calendario va de hoy → fecha del evento aunque esté vacío).
   const hoy = hoySantiago();
-  const [planAll, realExtent] = await Promise.all([
+  const [planVigente, realExtent] = await Promise.all([
     getPlanDiarioEvento(eventoId, undefined, undefined, legado),
     getRealExtentEvento(fuente),
   ]);
-  const planFechas = planAll.map((p) => p.fecha).sort();
+  // Opción de plan a la vista (?plan=): el drill la pinta y la edita en vez del
+  // vigente. Un id que ya no existe (se eligió o se borró) cae al vigente.
+  // Se muestra como «lo que quedaría vigente si se elige» (planSiSeElige): los
+  // días pasados son los del vigente (elegir no los toca) y desde hoy, los de la
+  // opción. Así su total, % del techo, holgura y desvío son los reales.
+  const opcionActiva = opciones.find((o) => o.id === opcionId) ?? null;
+  const planAll = opcionActiva ? planSiSeElige(planVigente, opcionActiva.rows, hoy) : planVigente;
+  // La ventana cubre TODOS los planes del evento: cambiar de opción no mueve
+  // las columnas.
+  const planFechas = [...planVigente, ...opciones.flatMap((o) => o.rows)].map((p) => p.fecha).sort();
   const orden = (arr: (string | undefined)[]) => arr.filter((x): x is string => !!x).sort();
   const mins = orden([planFechas[0], realExtent?.min]);
   const maxs = orden([planFechas[planFechas.length - 1], realExtent?.max]);
@@ -453,12 +472,19 @@ async function DrillView({
   // evento abierto. La hoja NO se lee acá: el input la lee al abrirse
   // (leerMetaEventoAction), así un render del drill no gasta cuota de Sheets.
   const editarMetas = editorMetas && metasAbiertas(info.fecha, info.dias, hoy);
+  // Elegir una opción como vigente: las mismas personas y la misma condición que
+  // el techo y la meta (editores de `metas-evento` o superadmin, evento abierto).
+  const elegirVigente = editarMetas;
 
   const planVentana = planAll.filter((p) => p.fecha >= from && p.fecha <= to);
   const drill = buildDrillGrid({ from, to, plan: planVentana, real });
 
   return (
     <EventoDrill
+      // Un plan, una instancia: cambiar de pestaña (Vigente / Opción B) remonta
+      // el drill y descarta lo abierto a medias (Rellenar rango, renombrar,
+      // borradores de celda), que si no escribiría en el plan recién elegido.
+      key={opcionActiva?.id ?? "vigente"}
       eventoId={eventoId}
       eventoIdTicketera={info.eventoIdTicketera}
       cancelado={info.cancelado}
@@ -482,6 +508,10 @@ async function DrillView({
       serieResultado={serieResultado}
       anchoNombreInicial={anchoNombreInicial}
       editarMetas={editarMetas}
+      opciones={opciones}
+      opcionActivaId={opcionActiva?.id ?? null}
+      planVigente={planVigente}
+      elegirVigente={elegirVigente}
     />
   );
 }

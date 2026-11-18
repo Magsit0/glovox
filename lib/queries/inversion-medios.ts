@@ -8,6 +8,8 @@ import {
   iniciativasPmCampanas,
   iniciativasPmReglas,
   inversionMediosDiario,
+  inversionMediosEscenarioDiario,
+  inversionMediosEscenarios,
   inversionMediosEtapas,
   type CargoExtra,
   type EtapaCampana,
@@ -19,6 +21,7 @@ import {
   type Iniciativa,
   type ReglaIniciativa,
 } from "@/lib/inversion-medios/iniciativas";
+import type { OpcionPlan } from "@/lib/inversion-medios/escenarios";
 import { query } from "@/lib/bigquery";
 import { esVentaSql } from "@/lib/tickets/clase";
 import { PM_PROPAGACION_MIN } from "@/lib/inversion-medios/rendimiento";
@@ -350,6 +353,59 @@ export async function getPlanDiarioEvento(
       .orderBy(asc(inversionMediosDiario.fecha)),
   );
   return legado ? rows.map((r) => ({ ...r, eventoId })) : rows;
+}
+
+// ---------- Opciones de plan (escenarios) ----------
+
+/**
+ * Opciones de plan de UN evento (más antigua primero), con sus celdas. Nunca se
+ * mezclan con el plan vigente: viven en tablas aparte (db/schema.ts). Las filas
+ * vuelven con `eventoId` = ID del evento, igual que el plan vigente, para que el
+ * drill las pinte sin distinguir.
+ */
+export async function getOpcionesPlan(eventoId: string): Promise<OpcionPlan[]> {
+  const [cabeceras, celdas] = await Promise.all([
+    withNeonRetry(() =>
+      db
+        .select({ id: inversionMediosEscenarios.id, nombre: inversionMediosEscenarios.nombre })
+        .from(inversionMediosEscenarios)
+        .where(eq(inversionMediosEscenarios.eventoId, eventoId))
+        .orderBy(asc(inversionMediosEscenarios.createdAt)),
+    ),
+    withNeonRetry(() =>
+      db
+        .select({
+          escenarioId: inversionMediosEscenarioDiario.escenarioId,
+          fecha: inversionMediosEscenarioDiario.fecha,
+          plataforma: inversionMediosEscenarioDiario.plataforma,
+          tipo: inversionMediosEscenarioDiario.tipo,
+          montoUsd: inversionMediosEscenarioDiario.montoUsd,
+          nota: inversionMediosEscenarioDiario.nota,
+        })
+        .from(inversionMediosEscenarioDiario)
+        .innerJoin(inversionMediosEscenarios, eq(inversionMediosEscenarios.id, inversionMediosEscenarioDiario.escenarioId))
+        .where(eq(inversionMediosEscenarios.eventoId, eventoId))
+        .orderBy(asc(inversionMediosEscenarioDiario.fecha)),
+    ),
+  ]);
+  return cabeceras.map((c) => ({
+    id: c.id,
+    nombre: c.nombre,
+    rows: celdas
+      .filter((r) => r.escenarioId === c.id)
+      .map(({ fecha, plataforma, tipo, montoUsd, nota }) => ({ eventoId, fecha, plataforma, tipo, montoUsd, nota })),
+  }));
+}
+
+/** Cuántas opciones de plan tiene cada evento (pill del calendario). */
+export async function getConteoOpcionesPlan(): Promise<Record<string, number>> {
+  const rows = await withNeonRetry(() =>
+    db
+      .select({ eventoId: inversionMediosEscenarios.eventoId, n: dsql<number>`count(*)::int` })
+      .from(inversionMediosEscenarios)
+      .groupBy(inversionMediosEscenarios.eventoId),
+  );
+  return Object.fromEntries(rows.map((r) => [r.eventoId, Number(r.n)]));
 }
 
 /** Extensión del plan cargado: [min, max] de fecha (null si la tabla está vacía). */

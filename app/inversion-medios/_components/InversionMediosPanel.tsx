@@ -110,6 +110,8 @@ type Props = {
   sinEvento: SinEventoCampanaDia[];
   /** Campañas asignadas a mano a un evento (salieron antes de su EventoID). */
   asignacionesEvento: CampanaDeEvento[];
+  /** Cuántas opciones de plan (escenarios) tiene cada evento, por ID. */
+  opcionesPorEvento: Record<string, number>;
   /** Iniciativas (Club Glovox, Now Mag…) con sus campañas asignadas. */
   iniciativas: Iniciativa[];
   /** Plan diario de las iniciativas en el rango cargado. */
@@ -251,6 +253,7 @@ export default function InversionMediosPanel({
   totales,
   sinEvento,
   asignacionesEvento,
+  opcionesPorEvento,
   iniciativas,
   planIniciativas,
   totalesIniciativas,
@@ -1189,6 +1192,7 @@ export default function InversionMediosPanel({
                       realMaxFecha={realMaxFecha}
                       hidden={oculta}
                       canEdit={canEdit}
+                      nOpciones={opcionesPorEvento[ev.eventoId] ?? 0}
                       nCampanas={camps?.totalCampanas ?? 0}
                       abierta={abierta}
                       onToggle={toggleIni}
@@ -1766,6 +1770,7 @@ const FilaEvento = memo(function FilaEvento({
   realMaxFecha,
   hidden,
   canEdit,
+  nOpciones,
   nCampanas,
   abierta,
   onToggle,
@@ -1778,6 +1783,8 @@ const FilaEvento = memo(function FilaEvento({
   realMaxFecha: string;
   hidden: boolean;
   canEdit: boolean;
+  /** Opciones de plan (escenarios) para comparar: no suman en el calendario. */
+  nOpciones: number;
   /** Campañas asignadas a mano (salieron antes de que tuviera EventoID). */
   nCampanas: number;
   abierta: boolean;
@@ -1887,6 +1894,16 @@ const FilaEvento = memo(function FilaEvento({
               />
               {pctReal.toFixed(0)}%
             </span>
+          )}
+          {nOpciones > 0 && (
+            <Link
+              href={`/inversion-medios?evento=${ev.eventoId}`}
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--divider)] bg-[var(--surface)] px-2 py-0.5 font-medium text-[var(--ink)] transition-colors hover:text-[#9F99F8]"
+              title="Tiene planes alternativos para comparar (no suman en el calendario). Ábrelo para verlos."
+            >
+              <span className="h-1.5 w-1.5 rounded-full bg-[#9F99F8]" />
+              {nOpciones === 1 ? "1 opción" : `${nOpciones} opciones`}
+            </Link>
           )}
           {nCampanas > 0 && (
             <button
