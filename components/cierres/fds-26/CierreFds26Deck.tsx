@@ -249,19 +249,19 @@ export default function CierreFds26Deck({
         detail="convenios y tipos de entrada"
       >
         <SlideTitle>
-          Casi dos de cada tres entradas se vendieron con 20% de descuento, y el pack
-          para 2 bajó el precio por persona
+          Dos de cada tres personas entraron con 20% de descuento, y el pack para 2
+          bajó el precio por persona
         </SlideTitle>
         <div className="grid grid-cols-1 items-start gap-8 deck:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-3">
-            <SubTitle>Entradas por convenio</SubTitle>
+            <SubTitle>Personas por convenio</SubTitle>
             <Table className="text-sm">
               <thead>
                 <tr>
                   <Th>Convenio</Th>
                   <Th right>FDS 25</Th>
                   <Th right>FDS 26</Th>
-                  <Th right>% de las entradas</Th>
+                  <Th right>% de las personas</Th>
                 </tr>
               </thead>
               <tbody>
@@ -286,7 +286,7 @@ export default function CierreFds26Deck({
             </Table>
             <Note>
               <b>Copec Pay sube y Caja Los Andes baja,</b> pero juntos siguen siendo
-              63% de las entradas (FDS 25: 65%). Las dos marcas pagan para estar:
+              67% de las personas, igual que en la FDS 25. Las dos marcas pagan para estar:
               $25,0 M y $15,0 M según la planilla de Comercial.
             </Note>
           </div>
@@ -296,15 +296,17 @@ export default function CierreFds26Deck({
               <thead>
                 <tr>
                   <Th>FDS 26</Th>
-                  <Th right>Entradas</Th>
-                  <Th right>Precio</Th>
+                  <Th right>Personas</Th>
+                  <Th right>%</Th>
+                  <Th right>Precio por persona</Th>
                 </tr>
               </thead>
               <tbody>
                 {TIPOS_F26.map((t) => (
                   <tr key={t.tipo}>
                     <Td>{t.tipo}</Td>
-                    <Td right className="font-semibold">{t.entradas}</Td>
+                    <Td right className="font-semibold">{t.personas}</Td>
+                    <Td right className="text-[var(--ink-muted)]">{t.pct}</Td>
                     <Td right className="whitespace-nowrap text-[var(--ink-muted)]">{t.precio}</Td>
                   </tr>
                 ))}
@@ -313,15 +315,15 @@ export default function CierreFds26Deck({
             <Note>
               <b>Por persona se pagó $5.668</b> (FDS 25: $7.175). En 2025 la entrada
               individual costaba de $5.000 a $11.000 según la hora y la etapa; en
-              2026 la mayoría compró el pack para 2 ($5.000 a $6.500 por persona) y
-              se sumaron 1.011 entradas de niños a $3.000 o $4.000.
+              2026 el 72% de las personas entró con el pack para 2 ($5.000 a $6.500 por
+              persona) y se sumaron 1.011 niños a $3.000 o $4.000.
             </Note>
           </div>
         </div>
         <Source>
-          Entradas pagadas de la ticketera, sin devueltas; incluyen upgrades (53 en
-          2026 y 75 «Diferencial» en 2025). «Sin descuento» incluye boletería, Club
-          Glovox Prime y upgrades.
+          Personas con entrada pagada de la ticketera (el pack para 2 cuenta 2 y el
+          pase familiar 4), sin devueltas ni upgrades. «Sin descuento» incluye
+          boletería y Club Glovox Prime.
         </Source>
       </Slide>
 

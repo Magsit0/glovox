@@ -271,13 +271,14 @@ export const CMP_DIAS: {
 ];
 
 /* ── 5 · Venta: convenios, tipos de entrada y canales ── */
+/** Personas con entrada pagada por convenio (pack para 2 = 2, pase familiar = 4), sin upgrades. */
 export const CONVENIOS: { convenio: string; f25: string; f26: string; pct25: string; pct26: string }[] = [
-  { convenio: "20% Caja Los Andes", f25: "2.252", f26: "1.791", pct25: "45%", pct26: "40%" },
-  { convenio: "20% Copec Pay", f25: "965", f26: "1.066", pct25: "19%", pct26: "24%" },
-  { convenio: "15% Vecino La Reina", f25: "—", f26: "82", pct25: "—", pct26: "2%" },
-  { convenio: "Sin descuento", f25: "1.751", f26: "1.565", pct25: "35%", pct26: "35%" },
+  { convenio: "20% Caja Los Andes", f25: "3.182", f26: "2.988", pct25: "47%", pct26: "43%" },
+  { convenio: "20% Copec Pay", f25: "1.359", f26: "1.702", pct25: "20%", pct26: "24%" },
+  { convenio: "15% Vecino La Reina", f25: "—", f26: "133", pct25: "—", pct26: "2%" },
+  { convenio: "Sin descuento", f25: "2.233", f26: "2.151", pct25: "33%", pct26: "31%" },
 ];
-export const CONVENIOS_TOTAL = { f25: "4.968", f26: "4.504" };
+export const CONVENIOS_TOTAL = { f25: "6.774", f26: "6.974" };
 
 export const CANALES: { canal: string; entradas: string; pct: string; venta: string }[] = [
   { canal: "Sin código de origen", entradas: "2.707", pct: "60%", venta: "25,7" },
@@ -291,11 +292,10 @@ export const CANALES: { canal: string; entradas: string; pct: string; venta: str
 export const CANALES_TOTAL = { entradas: "4.504", pct: "100%", venta: "39,5" };
 
 /** Tipos de entrada (anexo). Entradas pagadas, sin devueltas. */
-export const TIPOS_F26: { tipo: string; entradas: string; precio: string }[] = [
-  { tipo: "Pack para 2 (toda hora, almuerzo o tarde)", entradas: "2.524", precio: "$10.000 a $13.000" },
-  { tipo: "Niños de 4 a 12 años", entradas: "1.011", precio: "$3.000 a $4.000" },
-  { tipo: "General (toda hora, almuerzo o tarde)", entradas: "916", precio: "$6.000 a $8.000" },
-  { tipo: "Upgrades", entradas: "53", precio: "$2.000 a $4.000" },
+export const TIPOS_F26: { tipo: string; personas: string; pct: string; precio: string }[] = [
+  { tipo: "Pack para 2 (toda hora, almuerzo o tarde)", personas: "5.048", pct: "72%", precio: "$5.000 a $6.500" },
+  { tipo: "Niños de 4 a 12 años", personas: "1.011", pct: "14%", precio: "$3.000 a $4.000" },
+  { tipo: "General (toda hora, almuerzo o tarde)", personas: "915", pct: "13%", precio: "$6.000 a $8.000" },
 ];
 export const TIPOS_F25: { tipo: string; entradas: string; precio: string }[] = [
   { tipo: "Feria Atardecer (hasta las 18:00)", entradas: "2.117", precio: "$7.000 a $9.000" },
