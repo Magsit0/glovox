@@ -407,17 +407,18 @@ export const BARRAS: { barra: string; venta: string; pct: string }[] = [
 ];
 
 /** Los 10 expositores que más vendieron en la FDS 26, con su puesto en la FDS 25. */
-export const RANKING: { n: number; nombre: string; venta: string; ticket: string; f24: string; f25: string }[] = [
-  { n: 1, nombre: "La Fuente Carrera", venta: "$9,5 M", ticket: "$13.013", f24: "—", f25: "nuevo" },
-  { n: 2, nombre: "Chicken Love You", venta: "$8,7 M", ticket: "$10.323", f24: "#2 · $13,6 M", f25: "#2 · $10,3 M" },
-  { n: 3, nombre: "Hauromi Kai", venta: "$7,8 M", ticket: "$14.104", f24: "—", f25: "nuevo" },
-  { n: 4, nombre: "Mano Negra Sanguchería Marina", venta: "$7,6 M", ticket: "$11.716", f24: "—", f25: "nuevo" },
-  { n: 5, nombre: "Bestias Burger", venta: "$7,5 M", ticket: "$10.631", f24: "#7 · $7,9 M", f25: "#4 · $7,7 M" },
-  { n: 6, nombre: "Mr Tex", venta: "$7,4 M", ticket: "$11.504", f24: "#1 · $14,9 M", f25: "#1 · $13,7 M" },
-  { n: 7, nombre: "La Verità", venta: "$6,9 M", ticket: "$6.970", f24: "#4 · $11,3 M", f25: "#14 · $5,4 M" },
-  { n: 8, nombre: "Uncle Fletch", venta: "$6,8 M", ticket: "$12.641", f24: "—", f25: "#9 · $6,7 M" },
-  { n: 9, nombre: "Marraqueta Rustik", venta: "$6,7 M", ticket: "$13.738", f24: "#9 · $6,3 M", f25: "#6 · $7,2 M" },
-  { n: 10, nombre: "Jugosos", venta: "$4,8 M", ticket: "$7.045", f24: "#16 · $5,0 M", f25: "#11 · $6,1 M" },
+/** ticket24/ticket25 = ticket promedio del mismo expositor en Onfire (venta ÷ órdenes), «—» si no estuvo. */
+export const RANKING: { n: number; nombre: string; venta: string; ticket: string; ticket24: string; ticket25: string; f24: string; f25: string }[] = [
+  { n: 1, nombre: "La Fuente Carrera", venta: "$9,5 M", ticket: "$13.013", ticket24: "—", ticket25: "—", f24: "—", f25: "nuevo" },
+  { n: 2, nombre: "Chicken Love You", venta: "$8,7 M", ticket: "$10.323", ticket24: "$11.264", ticket25: "$11.167", f24: "#2 · $13,6 M", f25: "#2 · $10,3 M" },
+  { n: 3, nombre: "Hauromi Kai", venta: "$7,8 M", ticket: "$14.104", ticket24: "—", ticket25: "—", f24: "—", f25: "nuevo" },
+  { n: 4, nombre: "Mano Negra Sanguchería Marina", venta: "$7,6 M", ticket: "$11.716", ticket24: "—", ticket25: "—", f24: "—", f25: "nuevo" },
+  { n: 5, nombre: "Bestias Burger", venta: "$7,5 M", ticket: "$10.631", ticket24: "$10.361", ticket25: "$11.143", f24: "#7 · $7,9 M", f25: "#4 · $7,7 M" },
+  { n: 6, nombre: "Mr Tex", venta: "$7,4 M", ticket: "$11.504", ticket24: "$14.068", ticket25: "$16.341", f24: "#1 · $14,9 M", f25: "#1 · $13,7 M" },
+  { n: 7, nombre: "La Verità", venta: "$6,9 M", ticket: "$6.970", ticket24: "$5.820", ticket25: "$6.161", f24: "#4 · $11,3 M", f25: "#14 · $5,4 M" },
+  { n: 8, nombre: "Uncle Fletch", venta: "$6,8 M", ticket: "$12.641", ticket24: "—", ticket25: "$10.129", f24: "—", f25: "#9 · $6,7 M" },
+  { n: 9, nombre: "Marraqueta Rustik", venta: "$6,7 M", ticket: "$13.738", ticket24: "$11.731", ticket25: "$13.717", f24: "#9 · $6,3 M", f25: "#6 · $7,2 M" },
+  { n: 10, nombre: "Jugosos", venta: "$4,8 M", ticket: "$7.045", ticket24: "$7.639", ticket25: "$7.336", f24: "#16 · $5,0 M", f25: "#11 · $6,1 M" },
 ];
 export const RANKING_RESUMEN = {
   puntos26: 39,

@@ -557,7 +557,7 @@ export default function CierreFds26Deck({
                 <Th>#</Th>
                 <Th>Expositor</Th>
                 <Th right>Venta</Th>
-                <Th right className="whitespace-nowrap">Ticket promedio</Th>
+                <Th right className="whitespace-nowrap">Ticket promedio · 24 · 25 → 26</Th>
                 <Th right>En la FDS 24</Th>
                 <Th right>En la FDS 25</Th>
               </tr>
@@ -568,7 +568,15 @@ export default function CierreFds26Deck({
                   <Td className="text-[var(--ink-muted)]">{r.n}</Td>
                   <Td className="font-semibold">{r.nombre}</Td>
                   <Td right className="whitespace-nowrap font-semibold">{r.venta}</Td>
-                  <Td right className="whitespace-nowrap">{r.ticket}</Td>
+                  <Td right className="whitespace-nowrap">
+                    {(r.ticket24 !== "—" || r.ticket25 !== "—") && (
+                      <>
+                        <span className="text-[var(--ink-subtle)]">{r.ticket24} ·</span>{" "}
+                        <span className="text-[var(--ink-muted)]">{r.ticket25} →</span>{" "}
+                      </>
+                    )}
+                    <b className="font-semibold">{r.ticket}</b>
+                  </Td>
                   <Td right className="whitespace-nowrap text-[var(--ink-subtle)]">{r.f24}</Td>
                   <Td right className="whitespace-nowrap">
                     {r.f25 === "nuevo" ? <Pill tone="info">nuevo</Pill> : <span className="text-[var(--ink-muted)]">{r.f25}</span>}
@@ -593,7 +601,7 @@ export default function CierreFds26Deck({
         </div>
         <Source>
           Onfire, venta bruta de los tres días por punto de venta. Ticket promedio =
-          venta ÷ órdenes. Los nombres se cruzan entre años a mano (Bestias = Bestias
+          venta ÷ órdenes, del mismo expositor en cada año. Los nombres se cruzan entre años a mano (Bestias = Bestias
           Burger, Marraqueta Rústica = Rustik). «—» = no estuvo ese año.
         </Source>
       </Slide>
