@@ -414,6 +414,25 @@ export type SalesOriginRow = {
   revenue: number;
 };
 
+// Sales of one ticket type or one payment method ("Tipos de ticket y medios de
+// pago" card). Same ticket rules and net revenue as the KPIs.
+export type VentaPorClaveRow = {
+  clave: string;
+  tickets: number;
+  personas: number;
+  // Precio - Descuento, service fee excluded (= "Venta Tickets").
+  venta: number;
+};
+
+// One cell of the ticket type × payment method cross ("Cruce" view).
+export type CruceTipoMedioRow = {
+  tipo: string;
+  medio: string;
+  tickets: number;
+  personas: number;
+  venta: number;
+};
+
 // One row per origin × order day. The table sums them back per origin, so the
 // totals and the "Por día" breakdown always add up.
 export type SalesOriginDayRow = SalesOriginRow & {
@@ -948,6 +967,58 @@ export async function getPaidMediaSummary(
     spendByCurrency: byCurrency,
     spendByPlatform: byPlatform,
   };
+}
+
+/**
+ * Sold tickets by TipoTicket × MedioPago, for the "Tipos de ticket y medios de
+ * pago" card (the /lacava card, for every event). One query: the card's three
+ * views (tipos, medios, cruce) come from the same rows, so they always add up
+ * to each other and to the KPIs. `dia` = filtro "Día". Ticket types come sorted
+ * by personas, payment methods by revenue.
+ */
+export async function getTiposYMedios(
+  eventoId: string,
+  scope?: Scope,
+  dia?: FiltroDia,
+): Promise<{ tipos: VentaPorClaveRow[]; medios: VentaPorClaveRow[]; cruce: CruceTipoMedioRow[] }> {
+  const t = scopeFilter(scope);
+  const rows = await query<Record<string, unknown>>(
+    `
+    SELECT
+      COALESCE(NULLIF(TRIM(TipoTicket), ''), '(sin tipo)')  AS tipo,
+      COALESCE(NULLIF(TRIM(MedioPago), ''), '(sin medio)')  AS medio,
+      COUNT(*)                                              AS tickets,
+      SUM(PersonasPorTicket)                                AS personas,
+      SUM(Precio - COALESCE(Descuento, 0))                  AS venta
+    FROM ${TICKETS}
+    WHERE EventoID = @eventoId
+      AND ${TICKET_TYPE_FILTER}${t.sql}${diaEventoSql(dia)}
+    GROUP BY tipo, medio
+    `,
+    { eventoId, ...t.params, ...diaEventoParams(dia) },
+  );
+  const cruce: CruceTipoMedioRow[] = rows.map((r) => ({
+    tipo: s(r.tipo),
+    medio: s(r.medio),
+    tickets: n(r.tickets),
+    personas: n(r.personas),
+    venta: n(r.venta),
+  }));
+  const sumarPor = (clave: (r: CruceTipoMedioRow) => string): VentaPorClaveRow[] => {
+    const m = new Map<string, VentaPorClaveRow>();
+    for (const r of cruce) {
+      const k = clave(r);
+      const acc = m.get(k) ?? { clave: k, tickets: 0, personas: 0, venta: 0 };
+      acc.tickets += r.tickets;
+      acc.personas += r.personas;
+      acc.venta += r.venta;
+      m.set(k, acc);
+    }
+    return [...m.values()];
+  };
+  const tipos = sumarPor((r) => r.tipo).sort((a, b) => b.personas - a.personas || a.clave.localeCompare(b.clave));
+  const medios = sumarPor((r) => r.medio).sort((a, b) => b.venta - a.venta || a.clave.localeCompare(b.clave));
+  return { tipos, medios, cruce };
 }
 
 export async function getSalesOriginByDay(

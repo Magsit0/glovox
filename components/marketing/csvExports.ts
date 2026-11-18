@@ -12,7 +12,8 @@
 // - Los "%" van con 4 decimales: con menos, las fuentes chicas quedan en 0 y
 //   al sumar por canal/grupo el total no cuadra con la tabla.
 
-import type { SalesOriginDayRow, SalesOriginRow, UtmTrafficRow } from "@/lib/queries/marketing";
+import type { SalesOriginDayRow, SalesOriginRow, UtmTrafficRow, VentaPorClaveRow } from "@/lib/queries/marketing";
+import { ETIQUETA_EJE, type FilasCruce, type MatrizCruce, type MedidaCruce } from "@/lib/marketing/cruceTiposMedios";
 import {
   agruparCanales,
   type CanalRealRow,
@@ -331,6 +332,47 @@ export function buildPiezasCsv(rows: PiezaMetaRow[]): CsvTable {
 }
 
 /** "<base>-<eventoId>-<AAAA-MM-DD>" con la fecha local del navegador. */
+/**
+ * "Tipos de ticket y medios de pago": una fila por tipo de ticket (o por medio
+ * de pago), en el orden de la tabla. % sobre personas para los tipos y sobre la
+ * venta neta para los medios, igual que la torta de cada vista.
+ */
+export function buildTiposTicketCsv(rows: VentaPorClaveRow[]): CsvTable {
+  const total = rows.reduce((acc, r) => acc + r.personas, 0);
+  return {
+    headers: ["Tipo de ticket", "Tickets", "Personas", "% personas", "Venta neta"],
+    rows: rows.map((r) => [textCell(r.clave), r.tickets, r.personas, share(r.personas, total), round(r.venta, 0)]),
+  };
+}
+
+export function buildMediosPagoCsv(rows: VentaPorClaveRow[]): CsvTable {
+  const total = rows.reduce((acc, r) => acc + r.venta, 0);
+  return {
+    headers: ["Medio de pago", "Tickets", "Personas", "Venta neta", "% venta"],
+    rows: rows.map((r) => [textCell(r.clave), r.tickets, r.personas, round(r.venta, 0), share(r.venta, total)]),
+  };
+}
+
+/**
+ * Vista "Cruce": la matriz tal como se ve (filas, columnas y medida elegidas),
+ * con la columna y la fila "Total". Celdas vacías = 0.
+ */
+export function buildCruceCsv(m: MatrizCruce, filasSon: FilasCruce, medida: MedidaCruce): CsvTable {
+  const cols = filasSon === "tipos" ? "medios" : "tipos";
+  const v = (x: number) => round(x, 0);
+  return {
+    headers: [
+      `${ETIQUETA_EJE[filasSon]} \\ ${ETIQUETA_EJE[cols]} (${medida === "personas" ? "personas" : "venta neta"})`,
+      "Total",
+      ...m.columnas.map((c) => textCell(c.clave)),
+    ],
+    rows: [
+      ...m.filas.map((f) => [textCell(f.clave), v(f.total), ...m.columnas.map((c) => v(f.celdas.get(c.clave) ?? 0))]),
+      ["Total", v(m.total), ...m.columnas.map((c) => v(c.total))],
+    ],
+  };
+}
+
 export function csvFilename(base: string, eventoId?: string): string {
   const d = new Date();
   const today = [

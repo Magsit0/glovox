@@ -65,8 +65,9 @@ export default function DiaEventoFilter({ opciones }: { opciones: DiaOpcion[] })
       </div>
       {activo && (
         <p className="font-mono-data text-[11px] leading-snug text-black/60 max-w-[560px]">
-          Filtra personas, venta, comunidad, venta acumulada y origen de venta. CPA, paid
-          media, atribución, funnel, campañas y tráfico son del evento completo.
+          Filtra personas, venta, comunidad, venta acumulada, origen de venta, tipos de
+          ticket y medios de pago. CPA, paid media, atribución, funnel, campañas y tráfico
+          son del evento completo.
         </p>
       )}
     </div>

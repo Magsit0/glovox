@@ -19,22 +19,13 @@ import {
 import type { UtmTrafficRow } from "@/lib/queries/marketing";
 import { buildUtmTrafficCsv, csvFilename } from "@/components/marketing/csvExports";
 import BrutalCsvButton from "@/components/marketing/BrutalCsvButton";
+import { PIE_COLORS } from "./pieColors";
 
 type Props = {
   data: UtmTrafficRow[];
   eventoId?: string; // solo para el nombre del archivo CSV
 };
 
-const PIE_COLORS = [
-  "#FF0000",
-  "#0000FF",
-  "#000000",
-  "#FFFF00",
-  "#FF00FF",
-  "#00FFFF",
-  "#00FF00",
-  "#FF8000",
-];
 const SCATTER_COLORS = PIE_COLORS;
 
 // ---------- Agrupación por canal (la vista marts.ga4_utm clasifica el

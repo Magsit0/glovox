@@ -10,6 +10,7 @@ import {
   getCommunityTicketsCount,
   getPaidMediaSummary,
   getSalesOriginByDay,
+  getTiposYMedios,
   getFollowersDelta,
   getFunnelData,
   getFunnelLandingPages,
@@ -33,6 +34,8 @@ import BrutalChartPanel from "@/components/marketing/BrutalChartPanel";
 import BrutalHighlightPanel from "@/components/marketing/BrutalHighlightPanel";
 import CumulativeSalesComparisonChart from "@/components/marketing/charts/CumulativeSalesComparisonChart";
 import SalesOriginTable from "@/components/marketing/charts/SalesOriginTable";
+import TiposMediosCard from "@/components/marketing/charts/TiposMediosCard";
+import BrutalDesplegable from "@/components/marketing/BrutalDesplegable";
 import FunnelChart from "@/components/marketing/charts/FunnelChart";
 import FunnelLandingPageFilter from "@/components/marketing/FunnelLandingPageFilter";
 import CampaignBreakdownChart from "@/components/marketing/charts/CampaignBreakdownChart";
@@ -233,6 +236,13 @@ export default async function MarketingWeeklyPage({
               <PaidMediaSection eventoId={selectedId} scope={scope} />
             </Suspense>
           </div>
+
+          {/* Collapsible, right under Venta Acumulada: tipos de ticket y medios de
+              pago (the /lacava card, for every event). No `key`: an open panel
+              stays open when the day or the event changes. */}
+          <Suspense fallback={<DesplegableCargando titulo={TITULO_TIPOS_MEDIOS} />}>
+            <TiposMediosSection eventoId={selectedId} scope={scope} diaParam={diaParam} />
+          </Suspense>
 
           {/* Row: Atribución de compras (GA4). Its own window: only since GA4 measures purchases */}
           <Suspense key={`atrib-${selectedId}`} fallback={<Skeleton />}>
@@ -675,6 +685,36 @@ async function SalesOriginSection({
     <BrutalChartPanel title={dia ? `Origen de Venta · ${dia.etiqueta}` : "Origen de Venta"} className="col-span-2">
       <SalesOriginTable data={data} eventoId={eventoId} />
     </BrutalChartPanel>
+  );
+}
+
+async function TiposMediosSection({
+  eventoId,
+  scope,
+  diaParam,
+}: {
+  eventoId: string;
+  scope?: Scope;
+  diaParam?: string;
+}) {
+  const dia = await diaElegido(eventoId, scope, diaParam);
+  const { tipos, medios, cruce } = await getTiposYMedios(eventoId, scope, dia?.filtro);
+  return (
+    <BrutalDesplegable titulo={dia ? `${TITULO_TIPOS_MEDIOS} · ${dia.etiqueta}` : TITULO_TIPOS_MEDIOS}>
+      <TiposMediosCard tipos={tipos} medios={medios} cruce={cruce} eventoId={eventoId} />
+    </BrutalDesplegable>
+  );
+}
+
+const TITULO_TIPOS_MEDIOS = "Tipos de ticket y medios de pago";
+
+// The closed panel while its query runs: same header, not clickable yet.
+function DesplegableCargando({ titulo }: { titulo: string }) {
+  return (
+    <div className="bg-white border-4 border-black shadow-[4px_4px_0px_#000] rounded-none px-6 py-5 flex items-center justify-between gap-4">
+      <h3 className="font-display uppercase text-2xl leading-none text-black/40">{titulo}</h3>
+      <span className="h-3 w-12 animate-pulse bg-black/10" />
+    </div>
   );
 }
 
