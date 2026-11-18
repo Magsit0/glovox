@@ -1,14 +1,15 @@
+import { Fragment } from "react";
 import Image from "next/image";
+import { ExternalLink } from "lucide-react";
 import Deck from "@/components/cierres/deck/Deck";
+import { FechaClaveInput } from "@/components/cierres/deck/FechaClaveInput";
 import {
   CellSub,
+  ConDiasAntes,
   Delta,
-  DaysBar,
   Kpi,
   Note,
-  AreaNotas,
   Pill,
-  PlazosTimeline,
   Slide,
   SlideTitle,
   Source,
@@ -18,103 +19,65 @@ import {
   Td,
   TODAS_LAS_AREAS,
   Th,
+  TramosCalor,
 } from "@/components/cierres/deck/primitives";
 import {
-  ACUERDOS_PRODUCCION,
-  ANTICIPACION,
-  ANTICIPACION_ESCALA,
-  BANOS,
-  BARRAS_TOP,
-  CANALES,
   CANALES_CLAVE,
-  CANALES_TOTAL,
   CMP_RESULTADO,
   EQUILIBRIO,
   EQUILIBRIO_CMP,
   EQUILIBRIO_CON_RADIO,
-  HITOS,
   INGRESO_HORA,
   INGRESO_RESUMEN,
-  INGRESOS,
-  INGRESOS_CARGA,
-  INGRESOS_TOTAL,
   MAPA_ALT,
   META,
-  NOTAS_AREA,
-  NOTAS_POR_CONFIRMAR,
   OC,
   OC_ANTES,
+  OC_ESTADOS,
   OC_PAGO,
   OC_TOTAL,
-  PENDIENTES,
   PORTADA_FACTS,
   PROXIMOS,
   PUNTOS_CONTROL,
-  SEGUIMIENTO_P3,
   TRAMOS_VENTA,
   ZONAS,
   ZONAS_TOTAL,
   type EstadoProximo,
 } from "@/lib/cierres/piknic-4-26-27";
+import { diasAntes, fechaCorta } from "@/lib/cierres/hitos";
+import type { FechaClaveEvento } from "@/lib/produccion/fechas-clave";
 import mapaVentas from "./mapa-ventas.jpg";
 
-const TOTAL = 20;
+const TOTAL = 11;
 
 const fmtN = (v: number) => new Intl.NumberFormat("es-CL").format(v);
 
 const TRAMOS = [
-  { key: "antes", label: "Antes de 3 semanas", color: "bg-[#9F99F8]" },
-  { key: "semanas1a3", label: "Entre 1 y 3 semanas", color: "bg-[#87DACD]" },
-  { key: "ultimaSemana", label: "Última semana", color: "bg-[#F6C544]" },
-  { key: "dia", label: "Día del evento", color: "bg-[#EF8C34]" },
+  { key: "antes", label: "Antes de 3 semanas", color: "#9F99F8" },
+  { key: "semanas1a3", label: "Entre 1 y 3 semanas", color: "#87DACD" },
+  { key: "ultimaSemana", label: "Última semana", color: "#F6C544" },
+  { key: "dia", label: "Día del evento", color: "#EF8C34" },
 ] as const;
 
-/** Barras apiladas: entradas pagadas de cada evento según cuándo se compraron. */
-function TramosVenta() {
-  const max = Math.max(
-    ...TRAMOS_VENTA.map((e) => Object.values(e.tramos).reduce((a, b) => a + b, 0)),
-  );
-  return (
-    <div className="flex flex-col gap-3">
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--ink-muted)]">
-        {TRAMOS.map((t) => (
-          <span key={t.key} className="inline-flex items-center gap-1.5">
-            <span aria-hidden="true" className={`inline-block h-2.5 w-2.5 rounded-sm ${t.color}`} />
-            {t.label}
-          </span>
-        ))}
-      </div>
-      {TRAMOS_VENTA.map((e) => {
-        const total = Object.values(e.tramos).reduce((a, b) => a + b, 0);
-        return (
-          <div key={e.evento} className="grid grid-cols-[calc(var(--spacing)*18)_minmax(0,1fr)] items-center gap-3">
-            <span className="text-sm font-semibold text-[var(--ink)]">{e.evento}</span>
-            <div className="flex items-center gap-2">
-              <div
-                className="flex h-7 overflow-hidden rounded-md"
-                style={{ width: `${(total / max) * 85}%` }}
-                role="img"
-                aria-label={`${e.evento}: ${TRAMOS.map((t) => `${t.label.toLowerCase()} ${e.tramos[t.key]}`).join(", ")}; total ${e.total}.`}
-              >
-                {TRAMOS.map((t) =>
-                  e.tramos[t.key] > 0 ? (
-                    <div
-                      key={t.key}
-                      className={`flex items-center justify-center text-xs font-semibold tabular-nums text-[var(--ink)] ${t.color}`}
-                      style={{ width: `${(e.tramos[t.key] / total) * 100}%` }}
-                    >
-                      {fmtN(e.tramos[t.key])}
-                    </div>
-                  ) : null,
-                )}
-              </div>
-              <span className="text-sm font-semibold tabular-nums text-[var(--ink)]">{e.total}</span>
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
+
+type PuntoControl = (typeof PUNTOS_CONTROL)[number];
+
+/**
+ * Fila de un punto de control que sale de una fecha clave de la carta Gantt:
+ * qué pasó (fecha y días antes), el plazo si la categoría lo tiene y el estado.
+ * Sin tarea marcada, queda la fila tal como viene en los datos (sin dato).
+ */
+function conFechaClave(p: PuntoControl, fc: FechaClaveEvento | null): PuntoControl {
+  const plazo = fc?.plazoDias ?? null;
+  const conPlazo = plazo != null ? { plazo: `ideal ${plazo} días antes` } : {};
+  if (!fc?.fecha) return { ...p, ...conPlazo };
+  const dias = diasAntes(fc.fecha, META.fechaEvento);
+  const cuando = dias === 0 ? "el mismo día del evento" : `${dias} ${dias === 1 ? "día" : "días"} antes`;
+  const quePaso = `Se confirmó el ${fechaCorta(fc.fecha, Number(META.fechaEvento.slice(0, 4)))}, ${cuando}, según la carta Gantt.`;
+  if (plazo == null) return { ...p, quePaso, estado: "plazo por definir", tone: "neutral" };
+  return dias >= plazo
+    ? { ...p, ...conPlazo, quePaso, estado: "a tiempo", tone: "success" }
+    : { ...p, ...conPlazo, quePaso, estado: `${plazo - dias} días tarde`, tone: "error" };
 }
 
 /** Estado de un hito de un evento próximo: píldora + detalle. */
@@ -219,11 +182,13 @@ function EquilibrioComparado() {
 }
 
 /**
- * Presentación de cierre del Piknic 4 · 26-27 (GLO216): 15 láminas para la
- * reunión + 5 de anexo (resultado, detalle de venta, tragos, anticipación por
- * evento y notas por confirmar). Orden en actos: tablero (1-2), llegamos antes
- * (3-5), el día (6-8), la cuenta (9-10), lo que prometimos la vez pasada
- * (11-12) y lo que viene (13-15). Misma base que la del Piknic 3 para compararlas.
+ * Presentación de cierre del Piknic 4 · 26-27 (GLO216): 11 láminas, sin anexo.
+ * La lámina 2 (puntos de control, en orden de plazo) es el índice. Orden en
+ * actos: tablero (1-2), llegamos antes (3-4), el día (5-7), la cuenta (8-10:
+ * equilibrio, OC y pagos según el estado de la OC) y lo que viene (11). El 18-nov salieron la anticipación con línea de tiempo
+ * (repetía la 2), los acuerdos y las notas por área del Piknic 3, los acuerdos
+ * con Producción, los pendientes y los 5 anexos.
+ * Misma base que la del Piknic 3 para compararlas.
  * Ajustada el 17-nov dos veces: con las notas por área del cierre del Piknic 3
  * y con la reunión con Producción Site, Técnica y Seguridad (próximos eventos,
  * ingreso por hora, acuerdos de Producción, Piknic 1 en la comparación, pagos
@@ -232,8 +197,19 @@ function EquilibrioComparado() {
  * láminas, navegación y PDF vive en components/cierres/deck. El control de
  * acceso lo hace la page.
  */
-export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
-  const { max, lanzamiento, negocio } = ANTICIPACION_ESCALA;
+export default function CierrePiknic4Deck({
+  mapaHref,
+  lineup,
+  editarLineup = false,
+}: {
+  mapaHref?: string;
+  /** Fecha clave «Line up confirmado» del plan en la carta Gantt (null si no se pudo leer). */
+  lineup: FechaClaveEvento | null;
+  /** Quien mira puede anotar la fecha real desde la lámina (escribe en la Gantt). */
+  editarLineup?: boolean;
+}) {
+  const OC_P4 = OC_ESTADOS.find((e) => e.actual) ?? OC_ESTADOS[OC_ESTADOS.length - 1];
+  const puntos = PUNTOS_CONTROL.map((p) => (p.fechaClave ? conFechaClave(p, lineup) : p));
 
   return (
     <Deck
@@ -285,7 +261,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         total={TOTAL}
         areas={[TODAS_LAS_AREAS]}
         label="Puntos de control"
-        detail="los 6 del Piknic 3 y uno nuevo de Producción"
+        detail="en orden de plazo · 5 del Piknic 3 y dos nuevos: line up y layout"
       >
         <SlideTitle>Piknic 4 contra los puntos de control</SlideTitle>
         <Table className="text-sm">
@@ -298,16 +274,27 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
             </tr>
           </thead>
           <tbody>
-            {PUNTOS_CONTROL.map((p) => (
+            {puntos.map((p) => (
               <tr key={p.punto}>
-                <Td className="align-top font-semibold">
+                <Td className="align-top whitespace-nowrap font-semibold">
                   {p.punto}
                   <CellSub>{p.area}</CellSub>
                 </Td>
                 <Td className="align-top whitespace-nowrap font-semibold">
                   {p.plazo}
                 </Td>
-                <Td className="align-top">{p.quePaso}</Td>
+                <Td className="align-top">
+                  <ConDiasAntes>{p.quePaso}</ConDiasAntes>
+                  {p.fechaClave && editarLineup && (
+                    <FechaClaveInput
+                      slug="piknic-4-26-27"
+                      fechaClaveId={p.fechaClave}
+                      fecha={lineup?.fecha ?? null}
+                      max={META.fechaEvento}
+                      label="Fecha en que se confirmó el line up del Piknic 4"
+                    />
+                  )}
+                </Td>
                 <Td className="align-top">
                   <Pill tone={p.tone}>{p.estado}</Pill>
                 </Td>
@@ -316,48 +303,18 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           </tbody>
         </Table>
         <Source>
-          Rojo = pasó el plazo. Amarillo = cumple el mínimo. Gris = no hay dato
-          para medirlo: nunca pinta rojo. «Vencida» en la carta Gantt significa
-          que nadie la marcó como cerrada, no que no se hizo.
+          Rojo = pasó el plazo · amarillo = cumple el mínimo · gris = sin dato ·
+          «vencida» = nadie la marcó como cerrada en la Gantt.
         </Source>
       </Slide>
 
 
-      {/* 3 · Anticipación (el detalle por evento va en el anexo) */}
-      <Slide
-        id="anticipacion"
-        n={3}
-        total={TOTAL}
-        areas={["Dirección", "Marketing", "Producción", "Finanzas"]}
-        label="Anticipación"
-        detail="cuántos días antes del evento pasó cada cosa"
-      >
-        <SlideTitle>
-          La venta abrió 32 días antes, sobre el mínimo propuesto de 30; el
-          negocio en Unabase sigue tarde
-        </SlideTitle>
-        <PlazosTimeline hitos={HITOS} evento="Piknic 4" />
-        <Note>
-          <b>Salida a la venta (umbrales propuestos el 17-nov, por validar con
-          Dirección y Marketing):</b> 60 días antes sería el ideal, 45 bueno y 30
-          el mínimo. Ningún Piknic de las dos últimas temporadas llegó a 60: el
-          mejor abrió 59 días antes.
-        </Note>
-        <Source>
-          Salida a la venta = primer día con 10 o más entradas pagadas. Negocio =
-          fecha de asignación del negocio GLO en Unabase. Lo normal = mediana de
-          los 12 Piknic de las temporadas 25-26 y 26-27. Detalle por evento en el
-          anexo.
-        </Source>
-      </Slide>
-
-
-      {/* 4 · Comparación con Piknic 1 y Piknic 3 */}
+      {/* 3 · Comparación con Piknic 1 y Piknic 3 */}
       <Slide
         id="piknic-3"
-        n={4}
+        n={3}
         total={TOTAL}
-        areas={["Dirección", "Marketing"]}
+        areas={["Marketing"]}
         label="Comparación"
         detail="Piknic 1 · sáb 12-sep y Piknic 3 · sáb 3-oct"
       >
@@ -379,23 +336,35 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
                 </tr>
               </thead>
               <tbody>
-                {CMP_RESULTADO.map((r) => (
-                  <tr key={r.indicador}>
-                    <Td>{r.indicador}</Td>
-                    <Td right className="text-[var(--ink-muted)]">{r.p1}</Td>
-                    <Td right>{r.p3}</Td>
-                    <Td right className="font-semibold">{r.p4}</Td>
-                    <Td right className="whitespace-nowrap">
-                      <Delta tone={r.cambio.tone}>{r.cambio.texto}</Delta>
-                    </Td>
-                  </tr>
+                {CMP_RESULTADO.map((r, i, arr) => (
+                  <Fragment key={r.indicador}>
+                    {r.grupo !== arr[i - 1]?.grupo && (
+                      <tr>
+                        <td
+                          colSpan={5}
+                          className="border-b border-[var(--divider)] bg-[var(--surface-sunken)] px-3 pt-2 pb-1 text-xs font-semibold text-[var(--ink-muted)]"
+                        >
+                          {r.grupo}
+                        </td>
+                      </tr>
+                    )}
+                    <tr>
+                      <Td>{r.indicador}</Td>
+                      <Td right className="text-[var(--ink-muted)]">{r.p1}</Td>
+                      <Td right>{r.p3}</Td>
+                      <Td right className="font-semibold">{r.p4}</Td>
+                      <Td right className="whitespace-nowrap">
+                        <Delta tone={r.cambio.tone}>{r.cambio.texto}</Delta>
+                      </Td>
+                    </tr>
+                  </Fragment>
                 ))}
               </tbody>
             </Table>
           </div>
           <div className="flex min-w-0 flex-col gap-3">
             <SubTitle>Cuándo se vendió</SubTitle>
-            <TramosVenta />
+            <TramosCalor tramos={TRAMOS} filas={TRAMOS_VENTA} />
             <Note>
               A 3 semanas del evento, el Piknic 4 ya tenía <b>970</b> entradas
               pagadas y el Piknic 3, <b>ninguna</b>. De ahí en adelante vendieron
@@ -414,7 +383,8 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         </div>
         <Source>
           Mismas fuentes en los tres eventos. Venta de tickets bruta = con cargo
-          por servicio. «Antes de 3 semanas» = 21 días o más antes del evento.
+          por servicio. CPA Meta = gasto en Meta ÷ personas que entraron o que
+          compraron (reparte el gasto entre todos, no es atribución; sin Google). «Antes de 3 semanas» = 21 días o más antes del evento.
           Piknic 1 y 3 = cifras publicadas en el cierre del Piknic 3 (8-oct); ahí
           las personas que entraron descuentan menos upgrades: con la regla del Piknic 4 serían
           3.104 y 3.021. Esta temporada no hubo Piknic 2.
@@ -422,23 +392,24 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
       </Slide>
 
 
-      {/* 5 · Venta: cómo llegó la gente a comprar */}
+      {/* 4 · Venta: cómo llegó la gente a comprar */}
       <Slide
         id="venta"
-        n={5}
+        n={4}
         total={TOTAL}
         areas={["Marketing", "Ticketing y Comunidad"]}
         label="Venta"
-        detail="por qué link llegó cada compra · ranking completo en el anexo"
+        detail="por qué link llegó cada compra"
       >
         <SlideTitle>
-          Cómo llegó la gente a comprar: sube Club Glovox, y más de la mitad
-          sigue sin código
+          Cómo llegó la gente a comprar: sube Club Glovox, entra Google y baja
+          Linktree
         </SlideTitle>
         <Table className="text-sm">
           <thead>
             <tr>
               <Th>Cómo llegó</Th>
+              <Th right>Piknic 1</Th>
               <Th right>Piknic 3</Th>
               <Th right>Piknic 4</Th>
               <Th right>% de las entradas</Th>
@@ -451,10 +422,13 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
                   {c.canal}
                   <CellSub>{c.que}</CellSub>
                 </Td>
+                <Td right className="py-3 text-[var(--ink-muted)]">{c.p1}</Td>
                 <Td right className="py-3 text-[var(--ink-muted)]">{c.p3}</Td>
                 <Td right className="py-3 font-display text-2xl font-bold">{c.p4}</Td>
                 <Td right className="py-3 whitespace-nowrap">
-                  <span className="text-[var(--ink-muted)]">{c.pctP3} →</span>{" "}
+                  <span className="text-[var(--ink-muted)]">
+                    {c.pctP1} → {c.pctP3} →
+                  </span>{" "}
                   <b className="font-semibold">{c.pctP4}</b>
                 </Td>
               </tr>
@@ -469,22 +443,22 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           equipo.
         </Note>
         <Note>
-          <b>Sin código</b> no bajó: 56% en los dos eventos. /marketing/weekly
-          cruza esas compras con GA4 y atribuye más.
+          <b>Más de la mitad sigue sin código:</b> 56% en el Piknic 3 y en el 4
+          (Piknic 1: 67%). /marketing/weekly cruza esas compras con GA4 y
+          atribuye más.
         </Note>
         <Source>
           Entradas pagadas de la ticketera según el código del link de compra
-          (2.776 en el Piknic 4, 1.853 en el Piknic 3). El resto de los canales
-          (boletería, Google, Meta, social orgánico y email) suma 20% y está en el
-          anexo, junto con quién entró.
+          (2.776 en el Piknic 4, 1.853 en el Piknic 3 y 2.034 en el Piknic 1). El resto
+          de los canales: sin código, boletería, Meta, social orgánico y email.
         </Source>
       </Slide>
 
 
-      {/* 6 · Ingreso por hora */}
+      {/* 5 · Ingreso por hora */}
       <Slide
         id="ingreso"
-        n={6}
+        n={5}
         total={TOTAL}
         areas={["Seguridad", "Producción"]}
         label="Seguridad · ingreso por hora"
@@ -522,16 +496,15 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           Hora de escaneo de cada ticket en el acceso (ticketera). Mide el flujo
           en la puerta, no el largo de la fila. Son escaneos: incluyen 127
           upgrades que se escanean aparte (40 en el Piknic 3). Hora punta = los
-          60 minutos seguidos con más ingresos. La salida no se mide: ver el
-          piloto de conteo en la lámina 14.
+          60 minutos seguidos con más ingresos. La salida no se mide.
         </Source>
       </Slide>
 
 
-      {/* 7 · Mapa de ventas */}
+      {/* 6 · Mapa de ventas */}
       <Slide
         id="mapa"
-        n={7}
+        n={6}
         total={TOTAL}
         areas={["Operaciones", "Producción"]}
         label="Operaciones · mapa de ventas"
@@ -561,9 +534,20 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
             </Note>
             <Note>
               Heinz, Carl&apos;s Jr y BigTime no registran venta en Onfire. El
-              mapa interactivo (botón «Mapa de ventas» arriba) trae el detalle
-              por punto y el ticket promedio.
+              mapa interactivo trae el detalle por punto y el ticket promedio.
             </Note>
+            {mapaHref && (
+              <a
+                href={mapaHref}
+                target="_blank"
+                rel="noopener noreferrer"
+                data-no-print="true"
+                className="inline-flex items-center gap-1.5 self-start rounded-lg border border-[var(--divider)] bg-[var(--surface)] px-3 py-1.5 text-sm font-medium text-[var(--ink)] transition-colors hover:border-[var(--ink)] print:hidden"
+              >
+                Abrir el mapa interactivo en otra pestaña
+                <ExternalLink aria-hidden="true" className="h-4 w-4 text-[var(--ink-muted)]" />
+              </a>
+            )}
           </figcaption>
         </figure>
         <Source>
@@ -577,25 +561,25 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
       </Slide>
 
 
-      {/* 8 · VIP y general */}
+      {/* 7 · VIP y general */}
       <Slide
         id="zonas"
-        n={8}
+        n={7}
         total={TOTAL}
         areas={["Operaciones", "Producción"]}
         label="Operaciones · VIP y general"
-        detail="consumo y baños por zona · al 17-nov"
+        detail="consumo por zona · al 17-nov"
       >
         <SlideTitle>
           Una de cada cuatro personas estuvo en VIP o mesa, y en VIP no se
           consumió más que en general
         </SlideTitle>
         <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
-          <Kpi value="$78,6 M" caption="vendido en barras (bruto). Piknic 3: $57,5 M" />
-          <Kpi value="$23.371" caption="por persona. Piknic 3: $18.941" />
+          <Kpi value="$78,6 M" caption="vendido en barras (bruto). Piknic 3: $57,5 M · Piknic 1: $53,2 M" />
+          <Kpi value="$23.371" caption="por persona. Piknic 3: $18.941 · Piknic 1: $17.098" />
           <Kpi value="25%" caption="de la venta salió en promos 2x ($19,7 M)" />
         </div>
-        <div className="grid grid-cols-1 items-start gap-10 deck:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+        <div className="grid grid-cols-1 items-start gap-10">
           <div className="flex min-w-0 flex-col gap-3">
             <SubTitle>Personas y consumo por zona</SubTitle>
             <Table className="text-xs">
@@ -606,6 +590,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
                   <Th right>%</Th>
                   <Th right>Consumo</Th>
                   <Th right>Por persona</Th>
+                  <Th right>Piknic 1</Th>
                   <Th right>Piknic 3</Th>
                 </tr>
               </thead>
@@ -620,6 +605,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
                       {z.porPersona}
                       {z.parcial && " · parcial"}
                     </Td>
+                    <Td right className="text-[var(--ink-muted)]">{z.porPersonaP1}</Td>
                     <Td right className="text-[var(--ink-muted)]">{z.porPersonaP3}</Td>
                   </tr>
                 ))}
@@ -629,14 +615,17 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
                   <Td right>100%</Td>
                   <Td right>{ZONAS_TOTAL.consumo}</Td>
                   <Td right>{ZONAS_TOTAL.porPersona}</Td>
+                  <Td right className="font-normal text-[var(--ink-muted)]">{ZONAS_TOTAL.porPersonaP1}</Td>
                   <Td right className="font-normal text-[var(--ink-muted)]">{ZONAS_TOTAL.porPersonaP3}</Td>
                 </tr>
               </tbody>
             </Table>
             <Note>
               En VIP cada persona consumió un poco menos que en general; en el
-              Piknic 3 consumía más. <b>¿Cómo incentivamos el consumo en VIP?</b>{" "}
-              Mesa VIP es parcial: las botellas del paquete no pasan por Onfire.
+              Piknic 3 consumía más y en el 1, lo mismo. <b>¿Cómo incentivamos el
+              consumo en VIP?</b> Mesa VIP es parcial: las botellas del paquete no
+              pasan por Onfire. «Sin barra»: en el Piknic 1 no hubo barra de mesas
+              en Onfire y en el 3 pasaron solo 30 tragos.
             </Note>
             <Note>
               <b>Por confirmar:</b> en la reunión con Producción se dijo que en
@@ -646,47 +635,19 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
               sería todavía menor.
             </Note>
           </div>
-          <div className="flex min-w-0 flex-col gap-3">
-            <SubTitle>Baños: gasto por persona</SubTitle>
-            <Table className="text-xs">
-              <thead>
-                <tr>
-                  <Th>Tipo</Th>
-                  <Th right>Piknic 3</Th>
-                  <Th right>Piknic 4</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {BANOS.map((b) => (
-                  <tr key={b.tipo}>
-                    <Td>{b.tipo}</Td>
-                    <Td right>{b.p3}</Td>
-                    <Td right className="font-semibold">{b.p4}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-            <Note>
-              El gasto en baños es lo único por zona que queda registrado.{" "}
-              <b>Cuántos</b> baños, guardias y barras hubo en general y en VIP no
-              está en ningún sistema, así que no se puede medir si sobró en general
-              o faltó en VIP.
-            </Note>
-          </div>
         </div>
         <Source>
           Personas = escaneos menos upgrades, según el tipo de ticket. Consumo por
           zona = todo Onfire en las barras de esa zona (una persona de VIP también
-          puede comprar en una barra general). Baños = gasto real en Unabase:
-          baterías generales y accesibles contra trailers VIP.
+          puede comprar en una barra general).
         </Source>
       </Slide>
 
 
-      {/* 9 · Punto de equilibrio */}
+      {/* 8 · Punto de equilibrio */}
       <Slide
         id="equilibrio"
-        n={9}
+        n={8}
         total={TOTAL}
         areas={["Dirección", "Finanzas", "Programación Artística"]}
         label="Punto de equilibrio"
@@ -694,7 +655,8 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
       >
         <SlideTitle>
           Con las marcas, el Piknic 4 quedó en su punto de equilibrio: necesitaba
-          unas {fmtN(EQUILIBRIO.conMarcas)} personas y entraron {fmtN(EQUILIBRIO.entraron)}
+          unas {fmtN(Math.round(EQUILIBRIO.conMarcas / 100) * 100)} personas y entraron{" "}
+          {fmtN(EQUILIBRIO.entraron)}
         </SlideTitle>
         <div className="grid grid-cols-1 items-start gap-10 deck:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-3">
@@ -702,7 +664,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
             <ul className="flex flex-col text-sm text-[var(--ink)]">
               {[
                 ["Presupuesto de gasto", EQUILIBRIO.presupuesto, `incluye artística por ${EQUILIBRIO.artistica}`],
-                ["− Marcas (fees)", EQUILIBRIO.marcas, "Entel, Banco de Chile, Heinz, Pepsi y Cupra"],
+                ["− Marcas (supuesto)", EQUILIBRIO.marcas, "aporte supuesto de ciertas marcas"],
                 ["= Por cubrir con público", EQUILIBRIO.porCubrir, ""],
                 ["÷ Ingreso neto por persona", EQUILIBRIO.porPersona, `tickets ${EQUILIBRIO.porPersonaTickets} + barras ${EQUILIBRIO.porPersonaBarras}`],
                 ["= Personas necesarias", fmtN(EQUILIBRIO.conMarcas), `entraron ${fmtN(EQUILIBRIO.entraron)}`],
@@ -720,8 +682,8 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
               ))}
             </ul>
             <Note>
-              <b>Las marcas pagan la artística:</b> aportan {EQUILIBRIO.marcas} y
-              la artística cuesta {EQUILIBRIO.artistica}. Sin marcas harían falta{" "}
+              <b>Las marcas pagan la artística:</b> con un aporte supuesto de{" "}
+              {EQUILIBRIO.marcas}, cubren la artística ({EQUILIBRIO.artistica}). Sin marcas harían falta{" "}
               <b>{fmtN(EQUILIBRIO.sinMarcas)}</b> personas. Cada <b>$1 M</b> más de
               artística son unas {EQUILIBRIO.personasPorMillon} personas más.
             </Note>
@@ -730,7 +692,7 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
             <SubTitle>Los tres Piknic de la temporada</SubTitle>
             <EquilibrioComparado />
             <Note>
-              El Piknic 1 y el 3 quedaron a unas <b>1.000</b> y <b>1.100</b>{" "}
+              El Piknic 1 y el 3 quedaron a unas <b>1.100</b> y <b>1.200</b>{" "}
               personas del equilibrio. La diferencia con el Piknic 4 es el{" "}
               <b>ingreso por persona</b>; ahí también pesa que en esos dos
               entraron 185 y 177 personas con pase de temporada, que aquí no
@@ -748,7 +710,8 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
         <Source>
           Estimación con la mezcla de público de cada evento y el gasto fijo
           (baños, guardias y barras en realidad suben con la gente). Gasto =
-          presupuesto de hoy en Unabase, no gasto real. Tickets = venta + 55% del
+          presupuesto de hoy en Unabase, no gasto real. Marcas = supuesto de $40 M
+          en los tres eventos. Tickets = venta + 55% del
           cargo por servicio; barras = todo Onfire; ambos sin IVA. No incluye
           producto de marcas, mesas VIP, pases de temporada ni el negocio BTL
           (montaje de activaciones), que en Unabase va aparte.
@@ -756,14 +719,14 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
       </Slide>
 
 
-      {/* 10 · Avance de OC y pagos */}
+      {/* 9 · Avance de OC */}
       <Slide
         id="oc"
-        n={10}
+        n={9}
         total={TOTAL}
         areas={["Finanzas", "cada área con presupuesto"]}
         label="Compras"
-        detail="OC, facturas y pagos en Unabase · al 17-nov"
+        detail="OC y facturas en Unabase · al 17-nov"
       >
         <SlideTitle>
           Antes del evento había OC por el {OC_ANTES.pct}% del presupuesto; la meta
@@ -825,89 +788,105 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           <b>OC:</b> el {OC_ANTES.pct}% (Piknic 3: {OC_ANTES.piknic3}%) no cuenta
           la OC de radio de $18,8 M, que no está en el presupuesto; con ella, el
           total de hoy es {OC_TOTAL.pct}% y sin ella, {OC_ANTES.hoySinRadio}%.
-          Quedan <b>{OC_ANTES.sinOc}</b> del presupuesto sin OC. <b>Pagos:</b> en
-          Unabase solo figuran abonados <b>{OC_PAGO.abonado}</b>, de dos
-          rendiciones de fondo. Con respaldo registrado:{" "}
-          <b>{OC_PAGO.conFactura}</b> ({OC_PAGO.pctFactura}%); faltan los de{" "}
-          {OC_PAGO.ocSinFactura} OC por {OC_PAGO.sinFactura}. Por el plazo de cada
-          OC tocaría pagar{" "}
+          Quedan <b>{OC_ANTES.sinOc}</b> del presupuesto sin OC. Con respaldo
+          registrado: <b>{OC_PAGO.conFactura}</b> ({OC_PAGO.pctFactura}%); faltan
+          los de {OC_PAGO.ocSinFactura} OC por {OC_PAGO.sinFactura}. Lo pagado,
+          en la lámina siguiente.
+        </Note>
+        <Source>
+          Millones de pesos netos, GLO216 en Unabase ({OC_TOTAL.nOc} OC). Con
+          respaldo = con factura, boleta o rendición registrada.
+        </Source>
+      </Slide>
+
+      {/* 10 · Pagos según el estado de la OC */}
+      <Slide
+        id="pagos"
+        n={10}
+        total={TOTAL}
+        areas={["Finanzas"]}
+        label="Pagos"
+        detail="estado de cada OC en Unabase · al 17-nov"
+      >
+        <SlideTitle>
+          De {OC_P4.total.monto} en OC del Piknic 4, Unabase registra pagados{" "}
+          {OC_P4.pagado}: ninguna OC está cerrada
+        </SlideTitle>
+        <Table className="text-sm">
+          <thead>
+            <tr>
+              <Th>Estado de la OC</Th>
+              {OC_ESTADOS.map((e) => (
+                <Th key={e.evento} right>
+                  {e.evento}
+                  <span className="block font-normal text-[var(--ink-subtle)]">{e.dias} días después</span>
+                </Th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {(
+              [
+                ["cerrada", "Cerrada", "pagada completa"],
+                ["pagada", "Pagada", "rendiciones"],
+                ["emitida", "Emitida", "por pagar; puede tener abonos"],
+              ] as const
+            ).map(([k, estado, que]) => (
+              <tr key={k}>
+                <Td className="font-semibold">
+                  {estado}
+                  <CellSub>{que}</CellSub>
+                </Td>
+                {OC_ESTADOS.map((e) => (
+                  <Td key={e.evento} right className={e.actual ? "font-semibold" : ""}>
+                    {e[k].n} OC · {e[k].monto}
+                    {e[k].abonado && <CellSub>abonado {e[k].abonado}</CellSub>}
+                  </Td>
+                ))}
+              </tr>
+            ))}
+            <tr>
+              <Td>Total, sin anuladas</Td>
+              {OC_ESTADOS.map((e) => (
+                <Td key={e.evento} right>
+                  {e.total.n} OC · {e.total.monto}
+                </Td>
+              ))}
+            </tr>
+            <tr className="font-semibold">
+              <Td>Pagado</Td>
+              {OC_ESTADOS.map((e) => (
+                <Td key={e.evento} right>
+                  <span className="font-display text-2xl font-bold">{e.pct}</span>
+                  <CellSub>{e.pagado}</CellSub>
+                </Td>
+              ))}
+            </tr>
+          </tbody>
+        </Table>
+        <Note>
+          <b>Por el plazo de cada OC</b> tocaría pagar, en montos netos,{" "}
           {OC_PAGO.calendario.map((c, i, arr) => (
             <span key={c.cuando}>
               <b>{c.monto}</b> {c.cuando}
               {i < arr.length - 2 ? ", " : i === arr.length - 2 ? " y " : "."}
             </span>
-          ))}
+          ))}{" "}
+          El Piknic 1 y el 3 ya tienen OC cerradas; el Piknic 4, ninguna.
         </Note>
         <Source>
-          Millones de pesos netos, GLO216 en Unabase ({OC_TOTAL.nOc} OC). Con
-          respaldo = con factura, boleta o rendición registrada. El calendario es
-          una estimación (fecha de la OC más su plazo de pago): Unabase no guarda
-          la fecha de pago. {OC_PAGO.referencia}
+          Estado de cada OC en Unabase (carga del 17-nov, 09:15). Montos con IVA,
+          que es lo que se paga. Pagado = OC cerradas y pagadas más los abonos a
+          OC emitidas. El calendario es una estimación (fecha de la OC más su plazo
+          de pago): Unabase no guarda la fecha de pago.
         </Source>
       </Slide>
 
 
-      {/* 11 · Seguimiento de los acuerdos del Piknic 3 */}
-      <Slide
-        id="seguimiento"
-        n={11}
-        total={TOTAL}
-        areas={[TODAS_LAS_AREAS]}
-        label="Seguimiento"
-        detail="acuerdos de la reunión del 8-oct"
-      >
-        <SlideTitle>Qué pasó con los acuerdos del Piknic 3</SlideTitle>
-        <ul className="flex flex-col">
-          {SEGUIMIENTO_P3.map((r) => (
-            <li
-              key={r.acuerdo}
-              className="grid grid-cols-[calc(var(--spacing)*56)_calc(var(--spacing)*24)_minmax(0,1fr)] items-baseline gap-3 border-b border-[var(--divider)] py-3 text-sm text-[var(--ink)] first:border-t"
-            >
-              <p className="font-semibold">
-                {r.acuerdo}
-                <CellSub>{r.areas}</CellSub>
-              </p>
-              <span>
-                <Pill tone={r.tone}>{r.estado}</Pill>
-              </span>
-              <p className="leading-relaxed text-[var(--ink-muted)]">{r.texto}</p>
-            </li>
-          ))}
-        </ul>
-        <Source>
-          Gris = no queda en ningún sistema o no aplica a ese recinto. Fuentes:
-          onepager, Unabase y glovox-produccion al 17-nov.
-        </Source>
-      </Slide>
-
-
-      {/* 12 · Notas por área del Piknic 3 que hoy tienen dato */}
-      <Slide
-        id="notas-area"
-        n={12}
-        total={TOTAL}
-        areas={[TODAS_LAS_AREAS]}
-        label="Seguimiento"
-        detail="notas por área del Piknic 3 · al 17-nov"
-      >
-        <SlideTitle>Qué pasó con las notas por área del Piknic 3</SlideTitle>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-6 sm:grid-cols-2 deck:grid-cols-4">
-          {NOTAS_AREA.map((a) => (
-            <AreaNotas key={a.area} {...a} />
-          ))}
-        </div>
-        <Source>
-          Solo las notas que hoy se pueden medir. Las que no quedan en ningún
-          sistema (Comercial y Marcas, Producción y otras) están en el anexo: las
-          confirma cada área.
-        </Source>
-      </Slide>
-
-
-      {/* 13 · Lo que viene */}
+      {/* 11 · Lo que viene */}
       <Slide
         id="proximos"
-        n={13}
+        n={11}
         total={TOTAL}
         areas={["Dirección", "Marketing", "Producción", "Finanzas"]}
         label="Lo que viene"
@@ -964,310 +943,6 @@ export default function CierrePiknic4Deck({ mapaHref }: { mapaHref?: string }) {
           pronto o hay algo que revisar; rojo = ya pasó; gris = aún no vence. En
           la carta Gantt nadie ha marcado tareas como cerradas: no significa que
           no se hicieron.
-        </Source>
-      </Slide>
-
-
-      {/* 14 · Lo acordado con Producción Site, Técnica y Seguridad */}
-      <Slide
-        id="produccion"
-        n={14}
-        total={TOTAL}
-        areas={["Producción", "Seguridad", "Datos y Tecnología"]}
-        label="Acuerdos nuevos"
-        detail="reunión del 17-nov con Rodrigo Saavedra"
-      >
-        <SlideTitle>Lo acordado con Producción Site, Técnica y Seguridad</SlideTitle>
-        <div className="grid grid-cols-1 gap-x-8 gap-y-6 deck:grid-cols-3">
-          {ACUERDOS_PRODUCCION.map((a) => (
-            <AreaNotas key={a.area} {...a} />
-          ))}
-        </div>
-        <Note>
-          <b>Layout:</b> lo lleva Producción Site; Rodrigo planteó volver a
-          tomarlo él directamente (por confirmar). Los plazos se empiezan a medir
-          en el Piknic 5; hasta ahora no había registro de cuándo quedaba listo. <b>Seguridad</b> observó en el Piknic 4 público
-          afectado más temprano y más trabajo de la ambulancia: por eso el
-          registro.
-        </Note>
-        <Source>
-          Sale de la reunión del 17-nov. Verde = acordado; morado = piloto por
-          probar; amarillo = se hace en la práctica y falta dejarlo escrito. Por
-          ratificar con las demás áreas en esta reunión.
-        </Source>
-      </Slide>
-
-
-      {/* 15 · Pendientes del Piknic 4 */}
-      <Slide
-        id="pendientes"
-        n={15}
-        total={TOTAL}
-        areas={[TODAS_LAS_AREAS]}
-        label="Para salir de la reunión con esto resuelto"
-      >
-        <SlideTitle>Pendientes del Piknic 4</SlideTitle>
-        <ol className="grid grid-cols-1 gap-x-10 gap-y-4 deck:grid-cols-2">
-          {PENDIENTES.map((a, i) => (
-            <li
-              key={a.titulo}
-              className="grid grid-cols-[calc(var(--spacing)*9)_minmax(0,1fr)] gap-3 border-t border-[var(--divider)] pt-3"
-            >
-              <span
-                aria-hidden="true"
-                className="font-display text-3xl font-bold leading-none text-[#9F99F8]"
-              >
-                {i + 1}
-              </span>
-              <div>
-                <p className="text-base font-semibold text-[var(--ink)]">{a.titulo}</p>
-                <p className="mt-0.5 text-xs font-semibold text-[var(--ink-muted)]">{a.areas}</p>
-                <p className="mt-1 text-sm leading-relaxed text-[var(--ink-muted)]">
-                  {a.texto}
-                </p>
-              </div>
-            </li>
-          ))}
-        </ol>
-      </Slide>
-
-
-      {/* 16 · Anexo: resultado (qué ingresos están cargados) */}
-      <Slide
-        id="resultado"
-        n={16}
-        total={TOTAL}
-        areas={["Finanzas", "Comercial y Marcas", "Ticketing y Comunidad", "Datos y Tecnología"]}
-        label="Anexo"
-        detail="qué ingresos están cargados · datos al 17-nov"
-      >
-        <SlideTitle>El resultado todavía no se puede cerrar</SlideTitle>
-        <SubTitle>Ingresos: qué está cargado</SubTitle>
-        <ul className="flex flex-col">
-          {INGRESOS_CARGA.map((r, i) => (
-            <li
-              key={i}
-              className="grid grid-cols-[calc(var(--spacing)*28)_minmax(0,1fr)] items-baseline gap-3 border-b border-[var(--divider)] py-2 text-sm text-[var(--ink)] first:border-t"
-            >
-              <span>
-                <Pill tone={r.tone}>{r.estado}</Pill>
-              </span>
-              <p className="leading-relaxed">{r.texto}</p>
-            </li>
-          ))}
-        </ul>
-        <Note>
-          <b>Costos:</b> hay OC por el 57% del presupuesto ($105,8 M de $184,4 M).
-          El detalle por categoría está en la lámina 10.
-        </Note>
-      </Slide>
-
-
-      {/* 17 · Anexo: venta y público (detalle) */}
-      <Slide
-        id="anexo-venta"
-        n={17}
-        total={TOTAL}
-        areas={["Marketing", "Ticketing y Comunidad"]}
-        label="Anexo"
-        detail="detalle de la lámina 5 · canal según el código del link de compra"
-      >
-        <SlideTitle>Por dónde se vendió y quién entró</SlideTitle>
-        <div className="grid grid-cols-1 items-start gap-10 deck:grid-cols-2">
-          <div className="flex min-w-0 flex-col gap-3">
-            <SubTitle>Ranking por canal</SubTitle>
-            <Table className="text-xs">
-              <thead>
-                <tr>
-                  <Th>#</Th>
-                  <Th>Canal</Th>
-                  <Th right>Entradas</Th>
-                  <Th right>%</Th>
-                  <Th right>Venta $M</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {CANALES.map((c, i) => (
-                  <tr key={c.canal}>
-                    <Td className="text-[var(--ink-muted)]">{i + 1}</Td>
-                    <Td>{c.canal}</Td>
-                    <Td right>{c.entradas}</Td>
-                    <Td right>{c.pct}</Td>
-                    <Td right>{c.venta}</Td>
-                  </tr>
-                ))}
-                <tr className="font-semibold">
-                  <Td />
-                  <Td>Total</Td>
-                  <Td right>{CANALES_TOTAL.entradas}</Td>
-                  <Td right>{CANALES_TOTAL.pct}</Td>
-                  <Td right>{CANALES_TOTAL.venta}</Td>
-                </tr>
-              </tbody>
-            </Table>
-            <Note>
-              «Sin código» es la compra que llegó sin link rastreado: puede venir
-              de cualquier canal, incluida la pauta. Las 2.776 entradas incluyen
-              135 upgrades: son 2.641 personas. <b>Pauta:</b> US$5.169 (Meta y
-              Google).
-            </Note>
-          </div>
-          <div className="flex min-w-0 flex-col gap-3">
-            <SubTitle>Quién entró</SubTitle>
-            <Table className="text-xs">
-              <tbody>
-                {INGRESOS.map((r) => (
-                  <tr key={r.tipo}>
-                    <Td>{r.tipo}</Td>
-                    <Td right className="font-semibold">
-                      {r.personas}
-                    </Td>
-                    <Td className="text-[var(--ink-muted)]">{r.nota}</Td>
-                  </tr>
-                ))}
-                <tr>
-                  <Td className="font-semibold">Total</Td>
-                  <Td right className="font-semibold">
-                    {INGRESOS_TOTAL.personas}
-                  </Td>
-                  <Td className="text-[var(--ink-muted)]">{INGRESOS_TOTAL.nota}</Td>
-                </tr>
-              </tbody>
-            </Table>
-            <Note>
-              Personas distintas: de los 3.491 escaneos se descuentan 127
-              upgrades, bajo el supuesto de que cada uno se escaneó aparte de la
-              entrada de la misma persona. Pilates:
-              entró 1 de cada 8 invitados.
-            </Note>
-          </div>
-        </div>
-      </Slide>
-
-
-      {/* 18 · Anexo: tragos más vendidos */}
-      <Slide
-        id="barras"
-        n={18}
-        total={TOTAL}
-        areas={["Operaciones", "Seguridad"]}
-        label="Anexo"
-        detail="Onfire · 9.516 tragos"
-      >
-        <SlideTitle>Los tragos más vendidos, en total y por sector</SlideTitle>
-        <Table className="text-sm">
-          <thead>
-            <tr>
-              <Th>Sector</Th>
-              <Th>1</Th>
-              <Th>2</Th>
-              <Th>3</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {BARRAS_TOP.map((s) => (
-              <tr key={s.sector}>
-                <Td className="font-semibold">
-                  {s.sector}
-                  <CellSub>{s.tragos}</CellSub>
-                </Td>
-                {s.top.map((t, i) => (
-                  <Td key={i}>
-                    {t.nombre}
-                    <CellSub>{t.detalle}</CellSub>
-                  </Td>
-                ))}
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-        <Note>
-          <b>Mistral 35° superó al Tropical Gin por 44 tragos</b> (en plata sigue
-          ganando el Tropical Gin; en el Piknic 3 ganó con 1.413). Seguridad vio público afectado más temprano y
-          más trabajo de la ambulancia: no hay registro para medir si se
-          relaciona. <b>Mesa VIP:</b> Onfire registra 612 tragos (en el Piknic 3
-          fueron 30). <b>Promos:</b> 868 de los 1.608 Tropical Gin salieron en la
-          promo «2 Tropical Gin».
-        </Note>
-        <Source>
-          General = barras Corchete, CDGA 360, Entel, Mistral, Heineken, Red Bull,
-          Casa Entel y las de activación (Épica, Carpano). VIP = Barra VIP y JW
-          VIP. Mesa VIP = barra de mesas, Cocktail VIP y cobros a mesa. Promos 2x
-          cuentan como dos tragos; variantes con bebida y con Pepsi, juntas. Sin
-          agua, bebidas, Red Bull solo, vasos, agregados ni versiones sin alcohol.
-          «Pisco 35 + Bebida» de la Barra Entel (265) se cuenta aparte.
-        </Source>
-      </Slide>
-
-
-      {/* 19 · Anexo: anticipación por evento */}
-      <Slide
-        id="anexo-anticipacion"
-        n={19}
-        total={TOTAL}
-        areas={["Dirección", "Marketing", "Producción", "Finanzas"]}
-        label="Anexo"
-        detail="detalle de la lámina 3"
-      >
-        <SlideTitle>Anticipación de cada Piknic</SlideTitle>
-        <p className="text-sm text-[var(--ink-muted)]">
-          Días antes del evento en que pasó cada hito. La barra más larga es mejor.
-          La raya negra es el plazo mínimo; en la salida a la venta, las grises son
-          el nivel bueno (45) y el ideal (60).
-        </p>
-        <Table className="text-xs">
-          <thead>
-            <tr>
-              <Th>Evento</Th>
-              <Th>Fecha</Th>
-              <Th right>Pagadas</Th>
-              <Th className="w-[32%]">Salida a la venta (días antes) · mínimo 30</Th>
-              <Th className="w-[32%]">Negocio en Unabase · 30 días antes</Th>
-            </tr>
-          </thead>
-          <tbody>
-            {ANTICIPACION.map((r) => (
-              <tr key={r.evento} className={r.actual ? "bg-[var(--purple-tint)]" : ""}>
-                <Td className={r.actual ? "font-semibold" : ""}>{r.evento}</Td>
-                <Td className="whitespace-nowrap">{r.fecha}</Td>
-                <Td right>{r.pagadas}</Td>
-                <Td>
-                  <DaysBar value={r.lanzamiento} max={max} mark={lanzamiento.minimo} marks={lanzamiento.otros} />
-                </Td>
-                <Td>
-                  <DaysBar value={r.negocio} max={max} mark={negocio} />
-                </Td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
-
-        <Source>
-          Salida a la venta = primer día con 10 o más entradas pagadas. Negocio =
-          fecha de asignación del negocio GLO en Unabase. Días corridos. Sin el
-          Piknic 2 26-27 (cancelado). El pago de permisos salió de esta tabla: no
-          mide cuándo se ingresan los trámites.
-        </Source>
-      </Slide>
-
-
-      {/* 20 · Anexo: notas del Piknic 3 por confirmar */}
-      <Slide
-        id="anexo-notas"
-        n={20}
-        total={TOTAL}
-        areas={[TODAS_LAS_AREAS]}
-        label="Anexo"
-        detail="notas por área del Piknic 3 que no quedan en ningún sistema"
-      >
-        <SlideTitle>Notas del Piknic 3 por confirmar con cada área</SlideTitle>
-        <div className="grid grid-cols-1 gap-x-6 gap-y-6 sm:grid-cols-2 deck:grid-cols-4">
-          {NOTAS_POR_CONFIRMAR.map((a) => (
-            <AreaNotas key={a.area} {...a} />
-          ))}
-        </div>
-        <Source>
-          No hay dato para medirlas: cada área dice si se hizo en el Piknic 4.
         </Source>
       </Slide>
     </Deck>

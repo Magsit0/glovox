@@ -9,6 +9,7 @@
  * acentos de marca como literales.
  */
 
+import chroma from "chroma-js";
 import { UsersRound } from "lucide-react";
 
 type Children = { children?: React.ReactNode };
@@ -234,6 +235,26 @@ export function Td({
   );
 }
 
+/**
+ * Texto con cada «N días antes» en negrita: la anticipación es lo primero que se
+ * busca en la columna «Qué pasó» de los puntos de control.
+ */
+export function ConDiasAntes({ children }: { children: string }) {
+  return (
+    <>
+      {children.split(/(\d+ días? antes)/).map((parte, i) =>
+        i % 2 === 1 ? (
+          <b key={i} className="font-semibold">
+            {parte}
+          </b>
+        ) : (
+          parte
+        ),
+      )}
+    </>
+  );
+}
+
 /** Línea secundaria dentro de una celda (área responsable, cantidades…). */
 export function CellSub({ children }: Children) {
   return (
@@ -304,6 +325,71 @@ export function SpendBar({ pct }: { pct: number | null }) {
           style={{ width: `${Math.min(100, pct)}%` }}
         />
       )}
+    </div>
+  );
+}
+
+/* ───────────────────────── Mapa de calor de tramos ───────────────────────── */
+
+/** Escala de una etapa: de un tinte casi blanco de su color al acento lleno. */
+const calor = (color: string) => chroma.scale([chroma.mix("#FFFFFF", color, 0.12, "lab"), color]).mode("lab");
+
+/**
+ * Entradas por tramo de compra, un evento por fila: cada tramo es una columna
+ * del mismo ancho (de lo más temprano, a la izquierda, al día del evento, a la
+ * derecha), con su color de acento. La intensidad sube con la cantidad, sobre
+ * la misma escala en todas las celdas, así que se compara tramo con tramo entre
+ * eventos.
+ */
+export function TramosCalor<K extends string>({
+  tramos,
+  filas,
+}: {
+  /** `color`: uno de los acentos de marca (hex), distinto por tramo. */
+  tramos: readonly { key: K; label: string; color: string }[];
+  filas: readonly { evento: string; tramos: Record<K, number>; total: string; actual?: boolean }[];
+}) {
+  const max = Math.max(1, ...filas.flatMap((f) => tramos.map((t) => f.tramos[t.key])));
+  const fmt = new Intl.NumberFormat("es-CL");
+  const cols = `calc(var(--spacing)*18) repeat(${tramos.length}, minmax(0, 1fr)) calc(var(--spacing)*14)`;
+  return (
+    <div className="flex flex-col gap-1" role="table" aria-label="Entradas pagadas por tramo de compra">
+      <div role="row" className="grid items-end gap-1 pb-1 text-xs text-[var(--ink-muted)]" style={{ gridTemplateColumns: cols }}>
+        <span role="columnheader" />
+        {tramos.map((t) => (
+          <span key={t.key} role="columnheader" className="flex items-end justify-center gap-1.5 px-1 text-center leading-tight">
+            <span aria-hidden="true" className="mb-0.5 inline-block h-2 w-2 shrink-0 rounded-sm" style={{ backgroundColor: t.color }} />
+            {t.label}
+          </span>
+        ))}
+        <span role="columnheader" className="text-right">
+          Total
+        </span>
+      </div>
+      {filas.map((f) => (
+        <div key={f.evento} role="row" className="grid items-center gap-1" style={{ gridTemplateColumns: cols }}>
+          <span role="rowheader" className={`text-sm text-[var(--ink)] ${f.actual ? "font-semibold" : ""}`}>
+            {f.evento}
+          </span>
+          {tramos.map((t) => {
+            const v = f.tramos[t.key];
+            return (
+              <span
+                key={t.key}
+                role="cell"
+                className="flex h-9 items-center justify-center rounded-md text-sm font-semibold tabular-nums text-[var(--ink)]"
+                style={{ backgroundColor: calor(t.color)(v / max).hex() }}
+              >
+                {fmt.format(v)}
+              </span>
+            );
+          })}
+          <span role="cell" className="text-right text-sm font-semibold tabular-nums text-[var(--ink)]">
+            {f.total}
+          </span>
+        </div>
+      ))}
+      <p className="pt-1 text-xs text-[var(--ink-subtle)]">Más intenso = más entradas, en la misma escala para todas las celdas.</p>
     </div>
   );
 }

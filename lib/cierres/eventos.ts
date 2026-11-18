@@ -26,6 +26,12 @@ export interface EventoCierre {
   cierre?: string;
   /** El mapa existe en `content/mapas-ventas/<slug>.html`. */
   mapa: boolean;
+  /**
+   * Plan del evento en la carta Gantt de glovox-produccion (`tareas.evento_id`,
+   * ej. "1238" del plan 1238-CL-PKN). Con él la presentación lee y anota sus
+   * fechas clave (lib/produccion/fechas-clave.ts).
+   */
+  planGantt?: string;
 }
 
 export const EVENTOS_CIERRE: readonly EventoCierre[] = [
@@ -48,6 +54,7 @@ export const EVENTOS_CIERRE: readonly EventoCierre[] = [
     lugar: "Parque Padre Hurtado",
     cierre: "/cierres/piknic-4-26-27",
     mapa: true,
+    planGantt: "1238",
   },
   {
     slug: "piknic-3-26-27",

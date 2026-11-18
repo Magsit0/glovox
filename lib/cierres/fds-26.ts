@@ -57,9 +57,9 @@ export const PUNTOS_CONTROL: {
 }[] = [
   {
     punto: "Salida a la venta",
-    area: "Dirección y Marketing",
+    area: "Marketing",
     plazo: "ideal 60 días antes · mínimo 30",
-    quePaso: "Abrió el 29-sep, 45 días antes. La FDS 25 abrió el 8-sep, 74 días antes.",
+    quePaso: "Abrió el 29-sep, 45 días antes.",
     estado: "nivel bueno",
     tone: "success",
   },
@@ -89,20 +89,11 @@ export const PUNTOS_CONTROL: {
     tone: "error",
   },
   {
-    punto: "Costo de pauta por comprador",
-    area: "Marketing",
-    plazo: "umbral por definir",
-    quePaso:
-      "US$10.095 en Meta y Google y 6.974 personas que pagaron: US$1,45 por persona. FDS 25: US$1,08, pero solo con Meta medido.",
-    estado: "por definir",
-    tone: "neutral",
-  },
-  {
     punto: "Carta Gantt al día",
     area: "Producción",
     plazo: "3 días después · 18-nov",
     quePaso:
-      "122 tareas, 84 cerradas y 36 vencidas sin cerrar. La última edición es del domingo 15-nov; el desmontaje no tiene nada marcado.",
+      "122 tareas: 84 cerradas y 36 vencidas sin cerrar; el desmontaje no tiene nada marcado.",
     estado: "vence mañana",
     tone: "pending",
   },
@@ -115,13 +106,21 @@ export const PUNTOS_CONTROL: {
     estado: "incompleto",
     tone: "pending",
   },
+  {
+    punto: "Informe de marcas",
+    area: "Comercial y Marcas",
+    plazo: "5 días después · 20-nov",
+    quePaso: "Aún en plazo. No hay registro de cuándo se entrega el informe a cada marca.",
+    estado: "vence el 20-nov",
+    tone: "pending",
+  },
 ];
 
 /* ── 3 · Anticipación (días antes del primer día). Lo normal = la FDS 25. ── */
 export const HITOS: HitoPlazo[] = [
   {
     hito: "Salida a la venta",
-    area: "Dirección y Marketing",
+    area: "Marketing",
     plazo: 30,
     niveles: [
       { dias: 60, label: "ideal" },
@@ -147,16 +146,19 @@ export const HITOS: HitoPlazo[] = [
 /* ── 4 · Comparación con la FDS 25 ── */
 type Cambio = { texto: string; tone: "good" | "bad" | "eq" };
 
-export const CMP_RESULTADO: { indicador: string; f25: string; f26: string; cambio: Cambio }[] = [
-  { indicador: "Personas que entraron", f25: "7.713", f26: "7.080", cambio: { texto: "−8%", tone: "bad" } },
-  { indicador: "Personas que pagaron entrada", f25: "6.774", f26: "6.974", cambio: { texto: "+3%", tone: "good" } },
-  { indicador: "Cortesías emitidas", f25: "2.221", f26: "1.658", cambio: { texto: "−25%", tone: "eq" } },
-  { indicador: "Venta de tickets (bruta)", f25: "$48,6 M", f26: "$39,5 M", cambio: { texto: "−19%", tone: "bad" } },
-  { indicador: "Venta por persona que pagó", f25: "$7.175", f26: "$5.668", cambio: { texto: "−21%", tone: "bad" } },
-  { indicador: "Vendido en Onfire", f25: "$227,8 M", f26: "$202,2 M", cambio: { texto: "−11%", tone: "bad" } },
-  { indicador: "Onfire por persona que entró", f25: "$29.532", f26: "$28.559", cambio: { texto: "−3%", tone: "eq" } },
-  { indicador: "Pauta digital", f25: "US$7.336", f26: "US$10.095", cambio: { texto: "+38%", tone: "eq" } },
-  { indicador: "Salida a la venta (días antes)", f25: "74", f26: "45", cambio: { texto: "−29", tone: "bad" } },
+/* CPA Meta (18-nov) = gasto en Meta de getPaidMediaSummary (FDS 25 US$7.336,
+ * FDS 26 US$8.222) ÷ personas que entraron o que pagaron. No es atribución. La
+ * FDS 26 gastó además US$1.873 en Google; en 2025 Google no se medía. */
+/** `grupo`: las filas se muestran agrupadas (lámina de comparación, solo Marketing). */
+export const CMP_RESULTADO: { grupo: string; indicador: string; f24: string; f25: string; f26: string; cambio: Cambio }[] = [
+  { grupo: "Público", indicador: "Personas que entraron", f24: "8.973", f25: "7.713", f26: "7.080", cambio: { texto: "−8%", tone: "bad" } },
+  { grupo: "Público", indicador: "Personas que pagaron entrada", f24: "7.750", f25: "6.774", f26: "6.974", cambio: { texto: "+3%", tone: "good" } },
+  { grupo: "Público", indicador: "Cortesías emitidas", f24: "2.391", f25: "2.221", f26: "1.658", cambio: { texto: "−25%", tone: "eq" } },
+  { grupo: "Venta de tickets", indicador: "Venta de tickets (bruta)", f24: "$60,5 M", f25: "$48,6 M", f26: "$39,5 M", cambio: { texto: "−19%", tone: "bad" } },
+  { grupo: "Venta de tickets", indicador: "Venta por persona que pagó", f24: "$7.808", f25: "$7.175", f26: "$5.668", cambio: { texto: "−21%", tone: "bad" } },
+  { grupo: "Pauta en Meta", indicador: "CPA Meta por asistente", f24: "—", f25: "US$0,95", f26: "US$1,16", cambio: { texto: "+22%", tone: "bad" } },
+  { grupo: "Pauta en Meta", indicador: "CPA Meta por persona que pagó", f24: "—", f25: "US$1,08", f26: "US$1,18", cambio: { texto: "+9%", tone: "bad" } },
+  { grupo: "Anticipación", indicador: "Salida a la venta (días antes)", f24: "95", f25: "74", f26: "45", cambio: { texto: "−29", tone: "bad" } },
 ];
 
 /** Personas con entrada pagada según cuántos días antes de SU día compraron. */
@@ -165,6 +167,7 @@ export const TRAMOS_VENTA: {
   tramos: { antes: number; semanas1a3: number; ultimaSemana: number; dia: number };
   total: string;
 }[] = [
+  { evento: "FDS 24", tramos: { antes: 874, semanas1a3: 894, ultimaSemana: 2383, dia: 3599 }, total: "7.750" },
   { evento: "FDS 25", tramos: { antes: 1022, semanas1a3: 844, ultimaSemana: 1736, dia: 3172 }, total: "6.774" },
   { evento: "FDS 26", tramos: { antes: 1609, semanas1a3: 1121, ultimaSemana: 1696, dia: 2548 }, total: "6.974" },
 ];
@@ -172,13 +175,91 @@ export const TRAMOS_VENTA: {
 /** Por día de la feria: FDS 25 → FDS 26. Onfire por día de venta. */
 export const POR_DIA: {
   dia: string;
-  pagaron: [string, string];
-  entraron: [string, string];
-  onfire: [string, string];
+  /** FDS 24, FDS 25, FDS 26. */
+  pagaron: [string, string, string];
+  entraron: [string, string, string];
 }[] = [
-  { dia: "Viernes", pagaron: ["485", "1.210"], entraron: ["562", "671"], onfire: ["$39,1 M", "$34,8 M"] },
-  { dia: "Sábado", pagaron: ["3.545", "3.645"], entraron: ["3.858", "3.623"], onfire: ["$103,0 M", "$96,4 M"] },
-  { dia: "Domingo", pagaron: ["2.744", "2.119"], entraron: ["3.293", "2.786"], onfire: ["$85,7 M", "$71,0 M"] },
+  { dia: "Viernes", pagaron: ["365", "485", "1.210"], entraron: ["411", "562", "671"] },
+  { dia: "Sábado", pagaron: ["4.040", "3.545", "3.645"], entraron: ["4.611", "3.858", "3.623"] },
+  { dia: "Domingo", pagaron: ["3.345", "2.744", "2.119"], entraron: ["3.951", "3.293", "2.786"] },
+];
+
+/* ── 3 · La misma comparación, día por día (selector de la lámina) ──
+ * Mismas reglas que CMP_RESULTADO, por el día de la entrada. La pauta y la
+ * salida a la venta no se separan por día: solo salen en «Los 3 días».
+ * FDS 24 = GLO145 (15 al 17-nov-2024): todas sus entradas eran individuales. */
+export type DiaCmp = "todos" | "vie" | "sab" | "dom";
+type FilaCmp = { grupo: string; indicador: string; f24: string; f25: string; f26: string; cambio: Cambio };
+type Tramos = { antes: number; semanas1a3: number; ultimaSemana: number; dia: number };
+/** Cada tupla: FDS 24, FDS 25, FDS 26, cambio 26 contra 25. */
+type T4 = [string, string, string, string];
+const filasDia = (
+  e: T4,
+  p: T4,
+  c: T4,
+  v: T4,
+  pp: T4,
+  tones: { e: Cambio["tone"]; p: Cambio["tone"]; v: Cambio["tone"]; pp: Cambio["tone"] },
+): FilaCmp[] => [
+  { grupo: "Público", indicador: "Personas que entraron", f24: e[0], f25: e[1], f26: e[2], cambio: { texto: e[3], tone: tones.e } },
+  { grupo: "Público", indicador: "Personas que pagaron entrada", f24: p[0], f25: p[1], f26: p[2], cambio: { texto: p[3], tone: tones.p } },
+  { grupo: "Público", indicador: "Cortesías emitidas", f24: c[0], f25: c[1], f26: c[2], cambio: { texto: c[3], tone: "eq" } },
+  { grupo: "Venta de tickets", indicador: "Venta de tickets (bruta)", f24: v[0], f25: v[1], f26: v[2], cambio: { texto: v[3], tone: tones.v } },
+  { grupo: "Venta de tickets", indicador: "Venta por persona que pagó", f24: pp[0], f25: pp[1], f26: pp[2], cambio: { texto: pp[3], tone: tones.pp } },
+];
+
+export const CMP_DIAS: {
+  key: DiaCmp;
+  label: string;
+  titulo: string;
+  nota: string;
+  filas: FilaCmp[];
+  tramos: { evento: string; tramos: Tramos; total: string; actual?: boolean }[];
+}[] = [
+  {
+    key: "todos",
+    label: "Los 3 días",
+    titulo: "Pagaron 3% más personas que en 2025, pero la venta de tickets lleva dos años bajando: $60,5 M, $48,6 M y $39,5 M",
+    nota: "Antes de 3 semanas la FDS 26 llevaba 1.609 personas con entrada (FDS 24: 874; FDS 25: 1.022). Lo que se perdió fue la compra durante la feria: 4.570 personas en 2024, 4.005 en 2025 y 3.097 en 2026.",
+    filas: CMP_RESULTADO,
+    tramos: TRAMOS_VENTA,
+  },
+  {
+    key: "vie",
+    label: "Viernes",
+    titulo: "El viernes pagaron más del doble de personas que en 2025, pero entró solo 19% más gente",
+    nota: "De las 1.210 personas con entrada del viernes, 543 son entradas de niños y solo 31 se escanearon. 549 compraron con más de 3 semanas de anticipación (FDS 24: 18; FDS 25: 74).",
+    filas: filasDia(["411", "562", "671", "+19%"], ["365", "485", "1.210", "+149%"], ["420", "409", "227", "−44%"], ["$2,2 M", "$2,8 M", "$5,3 M", "+93%"], ["$6.057", "$5.709", "$4.407", "−23%"], { e: "good", p: "good", v: "good", pp: "bad" }),
+    tramos: [
+      { evento: "FDS 24", tramos: { antes: 18, semanas1a3: 32, ultimaSemana: 92, dia: 223 }, total: "365" },
+      { evento: "FDS 25", tramos: { antes: 74, semanas1a3: 27, ultimaSemana: 82, dia: 302 }, total: "485" },
+      { evento: "FDS 26", tramos: { antes: 549, semanas1a3: 206, ultimaSemana: 191, dia: 264 }, total: "1.210" },
+    ],
+  },
+  {
+    key: "sab",
+    label: "Sábado",
+    titulo: "El sábado pagaron 3% más personas que en 2025, pero cada una pagó 19% menos",
+    nota: "El sábado se vendió igual o más que en 2025 en todos los tramos salvo el mismo día: 1.247 personas compraron ese día (FDS 24: 1.618; FDS 25: 1.397). Se emitieron menos de la mitad de las cortesías de 2024 (464 contra 1.020).",
+    filas: filasDia(["4.611", "3.858", "3.623", "−6%"], ["4.040", "3.545", "3.645", "+3%"], ["1.020", "839", "464", "−45%"], ["$32,6 M", "$26,4 M", "$21,9 M", "−17%"], ["$8.061", "$7.456", "$6.017", "−19%"], { e: "bad", p: "good", v: "bad", pp: "bad" }),
+    tramos: [
+      { evento: "FDS 24", tramos: { antes: 588, semanas1a3: 543, ultimaSemana: 1291, dia: 1618 }, total: "4.040" },
+      { evento: "FDS 25", tramos: { antes: 707, semanas1a3: 539, ultimaSemana: 902, dia: 1397 }, total: "3.545" },
+      { evento: "FDS 26", tramos: { antes: 768, semanas1a3: 692, ultimaSemana: 938, dia: 1247 }, total: "3.645" },
+    ],
+  },
+  {
+    key: "dom",
+    label: "Domingo",
+    titulo: "El domingo fue el día más débil: pagaron 23% menos personas que en 2025 y la venta bajó 37%",
+    nota: "El domingo viene cayendo hace dos años: pagaron 3.345 personas en 2024, 2.744 en 2025 y 2.119 en 2026. El mismo día compraron 1.037 (FDS 24: 1.758). Las cortesías se mantuvieron y pesaron más: 805 de las 2.786 personas que entraron (29%).",
+    filas: filasDia(["3.951", "3.293", "2.786", "−15%"], ["3.345", "2.744", "2.119", "−23%"], ["951", "973", "967", "−1%"], ["$25,7 M", "$19,4 M", "$12,3 M", "−37%"], ["$7.692", "$7.069", "$5.789", "−18%"], { e: "bad", p: "bad", v: "bad", pp: "bad" }),
+    tramos: [
+      { evento: "FDS 24", tramos: { antes: 268, semanas1a3: 319, ultimaSemana: 1000, dia: 1758 }, total: "3.345" },
+      { evento: "FDS 25", tramos: { antes: 241, semanas1a3: 278, ultimaSemana: 752, dia: 1473 }, total: "2.744" },
+      { evento: "FDS 26", tramos: { antes: 292, semanas1a3: 223, ultimaSemana: 567, dia: 1037 }, total: "2.119" },
+    ],
+  },
 ];
 
 /* ── 5 · Venta: convenios, tipos de entrada y canales ── */
@@ -217,21 +298,27 @@ export const TIPOS_F25: { tipo: string; entradas: string; precio: string }[] = [
   { tipo: "Diferencial (upgrade en puerta)", entradas: "75", precio: "$2.000" },
 ];
 
-/* ── 6 · Ingreso por hora: personas escaneadas por hora, sábado y domingo ── */
-export const INGRESO_HORA: { hora: string; sab26: number; sab25: number; dom26: number; dom25: number }[] = [
-  { hora: "11", sab26: 43, sab25: 79, dom26: 63, dom25: 102 },
-  { hora: "12", sab26: 198, sab25: 270, dom26: 200, dom25: 284 },
-  { hora: "13", sab26: 426, sab25: 537, dom26: 544, dom25: 639 },
-  { hora: "14", sab26: 742, sab25: 581, dom26: 694, dom25: 710 },
-  { hora: "15", sab26: 652, sab25: 604, dom26: 525, dom25: 600 },
-  { hora: "16", sab26: 380, sab25: 500, dom26: 314, dom25: 333 },
-  { hora: "17", sab26: 334, sab25: 454, dom26: 213, dom25: 244 },
-  { hora: "18", sab26: 335, sab25: 371, dom26: 106, dom25: 164 },
-  { hora: "19", sab26: 320, sab25: 312, dom26: 79, dom25: 136 },
-  { hora: "20", sab26: 232, sab25: 118, dom26: 14, dom25: 63 },
-  { hora: "21", sab26: 49, sab25: 22, dom26: 2, dom25: 26 },
+/* ── 5 · Ingreso por hora: personas escaneadas por hora de escaneo, los tres días ──
+ * El viernes el acceso se escaneó solo desde las 17:03 (igual en 2025). */
+export const INGRESO_HORA: { hora: string; vie26: number; vie25: number; sab26: number; sab25: number; dom26: number; dom25: number }[] = [
+  { hora: "11", vie26: 0, vie25: 0, sab26: 43, sab25: 79, dom26: 63, dom25: 102 },
+  { hora: "12", vie26: 0, vie25: 0, sab26: 198, sab25: 270, dom26: 200, dom25: 284 },
+  { hora: "13", vie26: 0, vie25: 0, sab26: 426, sab25: 537, dom26: 544, dom25: 639 },
+  { hora: "14", vie26: 0, vie25: 0, sab26: 742, sab25: 581, dom26: 694, dom25: 710 },
+  { hora: "15", vie26: 0, vie25: 0, sab26: 652, sab25: 604, dom26: 525, dom25: 600 },
+  { hora: "16", vie26: 0, vie25: 0, sab26: 380, sab25: 500, dom26: 314, dom25: 333 },
+  { hora: "17", vie26: 132, vie25: 86, sab26: 334, sab25: 454, dom26: 213, dom25: 244 },
+  { hora: "18", vie26: 146, vie25: 127, sab26: 335, sab25: 371, dom26: 106, dom25: 164 },
+  { hora: "19", vie26: 159, vie25: 181, sab26: 320, sab25: 312, dom26: 79, dom25: 136 },
+  { hora: "20", vie26: 154, vie25: 115, sab26: 232, sab25: 118, dom26: 14, dom25: 63 },
+  { hora: "21", vie26: 22, vie25: 52, sab26: 49, sab25: 22, dom26: 2, dom25: 26 },
+  { hora: "22", vie26: 2, vie25: 3, sab26: 0, sab25: 0, dom26: 0, dom25: 0 },
 ];
 export const INGRESO_RESUMEN = {
+  viernesTotal: "615",
+  viernesTotal25: "564",
+  puntaVie: "159",
+  puntaVie25: "181",
   puntaSab: "742",
   puntaSab25: "604",
   puntaDom: "694",
@@ -258,8 +345,10 @@ export const MAPA_ALT =
 export const ONFIRE_GRUPOS: {
   grupo: string;
   que: string;
+  f24: string;
   f25: string;
   f26: string;
+  porPersona24: string;
   porPersona25: string;
   porPersona26: string;
   cambio: Cambio;
@@ -267,8 +356,10 @@ export const ONFIRE_GRUPOS: {
   {
     grupo: "Expositores",
     que: "sangucherías, foodtrucks, postres, café, jugos y mercadito",
+    f24: "$151,7 M",
     f25: "$148,1 M",
     f26: "$131,1 M",
+    porPersona24: "$16.901",
     porPersona25: "$19.203",
     porPersona26: "$18.522",
     cambio: { texto: "−11%", tone: "bad" },
@@ -276,8 +367,10 @@ export const ONFIRE_GRUPOS: {
   {
     grupo: "Barras de Glovox",
     que: "FDS 26: Corchete, Cervezera, Escenario, Bosque y Zona Niños",
+    f24: "$86,2 M",
     f25: "$78,2 M",
     f26: "$64,3 M",
+    porPersona24: "$9.611",
     porPersona25: "$10.140",
     porPersona26: "$9.076",
     cambio: { texto: "−18%", tone: "bad" },
@@ -285,14 +378,16 @@ export const ONFIRE_GRUPOS: {
   {
     grupo: "Juegos",
     que: "bingo, botes en la laguna y Entretenciones Krusty",
+    f24: "—",
     f25: "$1,5 M",
     f26: "$6,8 M",
+    porPersona24: "—",
     porPersona25: "$188",
     porPersona26: "$960",
     cambio: { texto: "+369%", tone: "good" },
   },
 ];
-export const ONFIRE_TOTAL = { f25: "$227,8 M", f26: "$202,2 M", porPersona25: "$29.532", porPersona26: "$28.559" };
+export const ONFIRE_TOTAL = { f24: "$237,9 M", f25: "$227,8 M", f26: "$202,2 M", porPersona24: "$26.512", porPersona25: "$29.532", porPersona26: "$28.559" };
 
 /** Barras de Glovox en la FDS 26 (Onfire bruto, tres días). */
 export const BARRAS: { barra: string; venta: string; pct: string }[] = [
@@ -304,21 +399,22 @@ export const BARRAS: { barra: string; venta: string; pct: string }[] = [
 ];
 
 /** Los 10 expositores que más vendieron en la FDS 26, con su puesto en la FDS 25. */
-export const RANKING: { n: number; nombre: string; venta: string; ticket: string; f25: string }[] = [
-  { n: 1, nombre: "La Fuente Carrera", venta: "$9,5 M", ticket: "$13.013", f25: "nuevo" },
-  { n: 2, nombre: "Chicken Love You", venta: "$8,7 M", ticket: "$10.323", f25: "#2 · $10,3 M" },
-  { n: 3, nombre: "Hauromi Kai", venta: "$7,8 M", ticket: "$14.104", f25: "nuevo" },
-  { n: 4, nombre: "Mano Negra Sanguchería Marina", venta: "$7,6 M", ticket: "$11.716", f25: "nuevo" },
-  { n: 5, nombre: "Bestias Burger", venta: "$7,5 M", ticket: "$10.631", f25: "#4 · $7,7 M" },
-  { n: 6, nombre: "Mr Tex", venta: "$7,4 M", ticket: "$11.504", f25: "#1 · $13,7 M" },
-  { n: 7, nombre: "La Verità", venta: "$6,9 M", ticket: "$6.970", f25: "#14 · $5,4 M" },
-  { n: 8, nombre: "Uncle Fletch", venta: "$6,8 M", ticket: "$12.641", f25: "#9 · $6,7 M" },
-  { n: 9, nombre: "Marraqueta Rustik", venta: "$6,7 M", ticket: "$13.738", f25: "#6 · $7,2 M" },
-  { n: 10, nombre: "Jugosos", venta: "$4,8 M", ticket: "$7.045", f25: "#11 · $6,1 M" },
+export const RANKING: { n: number; nombre: string; venta: string; ticket: string; f24: string; f25: string }[] = [
+  { n: 1, nombre: "La Fuente Carrera", venta: "$9,5 M", ticket: "$13.013", f24: "—", f25: "nuevo" },
+  { n: 2, nombre: "Chicken Love You", venta: "$8,7 M", ticket: "$10.323", f24: "#2 · $13,6 M", f25: "#2 · $10,3 M" },
+  { n: 3, nombre: "Hauromi Kai", venta: "$7,8 M", ticket: "$14.104", f24: "—", f25: "nuevo" },
+  { n: 4, nombre: "Mano Negra Sanguchería Marina", venta: "$7,6 M", ticket: "$11.716", f24: "—", f25: "nuevo" },
+  { n: 5, nombre: "Bestias Burger", venta: "$7,5 M", ticket: "$10.631", f24: "#7 · $7,9 M", f25: "#4 · $7,7 M" },
+  { n: 6, nombre: "Mr Tex", venta: "$7,4 M", ticket: "$11.504", f24: "#1 · $14,9 M", f25: "#1 · $13,7 M" },
+  { n: 7, nombre: "La Verità", venta: "$6,9 M", ticket: "$6.970", f24: "#4 · $11,3 M", f25: "#14 · $5,4 M" },
+  { n: 8, nombre: "Uncle Fletch", venta: "$6,8 M", ticket: "$12.641", f24: "—", f25: "#9 · $6,7 M" },
+  { n: 9, nombre: "Marraqueta Rustik", venta: "$6,7 M", ticket: "$13.738", f24: "#9 · $6,3 M", f25: "#6 · $7,2 M" },
+  { n: 10, nombre: "Jugosos", venta: "$4,8 M", ticket: "$7.045", f24: "#16 · $5,0 M", f25: "#11 · $6,1 M" },
 ];
 export const RANKING_RESUMEN = {
   puntos26: 39,
   puntos25: 33,
+  puntos24: 24,
   nuevos: 20,
   top10: "$73,6 M",
   top10Pct: "56%",
@@ -446,16 +542,18 @@ export const MONTAJE: {
 export const MONTAJE_RESUMEN = { tareas: 67, cerradas: 48 } as const;
 
 /* ── 9 · La cuenta: resultado en Unabase ── */
-export const RESULTADO_F25: { concepto: string; monto: string; detalle?: string; total?: boolean }[] = [
-  { concepto: "Ingresos del negocio GLO181", monto: "$283,3 M", detalle: "facturado $261,0 M: marcas y otros $163,6 M · cobro en el evento $59,3 M · ticketera $38,1 M" },
-  { concepto: "− Gasto real", monto: "$328,4 M" },
-  { concepto: "= Resultado del negocio GLO181", monto: "−$45,1 M", total: true },
+/** FDS 24 = negocio 6848 (asignado el 8-nov-2024) + Lipton (6955) y «Ventas FDS» (6877). */
+export const RESULTADO_ANTERIORES: { concepto: string; f24: string; f25: string; detalle?: string; total?: boolean }[] = [
+  { concepto: "Ingresos del negocio GLO", f24: "$271,4 M", f25: "$283,3 M", detalle: "marcas y otros, cobro en el evento y ticketera" },
+  { concepto: "− Gasto real", f24: "$301,5 M", f25: "$328,4 M" },
+  { concepto: "= Resultado del negocio GLO", f24: "−$30,1 M", f25: "−$45,1 M", total: true },
   {
     concepto: "+ Negocios aparte",
-    monto: "+$21,7 M",
-    detalle: "utilidad de Copec Pay, Kross (2), Entel y «Ventas FDS 2025», con su propio número en Unabase",
+    f24: "+$0,8 M",
+    f25: "+$21,7 M",
+    detalle: "2024: Lipton y «Ventas FDS». 2025: Copec Pay, Kross (2), Entel y «Ventas FDS 2025»",
   },
-  { concepto: "= Resultado de la FDS 25", monto: "−$23,4 M", total: true },
+  { concepto: "= Resultado de la feria", f24: "−$29,3 M", f25: "−$23,4 M", total: true },
 ];
 
 export const RESULTADO_F26 = {
@@ -463,19 +561,9 @@ export const RESULTADO_F26 = {
   gastoPresupuestado: "$287,0 M",
   utilidadPresupuestada: "$41,5 M",
   gastoConOc: "$155,2 M",
-  marcasCerradas: "$83,0 M",
   ticketsNeto: "$33,7 M",
 } as const;
 
-/** Marcas cerradas según la planilla de Comercial (no están en el onepager). */
-export const MARCAS: { marca: string; valor: string; categoria: string }[] = [
-  { marca: "Copec Pay", valor: "$25,0 M", categoria: "presenta" },
-  { marca: "Pepsi", valor: "$19,0 M", categoria: "invita" },
-  { marca: "Caja Los Andes", valor: "$15,0 M", categoria: "invita · uso de la laguna" },
-  { marca: "Estrella + Tübinger", valor: "$10,0 M", categoria: "invita" },
-  { marca: "Lay's", valor: "$8,0 M", categoria: "invita" },
-  { marca: "Heinz / Kraft", valor: "$6,0 M", categoria: "invita · acuerdo por $2,0 M" },
-];
 
 /* ── 10 · OC y respaldo ── */
 export const OC: {
@@ -500,6 +588,44 @@ export const OC: {
 ];
 export const OC_TOTAL = { presupuesto: "287,0", emitido: "155,2", pct: 54, nOc: 53, real25: "334,4" };
 export const OC_ANTES = { pct: 52, monto: "$148,2 M", fds25: 41, meta: 95, respaldo: "$0,9 M", sinOc: "$131,8 M" } as const;
+
+/**
+ * Pagos según el estado de la OC en Unabase (finanzas.unabase_gasto_dtc, carga
+ * del 17-nov 09:15). Montos con IVA, sin anuladas. Cerrada = pagada completa;
+ * Emitida = por pagar, puede tener abonos. La FDS 25 va como está hoy, un año
+ * después: es la referencia de cómo termina, no del mismo punto.
+ */
+export type OcEstadoCelda = { n: number; monto: string; abonado?: string };
+export const OC_ESTADOS: {
+  evento: string;
+  cuando: string;
+  cerrada: OcEstadoCelda;
+  emitida: OcEstadoCelda;
+  total: OcEstadoCelda;
+  pagado: string;
+  pct: string;
+  actual?: boolean;
+}[] = [
+  {
+    evento: "FDS 25",
+    cuando: "hoy, un año después",
+    cerrada: { n: 226, monto: "$302,4 M" },
+    emitida: { n: 6, monto: "$46,2 M", abonado: "$24,7 M" },
+    total: { n: 232, monto: "$348,6 M" },
+    pagado: "$327,1 M",
+    pct: "94%",
+  },
+  {
+    evento: "FDS 26",
+    cuando: "al 17-nov, 2 días después",
+    cerrada: { n: 0, monto: "—" },
+    emitida: { n: 51, monto: "$181,5 M" },
+    total: { n: 51, monto: "$181,5 M" },
+    pagado: "$0",
+    pct: "0%",
+    actual: true,
+  },
+];
 
 /* ── 11 · Acuerdos del 17-nov medidos en la FDS 26 ── */
 export const ACUERDOS_MEDIDOS: { acuerdo: string; areas: string; estado: string; tone: Tone; texto: string }[] = [
@@ -587,7 +713,7 @@ export const PENDIENTES: { titulo: string; areas: string; texto: string }[] = [
     titulo: "Marcas en el onepager e ingresos en Unabase",
     areas: "Comercial y Finanzas",
     texto:
-      "La planilla de Comercial suma $83,0 M en marcas cerradas; el onepager no tiene ninguna y en Unabase no hay ingresos facturados. Sin eso no se puede cerrar el resultado.",
+      "Comercial tiene las marcas cerradas en su planilla; el onepager no tiene ninguna y en Unabase no hay ingresos facturados. Sin eso no se puede cerrar el resultado.",
   },
   {
     titulo: "La barra que se cambió el sábado",

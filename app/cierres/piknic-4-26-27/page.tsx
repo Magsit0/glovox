@@ -3,6 +3,9 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { canAccessPath } from "@/lib/permissions";
 import { mapaHref } from "@/lib/cierres/eventos";
+import { getFechaClaveEvento } from "@/lib/produccion/fechas-clave";
+import { esSuperadminVigente } from "@/lib/access";
+import { META } from "@/lib/cierres/piknic-4-26-27";
 import CierrePiknic4Deck from "@/components/cierres/piknic-4-26-27/CierrePiknic4Deck";
 
 export const dynamic = "force-dynamic";
@@ -25,5 +28,19 @@ export default async function CierrePiknic4Page() {
   if (!canAccessPath(permissions, PATH)) redirect("/?unauthorized=1");
 
   const mapa = mapaHref("piknic-4-26-27");
-  return <CierrePiknic4Deck mapaHref={canAccessPath(permissions, mapa) ? mapa : undefined} />;
+  // En vivo desde la carta Gantt: lo anota Booking en glovox-produccion.
+  // Un superadmin puede anotar la fecha real desde la lámina (escribe en la Gantt).
+  const [lineup, editarLineup] = await Promise.all([
+    getFechaClaveEvento(META.planGantt, "lineup_confirmado", "Piknic"),
+    session.user.role === "superadmin"
+      ? esSuperadminVigente(session.user.email).catch(() => false)
+      : Promise.resolve(false),
+  ]);
+  return (
+    <CierrePiknic4Deck
+      mapaHref={canAccessPath(permissions, mapa) ? mapa : undefined}
+      lineup={lineup}
+      editarLineup={editarLineup && lineup !== null}
+    />
+  );
 }

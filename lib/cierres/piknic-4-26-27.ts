@@ -31,11 +31,14 @@
  * permisos sale hasta tener las fechas de ingreso (Cessi).
  */
 
-import type { AreaConNotas, HitoPlazo, Tone } from "@/components/cierres/deck/primitives";
+import type { AreaConNotas, Tone } from "@/components/cierres/deck/primitives";
 
 export const META = {
   evento: "Piknic 4 · 26-27",
   eventoId: "GLO216",
+  fechaEvento: "2026-11-07",
+  /** Plan en glovox-produccion (1238-CL-PKN): `tareas.evento_id`. */
+  planGantt: "1238",
   corte: "datos al 17-nov · 10 días después del evento",
   pdfFilename: "Cierre Piknic 4 · 26-27 (datos al 17-nov-2026)",
 } as const;
@@ -54,7 +57,12 @@ export const PORTADA_FACTS: { value: string; caption: string; tone?: "warn" }[] 
   },
 ];
 
-/* ── 2 · Tarjeta de control ── */
+/* ── 2 · Tarjeta de control ──
+ * «Line up confirmado» se lee en vivo de la carta Gantt (fecha clave
+ * `lineup_confirmado`, área Booking, plazo ideal Piknic = 90 días antes; creada
+ * el 17-nov). Un superadmin anota la fecha real desde la misma lámina y queda en
+ * la Gantt. `quePaso` y `estado` de esa fila son lo que se muestra mientras el
+ * plan del Piknic 4 no tenga la tarea marcada. */
 export const PUNTOS_CONTROL: {
   punto: string;
   area: string;
@@ -62,13 +70,34 @@ export const PUNTOS_CONTROL: {
   quePaso: string;
   estado: string;
   tone: Tone;
+  /** Fecha clave de la carta Gantt que alimenta la fila (se lee en la page). */
+  fechaClave?: "lineup_confirmado";
 }[] = [
   {
+    punto: "Line up confirmado",
+    area: "Booking",
+    plazo: "por definir",
+    quePaso:
+      "Sin registro en la carta Gantt del Piknic 4.",
+    estado: "sin dato",
+    tone: "neutral",
+    fechaClave: "lineup_confirmado",
+  },
+  {
+    punto: "Permisos ingresados",
+    area: "Permisos y Legal",
+    plazo: "3 meses antes · 9-ago",
+    quePaso:
+      "No hay registro de cuándo se ingresaron. Unabase solo tiene OC de trámites del 28-oct, que no miden el atraso.",
+    estado: "sin dato",
+    tone: "neutral",
+  },
+  {
     punto: "Salida a la venta",
-    area: "Dirección y Marketing",
+    area: "Marketing",
     plazo: "ideal 60 días antes · mínimo 30",
     quePaso:
-      "Abrió el 6-oct, 32 días antes, con 388 entradas el primer día. El Piknic 3 abrió 18 días antes.",
+      "Abrió el 6-oct, 32 días antes.",
     estado: "cumple el mínimo",
     tone: "pending",
   },
@@ -84,28 +113,10 @@ export const PUNTOS_CONTROL: {
   {
     punto: "Layout",
     area: "Producción Site",
-    plazo: "80% 7 días antes · final el día del evento",
+    plazo: "80% 7 días antes",
     quePaso:
-      "Punto nuevo: se mide desde el Piknic 5. En el Piknic 4, Datos tuvo la rev3 del 14-oct; el layout que se montó (3-nov) se subió el 17-nov.",
+      "Se mide desde el Piknic 5. El layout que se montó (3-nov) se subió el 17-nov.",
     estado: "desde el Piknic 5",
-    tone: "neutral",
-  },
-  {
-    punto: "Permisos ingresados",
-    area: "Permisos y Legal",
-    plazo: "3 meses antes · 9-ago",
-    quePaso:
-      "No hay registro de cuándo se ingresaron los documentos. En Unabase solo están las OC del TE1 (declaración eléctrica) y de la directiva de funcionamiento, del 28-oct, que no miden el atraso.",
-    estado: "sin dato",
-    tone: "neutral",
-  },
-  {
-    punto: "Costo de pauta por comprador",
-    area: "Marketing",
-    plazo: "umbral por definir",
-    quePaso:
-      "US$5.169 en publicidad digital (Meta y Google) y 2.641 personas que compraron: US$2,0 por comprador (Piknic 3: US$3,1).",
-    estado: "por definir",
     tone: "neutral",
   },
   {
@@ -121,40 +132,17 @@ export const PUNTOS_CONTROL: {
     area: "Finanzas y Datos",
     plazo: "3 días después · 10-nov",
     quePaso:
-      "Onfire y las marcas están cargados. Faltan los montos de mesas VIP y repartir los pases de temporada; el rebate usa el 55% por defecto.",
+      "Faltan los montos de mesas VIP y repartir los pases de temporada; el rebate usa el 55% por defecto.",
     estado: "incompleto",
     tone: "error",
   },
-];
-
-/* ── 3 · Anticipación: línea de tiempo de los 2 hitos ──
- * Días antes del evento. Medianas de los 12 Piknic de la tabla del anexo.
- * Salida a la venta con los tres umbrales propuestos el 17-nov (60 ideal, 45
- * bueno, 30 mínimo; por validar con Dirección y Marketing). El «primer pago de permisos» salió: el pago no mide
- * cuándo se ingresaron los trámites. */
-export const HITOS: HitoPlazo[] = [
   {
-    hito: "Salida a la venta",
-    area: "Dirección y Marketing",
-    plazo: 30,
-    niveles: [
-      { dias: 60, label: "ideal" },
-      { dias: 45, label: "bueno" },
-      { dias: 30, label: "mínimo" },
-    ],
-    mediana: 36.5,
-    medianaTexto: "36,5",
-    actual: 32,
-    anterior: { nombre: "Piknic 3", dias: 18 },
-  },
-  {
-    hito: "Negocio en Unabase",
-    area: "Producción y Finanzas",
-    plazo: 30,
-    mediana: 6.5,
-    medianaTexto: "6,5",
-    actual: 11,
-    anterior: { nombre: "Piknic 3", dias: 8 },
+    punto: "Informe de marcas",
+    area: "Comercial y Marcas",
+    plazo: "5 días después · 12-nov",
+    quePaso: "No hay registro de cuándo se entregó el informe a cada marca.",
+    estado: "sin dato",
+    tone: "neutral",
   },
 ];
 
@@ -267,15 +255,19 @@ export const PROXIMOS: {
  * escaneados) serían 3.104 y 3.021 en vez de 3.113 y 3.037 (menos de 1%). */
 type Cambio = { texto: string; tone: "good" | "bad" | "eq" };
 
-export const CMP_RESULTADO: { indicador: string; p1: string; p3: string; p4: string; cambio: Cambio }[] = [
-  { indicador: "Personas que entraron", p1: "3.113", p3: "3.037", p4: "3.364", cambio: { texto: "+11%", tone: "good" } },
-  { indicador: "Personas que compraron", p1: "1.983", p3: "1.808", p4: "2.641", cambio: { texto: "+46%", tone: "good" } },
-  { indicador: "Venta de tickets (bruta)", p1: "$67,0 M", p3: "$61,3 M", p4: "$98,0 M", cambio: { texto: "+60%", tone: "good" } },
-  { indicador: "Venta por persona que compró", p1: "$33.774", p3: "$33.914", p4: "$37.090", cambio: { texto: "+9%", tone: "good" } },
-  { indicador: "Vendido en barras", p1: "$53,2 M", p3: "$57,5 M", p4: "$78,6 M", cambio: { texto: "+37%", tone: "good" } },
-  { indicador: "Barras por persona", p1: "$17.098", p3: "$18.941", p4: "$23.371", cambio: { texto: "+23%", tone: "good" } },
-  { indicador: "Pauta digital", p1: "US$4.502", p3: "US$5.525", p4: "US$5.169", cambio: { texto: "−6%", tone: "eq" } },
-  { indicador: "Salida a la venta (días antes)", p1: "52", p3: "18", p4: "32", cambio: { texto: "+14", tone: "good" } },
+/* CPA Meta (18-nov) = gasto en Meta de getPaidMediaSummary (US$4.502, 4.545 y
+ * 4.152) ÷ personas que entraron o que compraron. No es atribución: reparte el
+ * gasto entre todos. Google va aparte (Piknic 4: US$1.017; Piknic 3: US$980). */
+
+/** `grupo`: las filas se muestran agrupadas, con el nombre del grupo como subtítulo. */
+export const CMP_RESULTADO: { grupo: string; indicador: string; p1: string; p3: string; p4: string; cambio: Cambio }[] = [
+  { grupo: "Público", indicador: "Personas que entraron", p1: "3.113", p3: "3.037", p4: "3.364", cambio: { texto: "+11%", tone: "good" } },
+  { grupo: "Público", indicador: "Personas que compraron", p1: "1.983", p3: "1.808", p4: "2.641", cambio: { texto: "+46%", tone: "good" } },
+  { grupo: "Venta de tickets", indicador: "Venta de tickets (bruta)", p1: "$67,0 M", p3: "$61,3 M", p4: "$98,0 M", cambio: { texto: "+60%", tone: "good" } },
+  { grupo: "Venta de tickets", indicador: "Venta por persona que compró", p1: "$33.774", p3: "$33.914", p4: "$37.090", cambio: { texto: "+9%", tone: "good" } },
+  { grupo: "Pauta en Meta", indicador: "CPA Meta por asistente", p1: "US$1,45", p3: "US$1,50", p4: "US$1,23", cambio: { texto: "−18%", tone: "good" } },
+  { grupo: "Pauta en Meta", indicador: "CPA Meta por comprador", p1: "US$2,27", p3: "US$2,51", p4: "US$1,57", cambio: { texto: "−37%", tone: "good" } },
+  { grupo: "Anticipación", indicador: "Salida a la venta (días antes)", p1: "52", p3: "18", p4: "32", cambio: { texto: "+14", tone: "good" } },
 ];
 
 /** Entradas pagadas (personas, sin devueltas) según cuántos días antes del evento se compraron. */
@@ -289,33 +281,42 @@ export const TRAMOS_VENTA: {
   { evento: "Piknic 4", tramos: { antes: 970, semanas1a3: 394, ultimaSemana: 788, dia: 624 }, total: "2.776" },
 ];
 
-/* ── 5 · Venta: cómo llegó la gente a comprar ──
+/* ── 4 · Venta: cómo llegó la gente a comprar ──
  * Los tres que pesan, con el Piknic 3 al lado. El ranking completo (CANALES) y
  * «Quién entró» (INGRESOS) van en el anexo. */
-export const CANALES_CLAVE: { canal: string; que: string; p3: string; p4: string; pctP3: string; pctP4: string }[] = [
+/* Piknic 1 (18-nov): misma regla que el 3 y el 4 (código Referido de la entrada
+ * pagada; FF = Club Glovox), sobre 2.034 entradas pagadas de hoy (el cierre
+ * del Piknic 3 publicó 2.035: una devolución posterior). */
+export const CANALES_CLAVE: { canal: string; que: string; p1: string; p3: string; p4: string; pctP1: string; pctP3: string; pctP4: string }[] = [
   {
     canal: "Club Glovox",
     que: "Cada miembro comparte su link personal y suma puntos por cada entrada que vende.",
+    p1: "218",
     p3: "196",
     p4: "363",
+    pctP1: "11%",
     pctP3: "11%",
     pctP4: "13%",
   },
   {
     canal: "Linktree",
     que: "El link de la bio de Instagram.",
+    p1: "257",
     p3: "351",
     p4: "296",
+    pctP1: "13%",
     pctP3: "19%",
     pctP4: "11%",
   },
   {
-    canal: "Sin código de origen",
-    que: "Compras que llegaron sin link rastreado: pueden venir de cualquier canal, también de la pauta.",
-    p3: "1.039",
-    p4: "1.564",
-    pctP3: "56%",
-    pctP4: "56%",
+    canal: "Google Ads",
+    que: "Anuncios pagados de Google con link rastreado (código PM_GG). El Piknic 1 no tuvo Google.",
+    p1: "0",
+    p3: "68",
+    p4: "123",
+    pctP1: "0%",
+    pctP3: "4%",
+    pctP4: "4%",
   },
 ];
 
@@ -410,7 +411,7 @@ export const INGRESOS_CARGA: { estado: string; tone: Tone; texto: string }[] = [
     estado: "cargado",
     tone: "success",
     texto:
-      "Marcas: $39,7 M netos en fees (Entel, Banco de Chile, Heinz, Pepsi y Cupra) y $2,0 M en producto, cargados en el onepager el 9-nov. Los 3 negocios de marca de Unabase siguen sin «GLO216».",
+      "Marcas: fees y producto cargados en el onepager el 9-nov. Los 3 negocios de marca de Unabase siguen sin «GLO216».",
   },
   {
     estado: "falta",
@@ -497,11 +498,63 @@ export const OC_PAGO = {
   referencia: "Piknic 3, a 45 días del evento: 29% pagado. Piknic 1, a 66 días: 25%.",
 } as const;
 
+/**
+ * 10 · Pagos según el estado de la OC en Unabase (finanzas.unabase_gasto_dtc,
+ * carga del 17-nov 09:15). Montos con IVA (total de la OC), que es lo que se
+ * paga; sin las OC anuladas. Cerrada = pagada completa; Pagada = pagada (en
+ * estos eventos, rendiciones chicas); Emitida = por pagar, puede tener abonos
+ * («pago» de la OC). Días = desde el evento hasta el 18-nov.
+ */
+export type OcEstadoCelda = { n: number; monto: string; abonado?: string };
+export const OC_ESTADOS: {
+  evento: string;
+  dias: number;
+  cerrada: OcEstadoCelda;
+  pagada: OcEstadoCelda;
+  emitida: OcEstadoCelda;
+  total: OcEstadoCelda;
+  pagado: string;
+  pct: string;
+  actual?: boolean;
+}[] = [
+  {
+    evento: "Piknic 1",
+    dias: 67,
+    cerrada: { n: 11, monto: "$36,6 M" },
+    pagada: { n: 2, monto: "$0,5 M" },
+    emitida: { n: 60, monto: "$146,1 M", abonado: "$9,5 M" },
+    total: { n: 73, monto: "$183,2 M" },
+    pagado: "$46,7 M",
+    pct: "25%",
+  },
+  {
+    evento: "Piknic 3",
+    dias: 46,
+    cerrada: { n: 10, monto: "$21,9 M" },
+    pagada: { n: 5, monto: "$0,9 M" },
+    emitida: { n: 61, monto: "$110,1 M", abonado: "$14,8 M" },
+    total: { n: 76, monto: "$132,9 M" },
+    pagado: "$37,6 M",
+    pct: "28%",
+  },
+  {
+    evento: "Piknic 4",
+    dias: 11,
+    cerrada: { n: 0, monto: "—" },
+    pagada: { n: 1, monto: "$0,2 M" },
+    emitida: { n: 54, monto: "$125,0 M", abonado: "$0,1 M" },
+    total: { n: 55, monto: "$125,3 M" },
+    pagado: "$0,4 M",
+    pct: "0,4%",
+    actual: true,
+  },
+];
+
 /* ── VIP contra general (al 17-nov) ──
  * Personas = escaneos menos upgrades. Consumo = todo Onfire en las barras de
  * cada zona (una persona VIP también puede comprar en una barra general).
- * Baños = gasto real en Unabase por tipo (generales vs trailers VIP); las
- * cantidades por zona no se registran en ningún sistema. */
+ * Los baños salieron de la lámina el 18-nov (gasto Unabase por persona: P1
+ * $1.630 / $5.090, P3 $1.144 / $3.914, P4 $1.439 / $4.360, generales / VIP). */
 export const ZONAS: {
   zona: string;
   personas: string;
@@ -510,18 +563,20 @@ export const ZONAS: {
   porPersona: string;
   /** El consumo por persona no es comparable (falta lo incluido en la mesa). */
   parcial?: boolean;
+  porPersonaP1: string;
   porPersonaP3: string;
 }[] = [
-  { zona: "General", personas: "2.500", pct: "74%", consumo: "$60,9 M", porPersona: "$24.358", porPersonaP3: "$21.472" },
-  { zona: "VIP", personas: "454", pct: "13%", consumo: "$10,5 M", porPersona: "$23.211", porPersonaP3: "$25.031" },
-  { zona: "Mesa VIP", personas: "410", pct: "12%", consumo: "$7,2 M", porPersona: "$17.528", parcial: true, porPersonaP3: "sin medir" },
+  { zona: "General", personas: "2.500", pct: "74%", consumo: "$60,9 M", porPersona: "$24.358", porPersonaP1: "$19.455", porPersonaP3: "$21.472" },
+  { zona: "VIP", personas: "454", pct: "13%", consumo: "$10,5 M", porPersona: "$23.211", porPersonaP1: "$19.553", porPersonaP3: "$25.031" },
+  { zona: "Mesa VIP", personas: "410", pct: "12%", consumo: "$7,2 M", porPersona: "$17.528", parcial: true, porPersonaP1: "sin barra", porPersonaP3: "sin barra" },
 ];
-export const ZONAS_TOTAL = { personas: "3.364", consumo: "$78,6 M", porPersona: "$23.371", porPersonaP3: "$18.941" };
+/* Piknic 1 (18-nov), misma regla que el 3 y el 4: VIP = Backstage VIP (370
+ * personas, Barra VIP $7,2 M), general = el resto sin upgrades (2.364, $46,0 M),
+ * mesa = VIP MESA (370). En el Piknic 1 no había barra de mesas en Onfire y en
+ * el 3 solo pasó $0,3 M (30 tragos): por eso «sin barra». Totales por persona =
+ * los publicados en el cierre del Piknic 3. */
+export const ZONAS_TOTAL = { personas: "3.364", consumo: "$78,6 M", porPersona: "$23.371", porPersonaP1: "$17.098", porPersonaP3: "$18.941" };
 
-export const BANOS: { tipo: string; p3: string; p4: string }[] = [
-  { tipo: "Generales, por persona de general", p3: "$1.144", p4: "$1.439" },
-  { tipo: "Trailers VIP, por persona de VIP y mesa", p3: "$3.914", p4: "$4.360" },
-];
 
 /* ── 6 · Ingreso por hora (escaneos en el acceso, tramos de 30 minutos) ──
  * glovox.tickets, HoraQuemado (hora local), mismo criterio que la curva de
@@ -571,17 +626,18 @@ export const INGRESO_RESUMEN = {
  * Costo = presupuesto de gasto del negocio 8910 (neto). Ingreso por persona que
  * entró, sin IVA: tickets = (precio − descuento + 55% del cargo por servicio) /
  * 1,19 = $77,1 M; barras = Onfire / 1,19 = $66,1 M; entre 3.364 personas.
- * Marcas = fees del onepager (neto). No incluye producto de marcas, mesas VIP ni
+ * Marcas = SUPUESTO de $40 M (18-nov: el monto real de marcas no se expone en
+ * la presentación; el onepager tiene $39,7 M). No incluye producto de marcas, mesas VIP ni
  * pases de temporada. Supone gasto fijo y la misma mezcla de público. */
 export const EQUILIBRIO = {
   presupuesto: "$184,4 M",
   artistica: "$27,9 M",
-  marcas: "$39,7 M",
-  porCubrir: "$144,7 M",
+  marcas: "$40 M",
+  porCubrir: "$144,4 M",
   porPersona: "$42.569",
   porPersonaTickets: "$22.930",
   porPersonaBarras: "$19.639",
-  conMarcas: 3400,
+  conMarcas: 3392,
   sinMarcas: 4333,
   entraron: 3364,
   personasPorMillon: 23,
@@ -593,7 +649,8 @@ export const EQUILIBRIO = {
  * Para comparar parejo, los tres van SIN la radio de $18,8 M (Megamedia): esa
  * línea está en el presupuesto del Piknic 1 y del 3 (por eso el del Piknic 3
  * pasó de $174,3 M a $193,2 M después de su cierre) y en el Piknic 4 es una OC
- * fuera de presupuesto. Con la radio serían 4.717, 4.766 y 3.842 personas.
+ * fuera de presupuesto. Marcas = el mismo supuesto de $40 M en los tres (reales:
+ * $41,7 M, $41,7 M y $39,7 M; con ellos el equilibrio era 4.115, 4.174 y 3.400).
  * Otra salvedad: en el Piknic 1 y el 3 entraron 185 y 177 personas con pase de
  * temporada, que en esta cuenta aportan $0 en tickets.
  */
@@ -607,61 +664,12 @@ export const EQUILIBRIO_CMP: {
   entraron: number;
   actual?: boolean;
 }[] = [
-  { evento: "Piknic 1", presupuesto: "$170,4 M", marcas: "$41,7 M", porPersona: "$31.268", necesarias: 4115, sinMarcas: 5449, entraron: 3113 },
-  { evento: "Piknic 3", presupuesto: "$174,3 M", marcas: "$41,7 M", porPersona: "$31.779", necesarias: 4174, sinMarcas: 5486, entraron: 3037 },
-  { evento: "Piknic 4", presupuesto: "$184,4 M", marcas: "$39,7 M", porPersona: "$42.569", necesarias: 3400, sinMarcas: 4333, entraron: 3364, actual: true },
+  { evento: "Piknic 1", presupuesto: "$170,4 M", marcas: "$40 M", porPersona: "$31.268", necesarias: 4170, sinMarcas: 5449, entraron: 3113 },
+  { evento: "Piknic 3", presupuesto: "$174,3 M", marcas: "$40 M", porPersona: "$31.779", necesarias: 4226, sinMarcas: 5486, entraron: 3037 },
+  { evento: "Piknic 4", presupuesto: "$184,4 M", marcas: "$40 M", porPersona: "$42.569", necesarias: 3392, sinMarcas: 4333, entraron: 3364, actual: true },
 ];
 /** Si la OC de radio del Piknic 4 es compra y no canje, su equilibrio sube. */
-export const EQUILIBRIO_CON_RADIO = { radio: "$18,8 M", necesarias: 3842, pct: 88 } as const;
-
-/* ── 11 · Qué pasó con los acuerdos del Piknic 3 ── */
-export const SEGUIMIENTO_P3: { acuerdo: string; areas: string; estado: string; tone: Tone; texto: string }[] = [
-  {
-    acuerdo: "Cargar marcas y mesas VIP",
-    areas: "Comercial y Marcas · Finanzas · Datos",
-    estado: "a medias",
-    tone: "pending",
-    texto:
-      "Las marcas del Piknic 3 y del 4 se cargaron el 9-nov. Mesas VIP sigue en $0 en los dos, y los negocios de marca del Piknic 4 se crearon otra vez sin el GLO.",
-  },
-  {
-    acuerdo: "Facturas que faltan",
-    areas: "Finanzas",
-    estado: "en curso",
-    tone: "pending",
-    texto: "El gasto documentado del Piknic 3 pasó de $93,2 M (5 días después del evento) a $115,9 M en Unabase.",
-  },
-  {
-    acuerdo: "Cerrar el plan",
-    areas: "Producción",
-    estado: "abierto",
-    tone: "error",
-    texto: "La carta Gantt del Piknic 3 tiene hoy 11 tareas vencidas sin cerrar (eran 10).",
-  },
-  {
-    acuerdo: "Informe de ruido al parque",
-    areas: "Permisos y Legal",
-    estado: "no aplica",
-    tone: "neutral",
-    texto: "El Piknic 3 fue en Ciudad Empresarial: ahí no se mide ruido.",
-  },
-  {
-    acuerdo: "Dueños y umbrales",
-    areas: "Dirección",
-    estado: "a medias",
-    tone: "pending",
-    texto:
-      "Propuesta del 17-nov para la salida a la venta: 60 días ideal, 45 bueno y 30 mínimo; por validar con Dirección y Marketing. Falta un nombre por punto de control.",
-  },
-  {
-    acuerdo: "Presupuesto de canjes",
-    areas: "Marketing · Finanzas",
-    estado: "sin dato",
-    tone: "neutral",
-    texto:
-      "Se acordó un presupuesto aparte para canjes y fletes. En el Piknic 4 hay una OC de radio por $18,8 M: ¿es canje?",
-  },
-];
+export const EQUILIBRIO_CON_RADIO = { radio: "$18,8 M", necesarias: 3834, pct: 88 } as const;
 
 /* ── 15 · Pendientes del Piknic 4 ── */
 export const PENDIENTES: { titulo: string; areas: string; texto: string }[] = [
@@ -710,63 +718,6 @@ export const PENDIENTES: { titulo: string; areas: string; texto: string }[] = [
     titulo: "Informe de ruido",
     areas: "Permisos y Legal",
     texto: "Piknic 4: ≈21-dic. ¿Quién lo pide a la ETFA y lo entrega?",
-  },
-];
-
-/* ── 12 · Notas por área del Piknic 3 que hoy tienen dato (al 17-nov) ──
- * Sin repetir lo que ya está en los acuerdos. Las que no quedan en ningún
- * sistema van aparte, en NOTAS_POR_CONFIRMAR (anexo). */
-export const NOTAS_AREA: AreaConNotas[] = [
-  {
-    area: "Dirección",
-    notas: [
-      { tag: { label: "en esta reunión", tone: "info" }, texto: "Punto de equilibrio y aforo objetivo: ver la lámina 9." },
-      { tag: { label: "revisar", tone: "pending" }, texto: "Domingos: el Piknic 5 es el domingo 6-dic." },
-    ],
-  },
-  {
-    area: "Programación Artística",
-    notas: [
-      { tag: { label: "abierto", tone: "error" }, texto: "Costo visible: hoy hay OC por el 13% de los $27,9 M." },
-      { tag: { label: "en esta reunión", tone: "info" }, texto: "Cada $1 M de artística son ~23 personas más para cubrir el gasto." },
-    ],
-  },
-  {
-    area: "Marketing",
-    notas: [
-      { tag: { label: "mejoró", tone: "success" }, texto: "Campaña más larga: abrió 32 días antes (el Piknic 3, 18) y a 3 semanas del evento ya tenía 970 entradas pagadas." },
-    ],
-  },
-  {
-    area: "Ticketing y Comunidad",
-    notas: [
-      { tag: { label: "revisar", tone: "pending" }, texto: "Invitaciones sin usar: entraron 811 de 993, y de Pilates 23 de 189." },
-    ],
-  },
-  {
-    area: "Permisos y Legal",
-    notas: [
-      { tag: { label: "se repite", tone: "pending" }, texto: "El ingreso de los trámites sigue sin registro: en Unabase solo aparecen las OC." },
-    ],
-  },
-  {
-    area: "Operaciones",
-    notas: [
-      { tag: { label: "mejoró", tone: "success" }, texto: "Mesa VIP ya pasa por Onfire: 612 tragos (Piknic 3: 30)." },
-    ],
-  },
-  {
-    area: "Finanzas",
-    notas: [
-      { tag: { label: "no se cumplió", tone: "error" }, texto: "95% de OC antes del evento: llegó al 43% (Piknic 3: 49%), sin contar la radio." },
-    ],
-  },
-  {
-    area: "Datos y Tecnología",
-    notas: [
-      { tag: { label: "abierto", tone: "error" }, texto: "Rentabilidad de mesas VIP: falta el ingreso de mesas en el onepager." },
-      { tag: { label: "revisar", tone: "pending" }, texto: "Avisos de plazos: a Producción ya le llegan al calendario y le sirven de chequeo diario; falta ver a quién más le llegan." },
-    ],
   },
 ];
 
