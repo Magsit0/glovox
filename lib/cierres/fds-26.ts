@@ -597,43 +597,6 @@ export const OC: {
 export const OC_TOTAL = { presupuesto: "287,0", emitido: "155,2", pct: 54, nOc: 53, real25: "334,4" };
 export const OC_ANTES = { pct: 52, monto: "$148,2 M", fds25: 41, meta: 95, respaldo: "$0,9 M", sinOc: "$131,8 M" } as const;
 
-/**
- * Pagos según el estado de la OC en Unabase (finanzas.unabase_gasto_dtc, carga
- * del 17-nov 09:15). Montos con IVA, sin anuladas. Cerrada = pagada completa;
- * Emitida = por pagar, puede tener abonos. La FDS 25 va como está hoy, un año
- * después: es la referencia de cómo termina, no del mismo punto.
- */
-export type OcEstadoCelda = { n: number; monto: string; abonado?: string };
-export const OC_ESTADOS: {
-  evento: string;
-  cuando: string;
-  cerrada: OcEstadoCelda;
-  emitida: OcEstadoCelda;
-  total: OcEstadoCelda;
-  pagado: string;
-  pct: string;
-  actual?: boolean;
-}[] = [
-  {
-    evento: "FDS 25",
-    cuando: "hoy, un año después",
-    cerrada: { n: 226, monto: "$302,4 M" },
-    emitida: { n: 6, monto: "$46,2 M", abonado: "$24,7 M" },
-    total: { n: 232, monto: "$348,6 M" },
-    pagado: "$327,1 M",
-    pct: "94%",
-  },
-  {
-    evento: "FDS 26",
-    cuando: "al 17-nov, 2 días después",
-    cerrada: { n: 0, monto: "—" },
-    emitida: { n: 51, monto: "$181,5 M" },
-    total: { n: 51, monto: "$181,5 M" },
-    pagado: "$0",
-    pct: "0%",
-    actual: true,
-  },
-];
 
 /* ── 11 · Acuerdos del 17-nov medidos en la FDS 26 ── */
 export const ACUERDOS_MEDIDOS: { acuerdo: string; areas: string; estado: string; tone: Tone; texto: string }[] = [

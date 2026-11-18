@@ -31,7 +31,6 @@ import {
   MONTAJE_RESUMEN,
   OC,
   OC_ANTES,
-  OC_ESTADOS,
   OC_TOTAL,
   ONFIRE_GRUPOS,
   ONFIRE_TOTAL,
@@ -50,7 +49,7 @@ import { FechaClaveInput } from "@/components/cierres/deck/FechaClaveInput";
 import mapaVentas from "./mapa-ventas.jpg";
 import ComparacionPorDia from "./ComparacionPorDia";
 
-const TOTAL = 12;
+const TOTAL = 11;
 
 const TRAMOS = [
   { key: "antes", label: "Antes de 3 semanas", color: "#9F99F8" },
@@ -64,6 +63,8 @@ const TRAMOS = [
 function IngresoDia({ dia, k26, k25 }: { dia: string; k26: "vie26" | "sab26" | "dom26"; k25: "vie25" | "sab25" | "dom25" }) {
   const max = Math.max(...INGRESO_HORA.map((s) => Math.max(s.vie26, s.vie25, s.sab26, s.sab25, s.dom26, s.dom25)));
   const h = (v: number) => `${(v / max) * 100}%`;
+  // Solo se rotula la hora punta del día: con más etiquetas los números chocan.
+  const punta = Math.max(...INGRESO_HORA.map((s) => s[k26]));
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <SubTitle>{dia}</SubTitle>
@@ -75,7 +76,7 @@ function IngresoDia({ dia, k26, k25 }: { dia: string; k26: "vie26" | "sab26" | "
         {INGRESO_HORA.map((s) => (
           <div key={s.hora} className="flex h-full min-w-0 flex-1 items-end justify-center gap-px">
             <div className="relative w-3/5 rounded-t-sm bg-[#9F99F8]" style={{ height: h(s[k26]) }}>
-              {s[k26] >= 500 && (
+              {s[k26] === punta && (
                 <span className="absolute bottom-full left-1/2 hidden -translate-x-1/2 pb-0.5 text-xs font-semibold tabular-nums text-[var(--ink)] deck:block">
                   {s[k26]}
                 </span>
@@ -99,10 +100,10 @@ function IngresoDia({ dia, k26, k25 }: { dia: string; k26: "vie26" | "sab26" | "
 const FASE_TONE = { Montaje: "info", Feria: "success", Desmontaje: "pending" } as const;
 
 /**
- * Presentación de cierre de la Feria del Sánguche 2026 (FDS 26 · GLO213): 12
+ * Presentación de cierre de la Feria del Sánguche 2026 (FDS 26 · GLO213): 11
  * láminas, sin anexo. Orden en actos, como la del Piknic 4: tablero (1-2),
- * llegamos antes (3-4), el día (5-9) y la cuenta (10-12: resultado, OC y pagos
- * según el estado de la OC). El 18-nov salieron la anticipación con línea de
+ * llegamos antes (3-4), el día (5-9) y la cuenta (10-11: resultado y OC). La
+ * lámina de pagos salió el 18-nov: es información delicada para esta reunión. El 18-nov salieron la anticipación con línea de
  * tiempo, los acuerdos del 17-nov, «Lo que viene» y los 4 anexos. Se compara
  * solo con la FDS 25
  * (GLO181). Datos en lib/cierres/fds-26.ts (foto al 17-nov). La mecánica de
@@ -120,7 +121,6 @@ export default function CierreFds26Deck({
   /** Quien mira puede anotar la fecha real desde la lámina (escribe en la Gantt). */
   editarFechasClave?: boolean;
 }) {
-  const OC_F26 = OC_ESTADOS.find((e) => e.actual) ?? OC_ESTADOS[OC_ESTADOS.length - 1];
   // Informe de marcas: plazo contado desde el último día de la feria. Sin fecha
   // anotada, la fila queda como viene en los datos («vence el 20-nov»).
   const puntos = PUNTOS_CONTROL.map((p) =>
@@ -232,12 +232,10 @@ export default function CierreFds26Deck({
       >
         <ComparacionPorDia dias={CMP_DIAS} porDia={POR_DIA} tramos={TRAMOS} />
         <Source>
-          Personas = las que cubre cada entrada (el pack para 2 cuenta 2, el pase
-          familiar 4), sin upgrades. Venta de tickets bruta = con cargo por
-          servicio. Entraron = escaneadas en el acceso: el viernes de 2026 casi no se
-          escanearon las entradas de niños (lámina 5). CPA Meta = gasto en Meta ÷
-          personas que entraron o que pagaron (no es atribución; sin Google). En
-          2024 todas las entradas eran individuales y no hay pauta registrada.
+          Personas = las que cubre cada entrada (pack para 2 = 2), sin upgrades. Venta
+          bruta = con cargo por servicio. Entraron = escaneadas (el viernes de 2026 casi
+          no se escanearon niños). CPA Meta = gasto en Meta ÷ personas, sin Google; 2024
+          sin pauta registrada.
         </Source>
       </Slide>
 
@@ -552,14 +550,14 @@ export default function CierreFds26Deck({
           Tres de los cinco que más vendieron llegaron este año; Mr Tex, el primero en
           2024 y en 2025, vendió la mitad que en 2024
         </SlideTitle>
-        <div className="grid grid-cols-1 items-start gap-8 deck:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
-          <Table className="text-sm">
+        <div className="grid grid-cols-1 items-start gap-8 deck:grid-cols-[minmax(0,7fr)_minmax(0,3fr)]">
+          <Table className="text-xs">
             <thead>
               <tr>
                 <Th>#</Th>
                 <Th>Expositor</Th>
                 <Th right>Venta</Th>
-                <Th right>Ticket promedio</Th>
+                <Th right className="whitespace-nowrap">Ticket promedio</Th>
                 <Th right>En la FDS 24</Th>
                 <Th right>En la FDS 25</Th>
               </tr>
@@ -569,8 +567,8 @@ export default function CierreFds26Deck({
                 <tr key={r.nombre}>
                   <Td className="text-[var(--ink-muted)]">{r.n}</Td>
                   <Td className="font-semibold">{r.nombre}</Td>
-                  <Td right className="font-semibold">{r.venta}</Td>
-                  <Td right>{r.ticket}</Td>
+                  <Td right className="whitespace-nowrap font-semibold">{r.venta}</Td>
+                  <Td right className="whitespace-nowrap">{r.ticket}</Td>
                   <Td right className="whitespace-nowrap text-[var(--ink-subtle)]">{r.f24}</Td>
                   <Td right className="whitespace-nowrap">
                     {r.f25 === "nuevo" ? <Pill tone="info">nuevo</Pill> : <span className="text-[var(--ink-muted)]">{r.f25}</span>}
@@ -782,81 +780,6 @@ export default function CierreFds26Deck({
           Millones de pesos netos, negocio 8897 en Unabase ({OC_TOTAL.nOc} OC).
           Categoría oficial del catálogo de gasto. FDS 25 = gasto real final del
           negocio 7950, como referencia de lo que falta por llegar.
-        </Source>
-      </Slide>
-
-      {/* 12 · Pagos según el estado de la OC */}
-      <Slide
-        id="pagos"
-        n={12}
-        total={TOTAL}
-        areas={["Finanzas"]}
-        label="Pagos"
-        detail="estado de cada OC en Unabase · al 17-nov"
-      >
-        <SlideTitle>
-          De {OC_F26.total.monto} en OC de la FDS 26, Unabase no registra ningún
-          pago: ninguna OC está cerrada
-        </SlideTitle>
-        <Table className="text-sm">
-          <thead>
-            <tr>
-              <Th>Estado de la OC</Th>
-              {OC_ESTADOS.map((e) => (
-                <Th key={e.evento} right>
-                  {e.evento}
-                  <span className="block font-normal text-[var(--ink-subtle)]">{e.cuando}</span>
-                </Th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {(
-              [
-                ["cerrada", "Cerrada", "pagada completa"],
-                ["emitida", "Emitida", "por pagar; puede tener abonos"],
-              ] as const
-            ).map(([k, estado, que]) => (
-              <tr key={k}>
-                <Td className="font-semibold">
-                  {estado}
-                  <CellSub>{que}</CellSub>
-                </Td>
-                {OC_ESTADOS.map((e) => (
-                  <Td key={e.evento} right className={e.actual ? "font-semibold" : ""}>
-                    {e[k].n} OC · {e[k].monto}
-                    {e[k].abonado && <CellSub>abonado {e[k].abonado}</CellSub>}
-                  </Td>
-                ))}
-              </tr>
-            ))}
-            <tr>
-              <Td>Total, sin anuladas</Td>
-              {OC_ESTADOS.map((e) => (
-                <Td key={e.evento} right>
-                  {e.total.n} OC · {e.total.monto}
-                </Td>
-              ))}
-            </tr>
-            <tr className="font-semibold">
-              <Td>Pagado</Td>
-              {OC_ESTADOS.map((e) => (
-                <Td key={e.evento} right>
-                  <span className="font-display text-2xl font-bold">{e.pct}</span>
-                  <CellSub>{e.pagado}</CellSub>
-                </Td>
-              ))}
-            </tr>
-          </tbody>
-        </Table>
-        <Note>
-          La FDS 25 va como está hoy, un año después: muestra cómo termina, no el
-          mismo punto. Le quedan 6 OC emitidas por $46,2 M con $24,7 M abonados.
-        </Note>
-        <Source>
-          Estado de cada OC en Unabase (carga del 17-nov, 09:15). Montos con IVA,
-          que es lo que se paga; sin OC anuladas. Pagado = OC cerradas más los
-          abonos a OC emitidas. FDS 25 = negocio 7950; FDS 26 = negocio 8897.
         </Source>
       </Slide>
     </Deck>
